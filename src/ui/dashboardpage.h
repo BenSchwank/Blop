@@ -2,6 +2,7 @@
 
 #include "dashboardlayoutstore.h"
 
+#include <QDateTime>
 #include <QPoint>
 #include <QVector>
 #include <QWidget>
@@ -64,6 +65,7 @@ private:
   void gridRowEdges(QVector<int> &out) const;
   int gridRowUnit() const;
   int cellHeightForSpan(int rowSpan) const;
+  static int minRowSpanForBlock(const QString &id);
   void applyBlockCellSize(QWidget *block, int rowSpan) const;
   int snapRowFromY(int hostY) const;
   int snapColFromX(int hostX, int colSpan) const;
@@ -85,13 +87,14 @@ private:
   QWidget *buildEditChrome(const QString &id);
   QWidget *buildEmptyStatePanel();
   QWidget *buildTodosBlock();
+  QWidget *buildClockBlock();
   QWidget *buildCalendarBlock(bool maximizedChrome);
   QWidget *buildRecentBlock();
   QWidget *buildShortcutsBlock();
   QWidget *buildActionsBlock();
   QWidget *buildContentFor(const QString &id, bool maximizedChrome = false);
 
-  void openCreateEventDialog();
+  void openCreateEventDialog(const QDateTime &presetStart = QDateTime());
 
   QVBoxLayout *m_rootLay{nullptr};
   QWidget *m_persistentHeader{nullptr};

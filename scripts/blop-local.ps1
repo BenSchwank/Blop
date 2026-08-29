@@ -107,6 +107,47 @@ function Invoke-Build {
   & cmake --build $BuildDir --target Blop -j $jobs
   if ($LASTEXITCODE -ne 0) { throw 'Build fehlgeschlagen.' }
   Write-Ok "Binary: $Exe"
+
+  # Side-by-side Qt DLLs so blop:// / Explorer launches work without PATH
+  # (and without a console .cmd wrapper that floods terminals).
+  Write-Step 'Qt-DLLs neben Blop.exe legen'
+  $qtBin = Join-Path $script:QtDir 'bin'
+  $needed = @(
+    'Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll', 'Qt6Network.dll',
+    'Qt6Svg.dll', 'Qt6OpenGL.dll', 'Qt6OpenGLWidgets.dll',
+    'Qt6Multimedia.dll', 'Qt6MultimediaWidgets.dll',
+    'Qt6Qml.dll', 'Qt6QmlMeta.dll', 'Qt6QmlModels.dll', 'Qt6QmlWorkerScript.dll',
+    'Qt6Quick.dll', 'Qt6QuickWidgets.dll', 'Qt6QuickControls2.dll',
+    'Qt6QuickControls2Basic.dll', 'Qt6QuickControls2Impl.dll',
+    'Qt6QuickTemplates2.dll', 'Qt6NetworkAuth.dll',
+    'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll'
+  )
+  foreach ($name in $needed) {
+    $src = Join-Path $qtBin $name
+    if (Test-Path $src) {
+      Copy-Item -Force $src (Join-Path $BuildDir $name)
+    }
+  }
+  $platSrc = Join-Path $script:QtDir 'plugins\platforms\qwindows.dll'
+  $platDst = Join-Path $BuildDir 'platforms'
+  if (Test-Path $platSrc) {
+    New-Item -ItemType Directory -Force -Path $platDst | Out-Null
+    Copy-Item -Force $platSrc (Join-Path $platDst 'qwindows.dll')
+  }
+  # HTTPS (Google claim/poll) needs Qt TLS plugins under <app>/tls/
+  $tlsSrcDir = Join-Path $script:QtDir 'plugins\tls'
+  $tlsDst = Join-Path $BuildDir 'tls'
+  if (Test-Path $tlsSrcDir) {
+    New-Item -ItemType Directory -Force -Path $tlsDst | Out-Null
+    foreach ($name in @('qschannelbackend.dll', 'qopensslbackend.dll', 'qcertonlybackend.dll')) {
+      $src = Join-Path $tlsSrcDir $name
+      if (Test-Path $src) { Copy-Item -Force $src (Join-Path $tlsDst $name) }
+    }
+  }
+  # Drop legacy console launcher that caused terminal spam.
+  $legacyCmd = Join-Path $BuildDir 'blop-open.cmd'
+  if (Test-Path $legacyCmd) { Remove-Item -Force $legacyCmd }
+  Write-Ok 'Qt runtime neben Binary (inkl. tls/)'
 }
 
 function Invoke-Run {

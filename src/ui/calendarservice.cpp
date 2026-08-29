@@ -15,6 +15,7 @@
 #include <QUrlQuery>
 #include <QUuid>
 #include <QDate>
+#include <QTime>
 #include <algorithm>
 
 namespace {
@@ -101,6 +102,27 @@ QVector<CalendarEvent> CalendarService::upcoming(int limit) const {
   if (all.size() > limit)
     all.resize(limit);
   return all;
+}
+
+QVector<CalendarEvent> CalendarService::eventsForDay(const QDate &day) const {
+  if (!day.isValid())
+    return {};
+  QVector<CalendarEvent> all = loadLocal();
+  all += m_googleCache;
+  QVector<CalendarEvent> out;
+  for (const CalendarEvent &e : all) {
+    if (!e.start.isValid())
+      continue;
+    const QDate s = e.start.date();
+    const QDate en = e.end.isValid() ? e.end.date() : s;
+    if (day >= s && day <= en)
+      out.append(e);
+  }
+  std::sort(out.begin(), out.end(),
+            [](const CalendarEvent &a, const CalendarEvent &b) {
+              return a.start < b.start;
+            });
+  return out;
 }
 
 CalendarEvent CalendarService::addLocal(const QString &title,
@@ -192,12 +214,59 @@ bool CalendarService::removeLocal(const QString &id) {
   return true;
 }
 
+bool CalendarService::removeEvent(const QString &id) {
+  if (id.isEmpty())
+    return false;
+  if (removeLocal(id))
+    return true;
+
+  // Google event (or unknown id still try Google delete).
+  const QString token = GoogleAuthManager::instance().accessToken();
+  if (token.isEmpty())
+    return false;
+
+  // Drop from cache immediately for snappy UI.
+  const int before = m_googleCache.size();
+  m_googleCache.erase(std::remove_if(m_googleCache.begin(), m_googleCache.end(),
+                                     [&](const CalendarEvent &e) {
+                                       return e.id == id;
+                                     }),
+                      m_googleCache.end());
+  if (m_googleCache.size() != before)
+    emit eventsChanged();
+
+  auto *nam = new QNetworkAccessManager(this);
+  QUrl url(QStringLiteral(
+               "https://www.googleapis.com/calendar/v3/calendars/primary/events/") +
+           QUrl::toPercentEncoding(id));
+  QNetworkRequest req(url);
+  req.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
+  QNetworkReply *reply = nam->deleteResource(req);
+  connect(reply, &QNetworkReply::finished, this, [this, reply, nam]() {
+    reply->deleteLater();
+    nam->deleteLater();
+    if (reply->error() != QNetworkReply::NoError) {
+      emit googleSyncFailed(reply->errorString());
+      refreshGoogle();
+      return;
+    }
+    refreshGoogle();
+  });
+  return true;
+}
+
 bool CalendarService::hasGoogleAccess() const {
   return GoogleAuthManager::instance().hasCalendarAccess();
 }
 
 void CalendarService::connectGoogle() {
   GoogleAuthManager::instance().loginForCalendar();
+}
+
+void CalendarService::disconnectGoogle() {
+  GoogleAuthManager::instance().clearCalendarAccess();
+  m_googleCache.clear();
+  emit eventsChanged();
 }
 
 void CalendarService::refreshGoogle() {
@@ -212,11 +281,17 @@ void CalendarService::refreshGoogle() {
   QUrl url(QStringLiteral("https://www.googleapis.com/calendar/v3/calendars/"
                           "primary/events"));
   QUrlQuery q;
-  q.addQueryItem(QStringLiteral("maxResults"), QStringLiteral("20"));
+  q.addQueryItem(QStringLiteral("maxResults"), QStringLiteral("100"));
   q.addQueryItem(QStringLiteral("singleEvents"), QStringLiteral("true"));
   q.addQueryItem(QStringLiteral("orderBy"), QStringLiteral("startTime"));
   q.addQueryItem(QStringLiteral("timeMin"),
-                 QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+                 QDateTime(QDate::currentDate().addDays(-7), QTime(0, 0))
+                     .toUTC()
+                     .toString(Qt::ISODate));
+  q.addQueryItem(QStringLiteral("timeMax"),
+                 QDateTime(QDate::currentDate().addDays(60), QTime(23, 59))
+                     .toUTC()
+                     .toString(Qt::ISODate));
   url.setQuery(q);
 
   QNetworkRequest req(url);

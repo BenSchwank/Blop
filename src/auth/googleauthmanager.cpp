@@ -22,8 +22,15 @@
 #include <QJniEnvironment>
 #include <QJniObject>
 #else
+#include <QCryptographicHash>
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QHostAddress>
 #include <QRandomGenerator>
+#include <QStandardPaths>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTimer>
 #endif
 
@@ -127,11 +134,47 @@ Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthAbandoned(
   GoogleAuthManager::instance().handleExternalAuthAbandoned(s);
 }
 #else
-// Render-hosted GIS bridge on the authorized blop-study.com origin.
+// Render-hosted GIS bridge on the authorized blop-study.com origin (sign-in).
 constexpr const char *kDesktopBridgeUrl =
     "https://www.blop-study.com/api/auth/google/desktop/bridge";
 constexpr const char *kDesktopClaimUrl =
     "https://www.blop-study.com/api/auth/google/desktop/claim";
+constexpr const char *kDesktopExchangeUrl =
+    "https://www.blop-study.com/api/auth/google/desktop/exchange";
+// Legacy OAuth client used for Calendar loopback. Google's token endpoint
+// for this client requires client_secret — exchange goes via blop-study.com
+// (or BLOP_GOOGLE_CLIENT_SECRET for local/dev).
+constexpr const char *kDesktopOAuthClientId =
+    "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com";
+constexpr const char *kGoogleAuthEndpoint =
+    "https://accounts.google.com/o/oauth2/v2/auth";
+constexpr const char *kGoogleTokenEndpoint =
+    "https://oauth2.googleapis.com/token";
+
+QByteArray loadDesktopClientSecret() {
+  const QByteArray fromEnv = qgetenv("BLOP_GOOGLE_CLIENT_SECRET");
+  if (!fromEnv.trimmed().isEmpty())
+    return fromEnv.trimmed();
+
+  // Same folder as scripts/setup-google-desktop-secret.ps1 writes to:
+  // %APPDATA%\Blop\BlopApp\google_desktop_client_secret.txt
+  QString path;
+#ifdef Q_OS_WIN
+  const QByteArray appdata = qgetenv("APPDATA");
+  if (!appdata.isEmpty()) {
+    path = QDir(QString::fromLocal8Bit(appdata))
+               .filePath(QStringLiteral("Blop/BlopApp/google_desktop_client_secret.txt"));
+  }
+#endif
+  if (path.isEmpty()) {
+    path = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
+               .filePath(QStringLiteral("google_desktop_client_secret.txt"));
+  }
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+    return {};
+  return f.readAll().trimmed();
+}
 #endif // Q_OS_ANDROID
 } // namespace
 
@@ -192,6 +235,12 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
   connect(m_bridgeTimeout, &QTimer::timeout, this, [this]() {
     if (!m_loginInProgress)
       return;
+    if (m_desktopPkceActive) {
+      qWarning() << "GoogleAuthManager: desktop Calendar PKCE timed out";
+      cancelPendingLogin();
+      emit authenticationFailed(QStringLiteral("oauth_pkce_timeout"));
+      return;
+    }
     qWarning() << "GoogleAuthManager: desktop bridge timed out";
     finishDesktopBridge(QString(), QStringLiteral("oauth_bridge_timeout"));
   });
@@ -207,7 +256,12 @@ void GoogleAuthManager::login() {
 #ifdef Q_OS_ANDROID
   startPkceLogin();
 #else
-  startDesktopBridgeLogin();
+  // Calendar needs a real OAuth access_token; GIS bridge on production only
+  // returns an id_token until the calendar=1 deploy is live.
+  if (m_wantCalendar)
+    startDesktopCalendarPkceLogin();
+  else
+    startDesktopBridgeLogin();
 #endif
 }
 
@@ -221,6 +275,10 @@ bool GoogleAuthManager::hasCalendarAccess() const {
 }
 
 QString GoogleAuthManager::accessToken() const { return m_accessToken; }
+
+void GoogleAuthManager::clearCalendarAccess() {
+  persistAccessToken(QString());
+}
 
 void GoogleAuthManager::persistAccessToken(const QString &token) {
   m_accessToken = token;
@@ -528,7 +586,7 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
 #else // Desktop
 QString GoogleAuthManager::generateRandomString(int length) {
   static const char alphabet[] =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
   QString out;
   out.reserve(length);
   for (int i = 0; i < length; ++i) {
@@ -539,15 +597,35 @@ QString GoogleAuthManager::generateRandomString(int length) {
   return out;
 }
 
-void GoogleAuthManager::cancelPendingLogin() {
-  if (!m_loginInProgress)
+QString GoogleAuthManager::base64UrlEncode(const QByteArray &data) {
+  QByteArray b64 = data.toBase64(QByteArray::Base64UrlEncoding |
+                                 QByteArray::OmitTrailingEquals);
+  return QString::fromLatin1(b64);
+}
+
+void GoogleAuthManager::stopDesktopLoopbackServer() {
+  if (!m_loopbackServer)
     return;
-  qInfo() << "GoogleAuthManager: cancelling desktop bridge login";
+  m_loopbackServer->close();
+  m_loopbackServer->deleteLater();
+  m_loopbackServer = nullptr;
+}
+
+void GoogleAuthManager::cancelPendingLogin() {
+  if (!m_loginInProgress && !m_desktopPkceActive)
+    return;
+  qInfo() << "GoogleAuthManager: cancelling desktop login";
   stopDesktopBridgeTimers();
+  stopDesktopLoopbackServer();
   m_loginInProgress = false;
   m_loginInProgressSinceMs = 0;
   m_bridgeState.clear();
   m_claimInFlight = false;
+  m_desktopPkceActive = false;
+  m_pkceVerifier.clear();
+  m_pkceState.clear();
+  m_redirectUri.clear();
+  m_wantCalendar = false;
 }
 
 void GoogleAuthManager::stopDesktopBridgeTimers() {
@@ -555,6 +633,315 @@ void GoogleAuthManager::stopDesktopBridgeTimers() {
     m_bridgeTimeout->stop();
   if (m_bridgePoll)
     m_bridgePoll->stop();
+}
+
+void GoogleAuthManager::startDesktopCalendarPkceLogin() {
+  const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+  if (m_loginInProgress) {
+    const qint64 ageMs = nowMs - m_loginInProgressSinceMs;
+    if (ageMs > 10 * 60 * 1000) {
+      qInfo() << "GoogleAuthManager: stale desktop login lock — restarting";
+      cancelPendingLogin();
+    } else {
+      qInfo() << "GoogleAuthManager: desktop login already in progress";
+      return;
+    }
+  }
+
+  stopDesktopBridgeTimers();
+  stopDesktopLoopbackServer();
+  m_claimInFlight = false;
+  m_bridgeState.clear();
+
+  m_loopbackServer = new QTcpServer(this);
+  // Prefer a stable loopback port (easier to match Chrome's address bar / firewall).
+  // Fall back to an ephemeral port if busy.
+  constexpr quint16 kPreferredPort = 27183;
+  if (!m_loopbackServer->listen(QHostAddress(QStringLiteral("127.0.0.1")),
+                                kPreferredPort) &&
+      !m_loopbackServer->listen(QHostAddress(QStringLiteral("127.0.0.1")), 0)) {
+    qWarning() << "GoogleAuthManager: loopback listen failed"
+               << m_loopbackServer->errorString();
+    stopDesktopLoopbackServer();
+    m_wantCalendar = false;
+    emit authenticationFailed(QStringLiteral("oauth_loopback_listen_failed"));
+    return;
+  }
+  const quint16 port = m_loopbackServer->serverPort();
+  m_redirectUri =
+      QStringLiteral("http://127.0.0.1:%1/").arg(port);
+  m_clientId = QString::fromLatin1(kDesktopOAuthClientId);
+  m_pkceVerifier = generateRandomString(64);
+  m_pkceState = generateRandomString(32);
+  const QByteArray challenge = QCryptographicHash::hash(
+      m_pkceVerifier.toUtf8(), QCryptographicHash::Sha256);
+  const QString codeChallenge = base64UrlEncode(challenge);
+
+  m_desktopPkceActive = true;
+  m_loginInProgress = true;
+  m_loginInProgressSinceMs = nowMs;
+  if (m_bridgeTimeout)
+    m_bridgeTimeout->start(10 * 60 * 1000); // allow slow Google consent / 2FA
+
+  // Avoid duplicate slots if login is retried without a full process restart.
+  disconnect(m_loopbackServer, &QTcpServer::newConnection, this,
+             &GoogleAuthManager::onDesktopLoopbackConnection);
+  connect(m_loopbackServer, &QTcpServer::newConnection, this,
+          &GoogleAuthManager::onDesktopLoopbackConnection);
+
+  QUrl authUrl(QString::fromLatin1(kGoogleAuthEndpoint));
+  QUrlQuery q;
+  q.addQueryItem(QStringLiteral("response_type"), QStringLiteral("code"));
+  q.addQueryItem(QStringLiteral("client_id"), m_clientId);
+  q.addQueryItem(QStringLiteral("redirect_uri"), m_redirectUri);
+  q.addQueryItem(
+      QStringLiteral("scope"),
+      QStringLiteral(
+          "openid email profile "
+          "https://www.googleapis.com/auth/calendar.readonly "
+          "https://www.googleapis.com/auth/calendar.events"));
+  q.addQueryItem(QStringLiteral("access_type"), QStringLiteral("offline"));
+  q.addQueryItem(QStringLiteral("prompt"), QStringLiteral("consent"));
+  q.addQueryItem(QStringLiteral("code_challenge"), codeChallenge);
+  q.addQueryItem(QStringLiteral("code_challenge_method"), QStringLiteral("S256"));
+  q.addQueryItem(QStringLiteral("state"), m_pkceState);
+  authUrl.setQuery(q);
+
+  qInfo() << "GoogleAuthManager: opening desktop Calendar PKCE"
+          << "listening=" << m_loopbackServer->isListening()
+          << "redirect=" << m_redirectUri
+          << "(Chrome must open this exact host:port — keep Blop running,"
+             " prefer Run without debugger)";
+  emit requireBrowser(authUrl);
+}
+
+void GoogleAuthManager::onDesktopLoopbackConnection() {
+  if (!m_loopbackServer || !m_desktopPkceActive)
+    return;
+  QTcpSocket *sock = m_loopbackServer->nextPendingConnection();
+  if (!sock)
+    return;
+
+  qInfo() << "GoogleAuthManager: loopback connection from"
+          << sock->peerAddress().toString();
+
+  // Don't rely only on readyRead — data may already be buffered before the
+  // slot is connected (common with fast localhost redirects).
+  auto handleRequest = [this, sock]() {
+    if (!sock)
+      return;
+    if (!m_desktopPkceActive) {
+      sock->disconnectFromHost();
+      sock->deleteLater();
+      return;
+    }
+    if (sock->bytesAvailable() <= 0 && !sock->waitForReadyRead(8000)) {
+      qWarning() << "GoogleAuthManager: loopback got no HTTP data";
+      sock->disconnectFromHost();
+      sock->deleteLater();
+      return;
+    }
+    const QByteArray raw = sock->readAll();
+    const QString req = QString::fromUtf8(raw);
+    const int lineEnd = req.indexOf(QStringLiteral("\r\n"));
+    const QString firstLine =
+        lineEnd > 0 ? req.left(lineEnd) : req.section(QLatin1Char('\n'), 0, 0);
+
+    QString pathAndQuery;
+    const QStringList parts = firstLine.split(QLatin1Char(' '));
+    if (parts.size() >= 2)
+      pathAndQuery = parts.at(1);
+
+    QUrl cb(QStringLiteral("http://127.0.0.1") + pathAndQuery);
+    QUrlQuery q(cb);
+    const QString err = q.queryItemValue(QStringLiteral("error"));
+    const QString state = q.queryItemValue(QStringLiteral("state"));
+    const QString code = q.queryItemValue(QStringLiteral("code"));
+
+    const QByteArray body =
+        "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:2rem'>"
+        "<h2>Blop</h2><p>Anmeldung fertig — dieses Fenster kannst du "
+        "schlie&szlig;en.</p></body></html>";
+    const QByteArray resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        "Connection: close\r\n"
+        "Content-Length: " +
+        QByteArray::number(body.size()) + "\r\n\r\n" + body;
+    sock->write(resp);
+    sock->waitForBytesWritten(2000);
+    sock->disconnectFromHost();
+    sock->deleteLater();
+    stopDesktopLoopbackServer();
+
+    if (!err.isEmpty()) {
+      qWarning() << "GoogleAuthManager: calendar PKCE provider error" << err;
+      m_desktopPkceActive = false;
+      m_loginInProgress = false;
+      m_wantCalendar = false;
+      emit authenticationFailed(QStringLiteral("oauth_error:") + err);
+      return;
+    }
+    if (state != m_pkceState) {
+      qWarning() << "GoogleAuthManager: calendar PKCE state mismatch";
+      m_desktopPkceActive = false;
+      m_loginInProgress = false;
+      m_wantCalendar = false;
+      emit authenticationFailed(QStringLiteral("oauth_state_mismatch"));
+      return;
+    }
+    if (code.isEmpty()) {
+      qWarning() << "GoogleAuthManager: calendar PKCE missing code";
+      m_desktopPkceActive = false;
+      m_loginInProgress = false;
+      m_wantCalendar = false;
+      emit authenticationFailed(QStringLiteral("oauth_missing_code"));
+      return;
+    }
+    exchangeDesktopAuthorizationCode(code);
+  };
+
+  if (sock->bytesAvailable() > 0)
+    QTimer::singleShot(0, this, handleRequest);
+  else
+    connect(sock, &QTcpSocket::readyRead, this, handleRequest,
+            Qt::SingleShotConnection);
+}
+
+void GoogleAuthManager::exchangeDesktopAuthorizationCode(const QString &code) {
+  if (!m_networkManager) {
+    emit authenticationFailed(QStringLiteral("oauth_no_network"));
+    return;
+  }
+
+  const QString verifier = m_pkceVerifier;
+  const QString redirect = m_redirectUri;
+  const QString clientId = m_clientId;
+
+  auto finishOk = [this](const QString &accessToken, const QString &idToken) {
+    stopDesktopBridgeTimers();
+    m_desktopPkceActive = false;
+    m_loginInProgress = false;
+    m_loginInProgressSinceMs = 0;
+    m_wantCalendar = false;
+    m_pkceVerifier.clear();
+    m_pkceState.clear();
+
+    if (accessToken.isEmpty()) {
+      emit authenticationFailed(QStringLiteral("token_exchange_no_access_token"));
+      return;
+    }
+    persistAccessToken(accessToken);
+    qInfo() << "GoogleAuthManager: desktop Calendar OAuth got access_token";
+    if (!idToken.isEmpty()) {
+      parseUserInfoFromIdToken(idToken);
+      m_authenticated = true;
+      emit idTokenReceived(idToken);
+      emit authenticated();
+    } else {
+      emit calendarTokenUpdated();
+    }
+  };
+
+  auto finishFail = [this](const QString &reason, const QByteArray &raw) {
+    stopDesktopBridgeTimers();
+    m_desktopPkceActive = false;
+    m_loginInProgress = false;
+    m_loginInProgressSinceMs = 0;
+    m_wantCalendar = false;
+    m_pkceVerifier.clear();
+    m_pkceState.clear();
+    qWarning() << "GoogleAuthManager: desktop token exchange failed:" << reason
+               << "body=" << raw;
+    emit authenticationFailed(reason);
+  };
+
+  // 1) Prefer server-side exchange (client_secret stays on Render).
+  {
+    QJsonObject payload;
+    payload.insert(QStringLiteral("code"), code);
+    payload.insert(QStringLiteral("code_verifier"), verifier);
+    payload.insert(QStringLiteral("redirect_uri"), redirect);
+    payload.insert(QStringLiteral("client_id"), clientId);
+    QNetworkRequest req((QUrl(QString::fromLatin1(kDesktopExchangeUrl))));
+    req.setHeader(QNetworkRequest::ContentTypeHeader,
+                  QStringLiteral("application/json"));
+    req.setHeader(QNetworkRequest::UserAgentHeader,
+                  QStringLiteral("BlopDesktop/GoogleAuthExchange"));
+    QNetworkReply *reply = m_networkManager->post(
+        req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, code, verifier, redirect, clientId, finishOk,
+             finishFail]() {
+              const QByteArray raw = reply->readAll();
+              const int status =
+                  reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
+                      .toInt();
+              const auto netErr = reply->error();
+              reply->deleteLater();
+
+              if (netErr == QNetworkReply::NoError && status >= 200 &&
+                  status < 300) {
+                const QJsonObject obj =
+                    QJsonDocument::fromJson(raw).object();
+                finishOk(obj.value(QStringLiteral("access_token")).toString(),
+                         obj.value(QStringLiteral("id_token")).toString());
+                return;
+              }
+
+              // 2) Local/dev fallback: direct Google token call with secret
+              //    from env (BLOP_GOOGLE_CLIENT_SECRET) when backend is not
+              //    deployed yet or missing the secret.
+              const QByteArray secret = loadDesktopClientSecret();
+              if (secret.isEmpty()) {
+                finishFail(
+                    status == 404
+                        ? QStringLiteral("token_exchange_backend_missing")
+                        : QStringLiteral("token_exchange_need_client_secret"),
+                    raw);
+                return;
+              }
+
+              qInfo() << "GoogleAuthManager: backend exchange unavailable — "
+                         "trying direct token call with local client_secret";
+              QNetworkRequest treq(
+                  (QUrl(QString::fromLatin1(kGoogleTokenEndpoint))));
+              treq.setHeader(QNetworkRequest::ContentTypeHeader,
+                             QStringLiteral("application/x-www-form-urlencoded"));
+              QUrlQuery body;
+              body.addQueryItem(QStringLiteral("grant_type"),
+                                QStringLiteral("authorization_code"));
+              body.addQueryItem(QStringLiteral("code"), code);
+              body.addQueryItem(QStringLiteral("redirect_uri"), redirect);
+              body.addQueryItem(QStringLiteral("client_id"), clientId);
+              body.addQueryItem(QStringLiteral("code_verifier"), verifier);
+              body.addQueryItem(QStringLiteral("client_secret"),
+                                QString::fromUtf8(secret));
+              QNetworkReply *treply = m_networkManager->post(
+                  treq, body.toString(QUrl::FullyEncoded).toUtf8());
+              connect(treply, &QNetworkReply::finished, this,
+                      [treply, finishOk, finishFail]() {
+                        const QByteArray traw = treply->readAll();
+                        const int tstatus =
+                            treply
+                                ->attribute(
+                                    QNetworkRequest::HttpStatusCodeAttribute)
+                                .toInt();
+                        const auto terr = treply->error();
+                        treply->deleteLater();
+                        if (terr != QNetworkReply::NoError || tstatus >= 400) {
+                          finishFail(QStringLiteral("token_exchange_failed"),
+                                     traw);
+                          return;
+                        }
+                        const QJsonObject obj =
+                            QJsonDocument::fromJson(traw).object();
+                        finishOk(
+                            obj.value(QStringLiteral("access_token")).toString(),
+                            obj.value(QStringLiteral("id_token")).toString());
+                      });
+            });
+  }
 }
 
 void GoogleAuthManager::startDesktopBridgeLogin() {
@@ -570,6 +957,8 @@ void GoogleAuthManager::startDesktopBridgeLogin() {
     }
   }
 
+  stopDesktopLoopbackServer();
+  m_desktopPkceActive = false;
   m_bridgeState = generateRandomString(32);
   stopDesktopBridgeTimers();
   m_claimInFlight = false;
@@ -589,13 +978,15 @@ void GoogleAuthManager::startDesktopBridgeLogin() {
 }
 
 void GoogleAuthManager::pollDesktopClaim() {
-  if (!m_loginInProgress || m_bridgeState.isEmpty())
+  if (!m_loginInProgress || m_bridgeState.isEmpty() || m_desktopPkceActive)
     return;
   claimDesktopState(m_bridgeState, false);
 }
 
 void GoogleAuthManager::handleDesktopOAuthDeepLink(const QUrl &url) {
   // Expected: blop://oauth/done?state=...  (or error=... from the provider).
+  if (m_desktopPkceActive)
+    return; // Calendar PKCE uses loopback, not blop://
   QUrlQuery q(url);
   const QString error = q.queryItemValue(QStringLiteral("error"));
   if (!error.isEmpty()) {
@@ -611,34 +1002,36 @@ void GoogleAuthManager::handleDesktopOAuthDeepLink(const QUrl &url) {
 
   QString state = q.queryItemValue(QStringLiteral("state"));
   if (state.isEmpty()) {
-    // Also accept blop://oauth/done/?state= or path-form.
     QUrlQuery pathQuery(url.query());
     state = pathQuery.queryItemValue(QStringLiteral("state"));
   }
   if (state.isEmpty()) {
     qWarning() << "GoogleAuthManager: deep link missing state" << url;
-    emit authenticationFailed(QStringLiteral("oauth_missing_state"));
     return;
   }
-  qInfo() << "GoogleAuthManager: desktop OAuth deep link state=" << state;
-  // Poll may already have finished login — deep link is then only for focus.
-  if (m_authenticated && !m_loginInProgress)
+
+  const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+  if (state == m_lastHandledDeepLinkState &&
+      nowMs - m_lastHandledDeepLinkMs < 4000) {
     return;
-  // Ensure we treat this as an in-progress login so finish emits signals.
+  }
+  m_lastHandledDeepLinkState = state;
+  m_lastHandledDeepLinkMs = nowMs;
+
+  qInfo() << "GoogleAuthManager: desktop OAuth deep link state=" << state;
+
   if (!m_loginInProgress) {
-    m_loginInProgress = true;
-    m_loginInProgressSinceMs = QDateTime::currentMSecsSinceEpoch();
-    m_bridgeState = state;
-    if (m_bridgeTimeout)
-      m_bridgeTimeout->start(5 * 60 * 1000);
-    if (m_bridgePoll && !m_bridgePoll->isActive())
-      m_bridgePoll->start();
-  } else if (!m_bridgeState.isEmpty() && m_bridgeState != state) {
-    qWarning() << "GoogleAuthManager: deep-link state mismatch with in-flight";
+    qInfo() << "GoogleAuthManager: deep link ignored (no login in progress)";
+    return;
+  }
+  if (!m_bridgeState.isEmpty() && m_bridgeState != state) {
+    qWarning() << "GoogleAuthManager: deep-link state mismatch with in-flight — ignoring";
+    return;
   }
   if (m_claimInFlight) {
     QTimer::singleShot(400, this, [this, state]() {
-      claimDesktopState(state, true);
+      if (m_loginInProgress && m_bridgeState == state)
+        claimDesktopState(state, true);
     });
     return;
   }
@@ -646,10 +1039,14 @@ void GoogleAuthManager::handleDesktopOAuthDeepLink(const QUrl &url) {
 }
 
 void GoogleAuthManager::claimDesktopState(const QString &state, bool fromDeepLink) {
-  if (state.isEmpty() || m_claimInFlight)
+  if (state.isEmpty() || m_claimInFlight || m_desktopPkceActive)
     return;
   if (!m_networkManager)
     return;
+  if (m_loginInProgress && !m_bridgeState.isEmpty() && m_bridgeState != state) {
+    qWarning() << "GoogleAuthManager: claim skipped (state mismatch)";
+    return;
+  }
 
   m_claimInFlight = true;
   QUrl url(QString::fromLatin1(kDesktopClaimUrl));
@@ -662,9 +1059,14 @@ void GoogleAuthManager::claimDesktopState(const QString &state, bool fromDeepLin
                 QStringLiteral("BlopDesktop/GoogleAuthClaim"));
   QNetworkReply *reply = m_networkManager->get(req);
   connect(reply, &QNetworkReply::finished, this,
-          [this, reply, fromDeepLink]() {
+          [this, reply, fromDeepLink, state]() {
             reply->deleteLater();
             m_claimInFlight = false;
+            if (!m_loginInProgress || m_desktopPkceActive)
+              return;
+            if (!m_bridgeState.isEmpty() && m_bridgeState != state)
+              return;
+
             const auto netErr = reply->error();
             const int status =
                 reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
@@ -675,7 +1077,6 @@ void GoogleAuthManager::claimDesktopState(const QString &state, bool fromDeepLin
                          << "err=" << reply->errorString()
                          << "deepLink=" << fromDeepLink;
               if (fromDeepLink && m_loginInProgress) {
-                // Keep polling a bit — complete may still be in flight.
                 if (m_bridgePoll && !m_bridgePoll->isActive())
                   m_bridgePoll->start();
               }
@@ -697,8 +1098,10 @@ void GoogleAuthManager::claimDesktopState(const QString &state, bool fromDeepLin
                 obj.value(QStringLiteral("credential")).toString();
             const QString accessTok =
                 obj.value(QStringLiteral("access_token")).toString();
-            if (!accessTok.isEmpty())
+            if (!accessTok.isEmpty()) {
               persistAccessToken(accessTok);
+              qInfo() << "GoogleAuthManager: desktop claim includes calendar access_token";
+            }
             if (credential.isEmpty()) {
               finishDesktopBridge(QString(),
                                   QStringLiteral("oauth_missing_credential"));
@@ -715,6 +1118,7 @@ void GoogleAuthManager::finishDesktopBridge(const QString &idToken,
   m_loginInProgressSinceMs = 0;
   m_bridgeState.clear();
   m_claimInFlight = false;
+  m_wantCalendar = false;
 
   if (!error.isEmpty() || idToken.isEmpty()) {
     qWarning() << "GoogleAuthManager: desktop bridge failed:" << error;
@@ -724,7 +1128,8 @@ void GoogleAuthManager::finishDesktopBridge(const QString &idToken,
     return;
   }
 
-  qInfo() << "GoogleAuthManager: desktop bridge received id_token via claim";
+  qInfo() << "GoogleAuthManager: desktop bridge received id_token via claim"
+          << "calendarAccess=" << hasCalendarAccess();
   parseUserInfoFromIdToken(idToken);
   m_authenticated = true;
   emit idTokenReceived(idToken);

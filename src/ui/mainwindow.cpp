@@ -1872,6 +1872,8 @@ MainWindow::MainWindow(QWidget *parent)
         req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
+        // Avoid infinite "Anmeldung wird bestätigt…" if the network stalls.
+        req.setTransferTimeout(25000);
 
         QJsonObject body;
         body["token"] = token;
@@ -1879,8 +1881,7 @@ MainWindow::MainWindow(QWidget *parent)
         body["client_id"] = QStringLiteral(
             "571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s.apps.googleusercontent.com");
 #else
-        // Desktop bridge uses the production GIS / web client (not the legacy
-        // loopback OAuth client that Google rejects with invalid_request).
+        // Desktop GIS bridge / id_token verify uses the Web client audience.
         body["client_id"] = QStringLiteral(
             "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com");
 #endif
@@ -2979,7 +2980,18 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   m_androidNativeLoginStatus->hide();
   lay->addWidget(m_androidNativeLoginStatus);
 
-  m_androidNativeLoginGoogleBtn = nullptr;
+  m_androidNativeLoginGoogleBtn =
+      new QPushButton(QStringLiteral("Mit Google anmelden"), gate);
+  m_androidNativeLoginGoogleBtn->setCursor(Qt::PointingHandCursor);
+  m_androidNativeLoginGoogleBtn->setMinimumHeight(UiScale::dp(48));
+  m_androidNativeLoginGoogleBtn->setStyleSheet(QStringLiteral(
+      "QPushButton { background: #5B9DFF; color: #0D0B14;"
+      "  border: none; border-radius: 12px; padding: 12px 18px;"
+      "  font-size: 16px; font-weight: 800; }"
+      "QPushButton:disabled { background: #3A4558; color: #8A93A8; }"));
+  connect(m_androidNativeLoginGoogleBtn, &QPushButton::clicked, this,
+          [this]() { requestGoogleLogin(); });
+  lay->addWidget(m_androidNativeLoginGoogleBtn);
 
   m_androidNativeLoginCancelBtn =
       new QPushButton(QStringLiteral("Abbrechen"), gate);
@@ -5859,19 +5871,17 @@ void MainWindow::setupUi() {
           [this](LibraryOrgBar::SortMode) {
             applyLibraryFilters();
             if (QPushButton *sortBtn = m_libraryOrgBar->sortButton()) {
-              sortBtn->setStyleSheet(QStringLiteral(
-                  "QPushButton {"
-                  "  background: #FFFFFF; color: #3A3F4A; border: 1px solid #E4E7EE;"
-                  "  border-radius: 10px; padding: 0 12px; min-height: 36px;"
-                  "  font-size: 12px; font-weight: 600;"
-                  "}"
-                  "QPushButton:hover { border-color: #5B9DFF; }"));
+#ifndef Q_OS_ANDROID
+              sortBtn->setStyleSheet(BlopStyle::paperSegmentQss());
+#else
+              sortBtn->setStyleSheet(BlopStyle::segmentQss());
+#endif
             }
           });
 
   auto *topBar = new QHBoxLayout();
   topBar->setContentsMargins(0, 0, 0, 0);
-  topBar->setSpacing(UiScale::dp(12));
+  topBar->setSpacing(UiScale::dp(10));
 
   m_lblLibraryTitle = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
   m_lblLibraryTitle->setObjectName(QStringLiteral("overviewLibraryTitle"));
@@ -5884,21 +5894,19 @@ void MainWindow::setupUi() {
   m_lblLibrarySubtitle->setObjectName(QStringLiteral("overviewLibrarySubtitle"));
   m_lblLibrarySubtitle->hide();
 
+  // Keep a hidden line-edit as the filter source of truth (title-bar search,
+  // sidebar, burger sheet all write into it). Do not show a second field here.
   m_overviewSearchBar = new QLineEdit(m_overviewContainer);
   m_overviewSearchBar->setObjectName("overviewSearchBar");
   m_overviewSearchBar->setPlaceholderText(QStringLiteral("Suchen"));
-  m_overviewSearchBar->setFrame(false);
-  m_overviewSearchBar->setAttribute(Qt::WA_StyledBackground, true);
-  m_overviewSearchBar->setFixedHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
-  m_overviewSearchBar->setMaximumWidth(UiScale::dp(420));
-  m_overviewSearchBar->setStyleSheet(BlopTheme::inputQss());
-  topBar->addStretch(1);
-  topBar->addWidget(m_overviewSearchBar, 1);
+  m_overviewSearchBar->hide();
+
   topBar->addStretch(1);
 
   m_libraryOrgBar->placeSortInActionBar(topBar);
   if (QPushButton *sortBtn = m_libraryOrgBar->sortButton()) {
-    sortBtn->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+    sortBtn->setMinimumHeight(UiScale::dp(32));
+    sortBtn->setMaximumHeight(UiScale::dp(32));
 #ifndef Q_OS_ANDROID
     sortBtn->setStyleSheet(BlopStyle::paperSegmentQss());
 #else
@@ -5906,70 +5914,54 @@ void MainWindow::setupUi() {
 #endif
   }
 
-  const auto libraryViewBtnStyle = [](bool active) {
-    const QString acc = NoteChrome::accent().name(QColor::HexRgb);
-    const QString size = QString::number(UiScale::dp(BlopStyle::touchTargetMinDp()));
-    return QStringLiteral(
-               "QPushButton { background: %1; border: 1px solid %2;"
-               " border-radius: 10px; min-width: %3px; min-height: %3px; }"
-               "QPushButton:hover { border-color: %4; }")
-        .arg(active ? QStringLiteral("#EEF4FF")
-                    : BlopTheme::surfaceBase().name(QColor::HexRgb),
-             active ? acc : BlopTheme::borderSubtle().name(QColor::HexRgb),
-             size, acc);
+  const int viewBtn = UiScale::dp(32);
+  const auto applyViewIcons = [this](bool listMode) {
+    if (!m_btnLibraryGrid || !m_btnLibraryList)
+      return;
+    const QColor on(0x5B, 0x9D, 0xFF);
+    const QColor off(0x6B, 0x72, 0x80);
+    m_btnLibraryGrid->setIcon(
+        createModernIcon(QStringLiteral("layout_rows"), listMode ? off : on));
+    m_btnLibraryList->setIcon(
+        createModernIcon(QStringLiteral("layout_single"), listMode ? on : off));
   };
 
   m_btnLibraryGrid = new QPushButton(m_overviewContainer);
-  m_btnLibraryGrid->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp()),
-                                 UiScale::dp(BlopStyle::touchTargetMinDp()));
+  m_btnLibraryGrid->setFixedSize(viewBtn, viewBtn);
   m_btnLibraryGrid->setCursor(Qt::PointingHandCursor);
   m_btnLibraryGrid->setCheckable(true);
   m_btnLibraryGrid->setChecked(true);
   m_btnLibraryGrid->setToolTip(QStringLiteral("Rasteransicht"));
-  m_btnLibraryGrid->setIcon(createModernIcon(QStringLiteral("layout_rows"),
-                                            QColor(0x5B, 0x9D, 0xFF)));
   m_btnLibraryGrid->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
-  m_btnLibraryGrid->setStyleSheet(libraryViewBtnStyle(true));
-  topBar->addWidget(m_btnLibraryGrid);
+  m_btnLibraryGrid->setStyleSheet(BlopStyle::quietIconButtonQss(8));
+  topBar->addWidget(m_btnLibraryGrid, 0, Qt::AlignVCenter);
 
   m_btnLibraryList = new QPushButton(m_overviewContainer);
-  m_btnLibraryList->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp()),
-                                 UiScale::dp(BlopStyle::touchTargetMinDp()));
+  m_btnLibraryList->setFixedSize(viewBtn, viewBtn);
   m_btnLibraryList->setCursor(Qt::PointingHandCursor);
   m_btnLibraryList->setCheckable(true);
   m_btnLibraryList->setToolTip(QStringLiteral("Listenansicht"));
-  m_btnLibraryList->setIcon(createModernIcon(QStringLiteral("layout_single"),
-                                            QColor(0x6B, 0x72, 0x80)));
   m_btnLibraryList->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
-  m_btnLibraryList->setStyleSheet(libraryViewBtnStyle(false));
-  topBar->addWidget(m_btnLibraryList);
+  m_btnLibraryList->setStyleSheet(BlopStyle::quietIconButtonQss(8));
+  topBar->addWidget(m_btnLibraryList, 0, Qt::AlignVCenter);
+  applyViewIcons(false);
 
-  connect(m_btnLibraryGrid, &QPushButton::clicked, this, [this, libraryViewBtnStyle]() {
+  connect(m_btnLibraryGrid, &QPushButton::clicked, this, [this, applyViewIcons]() {
     if (!m_btnLibraryGrid || !m_btnLibraryList)
       return;
     m_libraryListMode = false;
     m_btnLibraryGrid->setChecked(true);
     m_btnLibraryList->setChecked(false);
-    m_btnLibraryGrid->setStyleSheet(libraryViewBtnStyle(true));
-    m_btnLibraryList->setStyleSheet(libraryViewBtnStyle(false));
-    m_btnLibraryGrid->setIcon(
-        createModernIcon(QStringLiteral("layout_rows"), QColor(0x5B, 0x9D, 0xFF)));
-    m_btnLibraryList->setIcon(
-        createModernIcon(QStringLiteral("layout_single"), QColor(0x6B, 0x72, 0x80)));
+    applyViewIcons(false);
     updateGrid();
   });
-  connect(m_btnLibraryList, &QPushButton::clicked, this, [this, libraryViewBtnStyle]() {
+  connect(m_btnLibraryList, &QPushButton::clicked, this, [this, applyViewIcons]() {
     if (!m_btnLibraryGrid || !m_btnLibraryList)
       return;
     m_libraryListMode = true;
     m_btnLibraryGrid->setChecked(false);
     m_btnLibraryList->setChecked(true);
-    m_btnLibraryGrid->setStyleSheet(libraryViewBtnStyle(false));
-    m_btnLibraryList->setStyleSheet(libraryViewBtnStyle(true));
-    m_btnLibraryGrid->setIcon(
-        createModernIcon(QStringLiteral("layout_rows"), QColor(0x6B, 0x72, 0x80)));
-    m_btnLibraryList->setIcon(
-        createModernIcon(QStringLiteral("layout_single"), QColor(0x5B, 0x9D, 0xFF)));
+    applyViewIcons(true);
     updateGrid();
   });
 
@@ -6011,8 +6003,19 @@ void MainWindow::setupUi() {
               applyLibraryFilters();
               if (m_sidebarSearch && m_sidebarSearch->text() != t)
                 m_sidebarSearch->setText(t);
+              if (m_titleSearchBar && m_titleSearchBar->text() != t)
+                m_titleSearchBar->setText(t);
             });
   }
+#ifndef Q_OS_ANDROID
+  if (m_titleSearchBar) {
+    connect(m_titleSearchBar, &QLineEdit::textChanged, this,
+            [this](const QString &t) {
+              if (m_overviewSearchBar && m_overviewSearchBar->text() != t)
+                m_overviewSearchBar->setText(t);
+            });
+  }
+#endif
 
   auto *libraryBody = new QWidget(m_overviewContainer);
   libraryBody->setObjectName(QStringLiteral("LibraryBody"));
@@ -11796,10 +11799,14 @@ void MainWindow::updateSidebarState() {
   }
 
   if (m_overviewSearchBar) {
-    // Burger mode: search lives in the bottom pill / sheet.
+#ifndef Q_OS_ANDROID
+    // Desktop: only the title-bar search is visible (no duplicate in the field).
+    m_overviewSearchBar->hide();
+#else
     const bool hideOverviewSearch =
         UiScale::usePhoneBurgerMenu(this) && inNotesMode && !isEditor;
     m_overviewSearchBar->setVisible(!hideOverviewSearch);
+#endif
   }
 
   if (UiScale::usePhoneBurgerMenu(this)) {
@@ -13312,17 +13319,38 @@ void MainWindow::connectSettingsAccountActions(SettingsDialog *dlg) {
   if (!dlg)
     return;
   connect(dlg, &SettingsDialog::studyLoginRequested, this, [this]() {
+#ifdef Q_OS_ANDROID
+    // Avoid Study WebView while settings tear down (SurfaceView crash).
+    // Native Google OAuth is the supported phone login path.
+    QTimer::singleShot(350, this, [this]() {
+      setAndroidNativeLoginGateVisible(true);
+      requestGoogleLogin();
+    });
+#else
     QTimer::singleShot(280, this, [this]() {
       openStudyAuthPage(QStringLiteral("/login"));
     });
+#endif
   });
   connect(dlg, &SettingsDialog::studyRegisterRequested, this, [this]() {
+#ifdef Q_OS_ANDROID
+    QTimer::singleShot(350, this, [this]() {
+      setAndroidNativeLoginGateVisible(true);
+      requestGoogleLogin();
+    });
+#else
     QTimer::singleShot(280, this, [this]() {
       openStudyAuthPage(QStringLiteral("/register"));
     });
+#endif
   });
   connect(dlg, &SettingsDialog::googleLoginRequested, this, [this]() {
-    QTimer::singleShot(280, this, [this]() { requestGoogleLogin(); });
+    QTimer::singleShot(350, this, [this]() {
+#ifdef Q_OS_ANDROID
+      setAndroidNativeLoginGateVisible(true);
+#endif
+      requestGoogleLogin();
+    });
   });
   connect(dlg, &SettingsDialog::cloudExplorerRequested, this,
           [this](const QString &id, const QString &type, const QString &name,

@@ -179,6 +179,8 @@ qt_add_executable(Blop
     src/ui/todostore.h
     src/ui/calendarservice.cpp
     src/ui/calendarservice.h
+    src/ui/calendardayview.cpp
+    src/ui/calendardayview.h
     src/ui/notepreviewicon.h
     src/ui/notepreviewicon.cpp
     src/ui/librarytagspanel.cpp

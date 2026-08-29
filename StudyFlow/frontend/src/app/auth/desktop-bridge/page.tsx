@@ -12,8 +12,10 @@ import Script from "next/script";
 function DesktopBridgeInner() {
   const params = useSearchParams();
   const state = params.get("state") || "";
+  const wantCalendar = params.get("calendar") === "1";
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [hint, setHint] = useState("");
 
   const clientId =
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
@@ -32,13 +34,6 @@ function DesktopBridgeInner() {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      window.setTimeout(() => {
-        try {
-          window.location.href = blopUrl;
-        } catch {
-          /* ignore */
-        }
-      }, 250);
     } catch {
       /* ignore */
     }
@@ -53,10 +48,53 @@ function DesktopBridgeInner() {
       try {
         const cred = response?.credential ? String(response.credential) : "";
         if (!cred) throw new Error("Kein Google-Token erhalten");
+        let accessToken = "";
+        if (wantCalendar) {
+          setHint("Kalender-Berechtigung wird angefragt…");
+          accessToken = await new Promise<string>((resolve, reject) => {
+            const g = (window as any).google;
+            if (!g?.accounts?.oauth2) {
+              reject(new Error("Google OAuth-Skript noch nicht geladen"));
+              return;
+            }
+            const client = g.accounts.oauth2.initTokenClient({
+              client_id: clientId,
+              scope:
+                "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
+              callback: (tokenResponse: any) => {
+                if (tokenResponse?.error) {
+                  reject(
+                    new Error(
+                      String(
+                        tokenResponse.error_description || tokenResponse.error
+                      )
+                    )
+                  );
+                  return;
+                }
+                const tok = tokenResponse?.access_token
+                  ? String(tokenResponse.access_token)
+                  : "";
+                if (!tok) reject(new Error("Kalender-Zugriff abgelehnt oder leer"));
+                else resolve(tok);
+              },
+              error_callback: (err: any) => {
+                reject(
+                  new Error(
+                    String(err?.message || err?.type || "Kalender-Freigabe abgebrochen")
+                  )
+                );
+              },
+            });
+            client.requestAccessToken({ prompt: "consent" });
+          });
+        }
+        const payload: Record<string, string> = { state, credential: cred };
+        if (accessToken) payload.access_token = accessToken;
         const res = await fetch("/api/auth/google/desktop/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ state, credential: cred }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json().catch(() => ({} as any));
         if (!res.ok) {
@@ -64,13 +102,13 @@ function DesktopBridgeInner() {
         }
         setDone(true);
         setError("");
-        openBlop();
-        setTimeout(openBlop, 600);
+        setHint("");
+        // App polls /claim — optional focus only (no auto multi-fire).
       } catch (e: any) {
         setError(e?.message || "Google-Anmeldung fehlgeschlagen");
       }
     };
-  }, [valid, state]);
+  }, [valid, state, wantCalendar, clientId]);
 
   return (
     <div
@@ -97,11 +135,16 @@ function DesktopBridgeInner() {
           textAlign: "center",
         }}
       >
-        <h1 style={{ margin: "0 0 8px", fontSize: 22 }}>Mit Google anmelden</h1>
+        <h1 style={{ margin: "0 0 8px", fontSize: 22 }}>
+          {wantCalendar ? "Google Calendar verbinden" : "Mit Google anmelden"}
+        </h1>
         <p style={{ margin: "0 0 20px", color: "#a8aec2", fontSize: 14, lineHeight: 1.45 }}>
           {done
-            ? "Fertig — Blop sollte sich öffnen. Falls nicht, nutze den Button unten."
-            : "Melde dich für Blop an. Danach springst du zurück in die App."}
+            ? "Fertig — Blop übernimmt automatisch. Falls nicht, nutze den Button unten."
+            : hint ||
+              (wantCalendar
+                ? "Melde dich an und erlaube den Kalender-Zugriff."
+                : "Melde dich für Blop an. Danach springst du zurück in die App.")}
         </p>
         {valid && !done ? (
           <>

@@ -7,6 +7,7 @@
 class QNetworkAccessManager;
 #ifndef Q_OS_ANDROID
 class QTimer;
+class QTcpServer;
 #endif
 
 class GoogleAuthManager : public QObject {
@@ -15,13 +16,14 @@ public:
     static GoogleAuthManager& instance();
 
     void login();
-    /// Request Google Calendar scopes (Android PKCE). Desktop uses the
-    /// existing bridge when it returns an access_token; otherwise local
-    /// calendar events still work.
+    /// Request Google Calendar scopes. Android: PKCE custom-scheme.
+    /// Desktop: loopback PKCE (Desktop OAuth client) so we get a real
+    /// Calendar access_token without relying on the GIS bridge deploy.
     void loginForCalendar();
     bool isAuthenticated() const { return m_authenticated; }
     bool hasCalendarAccess() const;
     QString accessToken() const;
+    void clearCalendarAccess();
 
     QString userEmail() const { return m_email; }
     QString userName() const { return m_name; }
@@ -41,10 +43,10 @@ public:
     /// Browser handoff failed before any redirect.
     void handleExternalAuthAbandoned(const QString &reason);
 #else
-    /// Cancel an in-flight desktop bridge login (poll + timeout).
+    /// Cancel an in-flight desktop bridge / loopback PKCE login.
     void cancelPendingLogin();
     bool isLoginInProgress() const { return m_loginInProgress; }
-    /// Called when OS opens blop://oauth/done?state=... (browser return).
+    /// Called when OS opens blop://oauth/done?state=... (GIS bridge return).
     void handleDesktopOAuthDeepLink(const QUrl &url);
 #endif
 
@@ -92,24 +94,35 @@ private:
     /// Serial for resume-grace timers so a late deep link wins over abandon.
     int m_authResumeGeneration{0};
 #else
-    /// Desktop: open system browser to blop-study.com GIS bridge, then poll
-    /// /api/auth/google/desktop/claim (no localhost redirect — Chrome blocks
-    /// https→127.0.0.1 / Private Network Access). Browser also opens
-    /// blop://oauth/done?state=… to foreground the app.
+    /// Sign-in only: GIS bridge on blop-study.com (id_token via /claim).
     void startDesktopBridgeLogin();
+    /// Calendar: Desktop OAuth client + loopback PKCE → access_token.
+    void startDesktopCalendarPkceLogin();
+    void stopDesktopLoopbackServer();
+    void onDesktopLoopbackConnection();
+    void exchangeDesktopAuthorizationCode(const QString &code);
     void pollDesktopClaim();
     void claimDesktopState(const QString &state, bool fromDeepLink);
     void finishDesktopBridge(const QString &idToken, const QString &error);
     void stopDesktopBridgeTimers();
     static QString generateRandomString(int length);
+    static QString base64UrlEncode(const QByteArray &data);
 
     QNetworkAccessManager *m_networkManager{nullptr};
     QTimer *m_bridgeTimeout{nullptr};
     QTimer *m_bridgePoll{nullptr};
+    QTcpServer *m_loopbackServer{nullptr};
     QString m_bridgeState;
+    QString m_lastHandledDeepLinkState;
+    qint64 m_lastHandledDeepLinkMs{0};
+    QString m_pkceVerifier;
+    QString m_pkceState;
+    QString m_redirectUri;
+    QString m_clientId;
     bool m_loginInProgress{false};
     qint64 m_loginInProgressSinceMs{0};
     bool m_claimInFlight{false};
+    bool m_desktopPkceActive{false};
 #endif
 
     QString m_email;

@@ -607,10 +607,19 @@ class GoogleVerifyRequest(BaseModel):
 class GoogleDesktopCompleteRequest(BaseModel):
     state: str
     credential: str
+    access_token: Optional[str] = None
 
 
-# Short-lived desktop GIS handoff (state -> id_token). In-memory is enough on
-# single-instance Render free tier; avoids Chrome blocking https→127.0.0.1.
+class GoogleDesktopExchangeRequest(BaseModel):
+    code: str
+    code_verifier: str
+    redirect_uri: str
+    client_id: Optional[str] = None
+
+
+# Short-lived desktop GIS handoff (state -> id_token [+ optional access_token]).
+# In-memory is enough on single-instance Render free tier; avoids Chrome
+# blocking https→127.0.0.1.
 _DESKTOP_GOOGLE_PENDING: dict = {}
 _DESKTOP_GOOGLE_PENDING_LOCK = threading.Lock()
 _DESKTOP_GOOGLE_PENDING_TTL_SEC = 300
@@ -867,14 +876,17 @@ def logout(session_id: str = Body(..., embed=True)):
     return {"message": "Logged out successfully"}
 
 @app.get("/api/auth/google/desktop/bridge")
-def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
-                          port: Optional[int] = Query(None, ge=1024, le=65535)):
+def google_desktop_bridge(
+    state: str = Query(..., min_length=8, max_length=128),
+    port: Optional[int] = Query(None, ge=1024, le=65535),
+    calendar: Optional[int] = Query(0, ge=0, le=1),
+):
     """
     Desktop Google login bridge (GIS on authorized web origin).
 
     Flow (no localhost redirect — Chrome blocks https→127.0.0.1):
-      1) Qt opens this page with ?state=...
-      2) GIS callback POSTs credential to /api/auth/google/desktop/complete
+      1) Qt opens this page with ?state=... (&calendar=1 for Calendar API)
+      2) GIS id_token (+ optional OAuth access_token) POSTed to /complete
       3) Qt polls /api/auth/google/desktop/claim?state=...
     `port` is accepted for older clients but ignored.
     """
@@ -891,16 +903,31 @@ def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
     if "BITTE_WEB_CLIENT_ID" in client_id:
         client_id = "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com"
 
+    want_calendar = bool(calendar)
     safe_client = html.escape(client_id, quote=True)
     js_state = json.dumps(state)
+    js_client = json.dumps(client_id)
+    js_want_cal = "true" if want_calendar else "false"
     complete_url = json.dumps("/api/auth/google/desktop/complete")
+    title = "Google Calendar verbinden" if want_calendar else "Mit Google anmelden"
+    hint = (
+        "Melde dich an und erlaube den Kalender-Zugriff. Danach übernimmt Blop "
+        "automatisch — dieses Fenster kannst du schließen."
+        if want_calendar
+        else "Melde dich für Blop an. Danach kehrst du zur App zurück — dieses Fenster kannst du schließen."
+    )
+    ok_msg = (
+        "Kalender-Zugriff an Blop übermittelt."
+        if want_calendar
+        else "Anmeldung an Blop übermittelt."
+    )
 
     page = f"""<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Blop — Google Anmeldung</title>
+  <title>Blop — {html.escape(title)}</title>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     :root {{ color-scheme: dark; }}
@@ -924,8 +951,8 @@ def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
 </head>
 <body>
   <div class="card">
-    <h1>Mit Google anmelden</h1>
-    <p id="hint">Melde dich für Blop an. Danach kehrst du automatisch zur App zurück — dieses Fenster kannst du schließen.</p>
+    <h1>{html.escape(title)}</h1>
+    <p id="hint">{html.escape(hint)}</p>
     <div id="g_id_onload"
          data-client_id="{safe_client}"
          data-context="signin"
@@ -942,7 +969,7 @@ def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
          data-logo_alignment="center">
     </div>
     <div class="err" id="err"></div>
-    <div class="ok" id="ok">Anmeldung an Blop übermittelt.</div>
+    <div class="ok" id="ok">{html.escape(ok_msg)}</div>
     <a id="back" href="#"
        style="display:none;margin-top:18px;padding:12px 18px;border-radius:12px;
               background:#5B9DFF;color:#0b1020;font-weight:700;text-decoration:none;">
@@ -951,35 +978,69 @@ def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
   </div>
   <script>
     const STATE = {js_state};
+    const CLIENT_ID = {js_client};
+    const WANT_CALENDAR = {js_want_cal};
     const COMPLETE_URL = {complete_url};
     const BLOP_URL = "blop://oauth/done?state=" + encodeURIComponent(STATE);
-    function openBlopApp() {{
-      try {{
-        const back = document.getElementById("back");
-        if (back) back.setAttribute("href", BLOP_URL);
-        // Prefer an <a> navigation — Chrome is more reliable with custom
-        // schemes than assigning location.href from a GIS callback.
-        const a = document.createElement("a");
-        a.href = BLOP_URL;
-        a.rel = "noopener";
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        // Fallback for browsers that ignore synthetic clicks.
-        setTimeout(function() {{
-          try {{ window.location.href = BLOP_URL; }} catch (e) {{}}
-        }}, 250);
-      }} catch (e) {{}}
+    const CAL_SCOPES =
+      "https://www.googleapis.com/auth/calendar.readonly " +
+      "https://www.googleapis.com/auth/calendar.events";
+
+    function requestCalendarAccessToken() {{
+      return new Promise(function(resolve, reject) {{
+        if (!(window.google && google.accounts && google.accounts.oauth2)) {{
+          reject(new Error("Google OAuth-Skript noch nicht geladen — Seite neu laden"));
+          return;
+        }}
+        try {{
+          const client = google.accounts.oauth2.initTokenClient({{
+            client_id: CLIENT_ID,
+            scope: CAL_SCOPES,
+            callback: function(tokenResponse) {{
+              if (!tokenResponse) {{
+                reject(new Error("Kein Kalender-Token erhalten"));
+                return;
+              }}
+              if (tokenResponse.error) {{
+                reject(new Error(String(tokenResponse.error_description || tokenResponse.error)));
+                return;
+              }}
+              const tok = tokenResponse.access_token ? String(tokenResponse.access_token) : "";
+              if (!tok) {{
+                reject(new Error("Kalender-Zugriff abgelehnt oder leer"));
+                return;
+              }}
+              resolve(tok);
+            }},
+            error_callback: function(err) {{
+              const msg = (err && (err.message || err.type)) ? String(err.message || err.type)
+                          : "Kalender-Freigabe abgebrochen";
+              reject(new Error(msg));
+            }}
+          }});
+          client.requestAccessToken({{ prompt: "consent" }});
+        }} catch (e) {{
+          reject(e);
+        }}
+      }});
     }}
+
     async function blopDesktopGoogleCb(response) {{
       try {{
         const cred = (response && response.credential) ? String(response.credential) : "";
         if (!cred) throw new Error("Kein Google-Token erhalten");
+        let accessToken = "";
+        if (WANT_CALENDAR) {{
+          const hint = document.getElementById("hint");
+          if (hint) hint.textContent = "Kalender-Berechtigung wird angefragt…";
+          accessToken = await requestCalendarAccessToken();
+        }}
+        const payload = {{ state: STATE, credential: cred }};
+        if (accessToken) payload.access_token = accessToken;
         const res = await fetch(COMPLETE_URL, {{
           method: "POST",
           headers: {{ "Content-Type": "application/json" }},
-          body: JSON.stringify({{ state: STATE, credential: cred }})
+          body: JSON.stringify(payload)
         }});
         const data = await res.json().catch(() => ({{}}));
         if (!res.ok) {{
@@ -988,7 +1049,7 @@ def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
         const btn = document.getElementById("g_id_signin");
         if (btn) btn.style.display = "none";
         const hint = document.getElementById("hint");
-        if (hint) hint.textContent = "Fertig — klicke unten, falls Blop sich nicht öffnet.";
+        if (hint) hint.textContent = "Fertig — Blop übernimmt automatisch. Optional: Zurück zu Blop.";
         document.getElementById("ok").style.display = "block";
         document.getElementById("err").style.display = "none";
         const back = document.getElementById("back");
@@ -996,9 +1057,7 @@ def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
           back.setAttribute("href", BLOP_URL);
           back.style.display = "inline-block";
         }}
-        openBlopApp();
-        setTimeout(openBlopApp, 700);
-        setTimeout(openBlopApp, 1600);
+        // Do NOT auto-fire blop:// — the desktop app polls /claim every second.
       }} catch (e) {{
         const el = document.getElementById("err");
         el.style.display = "block";
@@ -1014,17 +1073,23 @@ def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
 
 @app.post("/api/auth/google/desktop/complete")
 def google_desktop_complete(req: GoogleDesktopCompleteRequest):
-    """Browser posts GIS credential; desktop app claims it via /claim."""
+    """Browser posts GIS credential (+ optional Calendar access_token); desktop claims via /claim."""
     state = (req.state or "").strip()
     credential = (req.credential or "").strip()
+    access_token = (req.access_token or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", state):
         raise HTTPException(status_code=400, detail="Ungültiger state")
     if not credential or credential.count(".") < 2:
         raise HTTPException(status_code=400, detail="Ungültiges Google-Token")
+    if access_token and (len(access_token) < 20 or len(access_token) > 8192):
+        raise HTTPException(status_code=400, detail="Ungültiges access_token")
     now = time.time()
     with _DESKTOP_GOOGLE_PENDING_LOCK:
         _desktop_google_pending_purge(now)
-        _DESKTOP_GOOGLE_PENDING[state] = {"credential": credential, "ts": now}
+        entry = {"credential": credential, "ts": now}
+        if access_token:
+            entry["access_token"] = access_token
+        _DESKTOP_GOOGLE_PENDING[state] = entry
     return {"ok": True}
 
 
@@ -1039,7 +1104,81 @@ def google_desktop_claim(state: str = Query(..., min_length=8, max_length=128)):
         item = _DESKTOP_GOOGLE_PENDING.pop(state, None)
     if not item:
         return {"ready": False}
-    return {"ready": True, "credential": item.get("credential", "")}
+    out = {"ready": True, "credential": item.get("credential", "")}
+    tok = item.get("access_token") or ""
+    if tok:
+        out["access_token"] = tok
+    return out
+
+
+@app.post("/api/auth/google/desktop/exchange")
+def google_desktop_exchange(req: GoogleDesktopExchangeRequest):
+    """
+    Exchange a desktop loopback auth code for tokens.
+    The OAuth client used by Blop Desktop requires client_secret at the
+    token endpoint; keep the secret on the server (Render env).
+    """
+    import requests as py_requests
+
+    code = (req.code or "").strip()
+    verifier = (req.code_verifier or "").strip()
+    redirect_uri = (req.redirect_uri or "").strip()
+    if not code or not verifier or not redirect_uri:
+        raise HTTPException(status_code=400, detail="code, code_verifier und redirect_uri nötig")
+    if not redirect_uri.startswith("http://127.0.0.1:"):
+        raise HTTPException(status_code=400, detail="Ungültige redirect_uri")
+
+    client_id = (
+        (req.client_id or "").strip()
+        or (os.environ.get("GOOGLE_DESKTOP_CLIENT_ID") or "").strip()
+        or "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com"
+    )
+    secret = (
+        (os.environ.get("GOOGLE_DESKTOP_CLIENT_SECRET") or "").strip()
+        or (os.environ.get("GOOGLE_CLIENT_SECRET") or "").strip()
+    )
+    if not secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Server: GOOGLE_CLIENT_SECRET / GOOGLE_DESKTOP_CLIENT_SECRET fehlt",
+        )
+
+    try:
+        resp = py_requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "client_id": client_id,
+                "client_secret": secret,
+                "code_verifier": verifier,
+            },
+            timeout=20,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Token-Request fehlgeschlagen: {e}") from e
+
+    try:
+        payload = resp.json()
+    except Exception:
+        payload = {"raw": (resp.text or "")[:500]}
+
+    if resp.status_code >= 400:
+        detail = payload.get("error_description") or payload.get("error") or payload
+        raise HTTPException(status_code=400, detail=detail)
+
+    access = payload.get("access_token") or ""
+    if not access:
+        raise HTTPException(status_code=400, detail="Antwort ohne access_token")
+    return {
+        "access_token": access,
+        "id_token": payload.get("id_token") or "",
+        "refresh_token": payload.get("refresh_token") or "",
+        "expires_in": payload.get("expires_in"),
+        "token_type": payload.get("token_type") or "Bearer",
+        "scope": payload.get("scope") or "",
+    }
 
 
 @app.post("/api/auth/google/verify")

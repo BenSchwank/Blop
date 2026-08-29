@@ -1,5 +1,7 @@
 #include "settingsdialog.h"
+#include "calendarservice.h"
 #include "cloudstoragestore.h"
+#include "googleauthmanager.h"
 #include "storageprefs.h"
 #include "uiprofilemanager.h"
 #include "blop_inwindow_menu.h"
@@ -975,9 +977,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         setLiteralQss(btnAuthScreen, propertyActionQss(false));
         connect(btnAuthScreen, &QPushButton::clicked, this,
                 [this, studyLoggedIn, closeAfterAccountAction]() {
-                  if (studyLoggedIn)
+                  if (studyLoggedIn) {
                     emit logoutRequested();
-                  emit studyLoginRequested();
+                  } else {
+                    emit studyLoginRequested();
+                  }
                   closeAfterAccountAction();
                 });
         cardKonto->addBodyWidget(makePropertyRow(
@@ -1643,6 +1647,103 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         cardStorage->addBodyWidget(customWrap);
     }
 
+    // ----- Card: Integrationen (Cloud, Kalender, zukünftige APIs) ----------
+    auto *cardIntegrations = new BlopSettingsCard(
+        QStringLiteral("Integrationen"),
+        QStringLiteral("Cloud, Google Kalender und weitere Verbindungen"),
+        contentWidget);
+    {
+      // --- Cloud (Kurzlink in den Speicher-Bereich) ---
+      auto *cloudHint = new QLabel(
+          QStringLiteral(
+              "Cloud-Ordner (Drive, Nextcloud, …) verwaltest du unter Speicher."),
+          cardIntegrations);
+      cloudHint->setWordWrap(true);
+      setLiteralQss(cloudHint, QStringLiteral(
+          "color: %1; font-size: 12px; background: transparent;")
+          .arg(settingsInkMuted()));
+      cardIntegrations->addBodyWidget(makePropertyRow(
+          cardIntegrations, QStringLiteral("Cloud"), cloudHint, true));
+
+      // --- Google Calendar ---
+      auto *calStatus = new QLabel(cardIntegrations);
+      auto refreshCalStatus = [calStatus]() {
+        if (CalendarService::instance().hasGoogleAccess()) {
+          calStatus->setText(QStringLiteral("Verbunden — Termine werden synchronisiert"));
+        } else {
+          calStatus->setText(QStringLiteral("Nicht verbunden"));
+        }
+      };
+      refreshCalStatus();
+      setLiteralQss(calStatus, QStringLiteral(
+          "color: %1; font-size: 13px; background: transparent;")
+          .arg(settingsInkMuted()));
+      cardIntegrations->addBodyWidget(makePropertyRow(
+          cardIntegrations, QStringLiteral("Google Kalender"), calStatus, true));
+
+      auto *btnCalConnect =
+          new QPushButton(QStringLiteral("Verbinden"), cardIntegrations);
+      btnCalConnect->setCursor(Qt::PointingHandCursor);
+      auto *btnCalSync =
+          new QPushButton(QStringLiteral("Jetzt sync"), cardIntegrations);
+      btnCalSync->setCursor(Qt::PointingHandCursor);
+      auto *btnCalDisconnect =
+          new QPushButton(QStringLiteral("Trennen"), cardIntegrations);
+      btnCalDisconnect->setCursor(Qt::PointingHandCursor);
+      auto updateCalButtons = [btnCalConnect, btnCalSync, btnCalDisconnect]() {
+        const bool on = CalendarService::instance().hasGoogleAccess();
+        btnCalConnect->setVisible(!on);
+        btnCalSync->setVisible(on);
+        btnCalDisconnect->setVisible(on);
+      };
+      updateCalButtons();
+      connect(btnCalConnect, &QPushButton::clicked, this, []() {
+        CalendarService::instance().connectGoogle();
+      });
+      connect(btnCalSync, &QPushButton::clicked, this, []() {
+        CalendarService::instance().refreshGoogle();
+      });
+      connect(btnCalDisconnect, &QPushButton::clicked, this,
+              [refreshCalStatus, updateCalButtons]() {
+                CalendarService::instance().disconnectGoogle();
+                refreshCalStatus();
+                updateCalButtons();
+              });
+      connect(&CalendarService::instance(), &CalendarService::eventsChanged,
+              cardIntegrations, [refreshCalStatus, updateCalButtons]() {
+                refreshCalStatus();
+                updateCalButtons();
+              });
+      connect(&GoogleAuthManager::instance(),
+              &GoogleAuthManager::calendarTokenUpdated, cardIntegrations,
+              [refreshCalStatus, updateCalButtons]() {
+                refreshCalStatus();
+                updateCalButtons();
+              });
+
+      auto *calBtns = new QWidget(cardIntegrations);
+      auto *calLay = new QHBoxLayout(calBtns);
+      calLay->setContentsMargins(0, 0, 0, 0);
+      calLay->setSpacing(UiScale::dp(8));
+      calLay->addWidget(btnCalConnect, 0);
+      calLay->addWidget(btnCalSync, 0);
+      calLay->addWidget(btnCalDisconnect, 0);
+      calLay->addStretch(1);
+      cardIntegrations->addBodyWidget(makePropertyRow(
+          cardIntegrations, QStringLiteral("Kalender-Aktionen"), calBtns, true));
+
+      auto *future = new QLabel(
+          QStringLiteral("Weitere Integrationen (z. B. Tasks, Mail) folgen hier."),
+          cardIntegrations);
+      future->setWordWrap(true);
+      setLiteralQss(future, QStringLiteral(
+          "color: %1; font-size: 12px; background: transparent;")
+          .arg(settingsInkMuted()));
+      cardIntegrations->addBodyWidget(makePropertyRow(
+          cardIntegrations, QStringLiteral("Demnächst"), future, true));
+    }
+    cardIntegrations->setExpanded(true);
+
     // ----- Card: Erweitert ----------------------------------------------
     auto *cardAdv = new BlopSettingsCard(
         QStringLiteral("Erweitert"),
@@ -1665,7 +1766,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     cardAdv->setExpanded(true);
 
     const QList<BlopSettingsCard *> allCards = {
-        cardKonto, cardTheme, cardLook, cardBehavior, cardStorage, cardAdv};
+        cardKonto, cardTheme, cardLook, cardBehavior, cardStorage,
+        cardIntegrations, cardAdv};
 
 #ifndef Q_OS_ANDROID
     if (!phoneUi) {

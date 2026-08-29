@@ -8,7 +8,7 @@
 #include <algorithm>
 
 namespace {
-QString settingsKey() { return QStringLiteral("dashboard/layout_v2"); }
+QString settingsKey() { return QStringLiteral("dashboard/layout_v4"); }
 
 DashboardWidgetSpec make(const QString &id, int order, int row, int col,
                          int colSpan, int rowSpan, int itemLimit = 0) {
@@ -69,14 +69,17 @@ QVector<DashboardWidgetSpec> migrateFromV1() {
 } // namespace
 
 QStringList DashboardLayoutStore::knownIds() {
-  return {QStringLiteral("greeting"), QStringLiteral("todos"),
-          QStringLiteral("calendar"), QStringLiteral("recent"),
-          QStringLiteral("shortcuts"), QStringLiteral("actions")};
+  return {QStringLiteral("greeting"), QStringLiteral("clock"),
+          QStringLiteral("todos"),    QStringLiteral("calendar"),
+          QStringLiteral("recent"),   QStringLiteral("shortcuts"),
+          QStringLiteral("actions")};
 }
 
 QString DashboardLayoutStore::displayName(const QString &id) {
   if (id == QLatin1String("greeting"))
     return QStringLiteral("Begrüßung");
+  if (id == QLatin1String("clock"))
+    return QStringLiteral("Uhr");
   if (id == QLatin1String("todos"))
     return QStringLiteral("Aufgaben");
   if (id == QLatin1String("calendar"))
@@ -99,12 +102,14 @@ DashboardWidgetSpec DashboardLayoutStore::defaultFor(const QString &id) {
 }
 
 QVector<DashboardWidgetSpec> DashboardLayoutStore::defaults() {
+  // Notion-style home: two tall columns, then clock + recent, then shortcuts.
   return {
       make(QStringLiteral("greeting"), 0, 0, 0, 12, 1),
-      make(QStringLiteral("todos"), 1, 1, 0, 5, 2),
-      make(QStringLiteral("calendar"), 2, 1, 5, 7, 2, 10),
-      make(QStringLiteral("recent"), 3, 3, 0, 12, 1, 6),
-      make(QStringLiteral("shortcuts"), 4, 4, 0, 12, 1),
+      make(QStringLiteral("todos"), 1, 1, 0, 6, 3),
+      make(QStringLiteral("calendar"), 2, 1, 6, 6, 3, 8),
+      make(QStringLiteral("clock"), 3, 4, 0, 4, 2),
+      make(QStringLiteral("recent"), 4, 4, 4, 8, 2, 5),
+      make(QStringLiteral("shortcuts"), 5, 6, 0, 12, 2),
   };
 }
 
@@ -158,8 +163,15 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
         break;
       }
     }
-    if (!found)
-      out.append(defaultFor(id));
+    if (!found) {
+      DashboardWidgetSpec s = defaultFor(id);
+      int maxBottom = 0;
+      for (const auto &x : out)
+        maxBottom = qMax(maxBottom, x.row + x.rowSpan);
+      s.row = maxBottom;
+      s.col = 0;
+      out.append(s);
+    }
   }
 
   std::sort(out.begin(), out.end(),

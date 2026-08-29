@@ -5,6 +5,7 @@
 #include "blop_modal.h"
 #include "blop_theme.h"
 #include "blopstyle.h"
+#include "calendardayview.h"
 #include "calendarservice.h"
 #include "dashboardlayoutstore.h"
 #include "libraryorgstore.h"
@@ -36,6 +37,7 @@
 #include <QLocale>
 #include <QTime>
 #include <QTimer>
+#include <QtMath>
 #include <QApplication>
 #include <QMetaObject>
 #include <QScrollBar>
@@ -118,8 +120,8 @@ QString hover() { return hex(dash().hover); }
 
 QString sectionTitleQss() {
   return QStringLiteral(
-             "color: %1; font-size: 12px; font-weight: 600;"
-             "letter-spacing: -0.01em; background: transparent;")
+             "color: %1; font-size: 15px; font-weight: 600;"
+             "letter-spacing: -0.2px; background: transparent;")
       .arg(ink());
 }
 
@@ -157,14 +159,16 @@ QString compactGhostQss() {
       .arg(muted(), ink(), hover());
 }
 
-QString softBlockQss(bool editing) {
+QString softBlockQss(bool editing, const QString &blockId = QString()) {
+  Q_UNUSED(blockId);
   const DashTheme &t = dash();
+  // Quiet Notion-style cards: soft fill + hairline, never rainbow.
   if (editing) {
     return QStringLiteral(
                "QFrame#DashBlock {"
                "  background: %1;"
                "  border: 1px dashed %2;"
-               "  border-radius: 8px;"
+               "  border-radius: 10px;"
                "}"
                "QFrame#DashBlock:hover { border-color: %3; }")
         .arg(hex(t.cardBg), hex(t.border), hex(BlopTheme::accentBorder()));
@@ -173,7 +177,7 @@ QString softBlockQss(bool editing) {
              "QFrame#DashBlock {"
              "  background: %1;"
              "  border: 1px solid %2;"
-             "  border-radius: 8px;"
+             "  border-radius: 10px;"
              "}"
              "QFrame#DashBlock:hover { border-color: %3; }"
              "QFrame#DashBlock QLabel#DashDragGrip { color: transparent; }"
@@ -323,6 +327,70 @@ QString formatToday() {
 
 QString formatClock() {
   return QTime::currentTime().toString(QStringLiteral("HH:mm"));
+}
+
+class DashAnalogClock : public QWidget {
+public:
+  explicit DashAnalogClock(QWidget *parent = nullptr) : QWidget(parent) {
+    setObjectName(QStringLiteral("DashAnalogClock"));
+    setMinimumSize(UiScale::dp(120), UiScale::dp(120));
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const int side = qMin(width(), height()) - UiScale::dp(8);
+    const QRectF face((width() - side) / 2.0, (height() - side) / 2.0, side,
+                      side);
+    const QPointF c = face.center();
+    const qreal r = side / 2.0;
+
+    const bool dark = BlopTheme::instance().isDark();
+    p.setPen(Qt::NoPen);
+    p.setBrush(dark ? QColor(255, 255, 255, 18) : QColor(91, 157, 255, 28));
+    p.drawEllipse(face);
+    p.setPen(QPen(dark ? QColor(255, 255, 255, 40) : QColor(91, 157, 255, 90),
+                  1.5));
+    p.setBrush(Qt::NoBrush);
+    p.drawEllipse(face.adjusted(1, 1, -1, -1));
+
+    p.setPen(QPen(BlopTheme::accentPrimary(), 2.0, Qt::SolidLine, Qt::RoundCap));
+    for (int i = 0; i < 12; ++i) {
+      const qreal a = qDegreesToRadians(i * 30.0 - 90.0);
+      const QPointF outer(c.x() + qCos(a) * (r - 4), c.y() + qSin(a) * (r - 4));
+      const QPointF inner(c.x() + qCos(a) * (r - 12),
+                          c.y() + qSin(a) * (r - 12));
+      p.drawLine(inner, outer);
+    }
+
+    const QTime now = QTime::currentTime();
+    auto hand = [&](qreal angleDeg, qreal len, qreal width, const QColor &col) {
+      const qreal a = qDegreesToRadians(angleDeg - 90.0);
+      p.setPen(QPen(col, width, Qt::SolidLine, Qt::RoundCap));
+      p.drawLine(c, QPointF(c.x() + qCos(a) * len, c.y() + qSin(a) * len));
+    };
+    const QColor inkCol =
+        dark ? QColor(255, 255, 255, 220) : QColor(0x37, 0x35, 0x2F);
+    hand((now.hour() % 12 + now.minute() / 60.0) * 30.0, r * 0.50, 3.2, inkCol);
+    hand((now.minute() + now.second() / 60.0) * 6.0, r * 0.68, 2.4, inkCol);
+    hand(now.second() * 6.0, r * 0.78, 1.4, BlopTheme::accentPrimary());
+    p.setPen(Qt::NoPen);
+    p.setBrush(BlopTheme::accentPrimary());
+    p.drawEllipse(c, 3.5, 3.5);
+  }
+};
+
+bool clockAnalogPref() {
+  return QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+      .value(QStringLiteral("dashboard/clock_analog"), false)
+      .toBool();
+}
+
+void setClockAnalogPref(bool on) {
+  QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+      .setValue(QStringLiteral("dashboard/clock_analog"), on);
 }
 
 QString dashboardUserName() {
@@ -475,8 +543,17 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   connect(m_clockTimer, &QTimer::timeout, this, [this]() {
     if (m_lblClock)
       m_lblClock->setText(formatClock());
+    // Tick analog faces + digital labels inside clock blocks.
+    const auto clocks =
+        findChildren<QWidget *>(QStringLiteral("DashAnalogClock"));
+    for (QWidget *c : clocks)
+      c->update();
+    const auto digis =
+        findChildren<QLabel *>(QStringLiteral("DashDigitalClock"));
+    for (QLabel *l : digis)
+      l->setText(formatClock());
   });
-  m_clockTimer->start(30'000);
+  m_clockTimer->start(1000);
 
   auto *scroll = new QScrollArea(this);
   m_scroll = scroll;
@@ -488,10 +565,10 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   m_host = new QWidget(scroll);
   m_host->setObjectName(QStringLiteral("DashHost"));
   m_gridLay = new QGridLayout(m_host);
-  m_gridLay->setContentsMargins(UiScale::dp(32), UiScale::dp(20), UiScale::dp(32),
-                                UiScale::dp(28));
-  m_gridLay->setHorizontalSpacing(UiScale::dp(14));
-  m_gridLay->setVerticalSpacing(UiScale::dp(14));
+  m_gridLay->setContentsMargins(UiScale::dp(48), UiScale::dp(12), UiScale::dp(48),
+                                UiScale::dp(48));
+  m_gridLay->setHorizontalSpacing(UiScale::dp(28));
+  m_gridLay->setVerticalSpacing(UiScale::dp(12));
   for (int c = 0; c < 12; ++c)
     m_gridLay->setColumnStretch(c, 1);
   scroll->setWidget(m_host);
@@ -529,10 +606,9 @@ void DashboardPage::applyChromeStyles() {
   if (m_persistentHeader) {
     m_persistentHeader->setStyleSheet(QStringLiteral(
                                           "QWidget#DashPersistentHeader {"
-                                          "  background: %1;"
-                                          "  border-bottom: 1px solid %2;"
-                                          "}")
-                                          .arg(paper(), hex(dash().divider)));
+                                          "  background: transparent;"
+                                          "  border: none;"
+                                          "}"));
   }
   if (m_scroll) {
     m_scroll->setStyleSheet(
@@ -543,13 +619,13 @@ void DashboardPage::applyChromeStyles() {
 
   if (m_lblHello) {
     m_lblHello->setStyleSheet(QStringLiteral(
-                                  "color: %1; font-size: 26px; font-weight: 600;"
-                                  "letter-spacing: -0.4px; background: transparent;")
+                                  "color: %1; font-size: 32px; font-weight: 700;"
+                                  "letter-spacing: -0.8px; background: transparent;")
                                   .arg(ink()));
   }
   if (m_lblDate) {
     m_lblDate->setStyleSheet(QStringLiteral(
-                                 "color: %1; font-size: 13px; font-weight: 400;"
+                                 "color: %1; font-size: 14px; font-weight: 400;"
                                  "background: transparent;")
                                  .arg(muted()));
   }
@@ -560,8 +636,12 @@ void DashboardPage::applyChromeStyles() {
                                   "background: transparent;")
                                   .arg(ink()));
   }
-  if (m_lblMetrics)
-    m_lblMetrics->setStyleSheet(statMetricQss());
+  if (m_lblMetrics) {
+    m_lblMetrics->setStyleSheet(QStringLiteral(
+                                    "color: %1; font-size: 12px; font-weight: 400;"
+                                    "background: transparent;")
+                                    .arg(muted()));
+  }
   if (m_btnBlocks)
     m_btnBlocks->setStyleSheet(compactGhostQss());
   if (m_btnEdit)
@@ -905,6 +985,20 @@ QWidget *DashboardPage::buildEditChrome(const QString &id) {
     lay->addWidget(limit, 0);
   }
 
+  if (id == QLatin1String("clock")) {
+    auto *style = new QComboBox(bar);
+    style->setCursor(Qt::PointingHandCursor);
+    style->addItem(QStringLiteral("Digital"), 0);
+    style->addItem(QStringLiteral("Analog"), 1);
+    style->setCurrentIndex(clockAnalogPref() ? 1 : 0);
+    connect(style, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this, style](int) {
+              setClockAnalogPref(style->currentData().toInt() == 1);
+              refresh();
+            });
+    lay->addWidget(style, 0);
+  }
+
   auto *hideBtn = new QPushButton(QStringLiteral("Ausblenden"), bar);
   hideBtn->setCursor(Qt::PointingHandCursor);
   hideBtn->setStyleSheet(editChipQss());
@@ -920,48 +1014,50 @@ void DashboardPage::ensurePersistentHeader() {
     return;
 
   auto *lay = new QHBoxLayout(m_persistentHeader);
-  lay->setContentsMargins(UiScale::dp(36), UiScale::dp(18), UiScale::dp(36),
-                          UiScale::dp(14));
+  lay->setContentsMargins(UiScale::dp(48), UiScale::dp(28), UiScale::dp(48),
+                          UiScale::dp(8));
   lay->setSpacing(UiScale::dp(16));
 
   auto *textHost = new QWidget(m_persistentHeader);
   textHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
   auto *textCol = new QVBoxLayout(textHost);
   textCol->setContentsMargins(0, 0, 0, 0);
-  textCol->setSpacing(UiScale::dp(4));
+  textCol->setSpacing(UiScale::dp(6));
 
   m_lblHello = new QLabel(textHost);
   m_lblDate = new QLabel(textHost);
   m_lblClock = new QLabel(textHost);
+  m_lblClock->hide(); // clock block owns time; keep header uncluttered
   m_lblMetrics = new QLabel(textHost);
 
   textCol->addWidget(m_lblHello);
   textCol->addWidget(m_lblDate);
   textCol->addWidget(m_lblClock);
-  textCol->addSpacing(UiScale::dp(2));
   textCol->addWidget(m_lblMetrics);
   lay->addWidget(textHost, 1);
 
   auto *actionsHost = new QWidget(m_persistentHeader);
   actionsHost->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
   auto *actions = new QHBoxLayout(actionsHost);
-  actions->setSpacing(UiScale::dp(6));
+  actions->setSpacing(UiScale::dp(4));
   actions->setContentsMargins(0, 0, 0, 0);
 
-  auto *btnNotes = new QPushButton(QStringLiteral("Zu Notizen"), actionsHost);
+  auto *btnNotes = new QPushButton(QStringLiteral("Notizen"), actionsHost);
   btnNotes->setCursor(Qt::PointingHandCursor);
-  btnNotes->setStyleSheet(compactPrimaryQss());
+  btnNotes->setStyleSheet(compactGhostQss());
   connect(btnNotes, &QPushButton::clicked, this,
           &DashboardPage::snapToNotesRequested);
 
-  m_btnBlocks = new QPushButton(QStringLiteral("＋ Blöcke"), actionsHost);
+  m_btnBlocks = new QPushButton(QStringLiteral("Blöcke"), actionsHost);
   m_btnBlocks->setCursor(Qt::PointingHandCursor);
   m_btnBlocks->setToolTip(QStringLiteral("Dashboard-Blöcke ein- und ausblenden"));
+  m_btnBlocks->setStyleSheet(compactGhostQss());
   connect(m_btnBlocks, &QPushButton::clicked, this,
           [this]() { showBlocksMenu(m_btnBlocks); });
 
   m_btnEdit = new QPushButton(QStringLiteral("Bearbeiten"), actionsHost);
   m_btnEdit->setCursor(Qt::PointingHandCursor);
+  m_btnEdit->setStyleSheet(compactGhostQss());
   connect(m_btnEdit, &QPushButton::clicked, this, &DashboardPage::toggleEditMode);
 
   actions->addWidget(btnNotes, 0);
@@ -983,21 +1079,8 @@ void DashboardPage::updatePersistentHeader() {
       QStringLiteral("%1, %2").arg(greetingHour(), dashboardUserName()));
   m_lblDate->setText(formatToday());
   m_lblClock->setText(formatClock());
-
-  const int openTodos = [&]() {
-    int n = 0;
-    for (const auto &t : TodoStore::load())
-      if (!t.done)
-        ++n;
-    return n;
-  }();
-  const int upcoming = CalendarService::instance().upcoming(20).size();
-  const int recent = LibraryOrgStore::recentPaths(20).size();
-  m_lblMetrics->setText(
-      QStringLiteral("%1 Aufgaben  ·  %2 Termine  ·  %3 zuletzt geöffnet")
-          .arg(openTodos)
-          .arg(upcoming)
-          .arg(recent));
+  if (m_lblMetrics)
+    m_lblMetrics->clear(); // Notion page: no stat strip under the title
 
   if (m_btnEdit)
     m_btnEdit->setText(m_editMode ? QStringLiteral("Fertig")
@@ -1078,19 +1161,19 @@ QWidget *DashboardPage::wrapBlock(const QString &id, QWidget *content,
   frame->setObjectName(QStringLiteral("DashBlock"));
   frame->setAttribute(Qt::WA_StyledBackground, true);
   frame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  frame->setStyleSheet(softBlockQss(m_editMode));
+  frame->setStyleSheet(softBlockQss(m_editMode, id));
 
   auto *lay = new QVBoxLayout(frame);
   lay->setContentsMargins(UiScale::dp(14), UiScale::dp(12), UiScale::dp(14),
-                          UiScale::dp(12));
-  lay->setSpacing(UiScale::dp(6));
+                          UiScale::dp(14));
+  lay->setSpacing(UiScale::dp(8));
   if (m_editMode)
     lay->addWidget(buildEditChrome(id), 0);
   else if (showTitle) {
     auto *hdr = new QWidget(frame);
     auto *hl = new QHBoxLayout(hdr);
-    hl->setContentsMargins(0, 0, 0, 0);
-    hl->setSpacing(UiScale::dp(4));
+    hl->setContentsMargins(0, 0, 0, UiScale::dp(2));
+    hl->setSpacing(UiScale::dp(6));
     auto *grip = new QLabel(QStringLiteral("⋮⋮"), hdr);
     grip->setObjectName(QStringLiteral("DashDragGrip"));
     grip->setStyleSheet(gripQss(false));
@@ -1102,16 +1185,26 @@ QWidget *DashboardPage::wrapBlock(const QString &id, QWidget *content,
     lay->addWidget(hdr, 0);
   }
 
-  auto *scroller = new QScrollArea(frame);
-  scroller->setObjectName(QStringLiteral("DashBlockScroll"));
-  scroller->setWidgetResizable(true);
-  scroller->setFrameShape(QFrame::NoFrame);
-  scroller->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  scroller->setStyleSheet(scrollBarQss());
-  content->setParent(scroller);
-  scroller->setWidget(content);
-  lay->addWidget(scroller, 1);
+  // Scroll only for list-heavy blocks. Clock/shortcuts otherwise show thin
+  // scrollbar tracks that look like stray gray bars across the card.
+  const bool needsScroll = id == QLatin1String("todos") ||
+                           id == QLatin1String("calendar") ||
+                           id == QLatin1String("recent");
+  if (needsScroll) {
+    auto *scroller = new QScrollArea(frame);
+    scroller->setObjectName(QStringLiteral("DashBlockScroll"));
+    scroller->setWidgetResizable(true);
+    scroller->setFrameShape(QFrame::NoFrame);
+    scroller->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroller->setStyleSheet(scrollBarQss());
+    content->setParent(scroller);
+    scroller->setWidget(content);
+    lay->addWidget(scroller, 1);
+  } else {
+    content->setParent(frame);
+    lay->addWidget(content, 1);
+  }
 
   frame->setProperty("dashBlockId", id);
   if (m_editMode) {
@@ -1166,7 +1259,7 @@ void DashboardPage::layoutResizeHandles(QFrame *frame) const {
   }
 }
 
-int DashboardPage::gridRowUnit() const { return UiScale::dp(88); }
+int DashboardPage::gridRowUnit() const { return UiScale::dp(100); }
 
 int DashboardPage::cellHeightForSpan(int rowSpan) const {
   const int span = qMax(1, rowSpan);
@@ -1174,10 +1267,22 @@ int DashboardPage::cellHeightForSpan(int rowSpan) const {
   return span * gridRowUnit() + (span - 1) * vsp;
 }
 
+int DashboardPage::minRowSpanForBlock(const QString &id) {
+  if (id == QLatin1String("shortcuts"))
+    return 2;
+  if (id == QLatin1String("clock"))
+    return 2;
+  if (id == QLatin1String("todos") || id == QLatin1String("calendar"))
+    return 2;
+  return 1;
+}
+
 void DashboardPage::applyBlockCellSize(QWidget *block, int rowSpan) const {
   if (!block)
     return;
-  const int h = cellHeightForSpan(rowSpan);
+  const QString id = block->property("dashBlockId").toString();
+  const int span = qMax(rowSpan, minRowSpanForBlock(id));
+  const int h = cellHeightForSpan(span);
   block->setMinimumHeight(h);
   block->setMaximumHeight(h);
   block->setFixedHeight(h);
@@ -1430,6 +1535,44 @@ void DashboardPage::finishGesture(const std::function<void()> &commit) {
   QTimer::singleShot(0, this, commit);
 }
 
+QWidget *DashboardPage::buildClockBlock() {
+  auto *body = new QWidget();
+  auto *lay = new QVBoxLayout(body);
+  lay->setContentsMargins(UiScale::dp(4), UiScale::dp(8), UiScale::dp(4),
+                          UiScale::dp(8));
+  lay->setSpacing(UiScale::dp(4));
+
+  const bool analog = clockAnalogPref();
+  if (analog) {
+    auto *face = new DashAnalogClock(body);
+    face->setMinimumHeight(UiScale::dp(120));
+    lay->addWidget(face, 1);
+  } else {
+    auto *timeLbl = new QLabel(formatClock(), body);
+    timeLbl->setObjectName(QStringLiteral("DashDigitalClock"));
+    timeLbl->setAlignment(Qt::AlignCenter);
+    timeLbl->setStyleSheet(QStringLiteral(
+                               "color: %1; font-size: 40px; font-weight: 600;"
+                               "letter-spacing: -1px; background: transparent;")
+                               .arg(ink()));
+    auto *dateLbl = new QLabel(
+        QLocale(QLocale::German, QLocale::Germany)
+            .toString(QDate::currentDate(), QStringLiteral("d. MMMM")),
+        body);
+    dateLbl->setAlignment(Qt::AlignCenter);
+    dateLbl->setStyleSheet(QStringLiteral(
+                               "color: %1; font-size: 12px; font-weight: 400;"
+                               "background: transparent;")
+                               .arg(muted()));
+    lay->addStretch(1);
+    lay->addWidget(timeLbl, 0, Qt::AlignHCenter);
+    lay->addWidget(dateLbl, 0, Qt::AlignHCenter);
+    lay->addStretch(1);
+  }
+
+  return wrapBlock(QStringLiteral("clock"), body, 0, true);
+}
+
 QWidget *DashboardPage::buildTodosBlock() {
   auto *body = new QWidget();
   auto *lay = new QVBoxLayout(body);
@@ -1540,60 +1683,20 @@ QWidget *DashboardPage::buildCalendarBlock(bool maximizedChrome) {
   btnNew->setFlat(true);
   btnNew->setCursor(Qt::PointingHandCursor);
   btnNew->setStyleSheet(quietBtnQss());
-  connect(btnNew, &QPushButton::clicked, this,
-          &DashboardPage::openCreateEventDialog);
+  connect(btnNew, &QPushButton::clicked, this, [this]() {
+    openCreateEventDialog(QDateTime());
+  });
   hdr->addWidget(btnNew, 0);
   lay->addLayout(hdr);
 
-  const int limit =
-      DashboardLayoutStore::itemLimitFor(QStringLiteral("calendar"),
-                                         maximizedChrome ? 24 : 10);
-  const auto events = CalendarService::instance().upcoming(limit);
-  if (events.isEmpty()) {
-    auto *empty = new QLabel(
-        QStringLiteral(
-            "Keine Termine. Verbinde Google Calendar oder lege einen Termin an."),
-        body);
-    empty->setWordWrap(true);
-    empty->setStyleSheet(QStringLiteral(
-                             "color: %1; font-size: 13px; background: transparent;"
-                             "padding: 12px 4px;")
-                             .arg(muted()));
-    lay->addWidget(empty);
-  } else {
-    for (const CalendarEvent &e : events) {
-      auto *row = new QFrame(body);
-      row->setObjectName(QStringLiteral("DashRow"));
-      row->setStyleSheet(rowQss());
-      auto *rl = new QHBoxLayout(row);
-      rl->setContentsMargins(UiScale::dp(12), UiScale::dp(10), UiScale::dp(12),
-                             UiScale::dp(10));
-      auto *dot = new QLabel(row);
-      dot->setFixedSize(UiScale::dp(8), UiScale::dp(8));
-      dot->setStyleSheet(QStringLiteral(
-                             "background: %1; border-radius: 4px;")
-                             .arg(accent()));
-      auto *meta = new QVBoxLayout();
-      meta->setSpacing(2);
-      auto *t = new QLabel(e.title.isEmpty() ? QStringLiteral("Termin") : e.title,
-                           row);
-      t->setStyleSheet(QStringLiteral(
-                           "color: %1; font-size: 13px; font-weight: 600;"
-                           "background: transparent;")
-                           .arg(ink()));
-      auto *s = new QLabel(
-          e.start.toString(QStringLiteral("ddd, dd.MM. · HH:mm")), row);
-      s->setStyleSheet(QStringLiteral(
-                           "color: %1; font-size: 12px; background: transparent;")
-                           .arg(muted()));
-      meta->addWidget(t);
-      meta->addWidget(s);
-      rl->addWidget(dot, 0, Qt::AlignTop);
-      rl->addLayout(meta, 1);
-      lay->addWidget(row);
-    }
-  }
-  lay->addStretch(1);
+  auto *dayView = new CalendarDayView(body);
+  dayView->setCompact(!maximizedChrome);
+  dayView->setMinimumHeight(
+      UiScale::dp(maximizedChrome ? 420 : 280));
+  connect(dayView, &CalendarDayView::createAt, this,
+          [this](const QDateTime &dt) { openCreateEventDialog(dt); });
+  lay->addWidget(dayView, 1);
+
   if (maximizedChrome)
     return body;
   return wrapBlock(QStringLiteral("calendar"), body);
@@ -1684,11 +1787,13 @@ QWidget *DashboardPage::buildShortcutsBlock() {
   for (const Card &item : cards) {
     auto *btn = new QPushButton(body);
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setMinimumHeight(UiScale::dp(72));
+    btn->setMinimumHeight(UiScale::dp(76));
+    btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     btn->setStyleSheet(shortcutCardQss());
     auto *vl = new QVBoxLayout(btn);
-    vl->setContentsMargins(0, 0, 0, 0);
-    vl->setSpacing(UiScale::dp(3));
+    vl->setContentsMargins(UiScale::dp(12), UiScale::dp(10), UiScale::dp(12),
+                           UiScale::dp(10));
+    vl->setSpacing(UiScale::dp(4));
     auto *t = new QLabel(item.title, btn);
     t->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     t->setStyleSheet(QStringLiteral(
@@ -1697,12 +1802,14 @@ QWidget *DashboardPage::buildShortcutsBlock() {
                          .arg(ink()));
     auto *s = new QLabel(item.subtitle, btn);
     s->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    s->setWordWrap(true);
     s->setStyleSheet(QStringLiteral(
-                         "color: %1; font-size: 11px; font-weight: 500;"
+                         "color: %1; font-size: 11px; font-weight: 400;"
                          "background: transparent; border: none;")
                          .arg(muted()));
     vl->addWidget(t);
     vl->addWidget(s);
+    vl->addStretch(1);
     connect(btn, &QPushButton::clicked, this, item.action);
     grid->addWidget(btn, 0, col++);
   }
@@ -1740,6 +1847,8 @@ QWidget *DashboardPage::buildActionsBlock() {
 QWidget *DashboardPage::buildContentFor(const QString &id, bool maximizedChrome) {
   if (id == QLatin1String("greeting"))
     return nullptr;
+  if (id == QLatin1String("clock"))
+    return buildClockBlock();
   if (id == QLatin1String("todos"))
     return buildTodosBlock();
   if (id == QLatin1String("calendar"))
@@ -1779,9 +1888,10 @@ void DashboardPage::rebuildWidgets() {
     if (!w)
       continue;
     ++visibleBlocks;
-    applyBlockCellSize(w, s.rowSpan);
-    m_gridLay->addWidget(w, s.row, s.col, s.rowSpan, s.colSpan);
-    maxRow = qMax(maxRow, s.row + s.rowSpan);
+    const int rowSpan = qMax(s.rowSpan, minRowSpanForBlock(s.id));
+    applyBlockCellSize(w, rowSpan);
+    m_gridLay->addWidget(w, s.row, s.col, rowSpan, s.colSpan);
+    maxRow = qMax(maxRow, s.row + rowSpan);
   }
   if (visibleBlocks == 0) {
     QWidget *empty = buildEmptyStatePanel();
@@ -2170,16 +2280,17 @@ void DashboardPage::showCalendarMaximized() {
   m_calMaxDlg = nullptr;
 }
 
-void DashboardPage::openCreateEventDialog() {
+void DashboardPage::openCreateEventDialog(const QDateTime &presetStart) {
   QDialog dlg(window());
   dlg.setWindowTitle(QStringLiteral("Neuer Termin"));
   auto *form = new QFormLayout(&dlg);
   auto *title = new QLineEdit(&dlg);
   title->setPlaceholderText(QStringLiteral("Titel"));
-  auto *start = new QDateTimeEdit(QDateTime::currentDateTime(), &dlg);
+  const QDateTime startDt =
+      presetStart.isValid() ? presetStart : QDateTime::currentDateTime();
+  auto *start = new QDateTimeEdit(startDt, &dlg);
   start->setCalendarPopup(true);
-  auto *end =
-      new QDateTimeEdit(QDateTime::currentDateTime().addSecs(3600), &dlg);
+  auto *end = new QDateTimeEdit(startDt.addSecs(3600), &dlg);
   end->setCalendarPopup(true);
   form->addRow(QStringLiteral("Titel"), title);
   form->addRow(QStringLiteral("Start"), start);
