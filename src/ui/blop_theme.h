@@ -24,9 +24,10 @@ inline constexpr QEasingCurve::Type kEaseOvershoot = QEasingCurve::OutBack;
 } // namespace BlopMotion
 
 /// Central design-token + theme manager for Blop. Provides a Dark and a
-/// Light palette over the same accent color (Blop purple by default) and
-/// emits `themeChanged` whenever the user switches mode or accent so that
-/// surfaces can re-apply their stylesheets without a full app restart.
+/// Light palette over the same accent color (blue by default for the
+/// Notion/Obsidian + K/J mix) and emits `themeChanged` whenever the user
+/// switches mode or accent so that surfaces can re-apply their stylesheets
+/// without a full app restart.
 ///
 /// Usage:
 ///   BlopTheme::instance().install();         // once in main() after QApplication

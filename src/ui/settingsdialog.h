@@ -25,7 +25,10 @@ public:
     ~SettingsDialog();
 
     void setToolbarConfig(bool isRadial, bool isHalf);
-    void embedInWorkspace();
+    /// Prepare dialog as an embedded child (modal card or workspace tab).
+    /// When asWorkspaceTab is true, profile edit emits profileEditRequested
+    /// instead of closing with EditProfileCode.
+    void embedInWorkspace(bool asWorkspaceTab = true);
 
     // Helper so MainWindow knows which profile to edit
     QString profileIdToEdit() const { return m_editId; }

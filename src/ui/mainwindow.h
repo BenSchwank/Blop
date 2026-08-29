@@ -45,6 +45,7 @@ class QBoxLayout;
 class QFrame;
 class QVariantAnimation;
 class DocumentTabBar;
+class BlopWindowControls;
 class LibraryTagsPanel;
 class LibraryOrgBar;
 class MainWindow;
@@ -385,6 +386,10 @@ private:
   void showRenameOverlay(const QString &currentName);
 
   void animateSidebar(bool show);
+  /// Smooth width change when Dashboard vs. Notes changes sidebar footprint.
+  void animateSidebarWidth(int targetWidthPx);
+  /// Hard-cut between Dashboard and Notes apps (dual-app shell).
+  void switchToApp(bool notesApp);
 
   void performCopy(const QModelIndex &index);
   bool copyRecursive(const QString &src, const QString &dst);
@@ -422,6 +427,7 @@ private:
   void applyNoteChromeTheme();
   void styleNoteHeaderChrome();
   void refreshTopNavChrome();
+  void applyWindowControlsChrome(const QColor &foreground, bool lightTitleBar);
   void showNoteBookmarksMenu();
   void showNoteHistoryMenu();
   void showNoteExportMenu(QWidget *anchor = nullptr);
@@ -556,13 +562,15 @@ private:
   QPushButton *m_btnTitleSettings{nullptr};
   QPushButton *m_btnTitleShare{nullptr};
   QWidget *m_editorTitleControls{nullptr};
-  QPushButton *m_btnWinMin{nullptr};
-  QPushButton *m_btnWinMax{nullptr};
-  QPushButton *m_btnWinClose{nullptr};
+#ifndef Q_OS_ANDROID
+  BlopWindowControls *m_winControls{nullptr};
+#endif
   QPoint m_windowDragPos;
   bool m_isDragging{false};
 
   QSplitter *m_mainSplitter{nullptr};
+  /// Dashboard | Notes (overview+editor stack).
+  QStackedWidget *m_shellStack{nullptr};
   QStackedWidget *m_rightStack{nullptr};
 
   QWidget *m_sidebarStrip{nullptr};
@@ -596,6 +604,7 @@ private:
   QPushButton *m_btnSidebarSettings{nullptr};
 
   QWidget *m_overviewContainer{nullptr};
+  class DashboardPage *m_dashboardPage{nullptr};
   FreeGridView *m_fileListView{nullptr};
   QSortFilterProxyModel *m_libraryProxy{nullptr};
   LibraryTagsPanel *m_libraryTagsPanel{nullptr};

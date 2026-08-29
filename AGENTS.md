@@ -66,6 +66,7 @@ cmake --build build-check --target Blop -j $env:NUMBER_OF_PROCESSORS
 
 - Desktop note chrome uses **NoteChrome** colors (charcoal + blue accent `#5B9DFF`), not Blop purple, while a note is open.
 - Theme defaults (Light + Blue) live in `BlopTheme::install()` as **QSettings fallbacks**. Never call `setMode()`/`setAccent()` at startup to force a look — that overwrites and persists over the user's own choice on every launch.
+- Shared Notion/Obsidian + K/J controls: `BlopStyle::segmentQss()`, `BlopStyle::quietIconButtonQss()`, `BlopStyle::touchTargetMinDp()` (40dp) — use these for chips/menus across Settings, Neue Notiz, Seite & Notiz, and library chrome so Touch/Stift and Maus/Tastatur share one language.
 - Favorites rail = `ModernToolbar` Drawboard vertical mode; do not break `AndroidPhoneToolbar` / MorphTray Android paths.
 - Sticky notes persist in `NotePage::stickies` via `NoteManager` JSON — keep harvest/hydrate in `MultiPageNoteView` in sync when changing sticky graphics.
 

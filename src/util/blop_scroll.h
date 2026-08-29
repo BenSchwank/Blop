@@ -25,6 +25,10 @@ void makeListFitContents(QAbstractItemView *view);
 /// so press-drag on descendant controls scrolls instead of sticking.
 void installApplicationWide(QCoreApplication *app);
 
+/// Set on a QWidget (or ancestor) to opt out of app-wide finger-scroll while
+/// the subtree needs custom drag gestures (e.g. dashboard edit mode).
+inline constexpr const char *kNoFingerScrollProperty = "blopNoFingerScroll";
+
 } // namespace BlopScroll
 
 #endif // BLOP_SCROLL_H

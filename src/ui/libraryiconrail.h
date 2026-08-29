@@ -33,7 +33,7 @@ private:
   void refreshStyles();
 
   QHash<QString, QToolButton *> m_btns;
-  QString m_active{QStringLiteral("library")};
+  QString m_active{QStringLiteral("home")};
   QColor m_accent{QColor(QStringLiteral("#5B9DFF"))};
   QString m_avatar{QStringLiteral("B")};
 };

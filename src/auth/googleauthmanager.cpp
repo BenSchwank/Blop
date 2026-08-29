@@ -9,6 +9,7 @@
 #include <QThread>
 #include <QUrl>
 #include <QUrlQuery>
+#include <QSettings>
 
 #ifdef Q_OS_ANDROID
 #include <QByteArray>
@@ -199,6 +200,7 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
   connect(m_bridgePoll, &QTimer::timeout, this,
           &GoogleAuthManager::pollDesktopClaim);
 #endif
+  loadPersistedAccessToken();
 }
 
 void GoogleAuthManager::login() {
@@ -207,6 +209,32 @@ void GoogleAuthManager::login() {
 #else
   startDesktopBridgeLogin();
 #endif
+}
+
+void GoogleAuthManager::loginForCalendar() {
+  m_wantCalendar = true;
+  login();
+}
+
+bool GoogleAuthManager::hasCalendarAccess() const {
+  return !m_accessToken.isEmpty();
+}
+
+QString GoogleAuthManager::accessToken() const { return m_accessToken; }
+
+void GoogleAuthManager::persistAccessToken(const QString &token) {
+  m_accessToken = token;
+  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  if (token.isEmpty())
+    st.remove(QStringLiteral("google/access_token"));
+  else
+    st.setValue(QStringLiteral("google/access_token"), token);
+  emit calendarTokenUpdated();
+}
+
+void GoogleAuthManager::loadPersistedAccessToken() {
+  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  m_accessToken = st.value(QStringLiteral("google/access_token")).toString();
 }
 
 void GoogleAuthManager::parseUserInfoFromIdToken(const QString &idToken) {
@@ -301,11 +329,20 @@ void GoogleAuthManager::startPkceLogin() {
   q.addQueryItem("response_type", "code");
   q.addQueryItem("client_id", m_clientId);
   q.addQueryItem("redirect_uri", m_redirectUri);
-  q.addQueryItem("scope", "openid email profile");
+  QString scopes = QStringLiteral("openid email profile");
+  if (m_wantCalendar) {
+    scopes += QStringLiteral(
+        " https://www.googleapis.com/auth/calendar.readonly"
+        " https://www.googleapis.com/auth/calendar.events");
+    q.addQueryItem("access_type", "offline");
+    q.addQueryItem("prompt", "consent");
+  } else {
+    q.addQueryItem("prompt", "select_account");
+  }
+  q.addQueryItem("scope", scopes);
   q.addQueryItem("code_challenge", codeChallenge);
   q.addQueryItem("code_challenge_method", "S256");
   q.addQueryItem("state", m_pkceState);
-  q.addQueryItem("prompt", "select_account");
   authUrl.setQuery(q);
 
   qInfo() << "GoogleAuthManager: launching PKCE auth via Custom Tab"
@@ -468,6 +505,7 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
     }
     const QJsonObject obj = doc.object();
     const QString idToken = obj.value("id_token").toString();
+    const QString accessToken = obj.value("access_token").toString();
     if (idToken.isEmpty()) {
       qWarning() << "Google token response missing id_token";
       m_loginInProgress = false;
@@ -478,6 +516,9 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
 
     clearPersistedPkce();
     m_loginInProgress = false;
+    if (!accessToken.isEmpty())
+      persistAccessToken(accessToken);
+    m_wantCalendar = false;
     parseUserInfoFromIdToken(idToken);
     m_authenticated = true;
     emit idTokenReceived(idToken);
@@ -654,6 +695,10 @@ void GoogleAuthManager::claimDesktopState(const QString &state, bool fromDeepLin
 
             const QString credential =
                 obj.value(QStringLiteral("credential")).toString();
+            const QString accessTok =
+                obj.value(QStringLiteral("access_token")).toString();
+            if (!accessTok.isEmpty())
+              persistAccessToken(accessTok);
             if (credential.isEmpty()) {
               finishDesktopBridge(QString(),
                                   QStringLiteral("oauth_missing_credential"));

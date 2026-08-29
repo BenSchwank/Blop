@@ -1,12 +1,14 @@
 #include "blopstyle.h"
 
 #include "blop_theme.h"
+#include "notechrome.h"
 #include "uiscale.h"
 
 #include <QColor>
 #include <QEvent>
 #include <QGraphicsDropShadowEffect>
 #include <QObject>
+#include <QPalette>
 #include <QPropertyAnimation>
 #include <QShowEvent>
 #include <QString>
@@ -55,6 +57,250 @@ QColor textSecondary() {
 }
 
 int surfaceRadiusDp() { return BlopTheme::r12; }
+
+int touchTargetMinDp() { return 40; }
+
+QColor paperBg() { return QColor(0xF7, 0xF7, 0xF5); }
+QColor paperBgLibrary() { return QColor(0xF5, 0xF5, 0xF5); }
+QColor paperInk() { return QColor(0x1C, 0x1E, 0x24); }
+QColor paperInkMuted() { return QColor(0x6B, 0x6F, 0x76); }
+QColor paperChipBg() { return QColor(0xF0, 0xEF, 0xED); }
+QColor paperRowBg() { return QColor(0xFF, 0xFF, 0xFF); }
+QColor obsidianBg() { return QColor(0x1A, 0x1A, 0x1A); }
+QColor obsidianDesk() { return QColor(0x12, 0x12, 0x12); }
+QColor obsidianNav() { return QColor(0x16, 0x18, 0x1E); }
+QColor obsidianText() { return QColor(0xF2, 0xF2, 0xF2); }
+QColor obsidianSheet() { return QColor(0x1E, 0x1E, 0x1E); }
+
+namespace {
+
+QString buildSegmentQss(const QColor &acc, const QColor &textIdle,
+                        const QColor &textActive, bool darkSurface) {
+  const QString accHex = acc.name(QColor::HexRgb);
+  const QString accSoft = QStringLiteral("rgba(%1,%2,%3,0.20)")
+                              .arg(acc.red())
+                              .arg(acc.green())
+                              .arg(acc.blue());
+  const QString hover = darkSurface ? QStringLiteral("rgba(255,255,255,0.06)")
+                                    : QStringLiteral("rgba(0,0,0,0.04)");
+  const QString minH = QString::number(UiScale::dp(touchTargetMinDp() - 8));
+  QString qss = QStringLiteral(
+      "QPushButton {"
+      "  background: transparent;"
+      "  color: %1;"
+      "  border: 1px solid rgba(120,130,160,0.28);"
+      "  border-radius: 10px;"
+      "  padding: 8px 14px;"
+      "  min-height: %5px;"
+      "  font-size: 13px;"
+      "  font-weight: 600;"
+      "}"
+      "QPushButton:checked {"
+      "  background: %2;"
+      "  color: %3;"
+      "  border: 1px solid %4;"
+      "}"
+      "QPushButton:hover:!checked { background: %6; }"
+      "QPushButton:pressed { background: %2; }");
+  qss.replace(QStringLiteral("%1"), textIdle.name(QColor::HexRgb));
+  qss.replace(QStringLiteral("%2"), accSoft);
+  qss.replace(QStringLiteral("%3"), textActive.name(QColor::HexRgb));
+  qss.replace(QStringLiteral("%4"), accHex);
+  qss.replace(QStringLiteral("%5"), minH);
+  qss.replace(QStringLiteral("%6"), hover);
+  return qss;
+}
+
+} // namespace
+
+QString segmentQss() {
+  return buildSegmentQss(BlopTheme::accentPrimary(), BlopTheme::textSecondary(),
+                         BlopTheme::textPrimary(),
+                         BlopTheme::instance().isDark());
+}
+
+QString noteSegmentQss() {
+  return buildSegmentQss(NoteChrome::accent(), NoteChrome::textSecondary(),
+                         NoteChrome::textPrimary(), NoteChrome::isDark());
+}
+
+QString paperSegmentQss() {
+  return buildSegmentQss(BlopTheme::accentPrimary(), paperInkMuted(), paperInk(),
+                         /*darkSurface=*/false);
+}
+
+QString paperPrimaryButtonQss() {
+  const QColor acc = BlopTheme::accentPrimary();
+  return QStringLiteral(
+             "QPushButton {"
+             "  background: %1; color: #FFFFFF; border: none;"
+             "  border-radius: 10px; padding: 10px 18px; font-weight: 700;"
+             "  min-height: %2px;"
+             "}"
+             "QPushButton:hover { background: %3; }"
+             "QPushButton:pressed { background: %4; }"
+             "QPushButton:disabled { background: #E8E6E2; color: #9A9CA3; }")
+      .arg(acc.name(QColor::HexRgb),
+           QString::number(UiScale::dp(touchTargetMinDp() - 8)),
+           acc.lighter(108).name(QColor::HexRgb),
+           acc.darker(108).name(QColor::HexRgb));
+}
+
+QString paperSecondaryButtonQss() {
+  return QStringLiteral(
+             "QPushButton {"
+             "  background: %1; color: %2;"
+             "  border: 1px solid rgba(20,24,40,0.12); border-radius: 10px;"
+             "  padding: 10px 16px; font-weight: 600; text-align: left;"
+             "  min-height: %3px;"
+             "}"
+             "QPushButton:hover { border-color: rgba(20,24,40,0.22);"
+             "  background: #EBEAE6; }"
+             "QPushButton:pressed { background: #E4E3DF; }")
+      .arg(paperChipBg().name(QColor::HexRgb), paperInk().name(QColor::HexRgb),
+           QString::number(UiScale::dp(touchTargetMinDp() - 8)));
+}
+
+QString paperDestructiveButtonQss() {
+  return QStringLiteral(
+             "QPushButton {"
+             "  background: #FDF2F2; color: #C0392B;"
+             "  border: 1px solid rgba(192,57,43,0.28); border-radius: 10px;"
+             "  padding: 10px 16px; font-weight: 600; text-align: left;"
+             "  min-height: %1px;"
+             "}"
+             "QPushButton:hover { background: #FAE5E5; border-color: rgba(192,57,43,0.45); }"
+             "QPushButton:pressed { background: #F5D6D6; }")
+      .arg(UiScale::dp(touchTargetMinDp() - 8));
+}
+
+QString paperInputQss() {
+  const QColor acc = BlopTheme::accentPrimary();
+  return QStringLiteral(
+             "QLineEdit, QPlainTextEdit, QTextEdit {"
+             "  background: #FFFFFF; color: %1;"
+             "  border: 1px solid rgba(20,24,40,0.12); border-radius: 10px;"
+             "  padding: 8px 12px; selection-background-color: %2;"
+             "  selection-color: #FFFFFF;"
+             "}"
+             "QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus {"
+             "  border: 1px solid %2;"
+             "}")
+      .arg(paperInk().name(QColor::HexRgb), acc.name(QColor::HexRgb));
+}
+
+void paintPaperSurface(QWidget *w, const QString &objectName) {
+  if (!w)
+    return;
+  if (!objectName.isEmpty())
+    w->setObjectName(objectName);
+  w->setAttribute(Qt::WA_StyledBackground, true);
+  w->setAutoFillBackground(true);
+  QPalette pal = w->palette();
+  const QColor bg = paperBg();
+  const QColor ink = paperInk();
+  pal.setColor(QPalette::Window, bg);
+  pal.setColor(QPalette::Base, QColor(0xFF, 0xFF, 0xFF));
+  pal.setColor(QPalette::Text, ink);
+  pal.setColor(QPalette::WindowText, ink);
+  pal.setColor(QPalette::Button, paperChipBg());
+  pal.setColor(QPalette::ButtonText, ink);
+  pal.setColor(QPalette::PlaceholderText, paperInkMuted());
+  w->setPalette(pal);
+  const QString name =
+      w->objectName().isEmpty() ? QStringLiteral("BlopPaper") : w->objectName();
+  w->setStyleSheet(
+      QStringLiteral("QWidget#%1 { background-color: %2; color: %3; }")
+          .arg(name, bg.name(QColor::HexRgb), ink.name(QColor::HexRgb)));
+}
+
+QString quietIconButtonQss(int radiusPx) {
+  const QString hover = BlopTheme::instance().isDark()
+                            ? QStringLiteral("rgba(255,255,255,0.10)")
+                            : QStringLiteral("rgba(0,0,0,0.08)");
+  const QString press = BlopTheme::instance().isDark()
+                            ? QStringLiteral("rgba(255,255,255,0.16)")
+                            : QStringLiteral("rgba(0,0,0,0.12)");
+  return QStringLiteral(
+             "QToolButton, QPushButton {"
+             "  background: transparent; border: none;"
+             "  border-radius: %1px; padding: 0;"
+             "  min-width: %2px; min-height: %2px;"
+             "}"
+             "QToolButton:hover, QPushButton:hover { background: %3; }"
+             "QToolButton:pressed, QPushButton:pressed { background: %4; }")
+      .arg(radiusPx)
+      .arg(UiScale::dp(touchTargetMinDp()))
+      .arg(hover, press);
+}
+
+QString menuItemQss(bool destructive) {
+  auto rgba = [](const QColor &c) {
+    return QStringLiteral("rgba(%1,%2,%3,%4)")
+        .arg(c.red())
+        .arg(c.green())
+        .arg(c.blue())
+        .arg(QString::number(c.alphaF(), 'f', 3));
+  };
+  const QColor accentSoft = NoteChrome::accentSoft();
+  const QString text =
+      destructive ? QStringLiteral("#FF6B6B") : QStringLiteral("#F0F0F0");
+  const QString press = rgba(accentSoft);
+  QColor hoverCol = accentSoft;
+  hoverCol.setAlpha(qMax(18, hoverCol.alpha() / 2));
+  const QString hover = rgba(hoverCol);
+  QString qss = QStringLiteral(
+      "QPushButton {"
+      "  background: transparent;"
+      "  color: %1;"
+      "  border: none;"
+      "  text-align: left;"
+      "  padding: %4px %5px;"
+      "  font-size: 13px;"
+      "  font-weight: 500;"
+      "  border-radius: 8px;"
+      "}"
+      "QPushButton:hover { background: %3; }"
+      "QPushButton:pressed {"
+      "  background: %2;"
+      "  color: #FFFFFF;"
+      "}"
+      "QPushButton:focus { outline: none; }");
+  qss.replace(QStringLiteral("%1"), text);
+  qss.replace(QStringLiteral("%2"), press);
+  qss.replace(QStringLiteral("%3"), hover);
+  qss.replace(QStringLiteral("%4"), QString::number(UiScale::dp(12)));
+  qss.replace(QStringLiteral("%5"), QString::number(UiScale::dp(18)));
+  return qss;
+}
+
+QString obsidianSeparatorQss() {
+  return QStringLiteral(
+      "QFrame {"
+      "  background: rgba(255,255,255,0.10);"
+      "  border: none;"
+      "  max-height: 1px;"
+      "  margin: 6px 10px;"
+      "}");
+}
+
+QString paperScrollbarQss() {
+  return QStringLiteral(
+      "QScrollBar:vertical {"
+      "  background: transparent; width: 8px; margin: 4px 2px;"
+      "}"
+      "QScrollBar::handle:vertical {"
+      "  background: rgba(20,24,40,0.18); border-radius: 4px; min-height: 24px;"
+      "}"
+      "QScrollBar::handle:vertical:hover { background: rgba(20,24,40,0.28); }"
+      "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+      "  height: 0; background: none; border: none;"
+      "}"
+      "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+      "  background: none;"
+      "}"
+      "QScrollBar:horizontal { height: 0; }");
+}
 
 QString toolButtonAccentQss(const QColor &accent, int radiusPx) {
   return QStringLiteral(

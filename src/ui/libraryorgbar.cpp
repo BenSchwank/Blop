@@ -229,29 +229,40 @@ void LibraryOrgBar::refreshSortLabel() {
 
 void LibraryOrgBar::rebuildStyles() {
   const QString accent = m_accent.name(QColor::HexRgb);
+#ifndef Q_OS_ANDROID
+  // Desktop library sits on K Notion paper — use dark ink, not Dark-theme
+  // lavenders that vanish on #F5F5F5.
+  const QString text = QStringLiteral("#1C1E24");
+  const QString muted = QStringLiteral("#6B6F76");
+  const QString border = QStringLiteral("rgba(20,24,40,0.14)");
+  const QString hoverIdle = QStringLiteral("rgba(0,0,0,0.05)");
+#else
   const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
   const QString muted = BlopTheme::textSecondary().name(QColor::HexRgb);
   const QString border = BlopTheme::borderDefault().name(QColor::HexArgb);
-  setStyleSheet(BlopTheme::themed(
+  const QString hoverIdle = QStringLiteral("rgba(255,255,255,0.07)");
+#endif
+  setStyleSheet(
       QStringLiteral(
           "QWidget#LibraryOrgBar { background: transparent; }"
           "QPushButton#libraryOrgChip {"
           "  background: transparent; color: %1;"
           "  border: 1px solid %2; border-radius: 8px;"
           "  padding: 0 10px 0 8px; font-size: 12px; font-weight: 600;"
+          "  min-height: 32px;"
           "}"
           "QPushButton#libraryOrgChip:checked {"
           "  background: rgba(%3,%4,%5,0.18); color: %6;"
           "  border: 1px solid %7;"
           "}"
           "QPushButton#libraryOrgChip:hover:!checked {"
-          "  background: rgba(255,255,255,0.07);"
+          "  background: %8;"
           "}"
           "QPushButton#libraryOrgSort {"
           "  background: transparent; color: %6;"
           "  border: 1px solid %2; border-radius: 8px;"
           "  padding: 0 12px; font-size: 12px; font-weight: 600;"
-          "  min-width: 64px;"
+          "  min-width: 64px; min-height: 32px;"
           "}"
           "QPushButton#libraryOrgSort:hover {"
           "  border-color: %7; background: rgba(%3,%4,%5,0.12);"
@@ -260,11 +271,15 @@ void LibraryOrgBar::rebuildStyles() {
           .arg(m_accent.red())
           .arg(m_accent.green())
           .arg(m_accent.blue())
-          .arg(text, accent)));
+          .arg(text, accent, hoverIdle));
 
   if (!m_viewGroup)
     return;
+#ifndef Q_OS_ANDROID
+  const QColor idle(0x6B, 0x6F, 0x76);
+#else
   const QColor idle = BlopTheme::textSecondary();
+#endif
   const QList<QAbstractButton *> btns = m_viewGroup->buttons();
   for (QAbstractButton *b : btns) {
     if (!b)

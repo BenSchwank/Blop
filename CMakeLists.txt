@@ -147,6 +147,8 @@ qt_add_executable(Blop
     src/ui/penpresetbar.h
     src/ui/documenttabbar.cpp
     src/ui/documenttabbar.h
+    src/ui/blopwindowcontrols.cpp
+    src/ui/blopwindowcontrols.h
     src/ui/pagethumbnailsidebar.cpp
     src/ui/pagethumbnailsidebar.h
     src/ui/libraryiconrail.cpp
@@ -169,6 +171,14 @@ qt_add_executable(Blop
     src/ui/libraryorgstore.h
     src/ui/libraryorgbar.cpp
     src/ui/libraryorgbar.h
+    src/ui/dashboardpage.cpp
+    src/ui/dashboardpage.h
+    src/ui/dashboardlayoutstore.cpp
+    src/ui/dashboardlayoutstore.h
+    src/ui/todostore.cpp
+    src/ui/todostore.h
+    src/ui/calendarservice.cpp
+    src/ui/calendarservice.h
     src/ui/notepreviewicon.h
     src/ui/notepreviewicon.cpp
     src/ui/librarytagspanel.cpp

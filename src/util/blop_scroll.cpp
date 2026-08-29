@@ -31,6 +31,7 @@ namespace {
 constexpr const char *kInstalled = "blopFingerScroll";
 constexpr const char *kFitContents = "blopFitContents";
 constexpr const char *kPreferClick = "blopPreferClick";
+constexpr const char *kNoFingerScroll = "blopNoFingerScroll";
 constexpr int kDirectDragPx = 8;
 constexpr int kTouchDragPx = 24;
 constexpr int kPreferClickDragPx = 32;
@@ -38,6 +39,14 @@ constexpr int kPreferClickDragPx = 32;
 bool preferClickWidget(const QWidget *w) {
   for (const QWidget *p = w; p; p = p->parentWidget()) {
     if (p->property(kPreferClick).toBool())
+      return true;
+  }
+  return false;
+}
+
+bool fingerScrollBlocked(const QWidget *w) {
+  for (const QWidget *p = w; p; p = p->parentWidget()) {
+    if (p->property(kNoFingerScroll).toBool())
       return true;
   }
   return false;
@@ -290,7 +299,8 @@ private:
 
   bool beginSession(QWidget *w, const QPointF &global, qint64 ts, bool fromTouch,
                     int touchId) {
-    if (!w || isPassthroughWidget(w) || isUnderDrawingCanvas(w))
+    if (!w || isPassthroughWidget(w) || isUnderDrawingCanvas(w) ||
+        fingerScrollBlocked(w))
       return false;
     QAbstractScrollArea *area = enclosingScrollable(w);
     if (!area)

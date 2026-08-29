@@ -11,6 +11,7 @@
 #include <QEvent>
 #include <QEventLoop>
 #include <QFrame>
+#include <QGraphicsDropShadowEffect>
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -210,7 +211,10 @@ void BlopModal::applyTheme() {
   if (m_content) {
     if (m_mode == Mode::Card || m_mode == Mode::Auto) {
       m_content->setAutoFillBackground(false);
-      m_content->setStyleSheet(QStringLiteral("background: transparent;"));
+      // Dialogs that paint their own surface (Settings Notion paper) must
+      // keep their stylesheet — forcing transparent wiped paper to black.
+      if (!m_content->property("blopOwnsBackground").toBool())
+        m_content->setStyleSheet(QStringLiteral("background: transparent;"));
     } else {
       m_content->setStyleSheet(
           QStringLiteral("background-color: %1;")
@@ -252,17 +256,29 @@ void BlopModal::applyTheme() {
     m_card->setStyleSheet(qss);
     m_card->setGraphicsEffect(nullptr);
   } else {
-    // J/K card: modern frosted surface with soft shadow and themed border.
+    // Centered card + scrim (Notion-style). Settings owns paper fill —
+    // match the card chrome so dark surfaceStyle doesn't peek at corners.
     m_card->setObjectName(QStringLiteral("BlopModalCard"));
-    m_card->setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("BlopModalCard")));
     m_card->setAutoFillBackground(true);
-    // Re-enabled: QGraphicsDropShadowEffect with antialiased rounded rect
-    // is safe with the current Mesa/ANGLE build; the shadow gives the card
-    // the J/K lift on light and dark scrims.
+    const bool ownsBg =
+        m_content && m_content->property("blopOwnsBackground").toBool();
+    if (ownsBg) {
+      m_card->setStyleSheet(
+          QStringLiteral("QFrame#BlopModalCard {"
+                         "  background: %1;"
+                         "  border: 1px solid rgba(20,24,40,0.12);"
+                         "  border-radius: %2px;"
+                         "}")
+              .arg(BlopStyle::paperBg().name(QColor::HexRgb),
+                   QString::number(UiScale::dp(12))));
+    } else {
+      m_card->setStyleSheet(
+          BlopStyle::surfaceStyle(QStringLiteral("BlopModalCard")));
+    }
     if (!qobject_cast<QGraphicsDropShadowEffect *>(m_card->graphicsEffect())) {
       auto *shadow = new QGraphicsDropShadowEffect(m_card);
-      shadow->setBlurRadius(UiScale::dp(20));
-      shadow->setOffset(0, UiScale::dp(8));
+      shadow->setBlurRadius(UiScale::dp(ownsBg ? 28 : 20));
+      shadow->setOffset(0, UiScale::dp(ownsBg ? 12 : 8));
       shadow->setColor(BlopStyle::surfaceShadow());
       m_card->setGraphicsEffect(shadow);
     }

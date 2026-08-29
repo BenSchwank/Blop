@@ -561,14 +561,12 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     return;
   }
   if (name == QLatin1String("more") || name == QLatin1String("more_pill")) {
-    // Drei vertikale Punkte (Material "more vertical") - oberer + unterer in
-    // primary, mittlerer in Accent, damit es zur Toolbar-Palette passt.
+    // Quiet vertical ⋮ — no accent middle-dot (avoids purple leftover).
     p->setPen(Qt::NoPen);
     p->setBrush(primary);
     p->drawEllipse(QPointF(32, 18), 3.4, 3.4);
-    p->drawEllipse(QPointF(32, 46), 3.4, 3.4);
-    p->setBrush(accent);
     p->drawEllipse(QPointF(32, 32), 3.4, 3.4);
+    p->drawEllipse(QPointF(32, 46), 3.4, 3.4);
     return;
   }
   if (name == QLatin1String("add") || name == QLatin1String("plus")) {

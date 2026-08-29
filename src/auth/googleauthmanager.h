@@ -15,7 +15,17 @@ public:
     static GoogleAuthManager& instance();
 
     void login();
+    /// Request Google Calendar scopes (Android PKCE). Desktop uses the
+    /// existing bridge when it returns an access_token; otherwise local
+    /// calendar events still work.
+    void loginForCalendar();
     bool isAuthenticated() const { return m_authenticated; }
+    bool hasCalendarAccess() const;
+    QString accessToken() const;
+
+    QString userEmail() const { return m_email; }
+    QString userName() const { return m_name; }
+    QString userPictureUrl() const { return m_pictureUrl; }
 
 #ifdef Q_OS_ANDROID
     /// Clear the in-progress PKCE lock so the next login() tap triggers a
@@ -23,6 +33,13 @@ public:
     /// returned without a redirect, or MainWindow cancels the wait.
     void cancelPendingLogin();
     bool isLoginInProgress() const { return m_loginInProgress; }
+    /// Called from JNI bridge (BlopOAuthBridge) when Android delivers the
+    /// custom-scheme deep link with the OAuth response.
+    void handleDeepLinkCallback(const QString &uri);
+    /// Activity resumed after Custom Tab; deep link may still arrive shortly.
+    void handleExternalAuthResume();
+    /// Browser handoff failed before any redirect.
+    void handleExternalAuthAbandoned(const QString &reason);
 #else
     /// Cancel an in-flight desktop bridge login (poll + timeout).
     void cancelPendingLogin();
@@ -31,26 +48,13 @@ public:
     void handleDesktopOAuthDeepLink(const QUrl &url);
 #endif
 
-    QString userEmail() const { return m_email; }
-    QString userName() const { return m_name; }
-    QString userPictureUrl() const { return m_pictureUrl; }
-
-#ifdef Q_OS_ANDROID
-    /// Called from JNI bridge (BlopOAuthBridge) when Android delivers the
-    /// custom-scheme deep link with the OAuth response.
-    void handleDeepLinkCallback(const QString &uri);
-    /// Activity resumed after Custom Tab; deep link may still arrive shortly.
-    void handleExternalAuthResume();
-    /// Browser handoff failed before any redirect.
-    void handleExternalAuthAbandoned(const QString &reason);
-#endif
-
 signals:
     void authenticated();
     void authenticationFailed(const QString& error);
     void userInfoUpdated();
     void idTokenReceived(const QString& idToken);
     void requireBrowser(const QUrl &url);
+    void calendarTokenUpdated();
 #ifdef Q_OS_ANDROID
     /// Custom-scheme redirect arrived; token exchange / backend verify still running.
     void redirectReceived();
@@ -64,6 +68,8 @@ private:
     GoogleAuthManager& operator=(const GoogleAuthManager&) = delete;
 
     void parseUserInfoFromIdToken(const QString &idToken);
+    void persistAccessToken(const QString &token);
+    void loadPersistedAccessToken();
 
 #ifdef Q_OS_ANDROID
     void startPkceLogin();
@@ -109,5 +115,7 @@ private:
     QString m_email;
     QString m_name;
     QString m_pictureUrl;
+    QString m_accessToken;
     bool m_authenticated{false};
+    bool m_wantCalendar{false};
 };

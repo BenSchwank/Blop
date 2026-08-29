@@ -2,6 +2,7 @@
 
 #include "blop_theme.h"
 #include "blopstyle.h"
+#include "notechrome.h"
 #include "uiscale.h"
 
 #include <QApplication>
@@ -134,42 +135,8 @@ private:
   bool m_dismissing{false};
 };
 
-QString itemStyle(bool /*destructive*/) {
-  // v3.17.0: theme-aware -- reads tokens from BlopTheme so Light/Dark mode
-  // reskins automatically. Geometry (padding/font-size/radius) matches the
-  // historical look that v3.16.10 aligned to blopWebMenuStyleSheet(). The
-  // destructive parameter is accepted for API stability but ignored --
-  // Windows context menu uses one color for every item including Delete.
-  auto rgba = [](const QColor &c) {
-    return QStringLiteral("rgba(%1,%2,%3,%4)")
-        .arg(c.red()).arg(c.green()).arg(c.blue())
-        .arg(QString::number(c.alphaF(), 'f', 3));
-  };
-  const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
-  const QString press = rgba(BlopTheme::accentSubtle());
-  const QString onAccent = BlopTheme::textOnAccent().name(QColor::HexRgb);
-  // v3.18.2: hover tint (half the pressed alpha) for pointer devices.
-  QColor hoverCol = BlopTheme::accentSubtle();
-  hoverCol.setAlpha(hoverCol.alpha() / 2);
-  const QString hover = rgba(hoverCol);
-  return QStringLiteral(
-             "QPushButton {"
-             "  background: transparent;"
-             "  color: %1;"
-             "  border: none;"
-             "  text-align: left;"
-             "  padding: 10px 22px;"
-             "  font-size: 13px;"
-             "  font-weight: 500;"
-             "  border-radius: 8px;"
-             "}"
-             "QPushButton:hover { background: %4; }"
-             "QPushButton:pressed {"
-             "  background: %2;"
-             "  color: %3;"
-             "}"
-             "QPushButton:focus { outline: none; }")
-      .arg(text, press, onAccent, hover);
+QString itemStyle(bool destructive) {
+  return BlopStyle::menuItemQss(destructive);
 }
 
 } // namespace
@@ -190,13 +157,19 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
   auto *frame = new QFrame(backdrop);
   frame->setObjectName(QStringLiteral("BlopInWindowMenuFrame"));
   frame->setAttribute(Qt::WA_StyledBackground, true);
-  // v3.25.0: use BlopStyle surface card for consistent J/K modals.
-  frame->setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("BlopInWindowMenuFrame")));
+  // Obsidian overflow sheet — never light paper / purple glass.
+  frame->setStyleSheet(QStringLiteral(
+      "#BlopInWindowMenuFrame {"
+      "  background-color: %1;"
+      "  border: 1px solid rgba(255,255,255,0.10);"
+      "  border-radius: 12px;"
+      "}")
+                          .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb)));
   if (!qobject_cast<QGraphicsDropShadowEffect *>(frame->graphicsEffect())) {
     auto *shadow = new QGraphicsDropShadowEffect(frame);
     shadow->setBlurRadius(UiScale::dp(20));
     shadow->setOffset(0, UiScale::dp(8));
-    shadow->setColor(BlopStyle::surfaceShadow());
+    shadow->setColor(QColor(0, 0, 0, 110));
     frame->setGraphicsEffect(shadow);
   }
 
@@ -218,24 +191,14 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
   int totalContentHeight = vlay->contentsMargins().top() +
                            vlay->contentsMargins().bottom();
   const int separatorH = UiScale::dp(1) + UiScale::dp(12); // 1px line + 6px top/bottom margin (matches blopWebMenuStyleSheet)
-  const int itemH = UiScale::dp(44);
+  const int itemH = UiScale::dp(BlopStyle::touchTargetMinDp() + 4);
   int filledRows = 0;
 
   for (const Item &it : items) {
     if (it.separator) {
       auto *sep = new QFrame(frame);
       sep->setFrameShape(QFrame::HLine);
-      {
-        auto rgba = [](const QColor &c) {
-          return QStringLiteral("rgba(%1,%2,%3,%4)")
-              .arg(c.red()).arg(c.green()).arg(c.blue())
-              .arg(QString::number(c.alphaF(), 'f', 3));
-        };
-        const QString sepCol = rgba(BlopTheme::borderDefault());
-        sep->setStyleSheet(QStringLiteral(
-            "QFrame { color: %1; background: %1; border: none; min-height: "
-            "1px; max-height: 1px; margin: 6px 12px; }").arg(sepCol));
-      }
+      sep->setStyleSheet(BlopStyle::obsidianSeparatorQss());
       vlay->addWidget(sep);
       totalContentHeight += separatorH;
       continue;

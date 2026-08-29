@@ -32,7 +32,6 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   lay->setContentsMargins(0, UiScale::dp(12), 0, UiScale::dp(12));
   lay->setSpacing(UiScale::dp(2));
 
-  // K rail: brand mark, primary destinations, utilities at bottom.
   auto *logo = new QLabel(this);
   logo->setObjectName(QStringLiteral("LibraryIconRailLogo"));
   logo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
@@ -40,29 +39,27 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   logo->setText(QStringLiteral("B"));
   logo->setStyleSheet(QStringLiteral(
       "QLabel#LibraryIconRailLogo {"
-      "  background: #101218; color: #F0F2F8; border-radius: 8px;"
+      "  background: #5B9DFF; color: #FFFFFF; border-radius: 8px;"
       "  font-weight: 800; font-size: 13px;"
       "}"));
   lay->addWidget(logo, 0, Qt::AlignHCenter);
   lay->addSpacing(UiScale::dp(8));
 
-  // Order matches files/IDEEN/K_sidebar_hauptmenu_snapped_toolbar.png
+  // Dual-app switch first, then note utilities.
+  addBtn(QStringLiteral("home"), QStringLiteral("home"),
+         QStringLiteral("Dashboard"), lay);
+  addBtn(QStringLiteral("library"), QStringLiteral("note"),
+         QStringLiteral("Notizen"), lay);
   addBtn(QStringLiteral("new"), QStringLiteral("compose"),
          QStringLiteral("Neue Notiz"), lay);
-  addBtn(QStringLiteral("library"), QStringLiteral("note"),
-         QStringLiteral("Bibliothek"), lay);
-  addBtn(QStringLiteral("network"), QStringLiteral("network"),
-         QStringLiteral("Gedankenfäden — Notizen verknüpfen"), lay);
   addBtn(QStringLiteral("favorites"), QStringLiteral("star"),
          QStringLiteral("Favoriten"), lay);
-  addBtn(QStringLiteral("layers"), QStringLiteral("layers"),
-         QStringLiteral("Ebenen"), lay);
   addBtn(QStringLiteral("calendar"), QStringLiteral("calendar"),
          QStringLiteral("Kalender"), lay);
-  addBtn(QStringLiteral("chat"), QStringLiteral("chat"),
-         QStringLiteral("Chat"), lay);
+  addBtn(QStringLiteral("network"), QStringLiteral("network"),
+         QStringLiteral("Gedankenfäden — Notizen verknüpfen"), lay);
   addBtn(QStringLiteral("apps"), QStringLiteral("apps"),
-         QStringLiteral("Apps"), lay);
+         QStringLiteral("Apps / Study"), lay);
 
   lay->addStretch(1);
 
@@ -118,11 +115,11 @@ void LibraryIconRail::setAvatarLetter(const QString &letter) {
     p.setRenderHint(QPainter::Antialiasing);
     p.setBrush(QColor(0x5B, 0x9D, 0xFF));
     p.setPen(Qt::NoPen);
-    p.drawEllipse(pm.rect());
+    p.drawEllipse(0, 0, pm.width(), pm.height());
     p.setPen(Qt::white);
     QFont f = p.font();
     f.setBold(true);
-    f.setPixelSize(UiScale::sp(11));
+    f.setPixelSize(UiScale::dp(12));
     p.setFont(f);
     p.drawText(pm.rect(), Qt::AlignCenter, m_avatar);
     b->setIcon(QIcon(pm));
@@ -130,39 +127,41 @@ void LibraryIconRail::setAvatarLetter(const QString &letter) {
 }
 
 void LibraryIconRail::paintEvent(QPaintEvent *event) {
-  Q_UNUSED(event);
-  QPainter p(this);
-  p.fillRect(rect(), QColor(0x16, 0x18, 0x1E));
+  QWidget::paintEvent(event);
 }
 
 void LibraryIconRail::refreshStyles() {
   setStyleSheet(QStringLiteral(
       "QWidget#LibraryIconRail { background: #16181E; border: none; }"
       "QToolButton#LibraryIconRailBtn {"
-      "  background: transparent; border: none; border-radius: 10px; padding: 0;"
+      "  background: transparent; border: none; border-radius: 10px;"
       "}"
       "QToolButton#LibraryIconRailBtn:hover {"
-      "  background: rgba(255,255,255,0.08);"
+      "  background: rgba(255,255,255,0.06);"
       "}"));
   for (auto it = m_btns.begin(); it != m_btns.end(); ++it) {
-    QToolButton *b = it.value();
-    if (!b)
+    QToolButton *btn = it.value();
+    if (!btn)
       continue;
-    const bool on = (it.key() == m_active);
-    const QString iconKey = b->property("iconKey").toString();
-    const QColor fg =
-        on ? QColor(0x5B, 0x9D, 0xFF) : QColor(200, 204, 214);
-    b->setIcon(glyph(iconKey, fg, UiScale::dp(20)));
+    const bool on = it.key() == m_active;
+    const QString iconKey = btn->property("iconKey").toString();
+    if (it.key() == QLatin1String("account") && !m_avatar.isEmpty() &&
+        m_avatar != QLatin1String("B")) {
+      // Avatar icon set separately.
+    } else {
+      btn->setIcon(glyph(iconKey, on ? m_accent : QColor(200, 204, 214),
+                         UiScale::dp(20)));
+    }
     if (on) {
-      b->setStyleSheet(QStringLiteral(
+      btn->setStyleSheet(QStringLiteral(
           "QToolButton#LibraryIconRailBtn {"
           "  background: rgba(91,157,255,0.18); border: none; border-radius: 10px;"
           "}"
           "QToolButton#LibraryIconRailBtn:hover {"
-          "  background: rgba(91,157,255,0.26);"
+          "  background: rgba(91,157,255,0.24);"
           "}"));
     } else {
-      b->setStyleSheet(QString());
+      btn->setStyleSheet(QString());
     }
   }
 }
