@@ -42,6 +42,8 @@ signals:
 
 private:
   void applyChromeStyles();
+  bool usePhoneDashboard() const;
+  void applyDashboardDensity();
   void rebuildWidgets();
   void rebuildEditBar();
   void ensurePersistentHeader();

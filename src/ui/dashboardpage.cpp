@@ -22,6 +22,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
+#include <QBoxLayout>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -333,7 +334,9 @@ class DashAnalogClock : public QWidget {
 public:
   explicit DashAnalogClock(QWidget *parent = nullptr) : QWidget(parent) {
     setObjectName(QStringLiteral("DashAnalogClock"));
-    setMinimumSize(UiScale::dp(120), UiScale::dp(120));
+    const int side =
+        UiScale::isAndroidPhoneUi(parent) ? UiScale::dp(88) : UiScale::dp(120);
+    setMinimumSize(side, side);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   }
 
@@ -586,10 +589,47 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   });
 
   applyChromeStyles();
+  applyDashboardDensity();
   rebuildEditBar();
   ensurePersistentHeader();
   updatePersistentHeader();
   rebuildWidgets();
+}
+
+bool DashboardPage::usePhoneDashboard() const {
+  return UiScale::isAndroidPhoneUi(const_cast<DashboardPage *>(this)) ||
+         UiScale::isPhoneSizedLayout(const_cast<DashboardPage *>(this));
+}
+
+void DashboardPage::applyDashboardDensity() {
+  const bool phone = usePhoneDashboard();
+  const int side = UiScale::dp(phone ? 14 : 48);
+  const int top = UiScale::dp(phone ? 8 : 12);
+  const int bottom = UiScale::dp(phone ? 28 : 48);
+  if (m_gridLay) {
+    m_gridLay->setContentsMargins(side, top, side, bottom);
+    m_gridLay->setHorizontalSpacing(UiScale::dp(phone ? 10 : 28));
+    m_gridLay->setVerticalSpacing(UiScale::dp(phone ? 10 : 12));
+  }
+  if (m_host) {
+    if (phone && UiScale::isAndroidPhoneUi(this)) {
+      const int cw = UiScale::androidContentWidthPx(this);
+      if (cw > 0)
+        m_host->setMaximumWidth(cw);
+    } else {
+      m_host->setMaximumWidth(QWIDGETSIZE_MAX);
+    }
+  }
+  if (m_persistentHeader) {
+    if (auto *lay = qobject_cast<QBoxLayout *>(m_persistentHeader->layout())) {
+      lay->setContentsMargins(side, UiScale::dp(phone ? 16 : 28), side,
+                              UiScale::dp(phone ? 6 : 8));
+      lay->setSpacing(UiScale::dp(phone ? 10 : 16));
+    }
+  }
+  if (m_editBarLay) {
+    m_editBarLay->setContentsMargins(side, UiScale::dp(8), side, UiScale::dp(8));
+  }
 }
 
 void DashboardPage::applyChromeStyles() {
@@ -617,11 +657,14 @@ void DashboardPage::applyChromeStyles() {
   if (m_host)
     m_host->setStyleSheet(QStringLiteral("background: transparent;"));
 
+  const bool phone = usePhoneDashboard();
   if (m_lblHello) {
-    m_lblHello->setStyleSheet(QStringLiteral(
-                                  "color: %1; font-size: 32px; font-weight: 700;"
-                                  "letter-spacing: -0.8px; background: transparent;")
-                                  .arg(ink()));
+    m_lblHello->setWordWrap(true);
+    m_lblHello->setStyleSheet(
+        QStringLiteral("color: %1; font-size: %2px; font-weight: 700;"
+                       "letter-spacing: -0.6px; background: transparent;")
+            .arg(ink())
+            .arg(phone ? 22 : 32));
   }
   if (m_lblDate) {
     m_lblDate->setStyleSheet(QStringLiteral(
@@ -1013,10 +1056,16 @@ void DashboardPage::ensurePersistentHeader() {
   if (m_headerBuilt || !m_persistentHeader)
     return;
 
-  auto *lay = new QHBoxLayout(m_persistentHeader);
-  lay->setContentsMargins(UiScale::dp(48), UiScale::dp(28), UiScale::dp(48),
-                          UiScale::dp(8));
-  lay->setSpacing(UiScale::dp(16));
+  const bool phone = usePhoneDashboard();
+  QBoxLayout *lay = nullptr;
+  if (phone)
+    lay = new QVBoxLayout(m_persistentHeader);
+  else
+    lay = new QHBoxLayout(m_persistentHeader);
+  lay->setContentsMargins(UiScale::dp(phone ? 14 : 48),
+                          UiScale::dp(phone ? 16 : 28),
+                          UiScale::dp(phone ? 14 : 48), UiScale::dp(phone ? 6 : 8));
+  lay->setSpacing(UiScale::dp(phone ? 10 : 16));
 
   auto *textHost = new QWidget(m_persistentHeader);
   textHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -1025,6 +1074,7 @@ void DashboardPage::ensurePersistentHeader() {
   textCol->setSpacing(UiScale::dp(6));
 
   m_lblHello = new QLabel(textHost);
+  m_lblHello->setWordWrap(true);
   m_lblDate = new QLabel(textHost);
   m_lblClock = new QLabel(textHost);
   m_lblClock->hide(); // clock block owns time; keep header uncluttered
@@ -1034,10 +1084,11 @@ void DashboardPage::ensurePersistentHeader() {
   textCol->addWidget(m_lblDate);
   textCol->addWidget(m_lblClock);
   textCol->addWidget(m_lblMetrics);
-  lay->addWidget(textHost, 1);
+  lay->addWidget(textHost, phone ? 0 : 1);
 
   auto *actionsHost = new QWidget(m_persistentHeader);
-  actionsHost->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+  actionsHost->setSizePolicy(phone ? QSizePolicy::Expanding : QSizePolicy::Fixed,
+                             QSizePolicy::Preferred);
   auto *actions = new QHBoxLayout(actionsHost);
   actions->setSpacing(UiScale::dp(4));
   actions->setContentsMargins(0, 0, 0, 0);
@@ -1063,7 +1114,9 @@ void DashboardPage::ensurePersistentHeader() {
   actions->addWidget(btnNotes, 0);
   actions->addWidget(m_btnBlocks, 0);
   actions->addWidget(m_btnEdit, 0);
-  lay->addWidget(actionsHost, 0, Qt::AlignTop);
+  if (phone)
+    actions->addStretch(1);
+  lay->addWidget(actionsHost, 0, phone ? Qt::Alignment() : Qt::AlignTop);
 
   m_headerBuilt = true;
   applyChromeStyles();
@@ -1164,9 +1217,10 @@ QWidget *DashboardPage::wrapBlock(const QString &id, QWidget *content,
   frame->setStyleSheet(softBlockQss(m_editMode, id));
 
   auto *lay = new QVBoxLayout(frame);
-  lay->setContentsMargins(UiScale::dp(14), UiScale::dp(12), UiScale::dp(14),
-                          UiScale::dp(14));
-  lay->setSpacing(UiScale::dp(8));
+  const int pad = UiScale::dp(usePhoneDashboard() ? 10 : 14);
+  lay->setContentsMargins(pad, UiScale::dp(usePhoneDashboard() ? 10 : 12), pad,
+                          pad);
+  lay->setSpacing(UiScale::dp(usePhoneDashboard() ? 6 : 8));
   if (m_editMode)
     lay->addWidget(buildEditChrome(id), 0);
   else if (showTitle) {
@@ -1543,18 +1597,20 @@ QWidget *DashboardPage::buildClockBlock() {
   lay->setSpacing(UiScale::dp(4));
 
   const bool analog = clockAnalogPref();
+  const bool phone = usePhoneDashboard();
   if (analog) {
     auto *face = new DashAnalogClock(body);
-    face->setMinimumHeight(UiScale::dp(120));
+    face->setMinimumHeight(UiScale::dp(phone ? 88 : 120));
     lay->addWidget(face, 1);
   } else {
     auto *timeLbl = new QLabel(formatClock(), body);
     timeLbl->setObjectName(QStringLiteral("DashDigitalClock"));
     timeLbl->setAlignment(Qt::AlignCenter);
     timeLbl->setStyleSheet(QStringLiteral(
-                               "color: %1; font-size: 40px; font-weight: 600;"
+                               "color: %1; font-size: %2px; font-weight: 600;"
                                "letter-spacing: -1px; background: transparent;")
-                               .arg(ink()));
+                               .arg(ink())
+                               .arg(phone ? 28 : 40));
     auto *dateLbl = new QLabel(
         QLocale(QLocale::German, QLocale::Germany)
             .toString(QDate::currentDate(), QStringLiteral("d. MMMM")),
@@ -1652,12 +1708,15 @@ QWidget *DashboardPage::buildCalendarBlock(bool maximizedChrome) {
   auto *lay = new QVBoxLayout(body);
   lay->setContentsMargins(0, 0, 0, 0);
   lay->setSpacing(UiScale::dp(6));
+  const bool phone = usePhoneDashboard() && !maximizedChrome;
 
   auto *hdr = new QHBoxLayout();
+  hdr->setSpacing(UiScale::dp(phone ? 2 : 6));
   auto *btnConnect = new QPushButton(
       CalendarService::instance().hasGoogleAccess()
           ? QStringLiteral("Sync")
-          : QStringLiteral("Google verbinden"),
+          : (phone ? QStringLiteral("Google")
+                   : QStringLiteral("Google verbinden")),
       body);
   btnConnect->setFlat(true);
   btnConnect->setCursor(Qt::PointingHandCursor);
@@ -1670,7 +1729,7 @@ QWidget *DashboardPage::buildCalendarBlock(bool maximizedChrome) {
   });
   hdr->addStretch(1);
   hdr->addWidget(btnConnect, 0);
-  if (!maximizedChrome) {
+  if (!maximizedChrome && !phone) {
     auto *btnMax = new QPushButton(QStringLiteral("Maximieren"), body);
     btnMax->setFlat(true);
     btnMax->setCursor(Qt::PointingHandCursor);
@@ -1692,7 +1751,8 @@ QWidget *DashboardPage::buildCalendarBlock(bool maximizedChrome) {
   auto *dayView = new CalendarDayView(body);
   dayView->setCompact(!maximizedChrome);
   dayView->setMinimumHeight(
-      UiScale::dp(maximizedChrome ? 420 : 280));
+      UiScale::dp(maximizedChrome ? 420 : (phone ? 220 : 280)));
+  dayView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   connect(dayView, &CalendarDayView::createAt, this,
           [this](const QDateTime &dt) { openCreateEventDialog(dt); });
   lay->addWidget(dayView, 1);
@@ -1741,7 +1801,10 @@ QWidget *DashboardPage::buildRecentBlock() {
                            "color: %1; font-size: 13px; font-weight: 500;"
                            "background: transparent;")
                            .arg(ink()));
-      auto *open = new QPushButton(QStringLiteral("Öffnen"), row);
+      t->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+      auto *open = new QPushButton(
+          usePhoneDashboard() ? QStringLiteral("→") : QStringLiteral("Öffnen"),
+          row);
       open->setFlat(true);
       open->setCursor(Qt::PointingHandCursor);
       open->setStyleSheet(quietBtnQss());
@@ -1784,10 +1847,12 @@ QWidget *DashboardPage::buildShortcutsBlock() {
   };
 
   int col = 0;
+  int row = 0;
+  const bool phone = usePhoneDashboard();
   for (const Card &item : cards) {
     auto *btn = new QPushButton(body);
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setMinimumHeight(UiScale::dp(76));
+    btn->setMinimumHeight(UiScale::dp(phone ? 72 : 76));
     btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     btn->setStyleSheet(shortcutCardQss());
     auto *vl = new QVBoxLayout(btn);
@@ -1811,9 +1876,18 @@ QWidget *DashboardPage::buildShortcutsBlock() {
     vl->addWidget(s);
     vl->addStretch(1);
     connect(btn, &QPushButton::clicked, this, item.action);
-    grid->addWidget(btn, 0, col++);
+    if (phone) {
+      grid->addWidget(btn, row, col);
+      if (++col >= 2) {
+        col = 0;
+        ++row;
+      }
+    } else {
+      grid->addWidget(btn, 0, col++);
+    }
   }
-  for (int i = 0; i < 4; ++i)
+  const int stretchCols = phone ? 2 : 4;
+  for (int i = 0; i < stretchCols; ++i)
     grid->setColumnStretch(i, 1);
   return wrapBlock(QStringLiteral("shortcuts"), body, 0, true);
 }
@@ -1865,6 +1939,7 @@ QWidget *DashboardPage::buildContentFor(const QString &id, bool maximizedChrome)
 void DashboardPage::rebuildWidgets() {
   if (!m_gridLay)
     return;
+  applyDashboardDensity();
   purgeFloatingHostWidgets();
   while (QLayoutItem *it = m_gridLay->takeAt(0)) {
     if (it->widget())
@@ -1878,9 +1953,14 @@ void DashboardPage::rebuildWidgets() {
     m_gridLay->setRowStretch(r, 0);
   }
 
+  const bool phone = usePhoneDashboard();
+  // Always stack on phone — desktop multi-column specs overflow ~360dp screens.
+  const bool stackPhone = phone;
+
   const auto specs = currentSpecs();
   int maxRow = 0;
   int visibleBlocks = 0;
+  int phoneRow = 0;
   for (const auto &s : specs) {
     if (!s.visible || !isGridBlock(s.id))
       continue;
@@ -1890,8 +1970,14 @@ void DashboardPage::rebuildWidgets() {
     ++visibleBlocks;
     const int rowSpan = qMax(s.rowSpan, minRowSpanForBlock(s.id));
     applyBlockCellSize(w, rowSpan);
-    m_gridLay->addWidget(w, s.row, s.col, rowSpan, s.colSpan);
-    maxRow = qMax(maxRow, s.row + rowSpan);
+    if (stackPhone) {
+      m_gridLay->addWidget(w, phoneRow, 0, rowSpan, 12);
+      phoneRow += rowSpan;
+      maxRow = phoneRow;
+    } else {
+      m_gridLay->addWidget(w, s.row, s.col, rowSpan, s.colSpan);
+      maxRow = qMax(maxRow, s.row + rowSpan);
+    }
   }
   if (visibleBlocks == 0) {
     QWidget *empty = buildEmptyStatePanel();

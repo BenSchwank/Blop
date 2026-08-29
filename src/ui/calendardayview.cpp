@@ -196,8 +196,14 @@ void CalendarDayView::rebuildTimeline() {
   const int hourPx = UiScale::dp(m_compact ? kHourPxCompact : kHourPxFull);
   const int hours = kDayEndHour - kDayStartHour;
   const int labelW = UiScale::dp(44);
-  const int width =
-      qMax(m_scroll->viewport()->width(), UiScale::dp(m_compact ? 260 : 420));
+  // Compact (dashboard embed): follow the viewport — a 260dp floor blew
+  // half-width / phone columns past the screen edge.
+  const int vp = m_scroll->viewport()->width();
+  int width = vp;
+  if (width <= 0)
+    width = UiScale::dp(m_compact ? 200 : 420);
+  else if (!m_compact)
+    width = qMax(width, UiScale::dp(360));
   const int height = hours * hourPx;
   m_timeline->setFixedSize(width, height);
 
