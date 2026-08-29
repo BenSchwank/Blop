@@ -25,7 +25,6 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QGraphicsDropShadowEffect>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QScrollArea>
@@ -48,19 +47,89 @@
 #include <optional>
 
 namespace {
-QString ink() { return BlopStyle::paperInk().name(QColor::HexRgb); }
-QString muted() { return BlopStyle::paperInkMuted().name(QColor::HexRgb); }
-QString accent() {
-  return BlopTheme::accentPrimary().name(QColor::HexRgb);
+/// Complete Notion-style dashboard palette. Light and Dark are separate
+/// tables — never mix tokens across modes.
+struct DashTheme {
+  QColor pageBg;
+  QColor cardBg;
+  QColor ink;
+  QColor muted;
+  QColor border;
+  QColor hover;
+  QColor divider;
+  QColor inputBg;
+  QColor borderHover;
+  QColor scrollHandle;
+};
+
+DashTheme dashLight() {
+  return {
+      QColor(0xF9, 0xF9, 0xF9), // pageBg
+      QColor(0xFF, 0xFF, 0xFF), // cardBg
+      QColor(0x37, 0x35, 0x2F), // ink  #37352F
+      QColor(0x50, 0x50, 0x50), // muted
+      QColor(0xE5, 0xE5, 0xE5), // border
+      QColor(0xF1, 0xF1, 0xEF), // hover
+      QColor(55, 53, 47, 16),   // divider
+      QColor(0xFF, 0xFF, 0xFF), // inputBg
+      QColor(0xD3, 0xD3, 0xD3), // borderHover
+      QColor(55, 53, 47, 40),   // scrollHandle
+  };
 }
-QString paper() { return BlopStyle::paperBgLibrary().name(QColor::HexRgb); }
-QString chipBg() { return BlopStyle::paperChipBg().name(QColor::HexRgb); }
+
+DashTheme dashDark() {
+  return {
+      QColor(0x19, 0x19, 0x19),       // pageBg
+      QColor(0x25, 0x25, 0x25),       // cardBg
+      QColor(255, 255, 255, 207),     // ink ~0.81
+      QColor(255, 255, 255, 153),     // muted ~0.60
+      QColor(0x33, 0x33, 0x33),       // border
+      QColor(255, 255, 255, 13),      // hover ~0.05
+      QColor(255, 255, 255, 16),      // divider
+      QColor(0x1F, 0x1F, 0x1F),       // inputBg
+      QColor(0x40, 0x40, 0x40),       // borderHover
+      QColor(255, 255, 255, 46),      // scrollHandle
+  };
+}
+
+const DashTheme &dash() {
+  static DashTheme light = dashLight();
+  static DashTheme dark = dashDark();
+  return BlopTheme::instance().isDark() ? dark : light;
+}
+
+QString hex(const QColor &c) {
+  if (c.alpha() >= 250)
+    return c.name(QColor::HexRgb);
+  return QStringLiteral("rgba(%1,%2,%3,%4)")
+      .arg(c.red())
+      .arg(c.green())
+      .arg(c.blue())
+      .arg(QString::number(c.alphaF(), 'f', 3));
+}
+
+QString ink() { return hex(dash().ink); }
+QString muted() { return hex(dash().muted); }
+QString accent() { return BlopTheme::accentPrimary().name(QColor::HexRgb); }
+QString paper() { return hex(dash().pageBg); }
+QString card() { return hex(dash().cardBg); }
+QString border() { return hex(dash().border); }
+QString hover() { return hex(dash().hover); }
 
 QString sectionTitleQss() {
   return QStringLiteral(
-             "color: %1; font-size: 11px; font-weight: 600;"
-             "letter-spacing: 0.08em; background: transparent;")
-      .arg(muted());
+             "color: %1; font-size: 12px; font-weight: 600;"
+             "letter-spacing: -0.01em; background: transparent;")
+      .arg(ink());
+}
+
+QString bodyTextQss(bool strike = false) {
+  return QStringLiteral(
+             "color: %1; font-size: 13px; font-weight: 400;"
+             "background: transparent;%2")
+      .arg(strike ? muted() : ink(),
+           strike ? QStringLiteral(" text-decoration: line-through;")
+                  : QString());
 }
 
 QString compactPrimaryQss() {
@@ -68,8 +137,8 @@ QString compactPrimaryQss() {
   return QStringLiteral(
              "QPushButton {"
              "  background: %1; color: #FFFFFF; border: none;"
-             "  border-radius: 7px; padding: 4px 11px;"
-             "  font-size: 11px; font-weight: 600; min-height: 26px; max-height: 26px;"
+             "  border-radius: 6px; padding: 5px 12px;"
+             "  font-size: 12px; font-weight: 600; min-height: 28px;"
              "}"
              "QPushButton:hover { background: %2; }"
              "QPushButton:pressed { background: %3; }")
@@ -81,59 +150,96 @@ QString compactGhostQss() {
   return QStringLiteral(
              "QPushButton {"
              "  background: transparent; color: %1; border: none;"
-             "  border-radius: 7px; padding: 4px 9px;"
-             "  font-size: 11px; font-weight: 600; min-height: 26px; max-height: 26px;"
+             "  border-radius: 6px; padding: 5px 10px;"
+             "  font-size: 12px; font-weight: 500; min-height: 28px;"
              "}"
-             "QPushButton:hover { color: %2; background: rgba(55,53,47,0.04); }")
-      .arg(muted(), ink());
+             "QPushButton:hover { color: %2; background: %3; }")
+      .arg(muted(), ink(), hover());
 }
 
-QString softBlockQss(bool editing, bool calendarTint = false,
-                     bool taskPanel = false) {
+QString softBlockQss(bool editing) {
+  const DashTheme &t = dash();
   if (editing) {
     return QStringLiteral(
-        "QFrame#DashBlock {"
-        "  background: rgba(255,255,255,0.72);"
-        "  border: 1px dashed rgba(91,157,255,0.28);"
-        "  border-radius: 14px;"
-        "}");
-  }
-  if (taskPanel) {
-    return QStringLiteral(
-        "QFrame#DashBlock {"
-        "  background: #FFFFFF;"
-        "  border: 2px solid rgba(91,157,255,0.14);"
-        "  border-radius: 14px;"
-        "}");
-  }
-  if (calendarTint) {
-    return QStringLiteral(
-        "QFrame#DashBlock {"
-        "  background: #FFFFFF;"
-        "  border: 1px solid rgba(91,157,255,0.10);"
-        "  border-radius: 14px;"
-        "}");
+               "QFrame#DashBlock {"
+               "  background: %1;"
+               "  border: 1px dashed %2;"
+               "  border-radius: 8px;"
+               "}"
+               "QFrame#DashBlock:hover { border-color: %3; }")
+        .arg(hex(t.cardBg), hex(t.border), hex(BlopTheme::accentBorder()));
   }
   return QStringLiteral(
-      "QFrame#DashBlock {"
-      "  background: #FFFFFF;"
-      "  border: 1px solid rgba(55,53,47,0.06);"
-      "  border-radius: 14px;"
-      "}");
+             "QFrame#DashBlock {"
+             "  background: %1;"
+             "  border: 1px solid %2;"
+             "  border-radius: 8px;"
+             "}"
+             "QFrame#DashBlock:hover { border-color: %3; }"
+             "QFrame#DashBlock QLabel#DashDragGrip { color: transparent; }"
+             "QFrame#DashBlock:hover QLabel#DashDragGrip { color: %4; }")
+      .arg(hex(t.cardBg), hex(t.border), hex(t.borderHover), hex(t.muted));
 }
 
 QString rowQss() {
+  const DashTheme &t = dash();
   return QStringLiteral(
-      "QFrame#DashRow {"
-      "  background: transparent; border: none;"
-      "  border-bottom: 1px solid rgba(55,53,47,0.06);"
-      "}"
-      "QFrame#DashRow:hover { background: rgba(55,53,47,0.02); }");
+             "QFrame#DashRow {"
+             "  background: transparent; border: none;"
+             "  border-bottom: 1px solid %1;"
+             "}"
+             "QFrame#DashRow:hover { background: %2; border-radius: 4px; }")
+      .arg(hex(t.divider), hex(t.hover));
+}
+
+QString checkBoxQss() {
+  const DashTheme &t = dash();
+  const QString acc = accent();
+  return QStringLiteral(
+             "QCheckBox { spacing: 8px; color: %1; background: transparent; }"
+             "QCheckBox::indicator {"
+             "  width: 14px; height: 14px;"
+             "  border: 1px solid %2;"
+             "  border-radius: 3px;"
+             "  background: %3;"
+             "}"
+             "QCheckBox::indicator:hover { border-color: %4; }"
+             "QCheckBox::indicator:checked {"
+             "  background: %4; border-color: %4;"
+             "}")
+      .arg(hex(t.ink), hex(t.border), hex(t.cardBg), acc);
+}
+
+QString badgeQss() {
+  const QColor acc = BlopTheme::accentPrimary();
+  QColor bg = acc;
+  bg.setAlpha(38);
+  return QStringLiteral(
+             "QLabel#DashBadge {"
+             "  background: %1; color: %2;"
+             "  border: none; border-radius: 4px;"
+             "  padding: 1px 7px; font-size: 11px; font-weight: 500;"
+             "}")
+      .arg(hex(bg), acc.name(QColor::HexRgb));
+}
+
+QString dashInputQss() {
+  const DashTheme &t = dash();
+  return QStringLiteral(
+             "QLineEdit {"
+             "  background: %1; color: %2;"
+             "  border: 1px solid %3; border-radius: 6px;"
+             "  padding: 6px 10px; font-size: 13px;"
+             "  selection-background-color: %4;"
+             "}"
+             "QLineEdit:focus { border-color: %4; }"
+             "QLineEdit::placeholder { color: %5; }")
+      .arg(hex(t.inputBg), hex(t.ink), hex(t.border), accent(), hex(t.muted));
 }
 
 QString statMetricQss() {
   return QStringLiteral(
-             "color: %1; font-size: 12px; font-weight: 500;"
+             "color: %1; font-size: 12px; font-weight: 400;"
              "background: transparent;")
       .arg(muted());
 }
@@ -142,21 +248,63 @@ QString quietBtnQss() {
   return QStringLiteral(
              "QPushButton {"
              "  background: transparent; color: %1; border: none;"
-             "  font-weight: 600; font-size: 12px; padding: 6px 8px;"
+             "  font-weight: 500; font-size: 12px; padding: 4px 8px;"
+             "  border-radius: 4px;"
              "}"
-             "QPushButton:hover { color: %2; background: rgba(55,53,47,0.04);"
-             "  border-radius: 6px; }")
-      .arg(muted(), accent());
+             "QPushButton:hover { color: %2; background: %3; }")
+      .arg(muted(), ink(), hover());
 }
 
 QString editChipQss() {
+  QColor tint = BlopTheme::accentPrimary();
+  tint.setAlpha(28);
   return QStringLiteral(
-      "QPushButton {"
-      "  background: rgba(55,53,47,0.05); color: %1; border: none;"
-      "  border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600;"
-      "}"
-      "QPushButton:hover { background: rgba(91,157,255,0.12); color: %2; }")
-      .arg(muted(), accent());
+             "QPushButton {"
+             "  background: %1; color: %2; border: 1px solid %3;"
+             "  border-radius: 4px; padding: 3px 8px; font-size: 11px;"
+             "  font-weight: 500;"
+             "}"
+             "QPushButton:hover { background: %4; color: %5; }")
+      .arg(hover(), muted(), border(), hex(tint), accent());
+}
+
+QString gripQss(bool alwaysVisible) {
+  if (alwaysVisible) {
+    return QStringLiteral(
+               "color: %1; font-size: 13px; padding: 2px 4px;"
+               "background: transparent; letter-spacing: -1px;")
+        .arg(muted());
+  }
+  return QStringLiteral(
+      "color: transparent; font-size: 13px; padding: 2px 4px;"
+      "background: transparent; letter-spacing: -1px;");
+}
+
+QString scrollBarQss() {
+  return QStringLiteral(
+             "QScrollArea#DashBlockScroll { background: transparent; border: none; }"
+             "QScrollBar:vertical { width: 6px; background: transparent; margin: 2px; }"
+             "QScrollBar::handle:vertical {"
+             "  background: %1; border-radius: 3px; min-height: 20px;"
+             "}"
+             "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+             "  height: 0; border: none; }"
+             "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+             "  background: transparent; }")
+      .arg(hex(dash().scrollHandle));
+}
+
+QString shortcutCardQss() {
+  const DashTheme &t = dash();
+  return QStringLiteral(
+             "QPushButton {"
+             "  background: %1; border: 1px solid %2;"
+             "  border-radius: 8px; text-align: left; padding: 10px 12px;"
+             "}"
+             "QPushButton:hover {"
+             "  border-color: %3; background: %4;"
+             "}")
+      .arg(hex(t.cardBg), hex(t.border), hex(t.borderHover), hex(t.hover));
 }
 
 QString greetingHour() {
@@ -306,8 +454,6 @@ private:
 DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("DashboardPage"));
   setAttribute(Qt::WA_StyledBackground, true);
-  setStyleSheet(QStringLiteral("QWidget#DashboardPage { background: %1; }")
-                    .arg(QStringLiteral("#F3F3F1")));
 
   m_rootLay = new QVBoxLayout(this);
   m_rootLay->setContentsMargins(0, 0, 0, 0);
@@ -316,23 +462,13 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   m_editBar = new QWidget(this);
   m_editBar->setObjectName(QStringLiteral("DashEditBar"));
   m_editBar->hide();
-  m_editBar->setStyleSheet(QStringLiteral(
-      "QWidget#DashEditBar {"
-      "  background: rgba(255,255,255,0.92);"
-      "  border-bottom: 1px solid rgba(55,53,47,0.08);"
-      "}"));
   m_editBarLay = new QHBoxLayout(m_editBar);
-  m_editBarLay->setContentsMargins(UiScale::dp(20), UiScale::dp(8),
-                                   UiScale::dp(20), UiScale::dp(8));
+  m_editBarLay->setContentsMargins(UiScale::dp(28), UiScale::dp(8),
+                                   UiScale::dp(28), UiScale::dp(8));
   m_rootLay->addWidget(m_editBar, 0);
 
   m_persistentHeader = new QWidget(this);
   m_persistentHeader->setObjectName(QStringLiteral("DashPersistentHeader"));
-  m_persistentHeader->setStyleSheet(QStringLiteral(
-      "QWidget#DashPersistentHeader {"
-      "  background: #F3F3F1;"
-      "  border-bottom: 1px solid rgba(55,53,47,0.06);"
-      "}"));
   m_rootLay->addWidget(m_persistentHeader, 0);
 
   m_clockTimer = new QTimer(this);
@@ -347,18 +483,15 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
   scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  scroll->setStyleSheet(
-      QStringLiteral("QScrollArea { background: transparent; border: none; }"));
   scroll->viewport()->installEventFilter(this);
 
   m_host = new QWidget(scroll);
   m_host->setObjectName(QStringLiteral("DashHost"));
-  m_host->setStyleSheet(QStringLiteral("background: transparent;"));
   m_gridLay = new QGridLayout(m_host);
-  m_gridLay->setContentsMargins(UiScale::dp(32), UiScale::dp(24), UiScale::dp(32),
+  m_gridLay->setContentsMargins(UiScale::dp(32), UiScale::dp(20), UiScale::dp(32),
                                 UiScale::dp(28));
-  m_gridLay->setHorizontalSpacing(UiScale::dp(16));
-  m_gridLay->setVerticalSpacing(UiScale::dp(16));
+  m_gridLay->setHorizontalSpacing(UiScale::dp(14));
+  m_gridLay->setVerticalSpacing(UiScale::dp(14));
   for (int c = 0; c < 12; ++c)
     m_gridLay->setColumnStretch(c, 1);
   scroll->setWidget(m_host);
@@ -370,11 +503,69 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
 
   connect(&CalendarService::instance(), &CalendarService::eventsChanged, this,
           &DashboardPage::refresh);
+  connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this, [this]() {
+    applyChromeStyles();
+    refresh();
+  });
 
+  applyChromeStyles();
   rebuildEditBar();
   ensurePersistentHeader();
   updatePersistentHeader();
   rebuildWidgets();
+}
+
+void DashboardPage::applyChromeStyles() {
+  setStyleSheet(QStringLiteral("QWidget#DashboardPage { background: %1; }")
+                    .arg(paper()));
+  if (m_editBar) {
+    m_editBar->setStyleSheet(QStringLiteral(
+                                 "QWidget#DashEditBar {"
+                                 "  background: %1;"
+                                 "  border-bottom: 1px solid %2;"
+                                 "}")
+                                 .arg(card(), border()));
+  }
+  if (m_persistentHeader) {
+    m_persistentHeader->setStyleSheet(QStringLiteral(
+                                          "QWidget#DashPersistentHeader {"
+                                          "  background: %1;"
+                                          "  border-bottom: 1px solid %2;"
+                                          "}")
+                                          .arg(paper(), hex(dash().divider)));
+  }
+  if (m_scroll) {
+    m_scroll->setStyleSheet(
+        QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+  }
+  if (m_host)
+    m_host->setStyleSheet(QStringLiteral("background: transparent;"));
+
+  if (m_lblHello) {
+    m_lblHello->setStyleSheet(QStringLiteral(
+                                  "color: %1; font-size: 26px; font-weight: 600;"
+                                  "letter-spacing: -0.4px; background: transparent;")
+                                  .arg(ink()));
+  }
+  if (m_lblDate) {
+    m_lblDate->setStyleSheet(QStringLiteral(
+                                 "color: %1; font-size: 13px; font-weight: 400;"
+                                 "background: transparent;")
+                                 .arg(muted()));
+  }
+  if (m_lblClock) {
+    m_lblClock->setStyleSheet(QStringLiteral(
+                                  "color: %1; font-size: 13px; font-weight: 500;"
+                                  "font-variant-numeric: tabular-nums;"
+                                  "background: transparent;")
+                                  .arg(ink()));
+  }
+  if (m_lblMetrics)
+    m_lblMetrics->setStyleSheet(statMetricQss());
+  if (m_btnBlocks)
+    m_btnBlocks->setStyleSheet(compactGhostQss());
+  if (m_btnEdit)
+    m_btnEdit->setStyleSheet(compactGhostQss());
 }
 
 void DashboardPage::rebuildEditBar() {
@@ -388,10 +579,10 @@ void DashboardPage::rebuildEditBar() {
 
   auto *editHint = new QLabel(
       QStringLiteral(
-          "Layout anpassen — ⠿ verschieben, blaue Kantenpunkte zum Vergrößern"),
+          "Layout anpassen — ⋮⋮ verschieben, Kantenpunkte zum Vergrößern"),
       m_editBar);
   editHint->setStyleSheet(QStringLiteral(
-      "color: %1; font-size: 12px; font-weight: 500; background: transparent;")
+      "color: %1; font-size: 12px; font-weight: 400; background: transparent;")
                               .arg(muted()));
   m_editBarLay->addWidget(editHint, 1);
 
@@ -595,15 +786,13 @@ QWidget *DashboardPage::buildEditChrome(const QString &id) {
   lay->setContentsMargins(0, 0, 0, UiScale::dp(6));
   lay->setSpacing(UiScale::dp(4));
 
-  auto *grip = new QLabel(QStringLiteral("⠿"), bar);
+  auto *grip = new QLabel(QStringLiteral("⋮⋮"), bar);
   grip->setObjectName(QStringLiteral("DashDragGrip"));
   grip->setCursor(Qt::SizeAllCursor);
   grip->setToolTip(QStringLiteral("Ziehen zum Verschieben"));
   grip->setAttribute(Qt::WA_AcceptTouchEvents, true);
   grip->installEventFilter(this);
-  grip->setStyleSheet(QStringLiteral(
-      "color: %1; font-size: 14px; padding: 2px 4px; background: transparent;")
-                          .arg(muted()));
+  grip->setStyleSheet(gripQss(true));
   lay->addWidget(grip, 0);
 
   auto *title = new QLabel(DashboardLayoutStore::displayName(id), bar);
@@ -742,24 +931,9 @@ void DashboardPage::ensurePersistentHeader() {
   textCol->setSpacing(UiScale::dp(4));
 
   m_lblHello = new QLabel(textHost);
-  m_lblHello->setStyleSheet(QStringLiteral(
-      "color: %1; font-size: 28px; font-weight: 600;"
-      "letter-spacing: -0.5px; background: transparent;")
-                                .arg(ink()));
-
   m_lblDate = new QLabel(textHost);
-  m_lblDate->setStyleSheet(QStringLiteral(
-      "color: %1; font-size: 13px; font-weight: 500; background: transparent;")
-                               .arg(muted()));
-
   m_lblClock = new QLabel(textHost);
-  m_lblClock->setStyleSheet(QStringLiteral(
-      "color: %1; font-size: 13px; font-weight: 600;"
-      "font-variant-numeric: tabular-nums; background: transparent;")
-                                .arg(ink()));
-
   m_lblMetrics = new QLabel(textHost);
-  m_lblMetrics->setStyleSheet(statMetricQss());
 
   textCol->addWidget(m_lblHello);
   textCol->addWidget(m_lblDate);
@@ -783,13 +957,11 @@ void DashboardPage::ensurePersistentHeader() {
   m_btnBlocks = new QPushButton(QStringLiteral("＋ Blöcke"), actionsHost);
   m_btnBlocks->setCursor(Qt::PointingHandCursor);
   m_btnBlocks->setToolTip(QStringLiteral("Dashboard-Blöcke ein- und ausblenden"));
-  m_btnBlocks->setStyleSheet(compactGhostQss());
   connect(m_btnBlocks, &QPushButton::clicked, this,
           [this]() { showBlocksMenu(m_btnBlocks); });
 
   m_btnEdit = new QPushButton(QStringLiteral("Bearbeiten"), actionsHost);
   m_btnEdit->setCursor(Qt::PointingHandCursor);
-  m_btnEdit->setStyleSheet(compactGhostQss());
   connect(m_btnEdit, &QPushButton::clicked, this, &DashboardPage::toggleEditMode);
 
   actions->addWidget(btnNotes, 0);
@@ -798,6 +970,7 @@ void DashboardPage::ensurePersistentHeader() {
   lay->addWidget(actionsHost, 0, Qt::AlignTop);
 
   m_headerBuilt = true;
+  applyChromeStyles();
 }
 
 void DashboardPage::updatePersistentHeader() {
@@ -829,6 +1002,7 @@ void DashboardPage::updatePersistentHeader() {
   if (m_btnEdit)
     m_btnEdit->setText(m_editMode ? QStringLiteral("Fertig")
                                   : QStringLiteral("Bearbeiten"));
+  applyChromeStyles();
 }
 
 void DashboardPage::purgeFloatingHostWidgets() {
@@ -854,22 +1028,23 @@ QWidget *DashboardPage::buildEmptyStatePanel() {
   panel->setObjectName(QStringLiteral("DashEmptyState"));
   panel->setAttribute(Qt::WA_StyledBackground, true);
   panel->setStyleSheet(QStringLiteral(
-      "QFrame#DashEmptyState {"
-      "  background: #FFFFFF;"
-      "  border: 1px dashed rgba(91,157,255,0.28);"
-      "  border-radius: 16px;"
-      "}"));
+                           "QFrame#DashEmptyState {"
+                           "  background: %1;"
+                           "  border: 1px dashed %2;"
+                           "  border-radius: 8px;"
+                           "}")
+                           .arg(card(), border()));
 
   auto *lay = new QVBoxLayout(panel);
   lay->setContentsMargins(UiScale::dp(32), UiScale::dp(36), UiScale::dp(32),
                           UiScale::dp(36));
-  lay->setSpacing(UiScale::dp(12));
+  lay->setSpacing(UiScale::dp(10));
   lay->setAlignment(Qt::AlignCenter);
 
   auto *title = new QLabel(QStringLiteral("Noch keine Dashboard-Blöcke"), panel);
   title->setAlignment(Qt::AlignCenter);
   title->setStyleSheet(QStringLiteral(
-                           "color: %1; font-size: 18px; font-weight: 600;"
+                           "color: %1; font-size: 16px; font-weight: 600;"
                            "background: transparent;")
                            .arg(ink()));
 
@@ -903,50 +1078,42 @@ QWidget *DashboardPage::wrapBlock(const QString &id, QWidget *content,
   frame->setObjectName(QStringLiteral("DashBlock"));
   frame->setAttribute(Qt::WA_StyledBackground, true);
   frame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  const bool taskPanel = id == QLatin1String("todos");
-  frame->setStyleSheet(
-      softBlockQss(m_editMode, id == QLatin1String("calendar"), taskPanel));
+  frame->setStyleSheet(softBlockQss(m_editMode));
 
   auto *lay = new QVBoxLayout(frame);
-  lay->setContentsMargins(UiScale::dp(16), UiScale::dp(14), UiScale::dp(16),
-                          UiScale::dp(14));
-  lay->setSpacing(UiScale::dp(8));
+  lay->setContentsMargins(UiScale::dp(14), UiScale::dp(12), UiScale::dp(14),
+                          UiScale::dp(12));
+  lay->setSpacing(UiScale::dp(6));
   if (m_editMode)
     lay->addWidget(buildEditChrome(id), 0);
   else if (showTitle) {
-    auto *hdr = new QLabel(DashboardLayoutStore::displayName(id).toUpper(),
-                           frame);
-    hdr->setStyleSheet(sectionTitleQss());
+    auto *hdr = new QWidget(frame);
+    auto *hl = new QHBoxLayout(hdr);
+    hl->setContentsMargins(0, 0, 0, 0);
+    hl->setSpacing(UiScale::dp(4));
+    auto *grip = new QLabel(QStringLiteral("⋮⋮"), hdr);
+    grip->setObjectName(QStringLiteral("DashDragGrip"));
+    grip->setStyleSheet(gripQss(false));
+    grip->setToolTip(QStringLiteral("Zum Verschieben: Bearbeiten aktivieren"));
+    auto *title = new QLabel(DashboardLayoutStore::displayName(id), hdr);
+    title->setStyleSheet(sectionTitleQss());
+    hl->addWidget(grip, 0);
+    hl->addWidget(title, 1);
     lay->addWidget(hdr, 0);
   }
 
-  // Scroll inside the cell so content never forces the block taller than
-  // its grid rowSpan (that was causing overlaps between rows).
   auto *scroller = new QScrollArea(frame);
   scroller->setObjectName(QStringLiteral("DashBlockScroll"));
   scroller->setWidgetResizable(true);
   scroller->setFrameShape(QFrame::NoFrame);
   scroller->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  scroller->setStyleSheet(QStringLiteral(
-      "QScrollArea#DashBlockScroll { background: transparent; border: none; }"
-      "QScrollBar:vertical { width: 8px; background: transparent; }"
-      "QScrollBar::handle:vertical { background: rgba(55,53,47,0.18);"
-      "  border-radius: 4px; min-height: 24px; }"
-      "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
-      "  height: 0; }"));
+  scroller->setStyleSheet(scrollBarQss());
   content->setParent(scroller);
   scroller->setWidget(content);
   lay->addWidget(scroller, 1);
 
   frame->setProperty("dashBlockId", id);
-  if (taskPanel && !m_editMode) {
-    auto *ring = new QGraphicsDropShadowEffect(frame);
-    ring->setBlurRadius(UiScale::dp(22));
-    ring->setOffset(0, UiScale::dp(3));
-    ring->setColor(QColor(91, 157, 255, 52));
-    frame->setGraphicsEffect(ring);
-  }
   if (m_editMode) {
     frame->setAttribute(Qt::WA_AcceptTouchEvents, true);
     frame->installEventFilter(this);
@@ -964,10 +1131,12 @@ void DashboardPage::attachResizeHandles(QFrame *frame) {
     h->setCursor(cursor);
     h->setStyleSheet(QStringLiteral(
         "QWidget#DashResizeHandle {"
-        "  background: #5B9DFF; border: 1px solid #FFFFFF;"
-        "  border-radius: 4px;"
+        "  background: %1; border: 1px solid %2;"
+        "  border-radius: 3px;"
         "}"
-        "QWidget#DashResizeHandle:hover { background: #4A8CEE; }"));
+        "QWidget#DashResizeHandle:hover { background: %3; }")
+                         .arg(accent(), card(),
+                              BlopTheme::accentHover().name(QColor::HexRgb)));
     h->installEventFilter(this);
     h->raise();
   };
@@ -1283,18 +1452,10 @@ QWidget *DashboardPage::buildTodosBlock() {
     rl->setSpacing(UiScale::dp(8));
     auto *cb = new QCheckBox(row);
     cb->setChecked(t.done);
+    cb->setStyleSheet(checkBoxQss());
     auto *lbl = new QLabel(t.title, row);
     lbl->setWordWrap(true);
-    lbl->setStyleSheet(
-        t.done
-            ? QStringLiteral(
-                  "color: %1; font-size: 13px; text-decoration: line-through;"
-                  "background: transparent;")
-                  .arg(muted())
-            : QStringLiteral(
-                  "color: %1; font-size: 13px; font-weight: 500;"
-                  "background: transparent;")
-                  .arg(ink()));
+    lbl->setStyleSheet(bodyTextQss(t.done));
     const QString id = t.id;
     connect(cb, &QCheckBox::toggled, this, [this, id](bool on) {
       TodoStore::setDone(id, on);
@@ -1317,14 +1478,16 @@ QWidget *DashboardPage::buildTodosBlock() {
   auto *input = new QLineEdit(body);
   input->setPlaceholderText(QStringLiteral("Neue Aufgabe…"));
   input->setMinimumHeight(UiScale::dp(36));
-  input->setStyleSheet(BlopStyle::paperInputQss());
+  input->setStyleSheet(dashInputQss());
   auto *addBtn = new QPushButton(QStringLiteral("+"), body);
-  addBtn->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+  addBtn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
   addBtn->setCursor(Qt::PointingHandCursor);
   addBtn->setStyleSheet(QStringLiteral(
                             "QPushButton { background: %1; color: #FFF; border: none;"
-                            "  border-radius: 8px; font-weight: 800; }")
-                            .arg(accent()));
+                            "  border-radius: 6px; font-weight: 700; font-size: 16px; }"
+                            "QPushButton:hover { background: %2; }")
+                            .arg(accent(),
+                                 BlopTheme::accentHover().name(QColor::HexRgb)));
   auto doAdd = [this, input]() {
     if (input->text().trimmed().isEmpty())
       return;
@@ -1462,15 +1625,17 @@ QWidget *DashboardPage::buildRecentBlock() {
                              UiScale::dp(8));
       const QString name = QFileInfo(path).completeBaseName();
       auto *dot = new QLabel(name.left(1).toUpper(), row);
-      dot->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+      dot->setObjectName(QStringLiteral("DashBadge"));
+      dot->setFixedSize(UiScale::dp(24), UiScale::dp(24));
       dot->setAlignment(Qt::AlignCenter);
-      dot->setStyleSheet(QStringLiteral(
-                             "background: rgba(91,157,255,0.14); color: %1;"
-                             "border-radius: 7px; font-weight: 700; font-size: 11px;")
-                             .arg(accent()));
+      dot->setStyleSheet(badgeQss() + QStringLiteral(
+                                          "QLabel#DashBadge {"
+                                          "  padding: 0; font-size: 11px; font-weight: 600;"
+                                          "  qproperty-alignment: AlignCenter;"
+                                          "}"));
       auto *t = new QLabel(name.isEmpty() ? QStringLiteral("Notiz") : name, row);
       t->setStyleSheet(QStringLiteral(
-                           "color: %1; font-size: 13px; font-weight: 600;"
+                           "color: %1; font-size: 13px; font-weight: 500;"
                            "background: transparent;")
                            .arg(ink()));
       auto *open = new QPushButton(QStringLiteral("Öffnen"), row);
@@ -1516,29 +1681,21 @@ QWidget *DashboardPage::buildShortcutsBlock() {
   };
 
   int col = 0;
-  for (const Card &c : cards) {
-    auto *card = new QPushButton(body);
-    card->setCursor(Qt::PointingHandCursor);
-    card->setMinimumHeight(UiScale::dp(72));
-    card->setStyleSheet(QStringLiteral(
-        "QPushButton {"
-        "  background: #FFFFFF; border: 1px solid rgba(55,53,47,0.08);"
-        "  border-radius: 12px; text-align: left; padding: 12px 14px;"
-        "}"
-        "QPushButton:hover {"
-        "  border-color: rgba(91,157,255,0.35);"
-        "  background: rgba(91,157,255,0.04);"
-        "}"));
-    auto *vl = new QVBoxLayout(card);
+  for (const Card &item : cards) {
+    auto *btn = new QPushButton(body);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setMinimumHeight(UiScale::dp(72));
+    btn->setStyleSheet(shortcutCardQss());
+    auto *vl = new QVBoxLayout(btn);
     vl->setContentsMargins(0, 0, 0, 0);
-    vl->setSpacing(UiScale::dp(4));
-    auto *t = new QLabel(c.title, card);
+    vl->setSpacing(UiScale::dp(3));
+    auto *t = new QLabel(item.title, btn);
     t->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     t->setStyleSheet(QStringLiteral(
-                         "color: %1; font-size: 13px; font-weight: 700;"
+                         "color: %1; font-size: 13px; font-weight: 600;"
                          "background: transparent; border: none;")
                          .arg(ink()));
-    auto *s = new QLabel(c.subtitle, card);
+    auto *s = new QLabel(item.subtitle, btn);
     s->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     s->setStyleSheet(QStringLiteral(
                          "color: %1; font-size: 11px; font-weight: 500;"
@@ -1546,8 +1703,8 @@ QWidget *DashboardPage::buildShortcutsBlock() {
                          .arg(muted()));
     vl->addWidget(t);
     vl->addWidget(s);
-    connect(card, &QPushButton::clicked, this, c.action);
-    grid->addWidget(card, 0, col++);
+    connect(btn, &QPushButton::clicked, this, item.action);
+    grid->addWidget(btn, 0, col++);
   }
   for (int i = 0; i < 4; ++i)
     grid->setColumnStretch(i, 1);

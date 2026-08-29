@@ -2214,8 +2214,13 @@ void MainWindow::applyThemeRefresh() {
 
 #ifndef Q_OS_ANDROID
   {
+    const bool onDashboard =
+        m_shellStack && m_shellStack->currentIndex() == 0;
+    const bool inEditor =
+        m_rightStack && m_rightStack->currentWidget() == m_editorContainer &&
+        !onDashboard;
     const bool inNote =
-        m_documentTabBar && m_documentTabBar->noteChromeMode();
+        inEditor && m_documentTabBar && m_documentTabBar->noteChromeMode();
     if (inNote)
       applyNoteChromeTheme();
     else
@@ -3221,12 +3226,14 @@ void MainWindow::showAndroidStudyBootRetry() {
 
 void MainWindow::setupTitleBar() {
   m_titleBarWidget = new QWidget(this);
+  m_titleBarWidget->setObjectName(QStringLiteral("TitleBar"));
   m_titleBarWidget->setFixedHeight(52);
   m_titleBarWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   m_titleBarWidget->setAttribute(Qt::WA_StyledBackground, true);
+  m_titleBarWidget->setAutoFillBackground(true);
   // Match window fill exactly — no light top fringe / separator mismatch.
   m_titleBarWidget->setStyleSheet(QStringLiteral(
-      "background: %1; border: none;")
+      "QWidget#TitleBar { background: %1; border: none; }")
                                       .arg(BlopTheme::surfaceBackground().name(
                                           QColor::HexRgb)));
 
@@ -4201,11 +4208,24 @@ void MainWindow::syncWindowsDwmChrome() {
                      SWP_FRAMECHANGED);
   }
 
+  // Keep DWM caption tint in sync with the painted title bar (library/dashboard
+  // use elevated dark gray in Dark mode — not surfaceBackground / paper).
+  const bool onDashboard =
+      m_shellStack && m_shellStack->currentIndex() == 0;
+  const bool notesMode =
+      m_modeSelector && m_modeSelector->currentIndex() == 0;
+  const bool noteChrome =
+      m_documentTabBar && m_documentTabBar->noteChromeMode() && !onDashboard &&
+      m_rightStack && m_rightStack->currentWidget() == m_editorContainer;
   QColor titleBg = BlopTheme::surfaceBackground();
-  if (m_authNavigationLocked)
+  if (m_authNavigationLocked) {
     titleBg = QColor(QStringLiteral("#0F1115"));
-  else if (m_documentTabBar && m_documentTabBar->noteChromeMode())
+  } else if (noteChrome) {
     titleBg = NoteChrome::toolbarFill();
+  } else if (notesMode || onDashboard) {
+    titleBg = BlopTheme::instance().isDark() ? QColor(0x25, 0x25, 0x25)
+                                             : BlopStyle::paperBgLibrary();
+  }
 
   BOOL dark = titleBg.lightness() < 148 ? TRUE : FALSE;
   DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark,
@@ -11601,9 +11621,14 @@ void MainWindow::updateSidebarState() {
     // Keep library sidebar state as the user left it (hamburger toggles).
     positionNoteChrome();
   }
-  // Title-bar search: editor shows document tabs instead.
-  if (m_titleSearchBar)
-    m_titleSearchBar->setVisible(inNotesMode && !isEditor);
+  // Title-bar search: editor shows document tabs instead. In burger mode the
+  // search lives in the bottom pill / sheet — hide the top field.
+  if (m_titleSearchBar) {
+    const bool burger = UiScale::usePhoneBurgerMenu(this);
+    const bool dash =
+        m_shellStack && m_shellStack->currentIndex() == 0;
+    m_titleSearchBar->setVisible(inNotesMode && !isEditor && !burger && !dash);
+  }
   {
     bool showNoteOverflow = false;
     if (isEditor && m_editorTabs) {
@@ -11632,6 +11657,8 @@ void MainWindow::updateSidebarState() {
     // Continue below so isEditor/overview visibility logic is applied.
     m_lastIsEditor = isEditor;
   }
+  const bool onDashboard =
+      m_shellStack && m_shellStack->currentIndex() == 0;
 #ifdef Q_OS_ANDROID
   if (m_btnAndroidHome)
     m_btnAndroidHome->setVisible(inNotesMode);
@@ -11742,8 +11769,6 @@ void MainWindow::updateSidebarState() {
     syncAndroidHeaderGeometry(this);
   }
 #else
-  const bool onDashboard =
-      m_shellStack && m_shellStack->currentIndex() == 0;
   if (isEditor) {
     m_sidebarStrip->hide();
     if (btnEditorMenu)
@@ -11764,21 +11789,31 @@ void MainWindow::updateSidebarState() {
 #endif
 
   if (m_phoneLibraryNav) {
+    // Phone-style bottom pill on Dashboard + Notes overview (not while editing).
     const bool showPill = UiScale::usePhoneBurgerMenu(this) && inNotesMode &&
-                          !isEditor;
+                          !isEditor && !m_authNavigationLocked;
     m_phoneLibraryNav->setPillVisible(showPill);
+  }
+
+  if (m_overviewSearchBar) {
+    // Burger mode: search lives in the bottom pill / sheet.
+    const bool hideOverviewSearch =
+        UiScale::usePhoneBurgerMenu(this) && inNotesMode && !isEditor;
+    m_overviewSearchBar->setVisible(!hideOverviewSearch);
   }
 
   if (UiScale::usePhoneBurgerMenu(this)) {
     if (m_sidebarStrip)
       m_sidebarStrip->hide();
+    // Bottom pill owns navigation — hide the top-left hamburger to avoid a
+    // duplicate control (and stale click targets after toggling the pref).
     if (btnEditorMenu)
       btnEditorMenu->hide();
     if (btnOverviewMenu)
       btnOverviewMenu->hide();
 #ifdef Q_OS_ANDROID
     if (m_btnAndroidToolbarMenu)
-      m_btnAndroidToolbarMenu->hide();
+      m_btnAndroidToolbarMenu->setVisible(false);
     if (m_androidSidebarScrim)
       m_androidSidebarScrim->hide();
 #endif
@@ -11792,7 +11827,11 @@ void MainWindow::updateSidebarState() {
 
   m_lastIsEditor = isEditor;
 #ifndef Q_OS_ANDROID
-  refreshNoteTitleChrome(m_documentTabBar && m_documentTabBar->noteChromeMode());
+  // Dashboard / overview never keep NoteChrome title colors — even if a note
+  // tab still has noteChromeMode latched from a previous edit session.
+  const bool titleNoteChrome =
+      isEditor && m_documentTabBar && m_documentTabBar->noteChromeMode();
+  refreshNoteTitleChrome(titleNoteChrome);
 #endif
 }
 
@@ -13379,12 +13418,14 @@ void MainWindow::closeCloudBrowser() {
 }
 
 void MainWindow::setupPhoneLibraryNav() {
-  if (!m_overviewContainer)
+  if (!m_overviewContainer && !this)
     return;
   const bool burger = UiScale::usePhoneBurgerMenu(this);
   m_lastBurgerNav = burger;
+  // Parent to the main window so the bottom pill + sheet work on Dashboard and
+  // Notes overview (not only while overviewContainer is the visible page).
   if (burger && !m_phoneLibraryNav) {
-    m_phoneLibraryNav = new PhoneLibraryNav(m_overviewContainer);
+    m_phoneLibraryNav = new PhoneLibraryNav(this);
     const QString user =
         QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
             .value(QStringLiteral("username"))
@@ -13418,39 +13459,44 @@ void MainWindow::setupPhoneLibraryNav() {
               if (m_overviewSearchBar)
                 m_overviewSearchBar->setText(q);
             });
+  } else if (m_phoneLibraryNav && m_phoneLibraryNav->parentWidget() != this) {
+    m_phoneLibraryNav->setParent(this);
   }
   if (burger && m_phoneLibraryNav) {
-    if (btnOverviewMenu) {
-      disconnect(btnOverviewMenu, &QAbstractButton::clicked, this,
+    // Top hamburger stays hidden in burger mode (bottom pill owns nav).
+    auto clearBurgerWires = [this](QAbstractButton *btn) {
+      if (!btn || !m_phoneLibraryNav)
+        return;
+      disconnect(btn, &QAbstractButton::clicked, this,
                  &MainWindow::onToggleSidebar);
-      disconnect(btnOverviewMenu, &QAbstractButton::clicked, m_phoneLibraryNav,
+      disconnect(btn, &QAbstractButton::clicked, m_phoneLibraryNav,
                  &PhoneLibraryNav::openMenu);
-      connect(btnOverviewMenu, &QAbstractButton::clicked, m_phoneLibraryNav,
-              &PhoneLibraryNav::openMenu);
-    }
+    };
+    clearBurgerWires(btnOverviewMenu);
+    clearBurgerWires(btnEditorMenu);
 #ifdef Q_OS_ANDROID
-    if (m_btnAndroidToolbarMenu) {
-      disconnect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this,
-                 &MainWindow::onToggleSidebar);
-    }
+    clearBurgerWires(m_btnAndroidToolbarMenu);
 #endif
   } else {
-    if (btnOverviewMenu) {
+    if (m_phoneLibraryNav) {
+      m_phoneLibraryNav->setPillVisible(false);
+      m_phoneLibraryNav->closeMenu();
+    }
+    auto wireSidebarToggle = [this](QAbstractButton *btn) {
+      if (!btn)
+        return;
       if (m_phoneLibraryNav)
-        disconnect(btnOverviewMenu, &QAbstractButton::clicked, m_phoneLibraryNav,
+        disconnect(btn, &QAbstractButton::clicked, m_phoneLibraryNav,
                    &PhoneLibraryNav::openMenu);
-      disconnect(btnOverviewMenu, &QAbstractButton::clicked, this,
+      disconnect(btn, &QAbstractButton::clicked, this,
                  &MainWindow::onToggleSidebar);
-      connect(btnOverviewMenu, &QAbstractButton::clicked, this,
+      connect(btn, &QAbstractButton::clicked, this,
               &MainWindow::onToggleSidebar);
-    }
+    };
+    wireSidebarToggle(btnOverviewMenu);
+    wireSidebarToggle(btnEditorMenu);
 #ifdef Q_OS_ANDROID
-    if (m_btnAndroidToolbarMenu) {
-      disconnect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this,
-                 &MainWindow::onToggleSidebar);
-      connect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this,
-              &MainWindow::onToggleSidebar);
-    }
+    wireSidebarToggle(m_btnAndroidToolbarMenu);
 #endif
   }
 }
@@ -13460,6 +13506,16 @@ void MainWindow::applyCompactNavPref() {
   if (UiScale::usePhoneBurgerMenu(this) && m_isSidebarOpen)
     animateSidebar(false);
   updateSidebarState();
+#ifndef Q_OS_ANDROID
+  // Force title chrome now — settings toggle must not leave a stale paper bar.
+  const bool onDashboard =
+      m_shellStack && m_shellStack->currentIndex() == 0;
+  const bool inEditor =
+      m_rightStack && m_rightStack->currentWidget() == m_editorContainer &&
+      !onDashboard;
+  refreshNoteTitleChrome(inEditor && m_documentTabBar &&
+                         m_documentTabBar->noteChromeMode());
+#endif
 }
 
 bool MainWindow::handleAndroidBack() {
@@ -13531,6 +13587,10 @@ bool MainWindow::handleAndroidBack() {
 }
 
 void MainWindow::onPhoneNavAction(const QString &id) {
+  if (id == QLatin1String("dashboard") || id == QLatin1String("home")) {
+    switchToApp(false);
+    return;
+  }
   if (id == QLatin1String("notes")) {
 #ifdef Q_OS_ANDROID
     if (m_modeSelector) {
@@ -13539,6 +13599,7 @@ void MainWindow::onPhoneNavAction(const QString &id) {
     }
 #endif
     onModeChanged(0);
+    switchToApp(true);
     return;
   }
   if (id == QLatin1String("study")) {
@@ -14519,108 +14580,16 @@ void MainWindow::applyNoteChromeTheme() {
 }
 
 void MainWindow::refreshTopNavChrome() {
-  const bool noteChrome = m_documentTabBar && m_documentTabBar->noteChromeMode();
-
-  const QColor bg = noteChrome ? NoteChrome::toolbarFill()
-                               : BlopTheme::surfaceBackground();
-  const QColor text = noteChrome ? NoteChrome::textPrimary()
-                                 : BlopTheme::textPrimary();
-  const QColor text2 = noteChrome ? NoteChrome::textSecondary()
-                                  : BlopTheme::textSecondary();
-  const QColor border = noteChrome ? NoteChrome::borderSoft()
-                                   : BlopTheme::borderSubtle();
-  const QColor accent = noteChrome ? NoteChrome::accent()
-                                   : BlopTheme::accentPrimary();
-  const QColor panelHover = noteChrome ? NoteChrome::panelBg()
-                                       : BlopTheme::surfaceMuted();
-  const QColor accentSoft = noteChrome ? NoteChrome::accentSoft()
-                                       : BlopTheme::accentSubtle();
-
-  if (m_titleBarWidget)
-    m_titleBarWidget->setStyleSheet(QStringLiteral(
-        "background: %1; border: none;").arg(bg.name(QColor::HexRgb)));
-  if (m_lblBrand)
-    m_lblBrand->setStyleSheet(QStringLiteral(
-        "color: %1; font-size: 17px; font-weight: 800;"
-        "letter-spacing: 0.4px; background: transparent; border: none;")
-            .arg(text.name(QColor::HexRgb)));
-  if (m_titleBarSep)
-    m_titleBarSep->setStyleSheet(QStringLiteral("background: %1; border: none;")
-                                     .arg(border.name(QColor::HexArgb)));
-
-  const QString fg = text.name(QColor::HexRgb);
-  const QString sec = text2.name(QColor::HexRgb);
-  const QString b = border.name(QColor::HexArgb);
-  const QString acc = accent.name(QColor::HexRgb);
-  const QString hover = panelHover.name(QColor::HexArgb);
-  const QString accSoft = accentSoft.name(QColor::HexArgb);
-
-  if (m_btnMode) {
-    m_btnMode->setStyleSheet(QStringLiteral(
-        "QPushButton {"
-        "  background: %1;"
-        "  border: 1px solid %2;"
-        "  border-radius: 11px;"
-        "  color: %3;"
-        "  padding: 0 12px; font-size: 13px; font-weight: 600;"
-        "}"
-        "QPushButton:hover { background: %4; border-color: %5; }")
-            .arg(hover, b, fg, accSoft, b));
-  }
-
-  if (m_titleSearchBar) {
-    m_titleSearchBar->setStyleSheet(QStringLiteral(
-        "QLineEdit {"
-        "  background: %1;"
-        "  border: 1px solid %2;"
-        "  border-radius: 11px;"
-        "  color: %3; font-size: 12px;"
-        "  padding: 0 14px;"
-        "}"
-        "QLineEdit:focus { border: 1px solid %4; }")
-            .arg(hover, b, sec, acc));
-  }
-
-  if (m_btnNewTab) {
-    m_btnNewTab->setStyleSheet(QStringLiteral(
-        "QPushButton { background: transparent; border: none; border-radius: 8px; }"
-        "QPushButton:hover { background: %1; }")
-            .arg(hover));
-    m_btnNewTab->setIcon(createModernIcon(QStringLiteral("add"), text2));
-  }
-
-  if (m_btnAddWebBookmark) {
-    m_btnAddWebBookmark->setStyleSheet(QStringLiteral(
-        "QPushButton {"
-        "  background: %1;"
-        "  border: none;"
-        "  border-radius: 8px;"
-        "  color: %2;"
-        "  font-size: 18px; font-weight: 600;"
-        "}"
-        "QPushButton:hover { background: %3; }")
-            .arg(hover, sec, accSoft));
-  }
-
-  if (m_btnTitleBarBell) {
-    m_btnTitleBarBell->setIcon(createModernIcon(QStringLiteral("bell"), text2));
-    m_btnTitleBarBell->setStyleSheet(QStringLiteral(
-        "QToolButton { background: transparent; border: none; border-radius: 8px; }"
-        "QToolButton:hover { background: %1; }")
-            .arg(hover));
-  }
-  if (m_btnEditorNoteOverflow) {
-    m_btnEditorNoteOverflow->setIcon(createModernIcon(QStringLiteral("more_pill"), text2));
-    m_btnEditorNoteOverflow->setStyleSheet(QStringLiteral(
-        "QToolButton { background: transparent; border: none; border-radius: 8px; }"
-        "QToolButton:hover { background: %1; }")
-            .arg(hover));
-  }
-
-  const bool lightBar =
-      noteChrome ? !NoteChrome::isDark()
-                 : (BlopTheme::surfaceBackground().lightness() > 148);
-  applyWindowControlsChrome(text, lightBar);
+  // Single source of truth for the title bar — never paint a second palette
+  // here (that left Dashboard white/paper while Notes stayed NoteChrome-dark).
+  const bool onDashboard =
+      m_shellStack && m_shellStack->currentIndex() == 0;
+  const bool inEditor =
+      m_rightStack && m_rightStack->currentWidget() == m_editorContainer &&
+      !onDashboard;
+  const bool noteChrome =
+      inEditor && m_documentTabBar && m_documentTabBar->noteChromeMode();
+  refreshNoteTitleChrome(noteChrome);
 }
 
 void MainWindow::applyWindowControlsChrome(const QColor &foreground,
@@ -14737,24 +14706,45 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
       m_shellStack && m_shellStack->currentIndex() == 0;
   const bool libraryShellChrome =
       !authChrome && !noteChrome && (notesMode || onDashboard);
+  const bool darkShell = BlopTheme::instance().isDark();
+
+  // Library / Dashboard title bar: light paper in Light mode, elevated dark
+  // gray in Dark mode (still contrasts with the page, never pure white).
+  const QColor libraryBarBg =
+      darkShell ? QColor(0x25, 0x25, 0x25) : BlopStyle::paperBgLibrary();
+  const QColor libraryInk =
+      darkShell ? BlopTheme::textPrimary() : BlopStyle::paperInk();
+  const QColor libraryMuted =
+      darkShell ? BlopTheme::textSecondary() : BlopStyle::paperInkMuted();
+  const QColor libraryChip =
+      darkShell ? QColor(255, 255, 255, 18) : BlopStyle::paperChipBg();
+  const QColor libraryChipHover =
+      darkShell ? QColor(255, 255, 255, 28) : QColor(0xEB, 0xEA, 0xE6);
+  const QString libraryBorder =
+      darkShell ? QStringLiteral("rgba(255,255,255,0.10)")
+                : QStringLiteral("rgba(55,53,47,0.10)");
+  const QString librarySep =
+      darkShell ? QStringLiteral("rgba(255,255,255,0.12)")
+                : QStringLiteral("rgba(55,53,47,0.14)");
+
   const QColor titleBg =
       authChrome ? QColor(QStringLiteral("#0F1115"))
-                 : (libraryShellChrome ? BlopStyle::paperBgLibrary()
+                 : (libraryShellChrome ? libraryBarBg
                                        : (noteChrome ? NoteChrome::toolbarFill()
                                                      : BlopTheme::surfaceBackground()));
   // Icon contrast follows the painted title-bar luminance.
   const bool iconsOnDarkBar =
-      authChrome || (!libraryShellChrome && titleBg.lightness() < 148);
+      authChrome || titleBg.lightness() < 148;
   const QColor brandFg =
       authChrome ? QColor(QStringLiteral("#F3F4F6"))
                  : (libraryShellChrome
-                        ? BlopStyle::paperInk()
+                        ? libraryInk
                         : (noteChrome ? NoteChrome::textPrimary()
                                       : BlopTheme::textPrimary()));
   const QColor chromeFg =
       authChrome ? QColor(QStringLiteral("#E8E4FF"))
                  : noteChrome ? NoteChrome::textPrimary()
-                              : libraryShellChrome ? BlopStyle::paperInk()
+                              : libraryShellChrome ? libraryInk
                                                    : (notesMode
                                                           ? BlopTheme::textPrimary()
                                                           : (iconsOnDarkBar
@@ -14764,7 +14754,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   const QColor chromeMuted =
       authChrome ? QColor(QStringLiteral("#C8CDDC"))
                  : noteChrome ? NoteChrome::textSecondary()
-                              : libraryShellChrome ? BlopStyle::paperInkMuted()
+                              : libraryShellChrome ? libraryMuted
                                                    : (notesMode
                                                           ? BlopTheme::textSecondary()
                                                           : (iconsOnDarkBar
@@ -14774,13 +14764,20 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   const QColor winFg = chromeFg;
 
   if (m_titleBarWidget) {
+    m_titleBarWidget->setAutoFillBackground(true);
     m_titleBarWidget->setStyleSheet(
-        QStringLiteral("background: %1; border: none;")
+        QStringLiteral("QWidget#TitleBar { background: %1; border: none; }")
             .arg(titleBg.name(QColor::HexRgb)));
     QPalette pal = m_titleBarWidget->palette();
     pal.setColor(QPalette::Window, titleBg);
     pal.setColor(QPalette::Base, titleBg);
     m_titleBarWidget->setPalette(pal);
+    m_titleBarWidget->update();
+  }
+  if (m_topNavControls) {
+    m_topNavControls->setAttribute(Qt::WA_StyledBackground, true);
+    m_topNavControls->setStyleSheet(
+        QStringLiteral("background: transparent; border: none;"));
   }
 
   if (btnEditorMenu) {
@@ -14799,7 +14796,14 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
       btnEditorMenu->setStyleSheet(QStringLiteral(
           "QToolButton { background: transparent; border: none; border-radius: 10px; }"
           "QToolButton:hover { background: %1; }")
-                                       .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb)));
+                                       .arg(libraryShellChrome
+                                                ? (darkShell
+                                                       ? QStringLiteral(
+                                                             "rgba(255,255,255,0.08)")
+                                                       : QStringLiteral(
+                                                             "rgba(55,53,47,0.06)"))
+                                                : BlopTheme::surfaceMuted().name(
+                                                      QColor::HexArgb)));
     }
   }
 
@@ -14829,7 +14833,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                   .arg(NoteChrome::borderSoft().name(QColor::HexRgb))
             : QStringLiteral("background: %1; border: none;")
                   .arg(libraryShellChrome
-                           ? QStringLiteral("rgba(55,53,47,0.14)")
+                           ? librarySep
                            : BlopTheme::borderSubtle().name(QColor::HexArgb)));
   }
 
@@ -14850,15 +14854,16 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
     } else if (libraryShellChrome) {
       m_btnMode->setStyleSheet(QStringLiteral(
           "QPushButton {"
-          "  background: %1; border: 1px solid rgba(55,53,47,0.10);"
-          "  border-radius: 10px; color: %2; font-size: 12px; font-weight: 600;"
+          "  background: %1; border: 1px solid %2;"
+          "  border-radius: 10px; color: %3; font-size: 12px; font-weight: 600;"
           "  padding: 0 12px;"
           "}"
-          "QPushButton:hover { background: %3; border-color: rgba(91,157,255,0.35);"
-          "  color: %4; }")
-                                   .arg(BlopStyle::paperChipBg().name(QColor::HexRgb),
-                                        BlopStyle::paperInk().name(QColor::HexRgb),
-                                        QStringLiteral("#EBEAE6"),
+          "QPushButton:hover { background: %4; border-color: rgba(91,157,255,0.35);"
+          "  color: %5; }")
+                                   .arg(libraryChip.name(QColor::HexArgb),
+                                        libraryBorder,
+                                        libraryInk.name(QColor::HexRgb),
+                                        libraryChipHover.name(QColor::HexArgb),
                                         BlopTheme::accentPrimary().name(
                                             QColor::HexRgb)));
     } else {
@@ -14972,6 +14977,27 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                                                NoteChrome::accent().name(
                                                    QColor::HexRgb),
                                                NoteChrome::textSecondary().name(
+                                                   QColor::HexRgb)));
+    } else if (libraryShellChrome) {
+      m_titleSearchBar->setStyleSheet(QStringLiteral(
+          "QLineEdit {"
+          "  background: %1;"
+          "  border: 1px solid %2;"
+          "  border-radius: 11px;"
+          "  color: %3; font-size: 12px;"
+          "  padding: 0 14px;"
+          "}"
+          "QLineEdit:focus {"
+          "  background: %1;"
+          "  border: 1px solid %4;"
+          "}"
+          "QLineEdit::placeholder { color: %5; }")
+                                          .arg(libraryChip.name(QColor::HexArgb),
+                                               libraryBorder,
+                                               libraryInk.name(QColor::HexRgb),
+                                               BlopTheme::accentPrimary().name(
+                                                   QColor::HexRgb),
+                                               libraryMuted.name(
                                                    QColor::HexRgb)));
     } else {
       m_titleSearchBar->setStyleSheet(QStringLiteral(

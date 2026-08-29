@@ -164,12 +164,19 @@ void PhoneLibraryNav::setQuickNotePaths(const QStringList &recentPaths,
 }
 
 void PhoneLibraryNav::setPillVisible(bool on) {
-  setVisible(on);
   if (on) {
+    setAttribute(Qt::WA_TransparentForMouseEvents, false);
+    setEnabled(true);
+    setVisible(true);
     syncPillGeometry();
     raise();
   } else {
     closeMenu();
+    setVisible(false);
+    setEnabled(false);
+    // Stay out of the hit-test path so the top hamburger works immediately
+    // after turning burger mode off (no "wait a moment" dead clicks).
+    setAttribute(Qt::WA_TransparentForMouseEvents, true);
   }
 }
 
@@ -203,12 +210,13 @@ void PhoneLibraryNav::emitAndClose(const QString &id) {
 }
 
 void PhoneLibraryNav::syncPillGeometry() {
-  if (!m_host)
+  QWidget *host = parentWidget() ? parentWidget() : m_host;
+  if (!host)
     return;
   const int w = UiScale::dp(kPillW);
   const int h = UiScale::dp(kPillH);
-  const int x = qMax(0, (m_host->width() - w) / 2);
-  const int y = qMax(0, m_host->height() - h - UiScale::safeBottomPx(m_host) -
+  const int x = qMax(0, (host->width() - w) / 2);
+  const int y = qMax(0, host->height() - h - UiScale::safeBottomPx(host) -
                             UiScale::dp(10));
   setGeometry(x, y, w, h);
   raise();
@@ -260,8 +268,15 @@ void PhoneLibraryNav::paintEvent(QPaintEvent *) {
 }
 
 void PhoneLibraryNav::mousePressEvent(QMouseEvent *event) {
-  if (event->button() == Qt::LeftButton)
+  if (event->button() == Qt::LeftButton) {
+    // Left third = search affordance; rest opens the menu.
+    const bool wantSearch = event->position().x() < width() * 0.38;
     openMenu();
+    if (wantSearch && m_search) {
+      m_search->setFocus(Qt::OtherFocusReason);
+      m_search->selectAll();
+    }
+  }
   QWidget::mousePressEvent(event);
 }
 
@@ -352,6 +367,10 @@ bool PhoneLibraryNav::handleSheetPointer(QObject *watched, QEvent *event) {
 }
 
 bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
+  // When the pill is hidden and no sheet is open, do not intercept host/window
+  // events (that caused a short "dead" period on the sidebar hamburger).
+  if (!isVisible() && !m_sheet)
+    return QWidget::eventFilter(watched, event);
   if (m_list && m_list->viewport() && watched == m_list->viewport() && event) {
     const QEvent::Type t = event->type();
     if (t == QEvent::MouseButtonPress || t == QEvent::MouseButtonRelease) {
@@ -495,6 +514,8 @@ void PhoneLibraryNav::rebuildMenu() {
   m_list->clear();
   const bool roomy = spaciousMenu();
   addSection(QStringLiteral("Bibliothek"));
+  addRow(QStringLiteral("dashboard"), QStringLiteral("Dashboard"),
+         roomy ? QStringLiteral("Start und Blöcke") : QString());
   addRow(QStringLiteral("notes"), QStringLiteral("Notizen"),
          roomy ? QStringLiteral("Lokale Bibliothek") : QString(), true);
   addRow(QStringLiteral("study"), QStringLiteral("Study"),
@@ -692,8 +713,7 @@ void PhoneLibraryNav::closeMenu() {
     qApp->removeEventFilter(this);
   if (!m_sheet)
     return;
-  m_sheet->hide();
-  m_sheet->deleteLater();
+  QWidget *sheet = m_sheet;
   m_sheet = nullptr;
   m_card = nullptr;
   m_scrim = nullptr;
@@ -701,6 +721,11 @@ void PhoneLibraryNav::closeMenu() {
   m_search = nullptr;
   m_account = nullptr;
   m_listPressItem = nullptr;
+  // Hide + delete immediately so a dismiss can't steal the next click on the
+  // title-bar hamburger after leaving burger mode.
+  sheet->hide();
+  sheet->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  delete sheet;
 }
 
 void PhoneLibraryNav::openMenu() {

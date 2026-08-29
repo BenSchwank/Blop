@@ -40,6 +40,7 @@ signals:
   void customizeToggled(bool editing);
 
 private:
+  void applyChromeStyles();
   void rebuildWidgets();
   void rebuildEditBar();
   void ensurePersistentHeader();
