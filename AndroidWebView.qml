@@ -990,9 +990,10 @@ Rectangle {
 
     Timer {
         id: surfaceBootTimer
-        // Slightly longer delay reduces EGL deadlock races when Study is
-        // opened immediately after Notes first paint / crash-report modal.
-        interval: 1100
+        // Longer delay after Notes GL / A11y settle before WebView SurfaceView.
+        // Too short (≤1s) still races QAndroidPlatformOpenGLWindow::eglSurface
+        // vs QtAndroidAccessibility on Android 16 (Nothing Pong).
+        interval: 2000
         property string reason: ""
         running: false
         repeat: false
@@ -1756,14 +1757,14 @@ Rectangle {
             if (w && currentUrl !== "" && currentUrl !== "about:blank") {
                 w.runJavaScript(jsCode)
             } else {
-                // WebView not yet on a real Study page — queue JS for after load
+                // WebView not yet on a real Study page — queue JS for after load.
+                // Do NOT call ensureStudyLoaded() here: logout/login injects often
+                // race Settings teardown + EGL/A11y and abort the process.
                 console.log("QML: studyWeb not ready (url='" + currentUrl + "'), queuing injectJs")
                 pendingInjectJs = jsCode
-                // Trigger load so the pending JS can be executed on arrival
-                if (!studyWebLoader.active) {
+                if (tabActive && !studyWebLoader.active) {
                     requestSurfaceActivation("injectToken")
                 }
-                ensureStudyLoaded()
             }
         }
 

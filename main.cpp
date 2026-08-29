@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QTimer>
 #ifdef Q_OS_ANDROID
+#include <QAccessible>
 #include <QSurfaceFormat>
 #include <QSslSocket>
 #include <QNetworkAccessManager>
@@ -114,6 +115,14 @@ int main(int argc, char *argv[]) {
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
   BlopScroll::installApplicationWide(&a);
+
+#ifdef Q_OS_ANDROID
+  // Env vars alone are not enough on Android 16 / Qt 6.10+: system A11y
+  // still drives QtAndroidAccessibility::runInObjectContext(), which holds
+  // the EGL surface lock. Creating WebView's SurfaceView then aborts with
+  // "Failed to acquire deadlock protector for eglSurface()". Force-off.
+  QAccessible::setActive(false);
+#endif
 
 #ifndef Q_OS_ANDROID
   // blop://oauth/done?state=… returns from the system-browser Google bridge.

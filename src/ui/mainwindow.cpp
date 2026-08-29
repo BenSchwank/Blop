@@ -4036,14 +4036,23 @@ void MainWindow::openSettingsWorkspace() {
     st.remove(QStringLiteral("session_id"));
     st.remove(QStringLiteral("username"));
     st.sync();
-    updateSidebarUser(QString());
     const QString clearJs = QStringLiteral(
         "localStorage.removeItem('session_id');"
         "localStorage.removeItem('username');"
         "window.location.href = '/login';");
 #ifdef Q_OS_ANDROID
-    emit injectToken(clearJs);
+    // Defer Study-mode switch + WebView inject until Settings finishes
+    // closing — immediate SurfaceView boot races EGL/A11y and aborts.
+    if (m_notesPill)
+      m_notesPill->setVisible(false);
+    if (m_studyPill)
+      m_studyPill->setVisible(false);
+    QTimer::singleShot(500, this, [this, clearJs]() {
+      updateSidebarUser(QString());
+      emit injectToken(clearJs);
+    });
 #else
+    updateSidebarUser(QString());
 #ifdef BLOP_HAS_WEBENGINE
     if (m_studyWebView && m_studyWebView->page())
       m_studyWebView->page()->runJavaScript(clearJs);
@@ -13758,12 +13767,23 @@ void MainWindow::onOpenSettings() {
     st.remove(QStringLiteral("session_id"));
     st.remove(QStringLiteral("username"));
     st.sync();
-    updateSidebarUser(QString());
     const QString clearJs = QStringLiteral(
         "localStorage.removeItem('session_id');"
         "localStorage.removeItem('username');"
         "window.location.href = '/login';");
+#ifdef Q_OS_ANDROID
+    if (m_notesPill)
+      m_notesPill->setVisible(false);
+    if (m_studyPill)
+      m_studyPill->setVisible(false);
+    QTimer::singleShot(500, this, [this, clearJs]() {
+      updateSidebarUser(QString());
+      emit injectToken(clearJs);
+    });
+#else
+    updateSidebarUser(QString());
     emit injectToken(clearJs);
+#endif
   });
   connectSettingsAccountActions(&dlg);
 
