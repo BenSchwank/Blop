@@ -4043,10 +4043,6 @@ void MainWindow::openSettingsWorkspace() {
 #ifdef Q_OS_ANDROID
     // Defer Study-mode switch + WebView inject until Settings finishes
     // closing — immediate SurfaceView boot races EGL/A11y and aborts.
-    if (m_notesPill)
-      m_notesPill->setVisible(false);
-    if (m_studyPill)
-      m_studyPill->setVisible(false);
     QTimer::singleShot(500, this, [this, clearJs]() {
       updateSidebarUser(QString());
       emit injectToken(clearJs);
@@ -13772,10 +13768,8 @@ void MainWindow::onOpenSettings() {
         "localStorage.removeItem('username');"
         "window.location.href = '/login';");
 #ifdef Q_OS_ANDROID
-    if (m_notesPill)
-      m_notesPill->setVisible(false);
-    if (m_studyPill)
-      m_studyPill->setVisible(false);
+    // Defer Study-mode switch + WebView inject until Settings finishes
+    // closing — immediate SurfaceView boot races EGL/A11y and aborts.
     QTimer::singleShot(500, this, [this, clearJs]() {
       updateSidebarUser(QString());
       emit injectToken(clearJs);
