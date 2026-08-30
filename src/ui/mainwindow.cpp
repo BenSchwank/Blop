@@ -3652,16 +3652,16 @@ void MainWindow::setupTitleBar() {
   mainLayout->addSpacing(6);
 
   // ── Blop Brand (K/J: blue B mark + wordmark) ───────────────────────────────
-  auto *brandMark = new QLabel(QStringLiteral("B"), m_titleBarWidget);
-  brandMark->setObjectName(QStringLiteral("TitleBarBrandMark"));
-  brandMark->setFixedSize(UiScale::dp(26), UiScale::dp(26));
-  brandMark->setAlignment(Qt::AlignCenter);
-  brandMark->setStyleSheet(QStringLiteral(
+  m_titleBrandMark = new QLabel(QStringLiteral("B"), m_titleBarWidget);
+  m_titleBrandMark->setObjectName(QStringLiteral("TitleBarBrandMark"));
+  m_titleBrandMark->setFixedSize(UiScale::dp(26), UiScale::dp(26));
+  m_titleBrandMark->setAlignment(Qt::AlignCenter);
+  m_titleBrandMark->setStyleSheet(QStringLiteral(
       "QLabel#TitleBarBrandMark {"
       "  background: #5B9DFF; color: #FFFFFF; border-radius: 8px;"
       "  font-size: 14px; font-weight: 800;"
       "}"));
-  mainLayout->addWidget(brandMark);
+  mainLayout->addWidget(m_titleBrandMark);
   mainLayout->addSpacing(4);
 
   m_lblBrand = new QLabel("Blop", m_titleBarWidget);
@@ -11826,16 +11826,17 @@ void MainWindow::updateSidebarState() {
   const bool hasOpenNotes = m_editorTabs && m_editorTabs->count() > 0;
   const bool inEditorWithTabs = isEditor && hasOpenNotes;
   if (m_btnMode)
-    m_btnMode->setVisible(inNotesMode && !m_isSidebarOpen && !inEditorWithTabs);
+    m_btnMode->setVisible(inNotesMode && !m_isSidebarOpen && !inEditorWithTabs &&
+                          !m_authNavigationLocked);
   // Library: rail compose + title-bar + create notes. Web-bookmark + lives in Study.
   if (m_btnAddWebBookmark)
-    m_btnAddWebBookmark->setVisible(!inNotesMode);
+    m_btnAddWebBookmark->setVisible(!inNotesMode && !m_authNavigationLocked);
   if (m_btnNewTab) {
-    m_btnNewTab->setVisible(inNotesMode);
+    m_btnNewTab->setVisible(inNotesMode && !m_authNavigationLocked);
     m_btnNewTab->setToolTip(QStringLiteral("Neue Notiz"));
   }
   if (m_documentTabBar) {
-    m_documentTabBar->setVisible(inEditorWithTabs);
+    m_documentTabBar->setVisible(inEditorWithTabs && !m_authNavigationLocked);
     if (inEditorWithTabs) {
       m_documentTabBar->setHomeVisible(false);
       m_documentTabBar->setHomeActive(false);
@@ -11843,8 +11844,15 @@ void MainWindow::updateSidebarState() {
       m_documentTabBar->setHomeVisible(true);
     }
   }
+  // Login/auth: keep B + "Blop" as a quiet left brand; hide orphan-B-only.
+  // Normal: brand with notes overview when sidebar is closed.
+  const bool showBrand =
+      m_authNavigationLocked ||
+      (inNotesMode && !m_isSidebarOpen && !inEditorWithTabs);
   if (m_lblBrand)
-    m_lblBrand->setVisible(inNotesMode && !m_isSidebarOpen && !inEditorWithTabs);
+    m_lblBrand->setVisible(showBrand);
+  if (m_titleBrandMark)
+    m_titleBrandMark->setVisible(showBrand);
 #ifndef Q_OS_ANDROID
   if (m_noteLeftRail)
     m_noteLeftRail->hide();
@@ -11941,7 +11949,8 @@ void MainWindow::updateSidebarState() {
     const bool burger = UiScale::usePhoneBurgerMenu(this);
     const bool dash =
         m_shellStack && m_shellStack->currentIndex() == 0;
-    m_titleSearchBar->setVisible(inNotesMode && !isEditor && !burger && !dash);
+    m_titleSearchBar->setVisible(inNotesMode && !isEditor && !burger && !dash &&
+                                 !m_authNavigationLocked);
   }
   {
     bool showNoteOverflow = false;
@@ -15284,19 +15293,47 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
             "letter-spacing: 0.4px; background: transparent; border: none;")
             .arg(brandFg.name(QColor::HexRgb)));
   }
-  if (m_titleBarWidget) {
-    if (auto *mark = m_titleBarWidget->findChild<QLabel *>(
-            QStringLiteral("TitleBarBrandMark"))) {
-      mark->setStyleSheet(QStringLiteral(
-          "QLabel#TitleBarBrandMark {"
-          "  background: #5B9DFF; color: #FFFFFF; border-radius: 8px;"
-          "  font-size: 14px; font-weight: 800;"
-          "}"));
-    }
+  if (m_titleBrandMark) {
+    m_titleBrandMark->setStyleSheet(QStringLiteral(
+        "QLabel#TitleBarBrandMark {"
+        "  background: #5B9DFF; color: #FFFFFF; border-radius: 8px;"
+        "  font-size: 14px; font-weight: 800;"
+        "}"));
+  }
+
+  if (authChrome) {
+    // Login gate: quiet brand left + drag stretch + window controls only.
+    if (btnEditorMenu)
+      btnEditorMenu->hide();
+    if (m_titleBrandMark)
+      m_titleBrandMark->show();
+    if (m_lblBrand)
+      m_lblBrand->show();
+    if (m_titleBarSep)
+      m_titleBarSep->hide();
+    if (m_btnMode)
+      m_btnMode->hide();
+    if (m_btnAddWebBookmark)
+      m_btnAddWebBookmark->hide();
+    if (m_btnNewTab)
+      m_btnNewTab->hide();
+    if (m_titleSearchBar)
+      m_titleSearchBar->hide();
+    if (m_documentTabBar)
+      m_documentTabBar->hide();
+    if (m_btnEditorNoteOverflow)
+      m_btnEditorNoteOverflow->hide();
+#ifndef Q_OS_ANDROID
+    if (m_btnTitleBarBell)
+      m_btnTitleBarBell->hide();
+    if (m_btnTitleBarPageManager)
+      m_btnTitleBarPageManager->hide();
+#endif
   }
 
   if (m_titleBarSep) {
-    m_titleBarSep->setVisible(!authChrome);
+    if (!authChrome)
+      m_titleBarSep->setVisible(true);
     m_titleBarSep->setStyleSheet(
         noteChrome
             ? QStringLiteral("background: %1; border: none;")

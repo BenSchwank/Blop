@@ -136,27 +136,26 @@ void BlopWindowControls::paintGlyph(QPainter &p, Hit which, const QRect &cell,
     p.setBrush(Qt::NoBrush);
     const qreal pen = qMax<qreal>(1.5, UiScale::dp(2));
     p.setPen(QPen(iconColor, pen, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    const qreal s = UiScale::dp(8);
     if (!m_maximized) {
-      QPainterPath path;
-      const qreal tick = UiScale::dp(3);
-      path.moveTo(c.x() - s, c.y() - s + tick);
-      path.lineTo(c.x() - s, c.y() - s);
-      path.lineTo(c.x() - s + tick, c.y() - s);
-      path.moveTo(c.x() + s - tick, c.y() - s);
-      path.lineTo(c.x() + s, c.y() - s);
-      path.lineTo(c.x() + s, c.y() - s + tick);
-      path.moveTo(c.x() + s, c.y() + s - tick);
-      path.lineTo(c.x() + s, c.y() + s);
-      path.lineTo(c.x() + s - tick, c.y() + s);
-      path.moveTo(c.x() - s + tick, c.y() + s);
-      path.lineTo(c.x() - s, c.y() + s);
-      path.lineTo(c.x() - s, c.y() + s - tick);
-      p.drawPath(path);
+      // Clear single square (Windows maximize).
+      const qreal s = UiScale::dp(7);
+      p.drawRoundedRect(QRectF(c.x() - s, c.y() - s, s * 2, s * 2), 1.5, 1.5);
     } else {
-      const qreal off = UiScale::dp(4);
-      p.drawRoundedRect(QRectF(c.x() - s + off, c.y() - s, s, s), 2, 2);
-      p.drawRoundedRect(QRectF(c.x() - s, c.y() - s + off, s, s), 2, 2);
+      // Restore: back square peek + front square (readable, not chain-like).
+      const qreal s = UiScale::dp(6);
+      const qreal off = UiScale::dp(3);
+      p.drawRoundedRect(QRectF(c.x() - s + off, c.y() - s - off / 2, s * 1.6,
+                               s * 1.6),
+                        1.2, 1.2);
+      p.setBrush(m_lightBar ? QColor(0xFF, 0xFF, 0xFF, 235)
+                            : QColor(0x28, 0x2A, 0x30, 240));
+      p.drawRoundedRect(QRectF(c.x() - s - off / 2, c.y() - s + off, s * 1.6,
+                               s * 1.6),
+                        1.2, 1.2);
+      p.setBrush(Qt::NoBrush);
+      p.drawRoundedRect(QRectF(c.x() - s - off / 2, c.y() - s + off, s * 1.6,
+                               s * 1.6),
+                        1.2, 1.2);
     }
     return;
   }

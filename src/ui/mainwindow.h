@@ -560,6 +560,7 @@ private:
   QWidget *m_desktopSidebarPushSpacer{nullptr};
 
   QLabel *m_lblBrand{nullptr};
+  QLabel *m_titleBrandMark{nullptr};
   QFrame *m_titleBarSep{nullptr};
   QWidget *m_titleBarWidget{nullptr};
   QWidget *m_topNavControls{nullptr};
