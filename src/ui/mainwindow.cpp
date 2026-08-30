@@ -53,6 +53,7 @@
 #include "androidcontentpicker.h"
 #include "androidicons.h"
 #include "androidtiledelegate.h"
+#include <QAccessible>
 #endif
 
 // Tools Includes
@@ -214,6 +215,12 @@
 static const int MARGIN_OVERVIEW = 20;
 
 #ifdef Q_OS_ANDROID
+namespace {
+void suppressAndroidAccessibilityForSurface() {
+  QAccessible::setActive(false);
+}
+} // namespace
+
 static const int SIDEBAR_WIDTH = 248;
 // Sidebar list only (Overview grid still uses FONT_SIZE_BASE below)
 static const int ROW_HEIGHT_HEADER = 36;
@@ -3172,8 +3179,15 @@ void MainWindow::completeAndroidStudyTabEntry() {
 
 #endif
 
+void MainWindow::prepareStudySurfaceBoot() {
+#ifdef Q_OS_ANDROID
+  suppressAndroidAccessibilityForSurface();
+#endif
+}
+
 void MainWindow::notifyStudySurfacePhaseActive() {
 #ifdef Q_OS_ANDROID
+  suppressAndroidAccessibilityForSurface();
   qInfo() << "MainWindow: notifyStudySurfacePhaseActive pending="
           << m_pendingStudyStackSwitch;
   if (!m_pendingStudyStackSwitch)
@@ -7715,6 +7729,7 @@ void MainWindow::onModeChanged(int index) {
     if (!m_googleLoginInFlight)
       root->setProperty("oauthPending", false);
     root->setProperty("tabActive", true);
+    suppressAndroidAccessibilityForSurface();
     QMetaObject::invokeMethod(root, "requestSurfaceActivation", Qt::QueuedConnection,
                               Q_ARG(QVariant, QVariant(QStringLiteral("modeChanged"))));
   }
@@ -8222,7 +8237,13 @@ void MainWindow::updateSidebarUser(const QString &username) {
     }
     syncAndroidHeaderGeometry(this);
     setAndroidNativeLoginGateVisible(false);
-    onModeChanged(1);
+    if (isVisible()) {
+      onModeChanged(1);
+    } else {
+      m_pendingAndroidGuestStudyBoot = true;
+      if (m_mainContentStack)
+        m_mainContentStack->setCurrentIndex(1);
+    }
     // Keep login screen clean: hide Notes/Study pills until session is confirmed.
     if (m_btnAndroidNotes) {
       m_btnAndroidNotes->setVisible(false);
@@ -13213,14 +13234,23 @@ void MainWindow::showEvent(QShowEvent *event) {
   syncAndroidHeaderGeometry(this);
   if (m_androidHeader)
     m_androidHeader->raise();
-  if (m_authNavigationLocked && m_mainContentStack &&
-      m_mainContentStack->currentIndex() == 1) {
-    QTimer::singleShot(100, this, [this]() {
+  if (m_pendingAndroidGuestStudyBoot) {
+    m_pendingAndroidGuestStudyBoot = false;
+    QTimer::singleShot(900, this, [this]() {
+      if (!m_authNavigationLocked)
+        return;
+      suppressAndroidAccessibilityForSurface();
+      onModeChanged(1);
+    });
+  } else if (m_authNavigationLocked && m_mainContentStack &&
+             m_mainContentStack->currentIndex() == 1) {
+    QTimer::singleShot(400, this, [this]() {
       if (!m_authNavigationLocked)
         return;
       if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
         return;
       setAndroidStudyBootOverlayVisible(true);
+      suppressAndroidAccessibilityForSurface();
       if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
         QObject *root = m_studyQQuickView->rootObject();
         root->setProperty("tabActive", true);

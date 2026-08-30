@@ -218,6 +218,8 @@ Rectangle {
             console.log("BlopStudy: commitSurfacePhase skipped — tab inactive")
             return
         }
+        if (typeof blopAppBridge !== "undefined" && blopAppBridge.prepareStudySurfaceBoot)
+            blopAppBridge.prepareStudySurfaceBoot()
         surfacePhaseActive = true
         console.log("BlopStudy: surfacePhaseActive -> true", "reason=", reason)
         if (typeof blopAppBridge !== "undefined"
@@ -991,9 +993,9 @@ Rectangle {
     Timer {
         id: surfaceBootTimer
         // Longer delay after Notes GL / A11y settle before WebView SurfaceView.
-        // Too short (≤1s) still races QAndroidPlatformOpenGLWindow::eglSurface
+        // Too short (≤2s) still races QAndroidPlatformOpenGLWindow::eglSurface
         // vs QtAndroidAccessibility on Android 16 (Nothing Pong).
-        interval: 2000
+        interval: 3500
         property string reason: ""
         running: false
         repeat: false

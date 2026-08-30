@@ -242,6 +242,9 @@ public slots:
   /// Called from AndroidWebView.qml once surfaceBootTimer arms the WebView
   /// Loader — completes a deferred main-stack switch to Study.
   void notifyStudySurfacePhaseActive();
+  /// Called from AndroidWebView.qml immediately before surfacePhaseActive=true
+  /// so QtAndroidAccessibility releases the EGL lock before WebView boots.
+  void prepareStudySurfaceBoot();
   void showAndroidStudyBootRetry();
   /// Returns "&blop_usr=...&blop_sid=..." (URL-encoded) built from the
   /// natively-persisted session, or an empty string when none is stored.
@@ -500,6 +503,8 @@ private:
   void setAndroidStudyBootOverlayVisible(bool visible);
   void completeAndroidStudyTabEntry();
   bool m_pendingStudyStackSwitch{false};
+  /// Guest login boot deferred until after first showEvent (EGL/A11y settle).
+  bool m_pendingAndroidGuestStudyBoot{false};
   /// 0 = Study home, 2 = Study login/register URL, 3 = in-app cloud browser.
   int m_pendingAndroidWebKind{0};
   QString m_pendingAndroidWebUrl;
