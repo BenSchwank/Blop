@@ -603,23 +603,23 @@ bool DashboardPage::usePhoneDashboard() const {
 
 void DashboardPage::applyDashboardDensity() {
   const bool phone = usePhoneDashboard();
-  const int side = UiScale::dp(phone ? 14 : 48);
+  const int side = UiScale::dp(phone ? 16 : 48);
   const int top = UiScale::dp(phone ? 8 : 12);
   const int bottom = UiScale::dp(phone ? 28 : 48);
   if (m_gridLay) {
     m_gridLay->setContentsMargins(side, top, side, bottom);
     m_gridLay->setHorizontalSpacing(UiScale::dp(phone ? 10 : 28));
-    m_gridLay->setVerticalSpacing(UiScale::dp(phone ? 10 : 12));
+    m_gridLay->setVerticalSpacing(UiScale::dp(phone ? 14 : 12));
   }
   if (m_host) {
-    if (phone && UiScale::isAndroidPhoneUi(this)) {
-      const int cw = UiScale::androidContentWidthPx(this);
-      if (cw > 0)
-        m_host->setMaximumWidth(cw);
-    } else {
-      m_host->setMaximumWidth(QWIDGETSIZE_MAX);
-    }
+    // Full viewport width — never cap below the scroll area (that left a
+    // empty right gutter on Android phones).
+    m_host->setMaximumWidth(QWIDGETSIZE_MAX);
+    m_host->setMinimumWidth(0);
+    m_host->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
   }
+  if (m_scroll)
+    m_scroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
   if (m_persistentHeader) {
     if (auto *lay = qobject_cast<QBoxLayout *>(m_persistentHeader->layout())) {
       lay->setContentsMargins(side, UiScale::dp(phone ? 16 : 28), side,

@@ -79,13 +79,23 @@ public:
     }
 
     QPainterPath path;
-    path.addRoundedRect(QRectF(r), 10, 10);
+    path.addRoundedRect(QRectF(r), 12, 12);
     const bool selected = opt.state & QStyle::State_Selected;
     const bool hover = opt.state & QStyle::State_MouseOver;
-    if (selected)
-      p->fillPath(path, QColor(91, 157, 255, 56));
-    else if (hover)
-      p->fillPath(path, hoverFill);
+    // Soft accent bar + light wash — avoid the blocky blue tile.
+    if (selected || hover) {
+      QColor wash = selected ? QColor(91, 157, 255, 28) : hoverFill;
+      p->fillPath(path, wash);
+      if (selected) {
+        const int accentW = UiScale::dp(3);
+        QPainterPath accent;
+        accent.addRoundedRect(
+            QRectF(r.left() + UiScale::dp(4), r.top() + UiScale::dp(8), accentW,
+                   r.height() - UiScale::dp(16)),
+            2, 2);
+        p->fillPath(accent, QColor(0x5B, 0x9D, 0xFF));
+      }
+    }
 
     const QString title = index.data(Qt::DisplayRole).toString();
     const QString sub = index.data(kSubtitleRole).toString();
@@ -465,6 +475,21 @@ bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
   if (event && (event->type() == QEvent::Resize || event->type() == QEvent::Show) &&
       isVisible())
     syncPillGeometry();
+  if (watched == m_card.data() && event &&
+      (event->type() == QEvent::Resize || event->type() == QEvent::Show) &&
+      m_card && m_card->property("blopRoundClip").toBool()) {
+    const qreal rad = 16.0;
+    QPainterPath path;
+    const QRectF rf(m_card->rect());
+    path.moveTo(rf.left(), rf.bottom());
+    path.lineTo(rf.left(), rf.top() + rad);
+    path.quadTo(rf.left(), rf.top(), rf.left() + rad, rf.top());
+    path.lineTo(rf.right() - rad, rf.top());
+    path.quadTo(rf.right(), rf.top(), rf.right(), rf.top() + rad);
+    path.lineTo(rf.right(), rf.bottom());
+    path.closeSubpath();
+    m_card->setMask(QRegion(path.toFillPolygon().toPolygon()));
+  }
   if (m_sheet && watched == m_sheet->parentWidget() && event &&
       event->type() == QEvent::Resize && m_sheet->parentWidget()) {
     m_sheet->setGeometry(m_sheet->parentWidget()->rect());
@@ -536,7 +561,7 @@ void PhoneLibraryNav::rebuildMenu() {
   addRow(QStringLiteral("dashboard"), QStringLiteral("Dashboard"),
          QStringLiteral("Start und Blöcke"));
   addRow(QStringLiteral("notes"), QStringLiteral("Notizen"),
-         QStringLiteral("Lokale Bibliothek"), true);
+         QStringLiteral("Lokale Bibliothek"));
   addRow(QStringLiteral("study"), QStringLiteral("Study"),
          QStringLiteral("Kurse und Lernen"));
   addRow(QStringLiteral("device"), QStringLiteral("Gerät"),
@@ -859,13 +884,35 @@ void PhoneLibraryNav::openMenu() {
       roomy ? qBound(UiScale::dp(wide ? 520 : 480),
                      int(win->height() * (wide ? 0.80 : 0.74)),
                      win->height() - UiScale::safeTopPx(win) - UiScale::dp(64))
-            : qBound(UiScale::dp(360), int(win->height() * 0.58),
-                     qMax(UiScale::dp(320),
+            : qBound(UiScale::dp(400), int(win->height() * 0.72),
+                     qMax(UiScale::dp(360),
                           win->height() - UiScale::safeTopPx(win) -
-                              UiScale::dp(96)));
+                              UiScale::dp(72)));
   card->setFixedHeight(cardH);
   if (roomy)
     card->setFixedWidth(maxCardW);
+
+  // Clip children to the rounded sheet so highlights don't square past corners.
+  // Skip when roomy (drop-shadow + mask fight); phone bottom-sheet needs it.
+  if (!roomy) {
+    auto applyCardMask = [card]() {
+      if (!card)
+        return;
+      const qreal rad = 16.0;
+      QPainterPath path;
+      const QRectF rf(card->rect());
+      path.moveTo(rf.left(), rf.bottom());
+      path.lineTo(rf.left(), rf.top() + rad);
+      path.quadTo(rf.left(), rf.top(), rf.left() + rad, rf.top());
+      path.lineTo(rf.right() - rad, rf.top());
+      path.quadTo(rf.right(), rf.top(), rf.right(), rf.top() + rad);
+      path.lineTo(rf.right(), rf.bottom());
+      path.closeSubpath();
+      card->setMask(QRegion(path.toFillPolygon().toPolygon()));
+    };
+    QTimer::singleShot(0, card, applyCardMask);
+    card->setProperty("blopRoundClip", true);
+  }
 
   auto *bottomWrap = new QWidget(sheet);
   bottomWrap->setAttribute(Qt::WA_TranslucentBackground, true);

@@ -7,6 +7,7 @@
 
 class QButtonGroup;
 class QCalendarWidget;
+class QGridLayout;
 class QLabel;
 class QPushButton;
 class QScrollArea;
@@ -43,6 +44,7 @@ private:
   void rebuildWeek();
   void rebuildMonthList();
   void updateChrome();
+  void relayoutModeChips();
   void showEventMenu(const CalendarEvent &e, const QPoint &globalPos);
   void confirmDelete(const CalendarEvent &e);
   QWidget *makeEventRow(const CalendarEvent &e, QWidget *parent);
@@ -54,6 +56,7 @@ private:
   QLabel *m_dateLabel{nullptr};
   QWidget *m_navBar{nullptr};
   QButtonGroup *m_modeGroup{nullptr};
+  QGridLayout *m_modeGrid{nullptr};
   QStackedWidget *m_stack{nullptr};
 
   QScrollArea *m_listScroll{nullptr};

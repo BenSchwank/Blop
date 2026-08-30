@@ -456,6 +456,8 @@ private:
   void syncAndroidNativeLoginGateGeometry();
   void setAndroidNativeLoginGateVisible(bool visible);
   void setAndroidNativeLoginBusy(bool busy, const QString &status = QString());
+  void syncAndroidNativeLoginModeUi();
+  void requestPasswordAuth();
 #endif
   void resetEmbeddedWebToStudy();
   QWidget *m_studyContainer{nullptr};
@@ -494,7 +496,16 @@ private:
   QLabel *m_androidNativeLoginStatus{nullptr};
   QPushButton *m_androidNativeLoginGoogleBtn{nullptr};
   QPushButton *m_androidNativeLoginCancelBtn{nullptr};
+  QPushButton *m_androidNativeLoginSubmitBtn{nullptr};
+  QPushButton *m_androidNativeLoginModeLogin{nullptr};
+  QPushButton *m_androidNativeLoginModeRegister{nullptr};
+  QPushButton *m_androidNativeLoginForgotBtn{nullptr};
+  QLineEdit *m_androidNativeLoginUser{nullptr};
+  QLineEdit *m_androidNativeLoginEmail{nullptr};
+  QLineEdit *m_androidNativeLoginPassword{nullptr};
   QProgressBar *m_androidNativeLoginProgress{nullptr};
+  bool m_androidNativeLoginRegisterMode{false};
+  bool m_passwordAuthInFlight{false};
   /// Study boot spinner above QtWebView SurfaceView (sibling of content stack).
   QWidget *m_androidStudyBootOverlay{nullptr};
   QPushButton *m_androidStudyBootRetryBtn{nullptr};

@@ -3000,12 +3000,28 @@ void MainWindow::ensureAndroidNativeLoginGate() {
 
   auto *outer = new QVBoxLayout(gate);
   outer->setContentsMargins(UiScale::safeHorizontalPaddingPx(this),
-                            UiScale::safeTopPx(this) + UiScale::dp(20),
+                            UiScale::safeTopPx(this) + UiScale::dp(12),
                             UiScale::safeHorizontalPaddingPx(this),
-                            UiScale::safeBottomPx(this) + UiScale::dp(20));
-  outer->addStretch(1);
+                            UiScale::safeBottomPx(this) + UiScale::dp(12));
+  outer->setSpacing(0);
 
-  auto *card = new QFrame(gate);
+  auto *scroll = new QScrollArea(gate);
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  scroll->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
+  scroll->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
+  BlopScroll::enableFingerScroll(scroll, BlopScroll::Axes::VerticalOnly);
+  outer->addWidget(scroll, 1);
+
+  auto *scrollHost = new QWidget();
+  scrollHost->setStyleSheet(QStringLiteral("background: transparent;"));
+  auto *hostLay = new QVBoxLayout(scrollHost);
+  hostLay->setContentsMargins(0, UiScale::dp(8), 0, UiScale::dp(8));
+  hostLay->addStretch(1);
+
+  auto *card = new QFrame(scrollHost);
   card->setObjectName(QStringLiteral("AndroidLoginPaperCard"));
   card->setAttribute(Qt::WA_StyledBackground, true);
   const int cardW =
@@ -3022,8 +3038,8 @@ void MainWindow::ensureAndroidNativeLoginGate() {
                           .arg(paperHex));
 
   auto *lay = new QVBoxLayout(card);
-  lay->setContentsMargins(UiScale::dp(28), UiScale::dp(32), UiScale::dp(28),
-                          UiScale::dp(28));
+  lay->setContentsMargins(UiScale::dp(24), UiScale::dp(28), UiScale::dp(24),
+                          UiScale::dp(24));
   lay->setSpacing(UiScale::dp(10));
 
   auto *brand = new QLabel(QStringLiteral("Blop"), card);
@@ -3042,7 +3058,59 @@ void MainWindow::ensureAndroidNativeLoginGate() {
                          .arg(mutedHex));
   lay->addWidget(sub);
 
-  lay->addSpacing(UiScale::dp(20));
+  lay->addSpacing(UiScale::dp(12));
+
+  auto *modeRow = new QWidget(card);
+  auto *modeLay = new QHBoxLayout(modeRow);
+  modeLay->setContentsMargins(0, 0, 0, 0);
+  modeLay->setSpacing(UiScale::dp(6));
+  const QString segQss = BlopStyle::paperSegmentQss();
+  m_androidNativeLoginModeLogin =
+      new QPushButton(QStringLiteral("Anmelden"), modeRow);
+  m_androidNativeLoginModeRegister =
+      new QPushButton(QStringLiteral("Registrieren"), modeRow);
+  for (QPushButton *b :
+       {m_androidNativeLoginModeLogin, m_androidNativeLoginModeRegister}) {
+    b->setCheckable(true);
+    b->setCursor(Qt::PointingHandCursor);
+    b->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+    b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    b->setStyleSheet(segQss);
+    modeLay->addWidget(b);
+  }
+  m_androidNativeLoginModeLogin->setChecked(true);
+  connect(m_androidNativeLoginModeLogin, &QPushButton::clicked, this, [this]() {
+    m_androidNativeLoginRegisterMode = false;
+    syncAndroidNativeLoginModeUi();
+  });
+  connect(m_androidNativeLoginModeRegister, &QPushButton::clicked, this,
+          [this]() {
+            m_androidNativeLoginRegisterMode = true;
+            syncAndroidNativeLoginModeUi();
+          });
+  lay->addWidget(modeRow);
+
+  auto makeField = [&](const QString &placeholder,
+                       QLineEdit::EchoMode echo = QLineEdit::Normal) {
+    auto *ed = new QLineEdit(card);
+    ed->setPlaceholderText(placeholder);
+    ed->setEchoMode(echo);
+    ed->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+    ed->setStyleSheet(BlopStyle::paperInputQss());
+    return ed;
+  };
+
+  m_androidNativeLoginUser =
+      makeField(QStringLiteral("Nutzername oder E-Mail"));
+  lay->addWidget(m_androidNativeLoginUser);
+
+  m_androidNativeLoginEmail = makeField(QStringLiteral("E-Mail"));
+  m_androidNativeLoginEmail->hide();
+  lay->addWidget(m_androidNativeLoginEmail);
+
+  m_androidNativeLoginPassword =
+      makeField(QStringLiteral("Passwort"), QLineEdit::Password);
+  lay->addWidget(m_androidNativeLoginPassword);
 
   m_androidNativeLoginProgress = new QProgressBar(card);
   m_androidNativeLoginProgress->setRange(0, 0);
@@ -3066,13 +3134,51 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   m_androidNativeLoginStatus->hide();
   lay->addWidget(m_androidNativeLoginStatus);
 
+  m_androidNativeLoginSubmitBtn =
+      new QPushButton(QStringLiteral("Anmelden"), card);
+  m_androidNativeLoginSubmitBtn->setCursor(Qt::PointingHandCursor);
+  m_androidNativeLoginSubmitBtn->setMinimumHeight(
+      UiScale::dp(BlopStyle::touchTargetMinDp()));
+  m_androidNativeLoginSubmitBtn->setSizePolicy(QSizePolicy::Expanding,
+                                               QSizePolicy::Fixed);
+  m_androidNativeLoginSubmitBtn->setStyleSheet(BlopStyle::paperPrimaryButtonQss());
+  connect(m_androidNativeLoginSubmitBtn, &QPushButton::clicked, this,
+          &MainWindow::requestPasswordAuth);
+  connect(m_androidNativeLoginPassword, &QLineEdit::returnPressed, this,
+          &MainWindow::requestPasswordAuth);
+  lay->addWidget(m_androidNativeLoginSubmitBtn);
+
+  m_androidNativeLoginForgotBtn =
+      new QPushButton(QStringLiteral("Passwort vergessen?"), card);
+  m_androidNativeLoginForgotBtn->setCursor(Qt::PointingHandCursor);
+  m_androidNativeLoginForgotBtn->setFlat(true);
+  m_androidNativeLoginForgotBtn->setStyleSheet(QStringLiteral(
+      "QPushButton { background: transparent; color: %1; border: none;"
+      "  font-size: 13px; font-weight: 500; padding: 6px; }"
+      "QPushButton:pressed { color: #5B9DFF; }")
+                                                  .arg(mutedHex));
+  connect(m_androidNativeLoginForgotBtn, &QPushButton::clicked, this, [this]() {
+    showAuthOverlay(QUrl(QStringLiteral("https://blop-study.com/login")));
+  });
+  lay->addWidget(m_androidNativeLoginForgotBtn, 0, Qt::AlignHCenter);
+
+  auto *orLbl = new QLabel(QStringLiteral("oder"), card);
+  orLbl->setAlignment(Qt::AlignCenter);
+  orLbl->setStyleSheet(QStringLiteral(
+      "color: %1; font-size: 12px; font-weight: 600; background: transparent;"
+      " padding: 4px 0;")
+                           .arg(mutedHex));
+  lay->addWidget(orLbl);
+
   m_androidNativeLoginGoogleBtn =
       new QPushButton(QStringLiteral("Mit Google anmelden"), card);
   m_androidNativeLoginGoogleBtn->setCursor(Qt::PointingHandCursor);
-  m_androidNativeLoginGoogleBtn->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+  m_androidNativeLoginGoogleBtn->setMinimumHeight(
+      UiScale::dp(BlopStyle::touchTargetMinDp()));
   m_androidNativeLoginGoogleBtn->setSizePolicy(QSizePolicy::Expanding,
                                                QSizePolicy::Fixed);
-  m_androidNativeLoginGoogleBtn->setStyleSheet(BlopStyle::paperPrimaryButtonQss());
+  m_androidNativeLoginGoogleBtn->setStyleSheet(
+      BlopStyle::paperSecondaryButtonQss());
   connect(m_androidNativeLoginGoogleBtn, &QPushButton::clicked, this,
           [this]() { requestGoogleLogin(); });
   lay->addWidget(m_androidNativeLoginGoogleBtn);
@@ -3091,21 +3197,146 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   m_androidNativeLoginCancelBtn =
       new QPushButton(QStringLiteral("Abbrechen"), card);
   m_androidNativeLoginCancelBtn->setCursor(Qt::PointingHandCursor);
-  m_androidNativeLoginCancelBtn->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+  m_androidNativeLoginCancelBtn->setMinimumHeight(
+      UiScale::dp(BlopStyle::touchTargetMinDp()));
   m_androidNativeLoginCancelBtn->setSizePolicy(QSizePolicy::Expanding,
                                                QSizePolicy::Fixed);
-  m_androidNativeLoginCancelBtn->setStyleSheet(BlopStyle::paperSecondaryButtonQss());
+  m_androidNativeLoginCancelBtn->setStyleSheet(
+      BlopStyle::paperSecondaryButtonQss());
   m_androidNativeLoginCancelBtn->hide();
   connect(m_androidNativeLoginCancelBtn, &QPushButton::clicked, this, [this]() {
     cancelGoogleLogin();
+    m_passwordAuthInFlight = false;
     setAndroidNativeLoginBusy(false, QString());
   });
   lay->addWidget(m_androidNativeLoginCancelBtn);
 
-  outer->addWidget(card, 0, Qt::AlignHCenter);
-  outer->addStretch(1);
+  hostLay->addWidget(card, 0, Qt::AlignHCenter);
+  hostLay->addStretch(1);
+  scroll->setWidget(scrollHost);
   gate->hide();
   m_androidNativeLoginGate = gate;
+  syncAndroidNativeLoginModeUi();
+}
+
+void MainWindow::syncAndroidNativeLoginModeUi() {
+  if (m_androidNativeLoginModeLogin)
+    m_androidNativeLoginModeLogin->setChecked(!m_androidNativeLoginRegisterMode);
+  if (m_androidNativeLoginModeRegister)
+    m_androidNativeLoginModeRegister->setChecked(
+        m_androidNativeLoginRegisterMode);
+  if (m_androidNativeLoginEmail)
+    m_androidNativeLoginEmail->setVisible(m_androidNativeLoginRegisterMode);
+  if (m_androidNativeLoginUser) {
+    m_androidNativeLoginUser->setPlaceholderText(
+        m_androidNativeLoginRegisterMode
+            ? QStringLiteral("Nutzername")
+            : QStringLiteral("Nutzername oder E-Mail"));
+  }
+  if (m_androidNativeLoginSubmitBtn) {
+    m_androidNativeLoginSubmitBtn->setText(
+        m_androidNativeLoginRegisterMode ? QStringLiteral("Konto erstellen")
+                                         : QStringLiteral("Anmelden"));
+  }
+  if (m_androidNativeLoginForgotBtn)
+    m_androidNativeLoginForgotBtn->setVisible(!m_androidNativeLoginRegisterMode);
+}
+
+void MainWindow::requestPasswordAuth() {
+#ifdef Q_OS_ANDROID
+  if (m_passwordAuthInFlight || m_googleLoginInFlight)
+    return;
+  ensureAndroidNativeLoginGate();
+  const QString user =
+      m_androidNativeLoginUser ? m_androidNativeLoginUser->text().trimmed()
+                               : QString();
+  const QString email =
+      m_androidNativeLoginEmail ? m_androidNativeLoginEmail->text().trimmed()
+                                : QString();
+  const QString password =
+      m_androidNativeLoginPassword ? m_androidNativeLoginPassword->text()
+                                   : QString();
+  if (user.isEmpty() || password.isEmpty()) {
+    setAndroidNativeLoginBusy(
+        false, QStringLiteral("Bitte Nutzername und Passwort eingeben."));
+    return;
+  }
+  if (m_androidNativeLoginRegisterMode && email.isEmpty()) {
+    setAndroidNativeLoginBusy(false,
+                              QStringLiteral("Bitte eine E-Mail angeben."));
+    return;
+  }
+
+  m_passwordAuthInFlight = true;
+  setAndroidNativeLoginBusy(
+      true, m_androidNativeLoginRegisterMode
+                ? QStringLiteral("Konto wird erstellt…")
+                : QStringLiteral("Anmeldung läuft…"));
+
+  const QString endpoint =
+      m_androidNativeLoginRegisterMode
+          ? QStringLiteral("https://www.blop-study.com/api/auth/register")
+          : QStringLiteral("https://www.blop-study.com/api/auth/login");
+  QJsonObject body;
+  body.insert(QStringLiteral("username"), user);
+  body.insert(QStringLiteral("password"), password);
+  if (m_androidNativeLoginRegisterMode)
+    body.insert(QStringLiteral("email"), email);
+
+  auto *nam = new QNetworkAccessManager(this);
+  QNetworkRequest req(QUrl(endpoint));
+  req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+  req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                   QNetworkRequest::NoLessSafeRedirectPolicy);
+  req.setTransferTimeout(25000);
+  QNetworkReply *reply =
+      nam->post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
+  connect(reply, &QNetworkReply::finished, this, [this, reply, nam]() {
+    const QByteArray raw = reply->readAll();
+    const int status =
+        reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const auto netErr = reply->error();
+    reply->deleteLater();
+    nam->deleteLater();
+    m_passwordAuthInFlight = false;
+
+    if (netErr != QNetworkReply::NoError || status >= 400) {
+      qWarning() << "Password auth failed status=" << status << "body=" << raw;
+      QString msg = QStringLiteral("Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
+      const QJsonDocument errDoc = QJsonDocument::fromJson(raw);
+      if (errDoc.isObject()) {
+        const QString detail =
+            errDoc.object().value(QStringLiteral("detail")).toString();
+        if (!detail.isEmpty())
+          msg = detail;
+      }
+      setAndroidNativeLoginBusy(false, msg);
+      return;
+    }
+
+    const QJsonDocument doc = QJsonDocument::fromJson(raw);
+    if (!doc.isObject()) {
+      setAndroidNativeLoginBusy(
+          false, QStringLiteral("Ungültige Server-Antwort."));
+      return;
+    }
+    const QJsonObject obj = doc.object();
+    const QString sessionId = obj.value(QStringLiteral("session_id")).toString();
+    const QString username = obj.value(QStringLiteral("username")).toString();
+    if (sessionId.isEmpty() || username.isEmpty()) {
+      setAndroidNativeLoginBusy(
+          false, QStringLiteral("Anmeldung ohne Session — bitte erneut."));
+      return;
+    }
+
+    QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    st.setValue(QStringLiteral("session_id"), sessionId);
+    st.sync();
+    setAndroidNativeLoginBusy(false, QString());
+    setAndroidNativeLoginGateVisible(false);
+    updateSidebarUser(username);
+  });
+#endif
 }
 
 void MainWindow::syncAndroidNativeLoginGateGeometry() {
@@ -3130,7 +3361,7 @@ void MainWindow::setAndroidNativeLoginGateVisible(bool visible) {
                                                  m_authNavigationLocked);
   if (visible) {
     m_androidNativeLoginGate->raise();
-    if (!m_googleLoginInFlight)
+    if (!m_googleLoginInFlight && !m_passwordAuthInFlight)
       setAndroidNativeLoginBusy(false, QString());
   }
 }
@@ -3141,6 +3372,20 @@ void MainWindow::setAndroidNativeLoginBusy(bool busy, const QString &status) {
     m_androidNativeLoginProgress->setVisible(busy);
   if (m_androidNativeLoginGoogleBtn)
     m_androidNativeLoginGoogleBtn->setEnabled(!busy);
+  if (m_androidNativeLoginSubmitBtn)
+    m_androidNativeLoginSubmitBtn->setEnabled(!busy);
+  if (m_androidNativeLoginModeLogin)
+    m_androidNativeLoginModeLogin->setEnabled(!busy);
+  if (m_androidNativeLoginModeRegister)
+    m_androidNativeLoginModeRegister->setEnabled(!busy);
+  if (m_androidNativeLoginUser)
+    m_androidNativeLoginUser->setEnabled(!busy);
+  if (m_androidNativeLoginEmail)
+    m_androidNativeLoginEmail->setEnabled(!busy);
+  if (m_androidNativeLoginPassword)
+    m_androidNativeLoginPassword->setEnabled(!busy);
+  if (m_androidNativeLoginForgotBtn)
+    m_androidNativeLoginForgotBtn->setEnabled(!busy);
   if (m_androidNativeLoginCancelBtn)
     m_androidNativeLoginCancelBtn->setVisible(busy);
   if (m_androidNativeLoginStatus) {
@@ -6268,20 +6513,23 @@ void MainWindow::setupUi() {
   m_lblEmptyState->setObjectName(QStringLiteral("overviewEmptyTitle"));
   m_lblEmptyState->setAlignment(Qt::AlignCenter);
   m_lblEmptyState->setWordWrap(true);
-  emptyLay->addWidget(m_lblEmptyState);
+  m_lblEmptyState->setMaximumWidth(UiScale::dp(320));
+  emptyLay->addWidget(m_lblEmptyState, 0, Qt::AlignHCenter);
 
   m_lblEmptySubtitle = new QLabel(
       QStringLiteral("Leg mit + Notiz deine erste Seite an."), m_emptyStateHost);
   m_lblEmptySubtitle->setObjectName(QStringLiteral("overviewEmptySubtitle"));
   m_lblEmptySubtitle->setAlignment(Qt::AlignCenter);
   m_lblEmptySubtitle->setWordWrap(true);
-  emptyLay->addWidget(m_lblEmptySubtitle);
+  m_lblEmptySubtitle->setMaximumWidth(UiScale::dp(320));
+  emptyLay->addWidget(m_lblEmptySubtitle, 0, Qt::AlignHCenter);
 
   m_btnEmptyCta = new QPushButton(QStringLiteral("Notiz erstellen"), m_emptyStateHost);
   m_btnEmptyCta->setObjectName(QStringLiteral("overviewEmptyCta"));
   m_btnEmptyCta->setCursor(Qt::PointingHandCursor);
   m_btnEmptyCta->setFixedHeight(UiScale::dp(phoneEmpty ? 48 : 40));
   m_btnEmptyCta->setMinimumWidth(UiScale::dp(phoneEmpty ? 200 : 160));
+  m_btnEmptyCta->setMaximumWidth(UiScale::dp(320));
   connect(m_btnEmptyCta, &QPushButton::clicked, this, [this]() {
     const bool smartFiltered =
         m_libraryOrgBar &&
@@ -6313,27 +6561,12 @@ void MainWindow::setupUi() {
   hints->setObjectName(QStringLiteral("overviewEmptyHints"));
   hints->setAlignment(Qt::AlignCenter);
   hints->setWordWrap(true);
+  hints->setMaximumWidth(UiScale::dp(320));
   hints->setStyleSheet(QStringLiteral(
-      "color: #6B7280; font-size: 12px; background: transparent; padding: 8px 12px;"));
+      "color: #6B7280; font-size: 12px; background: transparent;"
+      " padding: 12px 8px 4px 8px;"));
   emptyLay->addWidget(hints, 0, Qt::AlignHCenter);
 
-  auto *chipRow = new QHBoxLayout();
-  chipRow->setSpacing(UiScale::dp(8));
-  auto addChip = [&](const QString &label, auto slot) {
-    auto *chip = new QPushButton(label, m_emptyStateHost);
-    chip->setCursor(Qt::PointingHandCursor);
-    chip->setStyleSheet(QStringLiteral(
-        "QPushButton { background: #FFFFFF; color: #3A3F4A;"
-        "  border: 1px solid #E4E7EE; border-radius: 10px;"
-        "  padding: 8px 14px; font-size: 12px; font-weight: 600; }"
-        "QPushButton:hover { border-color: #5B9DFF; color: #5B9DFF; }"));
-    connect(chip, &QPushButton::clicked, this, slot);
-    chipRow->addWidget(chip);
-  };
-  addChip(QStringLiteral("A4-Notiz"), [this]() { onNewPage(); });
-  addChip(QStringLiteral("Ordner"), [this]() { onCreateFolder(); });
-  addChip(QStringLiteral("Dashboard"), [this]() { switchToApp(false); });
-  emptyLay->addLayout(chipRow);
   emptyLay->addStretch(2);
   libraryMainLay->addWidget(m_emptyStateHost, 1);
   updateSidebarBadges();

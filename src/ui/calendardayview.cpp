@@ -9,6 +9,7 @@
 #include <QCalendarWidget>
 #include <QEvent>
 #include <QFrame>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
@@ -62,9 +63,11 @@ CalendarDayView::CalendarDayView(QWidget *parent) : QWidget(parent) {
   root->setContentsMargins(0, 0, 0, 0);
   root->setSpacing(UiScale::dp(8));
 
-  // Mode chips: Liste | Tag | Woche | Monat
-  auto *modeRow = new QHBoxLayout();
-  modeRow->setSpacing(UiScale::dp(4));
+  // Mode chips: Liste | Tag | Woche | Monat (2×2 when compact/phone)
+  m_modeGrid = new QGridLayout();
+  m_modeGrid->setContentsMargins(0, 0, 0, 0);
+  m_modeGrid->setHorizontalSpacing(UiScale::dp(4));
+  m_modeGrid->setVerticalSpacing(UiScale::dp(4));
   m_modeGroup = new QButtonGroup(this);
   m_modeGroup->setExclusive(true);
   const struct {
@@ -76,19 +79,21 @@ CalendarDayView::CalendarDayView(QWidget *parent) : QWidget(parent) {
       {"Woche", Mode::Week},
       {"Monat", Mode::Month},
   };
-  for (const auto &m : modes) {
-    auto *b = new QPushButton(QString::fromUtf8(m.label), this);
+  for (int i = 0; i < 4; ++i) {
+    auto *b = new QPushButton(QString::fromUtf8(modes[i].label), this);
     b->setCheckable(true);
     b->setCursor(Qt::PointingHandCursor);
     b->setMinimumHeight(UiScale::dp(32));
+    b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     b->setStyleSheet(BlopStyle::segmentQss());
-    m_modeGroup->addButton(b, static_cast<int>(m.mode));
-    modeRow->addWidget(b, 1);
+    m_modeGroup->addButton(b, static_cast<int>(modes[i].mode));
+    m_modeGrid->addWidget(b, 0, i);
   }
-  root->addLayout(modeRow);
+  root->addLayout(m_modeGrid);
   connect(m_modeGroup, &QButtonGroup::idClicked, this, [this](int id) {
     setMode(static_cast<Mode>(id));
   });
+  relayoutModeChips();
 
   m_navBar = new QWidget(this);
   auto *hdr = new QHBoxLayout(m_navBar);
@@ -223,7 +228,28 @@ void CalendarDayView::setCompact(bool on) {
   if (m_compact == on)
     return;
   m_compact = on;
+  relayoutModeChips();
   rebuildAll();
+}
+
+void CalendarDayView::relayoutModeChips() {
+  if (!m_modeGrid || !m_modeGroup)
+    return;
+  QList<QAbstractButton *> buttons;
+  for (int id = 0; id < 4; ++id) {
+    if (QAbstractButton *b = m_modeGroup->button(id))
+      buttons.append(b);
+  }
+  // Clear cells without deleting widgets.
+  while (m_modeGrid->count() > 0) {
+    m_modeGrid->takeAt(0);
+  }
+  for (int i = 0; i < buttons.size(); ++i) {
+    if (m_compact)
+      m_modeGrid->addWidget(buttons[i], i / 2, i % 2);
+    else
+      m_modeGrid->addWidget(buttons[i], 0, i);
+  }
 }
 
 void CalendarDayView::setMode(Mode mode) {
