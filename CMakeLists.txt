@@ -191,6 +191,10 @@ qt_add_executable(Blop
     src/ui/cloudwebexplorer.h
     src/ui/phonelibrarynav.cpp
     src/ui/phonelibrarynav.h
+    src/ui/phonechrome.cpp
+    src/ui/phonechrome.h
+    src/ui/phoneshell.cpp
+    src/ui/phoneshell.h
     src/ui/storageprefs.cpp
     src/ui/storageprefs.h
     src/ui/blop_dialogs.cpp

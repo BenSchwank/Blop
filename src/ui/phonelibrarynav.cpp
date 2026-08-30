@@ -185,7 +185,15 @@ void PhoneLibraryNav::setQuickNotePaths(const QStringList &recentPaths,
   m_favoriteNotePaths = favoritePaths;
 }
 
+void PhoneLibraryNav::setSheetOnlyMode(bool on) {
+  m_sheetOnly = on;
+  if (on)
+    setPillVisible(false);
+}
+
 void PhoneLibraryNav::setPillVisible(bool on) {
+  if (m_sheetOnly)
+    on = false;
   if (on) {
     setAttribute(Qt::WA_TransparentForMouseEvents, false);
     setEnabled(true);
@@ -193,7 +201,8 @@ void PhoneLibraryNav::setPillVisible(bool on) {
     syncPillGeometry();
     raise();
   } else {
-    closeMenu();
+    if (!m_sheetOnly)
+      closeMenu();
     setVisible(false);
     setEnabled(false);
     // Stay out of the hit-test path so the top hamburger works immediately
@@ -543,12 +552,14 @@ void PhoneLibraryNav::rebuildMenu() {
   m_list->clear();
   // Always show short subtitles — phone sheet matches desktop language.
   addSection(QStringLiteral("Bibliothek"));
-  addRow(QStringLiteral("dashboard"), QStringLiteral("Dashboard"),
-         QStringLiteral("Start und Blöcke"));
-  addRow(QStringLiteral("notes"), QStringLiteral("Notizen"),
-         QStringLiteral("Lokale Bibliothek"));
-  addRow(QStringLiteral("study"), QStringLiteral("Study"),
-         QStringLiteral("Kurse und Lernen"));
+  if (!m_sheetOnly) {
+    addRow(QStringLiteral("dashboard"), QStringLiteral("Dashboard"),
+           QStringLiteral("Start und Blöcke"));
+    addRow(QStringLiteral("notes"), QStringLiteral("Notizen"),
+           QStringLiteral("Lokale Bibliothek"));
+    addRow(QStringLiteral("study"), QStringLiteral("Study"),
+           QStringLiteral("Kurse und Lernen"));
+  }
   addRow(QStringLiteral("device"), QStringLiteral("Gerät"),
          QStringLiteral("Dateien auf diesem Gerät"));
   addRow(QStringLiteral("tags"), QStringLiteral("Tags"),
@@ -570,7 +581,11 @@ void PhoneLibraryNav::rebuildMenu() {
          QStringLiteral("Adresse oder Anbieter verknüpfen"));
   addSpacer();
   addSection(QStringLiteral("Konto"));
-  addRow(QStringLiteral("settings"), QStringLiteral("Einstellungen"),
+  const QString who =
+      (m_accountName.isEmpty() || m_accountName == QLatin1String("Gast"))
+          ? QStringLiteral("Einstellungen")
+          : m_accountName;
+  addRow(QStringLiteral("settings"), who,
          QStringLiteral("Konto, Design und Speicher"), false, true);
 }
 
@@ -736,7 +751,7 @@ void PhoneLibraryNav::closeMenu() {
   if (qApp)
     qApp->removeEventFilter(this);
   if (!m_sheet) {
-    if (isEnabled()) {
+    if (!m_sheetOnly && isEnabled()) {
       setVisible(true);
       syncPillGeometry();
     }
@@ -756,7 +771,7 @@ void PhoneLibraryNav::closeMenu() {
   sheet->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   delete sheet;
   // Restore the floating pill (hidden while the sheet was open).
-  if (isEnabled()) {
+  if (!m_sheetOnly && isEnabled()) {
     setVisible(true);
     syncPillGeometry();
     raise();
@@ -910,14 +925,16 @@ void PhoneLibraryNav::openMenu() {
       QStringLiteral("background: %1; border-radius: 2px;").arg(handleBg));
   lay->addWidget(handle, 0, Qt::AlignHCenter);
 
-  auto *hdr = new QLabel(QStringLiteral("Menü"), card);
+  auto *hdr = new QLabel(
+      m_sheetOnly ? QStringLiteral("Mehr") : QStringLiteral("Menü"), card);
   hdr->setStyleSheet(QStringLiteral(
       "color: %1; font-size: 18px; font-weight: 700; background: transparent;")
                          .arg(ink));
   lay->addWidget(hdr);
   auto *hdrSub = new QLabel(
       wide ? QStringLiteral("Navigation links · Schnellzugriff rechts")
-           : QStringLiteral("Bibliothek, Clouds und Konto"),
+           : (m_sheetOnly ? QStringLiteral("Gerät, Clouds und Konto")
+                          : QStringLiteral("Bibliothek, Clouds und Konto")),
       card);
   hdrSub->setStyleSheet(QStringLiteral(
       "color: %1; font-size: 12px; font-weight: 500; background: transparent;"
@@ -939,6 +956,8 @@ void PhoneLibraryNav::openMenu() {
                               .arg(UiScale::dp(BlopStyle::touchTargetMinDp() - 4)));
   connect(m_search, &QLineEdit::textChanged, this, &PhoneLibraryNav::searchChanged);
   lay->addWidget(m_search);
+  if (m_sheetOnly)
+    m_search->hide();
 
   m_list = new QListWidget(card);
   m_list->setFrameShape(QFrame::NoFrame);

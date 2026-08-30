@@ -24,6 +24,9 @@ public:
   void setQuickNotePaths(const QStringList &recentPaths,
                          const QStringList &favoritePaths = {});
   void setPillVisible(bool on);
+  /// Hide the floating pill; openMenu() still presents the Mehr sheet.
+  void setSheetOnlyMode(bool on);
+  bool sheetOnlyMode() const { return m_sheetOnly; }
   bool isMenuOpen() const;
 
 public slots:
@@ -73,4 +76,5 @@ private:
   QPoint m_listPressPos;
   QListWidgetItem *m_listPressItem{nullptr};
   int m_listPressScroll{0};
+  bool m_sheetOnly{false};
 };

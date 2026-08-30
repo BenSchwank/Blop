@@ -30,6 +30,8 @@
 #include "profileeditordialog.h"
 #include "settingsdialog.h"
 #include "phonelibrarynav.h"
+#include "phoneshell.h"
+#include "phonechrome.h"
 #include "editoroverlays.h"
 
 // --- WICHTIGE ZUSÄTZLICHE INCLUDES ---
@@ -972,6 +974,24 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
     return;
 
   const int clampedInset = UiScale::safeTopPx(window);
+  const bool phoneUi = UiScale::isAndroidPhoneUi(window);
+  QWidget *docTabs =
+      window->findChild<QWidget *>(QStringLiteral("AndroidDocumentTabBar"));
+  const bool editorChrome = docTabs && docTabs->isVisible();
+  QWidget *notesTab =
+      window->findChild<QWidget *>(QStringLiteral("AndroidHeaderTabNotes"));
+  const bool tabsShowing = notesTab && notesTab->isVisible();
+
+  // Phone shell: library / Study / Dashboard use a status-bar spacer only.
+  // Editor keeps the full chrome (back + export + document tabs).
+  if (phoneUi && !editorChrome && !tabsShowing) {
+    const int spacer = qMax(1, clampedInset);
+    chrome->setFixedHeight(spacer);
+    inner->setFixedHeight(spacer);
+    headerLay->setContentsMargins(0, 0, 0, 0);
+    return;
+  }
+
   // Anchor responsive sizing to the *usable* viewport (screen minus a small
   // safety margin against Android system cutouts that availableGeometry
   // doesn't always reflect). This is what guarantees the right-edge buttons
@@ -1009,8 +1029,6 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   const int compactPillH =
       qBound(UiScale::dp(36), int(headerHeight * 0.72), UiScale::dp(44));
   const int rowHeight = headerHeight + clampedInset + topExtra;
-  QWidget *docTabs =
-      window->findChild<QWidget *>(QStringLiteral("AndroidDocumentTabBar"));
   const int tabsH =
       (docTabs && docTabs->isVisible()) ? qMax(UiScale::dp(36), docTabs->height()) : 0;
   const int totalHeight = rowHeight + tabsH;
@@ -3364,6 +3382,11 @@ void MainWindow::setAndroidNativeLoginGateVisible(bool visible) {
     if (!m_googleLoginInFlight && !m_passwordAuthInFlight)
       setAndroidNativeLoginBusy(false, QString());
   }
+  if (m_phoneShell)
+    m_phoneShell->setShellVisible(!visible && UiScale::isAndroidPhoneUi(this) &&
+                                  !m_authNavigationLocked);
+  if (m_fabNote && visible)
+    m_fabNote->hide();
 }
 
 void MainWindow::setAndroidNativeLoginBusy(bool busy, const QString &status) {
@@ -6069,11 +6092,13 @@ void MainWindow::setupUi() {
       phoneLibrary ? UiScale::dp(12) : MARGIN_OVERVIEW + UiScale::dp(4),
       phoneLibrary ? UiScale::dp(12) : UiScale::dp(20),
       phoneLibrary ? UiScale::dp(12) : MARGIN_OVERVIEW + UiScale::dp(4),
-      UiScale::dp(phoneLibrary ? 72 : 28) + UiScale::androidBottomInsetPx(this));
+      (phoneLibrary ? PhoneChrome::contentBottomInsetPx(this)
+                    : UiScale::dp(28) + UiScale::androidBottomInsetPx(this)));
 #else
   overviewLayout->setContentsMargins(
       UiScale::dp(28), UiScale::dp(18), UiScale::dp(28),
-      UiScale::isAndroidPhoneUi(this) ? UiScale::dp(80) : UiScale::dp(24));
+      UiScale::isAndroidPhoneUi(this) ? PhoneChrome::contentBottomInsetPx(this)
+                                     : UiScale::dp(24));
 #endif
 
   QHBoxLayout *overviewTopRow = new QHBoxLayout();
@@ -6129,7 +6154,10 @@ void MainWindow::setupUi() {
 
   QPushButton *btnNewNote = new QPushButton(QStringLiteral("+ Notiz"), m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
-  btnNewNote->setFixedHeight(UiScale::dp(44));
+  btnNewNote->setFixedHeight(UiScale::dp(PhoneChrome::primaryCtaDp()));
+  m_btnLibraryNewNote = btnNewNote;
+  if (phoneHeader)
+    btnNewNote->hide();
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setStyleSheet(BlopTheme::themed(
       "QPushButton {"
@@ -6191,7 +6219,8 @@ void MainWindow::setupUi() {
   m_overviewSearchBar->setPlaceholderText("Notizen durchsuchen...");
   m_overviewSearchBar->setFrame(false);
   m_overviewSearchBar->setAttribute(Qt::WA_StyledBackground, true);
-  m_overviewSearchBar->setFixedHeight(UiScale::dp(44));
+  m_overviewSearchBar->setFixedHeight(
+      UiScale::dp(phoneHeader ? PhoneChrome::primaryCtaDp() : 44));
   m_overviewSearchBar->setStyleSheet(BlopTheme::themed(
       "QLineEdit {"
       "  background-color: #1A1829;"
@@ -6506,7 +6535,7 @@ void MainWindow::setupUi() {
   m_btnEmptyCta->setObjectName(QStringLiteral("overviewEmptyCta"));
   m_btnEmptyCta->setCursor(Qt::PointingHandCursor);
   m_btnEmptyCta->setFixedHeight(
-      UiScale::dp(phoneEmpty ? BlopStyle::touchTargetMinDp() + 8
+      UiScale::dp(phoneEmpty ? PhoneChrome::primaryCtaDp()
                              : BlopStyle::touchTargetMinDp()));
   m_btnEmptyCta->setMinimumWidth(UiScale::dp(phoneEmpty ? 200 : 160));
   m_btnEmptyCta->setMaximumWidth(UiScale::dp(280));
@@ -12074,9 +12103,10 @@ void MainWindow::updateSidebarState() {
 #endif
 
   if (m_phoneLibraryNav) {
-    // Phone-style bottom pill on Dashboard + Notes overview (not while editing).
-    const bool showPill = UiScale::usePhoneBurgerMenu(this) && inNotesMode &&
-                          !isEditor && !m_authNavigationLocked;
+    const bool phoneUi = UiScale::isAndroidPhoneUi(this);
+    // Phone rework: bottom nav replaces the pill. Tablet/desktop burger keeps it.
+    const bool showPill = !phoneUi && UiScale::usePhoneBurgerMenu(this) &&
+                          inNotesMode && !isEditor && !m_authNavigationLocked;
     m_phoneLibraryNav->setPillVisible(showPill);
   }
 
@@ -12085,13 +12115,16 @@ void MainWindow::updateSidebarState() {
     // Desktop: only the title-bar search is visible (no duplicate in the field).
     m_overviewSearchBar->hide();
 #else
+    const bool phoneUi = UiScale::isAndroidPhoneUi(this);
     const bool hideOverviewSearch =
-        UiScale::usePhoneBurgerMenu(this) && inNotesMode && !isEditor;
-    m_overviewSearchBar->setVisible(!hideOverviewSearch);
+        !phoneUi && UiScale::usePhoneBurgerMenu(this) && inNotesMode &&
+        !isEditor;
+    m_overviewSearchBar->setVisible(!hideOverviewSearch && inNotesMode &&
+                                    !isEditor);
 #endif
   }
 
-  if (UiScale::usePhoneBurgerMenu(this)) {
+  if (UiScale::usePhoneBurgerMenu(this) || UiScale::isAndroidPhoneUi(this)) {
     if (m_sidebarStrip)
       m_sidebarStrip->hide();
     // Bottom pill owns navigation — hide the top-left hamburger to avoid a
@@ -12114,6 +12147,30 @@ void MainWindow::updateSidebarState() {
     }
   }
 
+#ifdef Q_OS_ANDROID
+  if (UiScale::isAndroidPhoneUi(this)) {
+    if (m_btnAndroidNotes)
+      m_btnAndroidNotes->hide();
+    if (m_btnAndroidStudy)
+      m_btnAndroidStudy->hide();
+    if (m_btnAndroidAddWebBookmark)
+      m_btnAndroidAddWebBookmark->hide();
+    if (m_btnAndroidToolbarMenu)
+      m_btnAndroidToolbarMenu->hide();
+    if (!isEditor) {
+      if (m_btnAndroidHome)
+        m_btnAndroidHome->hide();
+      if (m_btnAndroidToolbarExport)
+        m_btnAndroidToolbarExport->hide();
+      if (m_btnAndroidToolbarPageManager)
+        m_btnAndroidToolbarPageManager->hide();
+    } else if (m_btnAndroidHome) {
+      m_btnAndroidHome->show();
+    }
+    syncAndroidHeaderGeometry(this);
+  }
+#endif
+
   m_lastIsEditor = isEditor;
 #ifndef Q_OS_ANDROID
   // Dashboard / overview never keep NoteChrome title colors — even if a note
@@ -12127,6 +12184,7 @@ void MainWindow::updateSidebarState() {
   if (m_mainContentStack)
     applyAndroidTabStyles(m_mainContentStack->currentIndex());
 #endif
+  syncPhoneShell();
 }
 
 void MainWindow::setPageSettingsOverlayVisible(bool show) {
@@ -13551,10 +13609,12 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     m_androidStudyBootOverlay->raise();
   if (m_androidHeader && m_mainContentStack && m_mainContentStack->currentIndex() == 0)
     m_androidHeader->raise();
+  syncPhoneShell();
 #else
   if (isTouchMode())
     bottomOffset = 100;
   syncSidebarPushLayout();
+  syncPhoneShell();
 #endif
   if (m_editorTabs && m_floatingTools) {
     if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
@@ -13720,8 +13780,9 @@ void MainWindow::closeCloudBrowser() {
 void MainWindow::setupPhoneLibraryNav() {
   if (!m_overviewContainer && !this)
     return;
-  const bool burger = UiScale::usePhoneBurgerMenu(this);
-  m_lastBurgerNav = burger;
+  const bool phoneUi = UiScale::isAndroidPhoneUi(this);
+  const bool burger = UiScale::usePhoneBurgerMenu(this) || phoneUi;
+  m_lastBurgerNav = UiScale::usePhoneBurgerMenu(this);
   // Parent to the main window so the bottom pill + sheet work on Dashboard and
   // Notes overview (not only while overviewContainer is the visible page).
   if (burger && !m_phoneLibraryNav) {
@@ -13798,6 +13859,103 @@ void MainWindow::setupPhoneLibraryNav() {
 #ifdef Q_OS_ANDROID
     wireSidebarToggle(m_btnAndroidToolbarMenu);
 #endif
+  }
+
+  if (phoneUi && m_phoneLibraryNav)
+    m_phoneLibraryNav->setSheetOnlyMode(true);
+
+  if (phoneUi && !m_phoneShell) {
+    m_phoneShell = new PhoneShell(this);
+    connect(m_phoneShell, &PhoneShell::destinationChosen, this,
+            [this](PhoneShell::Dest dest) {
+              if (dest == PhoneShell::Dest::Dashboard)
+                onPhoneNavAction(QStringLiteral("dashboard"));
+              else if (dest == PhoneShell::Dest::Notes)
+                onPhoneNavAction(QStringLiteral("notes"));
+              else
+                onPhoneNavAction(QStringLiteral("study"));
+            });
+    connect(m_phoneShell, &PhoneShell::moreRequested, this, [this]() {
+      if (m_phoneLibraryNav)
+        m_phoneLibraryNav->openMenu();
+    });
+    connect(&BlopTheme::instance(), &BlopTheme::themeChanged, m_phoneShell,
+            [this]() {
+              if (m_phoneShell)
+                m_phoneShell->setDestination(m_phoneShell->destination());
+            });
+  }
+  if (m_phoneShell)
+    m_phoneShell->setShellVisible(phoneUi && !m_authNavigationLocked);
+
+  if (phoneUi && !m_fabNote) {
+    m_fabNote = new QPushButton(QStringLiteral("+"), this);
+    m_fabNote->setObjectName(QStringLiteral("PhoneLibraryFab"));
+    m_fabNote->setCursor(Qt::PointingHandCursor);
+    m_fabNote->setToolTip(QStringLiteral("Notiz erstellen"));
+    m_fabNote->setFocusPolicy(Qt::NoFocus);
+    const int fab = UiScale::dp(56);
+    m_fabNote->setFixedSize(fab, fab);
+    m_fabNote->setStyleSheet(QStringLiteral(
+        "QPushButton#PhoneLibraryFab {"
+        "  background: #5B9DFF; color: #FFFFFF; border: none;"
+        "  border-radius: %1px; font-size: 28px; font-weight: 700;"
+        "}"
+        "QPushButton#PhoneLibraryFab:pressed { background: #3D86F0; }")
+                                 .arg(fab / 2));
+    connect(m_fabNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
+    BlopRipple::attachPressFeedback(m_fabNote, 0.94);
+    m_fabNote->hide();
+  }
+}
+
+void MainWindow::syncLibraryFabGeometry() {
+  if (!m_fabNote || !m_fabNote->isVisible())
+    return;
+  const int s = m_fabNote->width();
+  const int margin = UiScale::dp(16);
+  const int bottom = PhoneChrome::overlayHeightPx(this) + margin;
+  const int x = qMax(margin, width() - margin - s -
+                                 UiScale::dp(PhoneChrome::rightReserveDp()));
+  const int y = qMax(margin, height() - bottom - s);
+  m_fabNote->setGeometry(x, y, s, s);
+  m_fabNote->raise();
+}
+
+void MainWindow::syncPhoneShell() {
+  const bool phone = UiScale::isAndroidPhoneUi(this);
+  bool inNotesMode = true;
+  if (m_mainContentStack)
+    inNotesMode = (m_mainContentStack->currentIndex() == 0);
+  const bool inEditorStack =
+      inNotesMode && m_rightStack &&
+      (m_rightStack->currentWidget() == m_editorContainer);
+  const bool workspaceTab = editorTabIsWorkspace(
+      m_editorTabs ? m_editorTabs->currentWidget() : nullptr);
+  const bool isEditor = inEditorStack && !workspaceTab;
+  const bool onDashboard = m_shellStack && m_shellStack->currentIndex() == 0;
+
+  if (m_phoneShell) {
+    const bool show =
+        phone && !m_authNavigationLocked && !isEditor;
+    m_phoneShell->setShellVisible(show);
+    if (show) {
+      if (!inNotesMode)
+        m_phoneShell->setDestination(PhoneShell::Dest::Study);
+      else if (onDashboard)
+        m_phoneShell->setDestination(PhoneShell::Dest::Dashboard);
+      else
+        m_phoneShell->setDestination(PhoneShell::Dest::Notes);
+      m_phoneShell->syncGeometry();
+    }
+  }
+
+  if (m_fabNote) {
+    const bool showFab = phone && !m_authNavigationLocked && !isEditor &&
+                         inNotesMode && !onDashboard;
+    m_fabNote->setVisible(showFab);
+    if (showFab)
+      syncLibraryFabGeometry();
   }
 }
 
@@ -13916,10 +14074,13 @@ void MainWindow::onPhoneNavAction(const QString &id) {
     return;
   }
   if (id == QLatin1String("device")) {
+    onPhoneNavAction(QStringLiteral("notes"));
     navigateLibraryToPath(m_rootPath);
     return;
   }
   if (id == QLatin1String("tags")) {
+    if (m_shellStack && m_shellStack->currentIndex() != 1)
+      onPhoneNavAction(QStringLiteral("notes"));
     showPhoneTagsSheet();
     return;
   }

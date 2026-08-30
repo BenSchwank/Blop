@@ -58,6 +58,7 @@ class MultiPageNoteView;
 class ToolPropertiesPanel;
 class AllPagesOverlay;
 class PhoneLibraryNav;
+class PhoneShell;
 class LibraryIconRail;
 class SettingsDialog;
 class QSortFilterProxyModel;
@@ -357,6 +358,8 @@ private:
   void showPhoneTagsSheet();
   void onPhoneNavAction(const QString &id);
   void setupPhoneLibraryNav();
+  void syncPhoneShell();
+  void syncLibraryFabGeometry();
   void applyCompactNavPref();
   bool handleAndroidBack();
   bool editorTabIsWorkspace(QWidget *w) const;
@@ -624,6 +627,7 @@ private:
   QSortFilterProxyModel *m_libraryProxy{nullptr};
   LibraryTagsPanel *m_libraryTagsPanel{nullptr};
   PhoneLibraryNav *m_phoneLibraryNav{nullptr};
+  PhoneShell *m_phoneShell{nullptr};
   LibraryOrgBar *m_libraryOrgBar{nullptr};
   QLineEdit *m_overviewSearchBar{nullptr};
   QPushButton *m_btnLibraryNewNote{nullptr};

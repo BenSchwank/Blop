@@ -10,6 +10,7 @@
 #include "dashboardlayoutstore.h"
 #include "libraryorgstore.h"
 #include "todostore.h"
+#include "phonechrome.h"
 #include "uiscale.h"
 
 #include <QCheckBox>
@@ -615,7 +616,8 @@ void DashboardPage::applyDashboardDensity() {
   const bool phone = usePhoneDashboard();
   const int side = UiScale::dp(phone ? 16 : 48);
   const int top = UiScale::dp(phone ? 8 : 12);
-  const int bottom = UiScale::dp(phone ? 28 : 48);
+  const int bottom =
+      phone ? PhoneChrome::contentBottomInsetPx(this) : UiScale::dp(48);
   if (m_gridLay) {
     m_gridLay->setContentsMargins(side, top, side, bottom);
     m_gridLay->setHorizontalSpacing(UiScale::dp(phone ? 10 : 28));
@@ -641,7 +643,7 @@ void DashboardPage::applyDashboardDensity() {
     m_editBarLay->setContentsMargins(side, UiScale::dp(8), side, UiScale::dp(8));
   }
   if (m_phoneEditFooterLay) {
-    const int bot = UiScale::dp(10) + UiScale::safeBottomPx(this);
+    const int bot = UiScale::dp(10) + PhoneChrome::overlayHeightPx(this);
     m_phoneEditFooterLay->setContentsMargins(side, UiScale::dp(10), side, bot);
   }
 }
