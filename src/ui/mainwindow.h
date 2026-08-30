@@ -635,10 +635,8 @@ private:
   QLabel *m_lblCloudSyncStatus{nullptr};
   QWidget *m_libraryBusyOverlay{nullptr};
   QString m_openingNotePath;
-  QLabel *m_lblEmptyState{nullptr};
   QWidget *m_emptyStateHost{nullptr};
   QLabel *m_lblEmptyIcon{nullptr};
-  QLabel *m_lblEmptySubtitle{nullptr};
   QPushButton *m_btnEmptyCta{nullptr};
   QPushButton *m_fabNote{nullptr};
 

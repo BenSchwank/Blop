@@ -5006,14 +5006,6 @@ void MainWindow::applyTheme() {
         "  color: %4; font-size: 12px; font-weight: 500;"
         "  background: transparent;"
         "}"
-        "QLabel#overviewEmptyTitle {"
-        "  color: %2; font-size: 18px; font-weight: 700;"
-        "  letter-spacing: -0.2px; background: transparent;"
-        "}"
-        "QLabel#overviewEmptySubtitle {"
-        "  color: %4; font-size: 13px; font-weight: 500;"
-        "  background: transparent;"
-        "}"
         "QPushButton#overviewEmptyCta {"
         "  background-color: %8; color: #FFFFFF; border: none;"
         "  border-radius: 10px; padding: 0 22px;"
@@ -6494,7 +6486,7 @@ void MainWindow::setupUi() {
   const bool phoneEmpty = UiScale::isAndroidPhoneUi(this);
   emptyLay->setContentsMargins(UiScale::dp(24), UiScale::dp(phoneEmpty ? 28 : 36),
                                UiScale::dp(24), UiScale::dp(24));
-  emptyLay->setSpacing(UiScale::dp(10));
+  emptyLay->setSpacing(UiScale::dp(16));
   emptyLay->addStretch(1);
 
   m_lblEmptyIcon = new QLabel(m_emptyStateHost);
@@ -6504,32 +6496,20 @@ void MainWindow::setupUi() {
     NotePreviewIcon::Spec spec;
     spec.kind = NotePreviewIcon::Kind::A4;
     spec.backgroundType = 1;
-    m_lblEmptyIcon->setPixmap(NotePreviewIcon::pixmap(spec, UiScale::dp(phoneEmpty ? 96 : 84)));
+    m_lblEmptyIcon->setPixmap(
+        NotePreviewIcon::pixmap(spec, UiScale::dp(phoneEmpty ? 96 : 84)));
   }
   emptyLay->addWidget(m_lblEmptyIcon, 0, Qt::AlignHCenter);
 
-  m_lblEmptyState = new QLabel(QStringLiteral("Deine Bibliothek ist leer"),
-                               m_emptyStateHost);
-  m_lblEmptyState->setObjectName(QStringLiteral("overviewEmptyTitle"));
-  m_lblEmptyState->setAlignment(Qt::AlignCenter);
-  m_lblEmptyState->setWordWrap(true);
-  m_lblEmptyState->setMaximumWidth(UiScale::dp(320));
-  emptyLay->addWidget(m_lblEmptyState, 0, Qt::AlignHCenter);
-
-  m_lblEmptySubtitle = new QLabel(
-      QStringLiteral("Leg mit + Notiz deine erste Seite an."), m_emptyStateHost);
-  m_lblEmptySubtitle->setObjectName(QStringLiteral("overviewEmptySubtitle"));
-  m_lblEmptySubtitle->setAlignment(Qt::AlignCenter);
-  m_lblEmptySubtitle->setWordWrap(true);
-  m_lblEmptySubtitle->setMaximumWidth(UiScale::dp(320));
-  emptyLay->addWidget(m_lblEmptySubtitle, 0, Qt::AlignHCenter);
-
-  m_btnEmptyCta = new QPushButton(QStringLiteral("Notiz erstellen"), m_emptyStateHost);
+  m_btnEmptyCta =
+      new QPushButton(QStringLiteral("Notiz erstellen"), m_emptyStateHost);
   m_btnEmptyCta->setObjectName(QStringLiteral("overviewEmptyCta"));
   m_btnEmptyCta->setCursor(Qt::PointingHandCursor);
-  m_btnEmptyCta->setFixedHeight(UiScale::dp(phoneEmpty ? 48 : 40));
+  m_btnEmptyCta->setFixedHeight(
+      UiScale::dp(phoneEmpty ? BlopStyle::touchTargetMinDp() + 8
+                             : BlopStyle::touchTargetMinDp()));
   m_btnEmptyCta->setMinimumWidth(UiScale::dp(phoneEmpty ? 200 : 160));
-  m_btnEmptyCta->setMaximumWidth(UiScale::dp(320));
+  m_btnEmptyCta->setMaximumWidth(UiScale::dp(280));
   connect(m_btnEmptyCta, &QPushButton::clicked, this, [this]() {
     const bool smartFiltered =
         m_libraryOrgBar &&
@@ -6553,21 +6533,7 @@ void MainWindow::setupUi() {
   BlopRipple::attachPressFeedback(m_btnEmptyCta, 0.94);
   emptyLay->addWidget(m_btnEmptyCta, 0, Qt::AlignHCenter);
 
-  auto *hints = new QLabel(
-      QStringLiteral(
-          "Tipp: Lege A4-Hefte oder unendliche Leinwände an — Vorlagen, Tags "
-          "und Papier wählst du beim Erstellen."),
-      m_emptyStateHost);
-  hints->setObjectName(QStringLiteral("overviewEmptyHints"));
-  hints->setAlignment(Qt::AlignCenter);
-  hints->setWordWrap(true);
-  hints->setMaximumWidth(UiScale::dp(320));
-  hints->setStyleSheet(QStringLiteral(
-      "color: #6B7280; font-size: 12px; background: transparent;"
-      " padding: 12px 8px 4px 8px;"));
-  emptyLay->addWidget(hints, 0, Qt::AlignHCenter);
-
-  emptyLay->addStretch(2);
+  emptyLay->addStretch(1);
   libraryMainLay->addWidget(m_emptyStateHost, 1);
   updateSidebarBadges();
   libraryBodyLay->addWidget(libraryMain, 1);
@@ -9802,53 +9768,9 @@ void MainWindow::updateSidebarBadges() {
     const int total = m_fileModel->rowCount(sourceRoot);
     if (visible == 0) {
       const bool filtered = total > 0;
-      QString title = QStringLiteral("Deine Bibliothek ist leer");
-      QString subtitle =
-          QStringLiteral("Leg mit + Notiz deine erste Seite an.");
-      QString cta = QStringLiteral("Notiz erstellen");
-      if (!filtered && m_fileModel && !m_rootPath.isEmpty()) {
-        const QString here =
-            QFileInfo(m_fileModel->rootPath()).canonicalFilePath();
-        const QString root = QFileInfo(m_rootPath).canonicalFilePath();
-        if (!here.isEmpty() && here != root) {
-          title = QStringLiteral("Dieser Ordner ist leer");
-          subtitle = QStringLiteral(
-              "Leg mit + Notiz eine Seite in diesem Ordner an.");
-        }
-      }
-      if (filtered) {
-        title = QStringLiteral("Keine Treffer");
-        subtitle = QStringLiteral(
-            "Andere Suche, Smart-View oder Tags versuchen.");
-        cta = QStringLiteral("Zurück zu Alle");
-        if (m_libraryOrgBar) {
-          switch (m_libraryOrgBar->smartView()) {
-          case LibraryOrgBar::SmartView::Favorites:
-            title = QStringLiteral("Noch keine Favoriten");
-            subtitle = QStringLiteral(
-                "Markiere Notizen über das ⋯-Menü.");
-            break;
-          case LibraryOrgBar::SmartView::Recent:
-            title = QStringLiteral("Noch nichts kürzlich geöffnet");
-            subtitle = QStringLiteral(
-                "Öffne eine Notiz — dann taucht sie hier auf.");
-            break;
-          case LibraryOrgBar::SmartView::Untagged:
-            title = QStringLiteral("Alle Notizen haben Tags");
-            subtitle = QStringLiteral("Wechsle zu „Alle“, um alles zu sehen.");
-            break;
-          case LibraryOrgBar::SmartView::All:
-          default:
-            break;
-          }
-        }
-      }
-      if (m_lblEmptyState)
-        m_lblEmptyState->setText(title);
-      if (m_lblEmptySubtitle)
-        m_lblEmptySubtitle->setText(subtitle);
       if (m_btnEmptyCta) {
-        m_btnEmptyCta->setText(cta);
+        m_btnEmptyCta->setText(filtered ? QStringLiteral("Zurück zu Alle")
+                                        : QStringLiteral("Notiz erstellen"));
         m_btnEmptyCta->show();
       }
       m_emptyStateHost->show();

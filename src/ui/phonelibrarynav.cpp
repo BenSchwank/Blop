@@ -475,21 +475,6 @@ bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
   if (event && (event->type() == QEvent::Resize || event->type() == QEvent::Show) &&
       isVisible())
     syncPillGeometry();
-  if (watched == m_card.data() && event &&
-      (event->type() == QEvent::Resize || event->type() == QEvent::Show) &&
-      m_card && m_card->property("blopRoundClip").toBool()) {
-    const qreal rad = 16.0;
-    QPainterPath path;
-    const QRectF rf(m_card->rect());
-    path.moveTo(rf.left(), rf.bottom());
-    path.lineTo(rf.left(), rf.top() + rad);
-    path.quadTo(rf.left(), rf.top(), rf.left() + rad, rf.top());
-    path.lineTo(rf.right() - rad, rf.top());
-    path.quadTo(rf.right(), rf.top(), rf.right(), rf.top() + rad);
-    path.lineTo(rf.right(), rf.bottom());
-    path.closeSubpath();
-    m_card->setMask(QRegion(path.toFillPolygon().toPolygon()));
-  }
   if (m_sheet && watched == m_sheet->parentWidget() && event &&
       event->type() == QEvent::Resize && m_sheet->parentWidget()) {
     m_sheet->setGeometry(m_sheet->parentWidget()->rect());
@@ -821,14 +806,22 @@ void PhoneLibraryNav::openMenu() {
   const bool dark = BlopTheme::instance().isDark();
   const bool roomy = spaciousMenu();
   const bool wide = wideMenu();
+  // Phone: match header usable-viewport side pads + right reserve so the
+  // sheet is centered with air on both edges (never flush-right).
   const int side = roomy ? qMax(UiScale::dp(28), win->width() / 18)
-                         : UiScale::dp(10);
+                         : qMax(UiScale::safeHorizontalPaddingPx(win),
+                                UiScale::dp(14));
+  const int rightReserve = roomy ? 0 : UiScale::dp(12);
+  // Safe-bottom owned only by bottomWrap — card margins stay visual padding.
   const int bottomPad = roomy ? UiScale::dp(36)
                               : (UiScale::dp(10) + UiScale::safeBottomPx(win));
   const int cardCap = wide ? UiScale::dp(920) : UiScale::dp(560);
+  const int phoneMaxW = UiScale::androidContentWidthPx(win);
   const int maxCardW =
       roomy ? qMin(cardCap, qMax(UiScale::dp(320), win->width() - 2 * side))
-            : qMax(UiScale::dp(280), win->width() - 2 * side);
+            : qMin(phoneMaxW,
+                   qMax(UiScale::dp(280),
+                        win->width() - side - (side + rightReserve)));
 
   const QColor sheetBg =
       dark ? BlopStyle::obsidianSheet() : BlopStyle::paperBg();
@@ -850,6 +843,9 @@ void PhoneLibraryNav::openMenu() {
   const QString handleBg =
       dark ? QStringLiteral("rgba(255,255,255,0.22)")
            : QStringLiteral("rgba(20,24,40,0.18)");
+  const QString topHair =
+      dark ? QStringLiteral("rgba(255,255,255,0.10)")
+           : QStringLiteral("rgba(20,24,40,0.08)");
 
   auto *card = new QWidget(sheet);
   m_card = card;
@@ -869,14 +865,16 @@ void PhoneLibraryNav::openMenu() {
                   "  border-top-left-radius: 16px;"
                   "  border-top-right-radius: 16px;"
                   "  border: 1px solid %2;"
+                  "  border-top: 1px solid %3;"
                   "}")
-                .arg(sheetBg.name(QColor::HexRgb), sheetBorder));
+                .arg(sheetBg.name(QColor::HexRgb), sheetBorder, topHair));
   card->installEventFilter(this);
-  if (roomy) {
+  {
+    // Soft elevation without setMask (mask clipped soft edges asymmetrically).
     auto *shadow = new QGraphicsDropShadowEffect(card);
-    shadow->setBlurRadius(20);
-    shadow->setOffset(0, 8);
-    shadow->setColor(QColor(0, 0, 0, 64));
+    shadow->setBlurRadius(roomy ? 20 : 28);
+    shadow->setOffset(0, roomy ? 8 : -6);
+    shadow->setColor(QColor(0, 0, 0, roomy ? 64 : 56));
     card->setGraphicsEffect(shadow);
   }
 
@@ -889,48 +887,21 @@ void PhoneLibraryNav::openMenu() {
                           win->height() - UiScale::safeTopPx(win) -
                               UiScale::dp(72)));
   card->setFixedHeight(cardH);
-  if (roomy)
-    card->setFixedWidth(maxCardW);
-
-  // Clip children to the rounded sheet so highlights don't square past corners.
-  // Skip when roomy (drop-shadow + mask fight); phone bottom-sheet needs it.
-  if (!roomy) {
-    auto applyCardMask = [card]() {
-      if (!card)
-        return;
-      const qreal rad = 16.0;
-      QPainterPath path;
-      const QRectF rf(card->rect());
-      path.moveTo(rf.left(), rf.bottom());
-      path.lineTo(rf.left(), rf.top() + rad);
-      path.quadTo(rf.left(), rf.top(), rf.left() + rad, rf.top());
-      path.lineTo(rf.right() - rad, rf.top());
-      path.quadTo(rf.right(), rf.top(), rf.right(), rf.top() + rad);
-      path.lineTo(rf.right(), rf.bottom());
-      path.closeSubpath();
-      card->setMask(QRegion(path.toFillPolygon().toPolygon()));
-    };
-    QTimer::singleShot(0, card, applyCardMask);
-    card->setProperty("blopRoundClip", true);
-  }
+  card->setFixedWidth(maxCardW);
 
   auto *bottomWrap = new QWidget(sheet);
   bottomWrap->setAttribute(Qt::WA_TranslucentBackground, true);
   auto *bl = new QHBoxLayout(bottomWrap);
-  bl->setContentsMargins(side, 0, side, bottomPad);
+  bl->setContentsMargins(side, 0, side + rightReserve, bottomPad);
   bl->setSpacing(0);
-  if (roomy)
-    bl->addStretch(1);
-  bl->addWidget(card, roomy ? 0 : 1);
-  if (roomy)
-    bl->addStretch(1);
+  bl->addStretch(1);
+  bl->addWidget(card, 0);
+  bl->addStretch(1);
   root->addWidget(bottomWrap, 0);
 
   auto *lay = new QVBoxLayout(card);
   lay->setContentsMargins(UiScale::dp(roomy ? 22 : 18), UiScale::dp(roomy ? 16 : 14),
-                          UiScale::dp(roomy ? 22 : 18),
-                          roomy ? UiScale::dp(16)
-                                : (UiScale::dp(18) + UiScale::safeBottomPx(win)));
+                          UiScale::dp(roomy ? 22 : 18), UiScale::dp(roomy ? 16 : 18));
   lay->setSpacing(UiScale::dp(roomy ? 10 : 8));
 
   auto *handle = new QWidget(card);

@@ -220,9 +220,13 @@ void LibraryOrgBar::cycleSortMode() {
 void LibraryOrgBar::refreshSortLabel() {
   if (!m_btnSort)
     return;
-  m_btnSort->setText(m_sort == SortMode::Modified
-                         ? QStringLiteral("Zuletzt geändert  \u25be")
-                         : QStringLiteral("Name  \u25be"));
+  const bool phone = UiScale::isAndroidPhoneUi(parentWidget());
+  if (m_sort == SortMode::Modified) {
+    m_btnSort->setText(phone ? QStringLiteral("Datum  \u25be")
+                             : QStringLiteral("Zuletzt geändert  \u25be"));
+  } else {
+    m_btnSort->setText(QStringLiteral("Name  \u25be"));
+  }
   m_btnSort->setToolTip(m_sort == SortMode::Modified
                             ? QStringLiteral("Sortierung: zuletzt geändert")
                             : QStringLiteral("Sortierung: Name A–Z"));

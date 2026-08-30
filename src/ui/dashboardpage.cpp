@@ -542,6 +542,15 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   m_persistentHeader->setObjectName(QStringLiteral("DashPersistentHeader"));
   m_rootLay->addWidget(m_persistentHeader, 0);
 
+  m_phoneEditFooter = new QWidget(this);
+  m_phoneEditFooter->setObjectName(QStringLiteral("DashPhoneEditFooter"));
+  m_phoneEditFooter->hide();
+  m_phoneEditFooterLay = new QVBoxLayout(m_phoneEditFooter);
+  m_phoneEditFooterLay->setContentsMargins(UiScale::dp(16), UiScale::dp(10),
+                                           UiScale::dp(16), UiScale::dp(10));
+  m_phoneEditFooterLay->setSpacing(UiScale::dp(8));
+  // Added after scroll below so it sits at the bottom of the page.
+
   m_clockTimer = new QTimer(this);
   connect(m_clockTimer, &QTimer::timeout, this, [this]() {
     if (m_lblClock)
@@ -577,6 +586,7 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   scroll->setWidget(m_host);
   m_rootLay->addWidget(scroll, 1);
   scroll->installEventFilter(this);
+  m_rootLay->addWidget(m_phoneEditFooter, 0);
 
   m_snapOverlay = new DashSnapOverlay(m_host);
   m_snapOverlay->hide();
@@ -630,6 +640,10 @@ void DashboardPage::applyDashboardDensity() {
   if (m_editBarLay) {
     m_editBarLay->setContentsMargins(side, UiScale::dp(8), side, UiScale::dp(8));
   }
+  if (m_phoneEditFooterLay) {
+    const int bot = UiScale::dp(10) + UiScale::safeBottomPx(this);
+    m_phoneEditFooterLay->setContentsMargins(side, UiScale::dp(10), side, bot);
+  }
 }
 
 void DashboardPage::applyChromeStyles() {
@@ -642,6 +656,14 @@ void DashboardPage::applyChromeStyles() {
                                  "  border-bottom: 1px solid %2;"
                                  "}")
                                  .arg(card(), border()));
+  }
+  if (m_phoneEditFooter) {
+    m_phoneEditFooter->setStyleSheet(QStringLiteral(
+                                         "QWidget#DashPhoneEditFooter {"
+                                         "  background: %1;"
+                                         "  border-top: 1px solid %2;"
+                                         "}")
+                                         .arg(card(), border()));
   }
   if (m_persistentHeader) {
     m_persistentHeader->setStyleSheet(QStringLiteral(
@@ -700,6 +722,21 @@ void DashboardPage::rebuildEditBar() {
     delete it;
   }
 
+  const bool phone = usePhoneDashboard();
+  if (phone) {
+    // Phone: short hint only — Fertig lives in the bottom footer.
+    auto *editHint = new QLabel(
+        QStringLiteral("Ziehen · Größe anpassen · Ausblenden"), m_editBar);
+    editHint->setAlignment(Qt::AlignCenter);
+    editHint->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 12px; font-weight: 500;"
+                       "background: transparent;")
+            .arg(muted()));
+    m_editBarLay->addWidget(editHint, 1);
+    rebuildPhoneEditFooter();
+    return;
+  }
+
   auto *editHint = new QLabel(
       QStringLiteral(
           "Layout anpassen — ⋮⋮ verschieben, Kantenpunkte zum Vergrößern"),
@@ -723,6 +760,41 @@ void DashboardPage::rebuildEditBar() {
   btnDone->setStyleSheet(BlopStyle::paperPrimaryButtonQss());
   connect(btnDone, &QPushButton::clicked, this, &DashboardPage::toggleEditMode);
   m_editBarLay->addWidget(btnDone, 0);
+}
+
+void DashboardPage::rebuildPhoneEditFooter() {
+  if (!m_phoneEditFooterLay)
+    return;
+  while (QLayoutItem *it = m_phoneEditFooterLay->takeAt(0)) {
+    if (it->widget())
+      it->widget()->deleteLater();
+    delete it;
+  }
+
+  auto *row = new QWidget(m_phoneEditFooter);
+  auto *rowLay = new QHBoxLayout(row);
+  rowLay->setContentsMargins(0, 0, 0, 0);
+  rowLay->setSpacing(UiScale::dp(10));
+
+  auto *btnReset =
+      new QPushButton(QStringLiteral("Zurücksetzen"), row);
+  btnReset->setCursor(Qt::PointingHandCursor);
+  btnReset->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() + 8));
+  btnReset->setStyleSheet(BlopStyle::paperSecondaryButtonQss());
+  connect(btnReset, &QPushButton::clicked, this, [this]() {
+    DashboardLayoutStore::reset();
+    refresh();
+  });
+  rowLay->addWidget(btnReset, 0);
+
+  auto *btnDone = new QPushButton(QStringLiteral("Fertig"), row);
+  btnDone->setCursor(Qt::PointingHandCursor);
+  btnDone->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() + 8));
+  btnDone->setStyleSheet(BlopStyle::paperPrimaryButtonQss());
+  connect(btnDone, &QPushButton::clicked, this, &DashboardPage::toggleEditMode);
+  rowLay->addWidget(btnDone, 1);
+
+  m_phoneEditFooterLay->addWidget(row);
 }
 
 void DashboardPage::showBlocksMenu(QPushButton *anchor) {
@@ -769,6 +841,18 @@ void DashboardPage::setEditMode(bool on) {
   }
   if (m_editBar)
     m_editBar->setVisible(m_editMode);
+  if (m_phoneEditFooter) {
+    const bool phoneFooter = m_editMode && usePhoneDashboard();
+    if (phoneFooter)
+      rebuildPhoneEditFooter();
+    m_phoneEditFooter->setVisible(phoneFooter);
+  }
+  if (m_btnEdit && usePhoneDashboard()) {
+    // One exit surface on phone: bottom Fertig. Keep header as entry only.
+    m_btnEdit->setVisible(!m_editMode);
+  } else if (m_btnEdit) {
+    m_btnEdit->setVisible(true);
+  }
   if (m_scroll) {
     // Block finger-flick only (conflicts with drag grips); wheel/scrollbar OK.
     m_scroll->setProperty(BlopScroll::kNoFingerScrollProperty, m_editMode);
@@ -905,6 +989,77 @@ void DashboardPage::resolveOverlaps(QVector<DashboardWidgetSpec> &specs,
 QWidget *DashboardPage::buildEditChrome(const QString &id) {
   auto *bar = new QWidget();
   bar->setObjectName(QStringLiteral("DashEditChrome"));
+
+  const bool phone = usePhoneDashboard();
+  if (phone) {
+    auto *outer = new QVBoxLayout(bar);
+    outer->setContentsMargins(0, 0, 0, UiScale::dp(6));
+    outer->setSpacing(UiScale::dp(6));
+
+    auto *top = new QWidget(bar);
+    auto *lay = new QHBoxLayout(top);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(UiScale::dp(4));
+
+    auto *grip = new QLabel(QStringLiteral("⋮⋮"), top);
+    grip->setObjectName(QStringLiteral("DashDragGrip"));
+    grip->setCursor(Qt::SizeAllCursor);
+    grip->setToolTip(QStringLiteral("Ziehen zum Verschieben"));
+    grip->setAttribute(Qt::WA_AcceptTouchEvents, true);
+    grip->installEventFilter(this);
+    grip->setStyleSheet(gripQss(true));
+    lay->addWidget(grip, 0);
+
+    auto *title = new QLabel(DashboardLayoutStore::displayName(id), top);
+    title->setStyleSheet(sectionTitleQss());
+    lay->addWidget(title, 1);
+
+    auto *hideBtn = new QPushButton(QStringLiteral("Ausblenden"), top);
+    hideBtn->setCursor(Qt::PointingHandCursor);
+    hideBtn->setStyleSheet(editChipQss());
+    hideBtn->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
+    connect(hideBtn, &QPushButton::clicked, this, [this, id]() {
+      updateSpec(id, [](DashboardWidgetSpec &s) { s.visible = false; });
+    });
+    lay->addWidget(hideBtn, 0);
+    outer->addWidget(top);
+
+    int currentSpan = 2;
+    for (const auto &s : currentSpecs()) {
+      if (s.id == id) {
+        currentSpan = qBound(1, s.rowSpan, 3);
+        break;
+      }
+    }
+    auto *heightHost = new QWidget(bar);
+    auto *heightLay = new QHBoxLayout(heightHost);
+    heightLay->setContentsMargins(0, 0, 0, 0);
+    heightLay->setSpacing(UiScale::dp(6));
+    const QString segQss = BlopStyle::segmentQss();
+    const struct {
+      const char *label;
+      int span;
+    } chips[] = {{"Kompakt", 1}, {"Normal", 2}, {"Hoch", 3}};
+    for (const auto &c : chips) {
+      auto *b = new QPushButton(QString::fromUtf8(c.label), heightHost);
+      b->setCheckable(true);
+      b->setChecked(c.span == currentSpan);
+      b->setCursor(Qt::PointingHandCursor);
+      b->setStyleSheet(segQss);
+      b->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
+      const int span = c.span;
+      b->setProperty("rowSpan", span);
+      connect(b, &QPushButton::clicked, this, [this, id, span, heightHost]() {
+        for (auto *sib : heightHost->findChildren<QPushButton *>())
+          sib->setChecked(sib->property("rowSpan").toInt() == span);
+        updateSpec(id, [span](DashboardWidgetSpec &s) { s.rowSpan = span; });
+      });
+      heightLay->addWidget(b, 1);
+    }
+    outer->addWidget(heightHost);
+    return bar;
+  }
+
   auto *lay = new QHBoxLayout(bar);
   lay->setContentsMargins(0, 0, 0, UiScale::dp(6));
   lay->setSpacing(UiScale::dp(4));
@@ -1135,9 +1290,15 @@ void DashboardPage::updatePersistentHeader() {
   if (m_lblMetrics)
     m_lblMetrics->clear(); // Notion page: no stat strip under the title
 
-  if (m_btnEdit)
-    m_btnEdit->setText(m_editMode ? QStringLiteral("Fertig")
-                                  : QStringLiteral("Bearbeiten"));
+  if (m_btnEdit) {
+    if (usePhoneDashboard() && m_editMode) {
+      m_btnEdit->setVisible(false);
+    } else {
+      m_btnEdit->setVisible(true);
+      m_btnEdit->setText(m_editMode ? QStringLiteral("Fertig")
+                                    : QStringLiteral("Bearbeiten"));
+    }
+  }
   applyChromeStyles();
 }
 
@@ -1270,6 +1431,7 @@ QWidget *DashboardPage::wrapBlock(const QString &id, QWidget *content,
 }
 
 void DashboardPage::attachResizeHandles(QFrame *frame) {
+  const bool phone = usePhoneDashboard();
   const auto make = [&](const char *edge, Qt::CursorShape cursor) {
     auto *h = new QWidget(frame);
     h->setObjectName(QStringLiteral("DashResizeHandle"));
@@ -1279,37 +1441,42 @@ void DashboardPage::attachResizeHandles(QFrame *frame) {
     h->setStyleSheet(QStringLiteral(
         "QWidget#DashResizeHandle {"
         "  background: %1; border: 1px solid %2;"
-        "  border-radius: 3px;"
+        "  border-radius: %4px;"
         "}"
         "QWidget#DashResizeHandle:hover { background: %3; }")
                          .arg(accent(), card(),
-                              BlopTheme::accentHover().name(QColor::HexRgb)));
+                              BlopTheme::accentHover().name(QColor::HexRgb),
+                              QString::number(UiScale::dp(phone ? 6 : 3))));
     h->installEventFilter(this);
     h->raise();
   };
   make("N", Qt::SizeVerCursor);
-  make("E", Qt::SizeHorCursor);
   make("S", Qt::SizeVerCursor);
-  make("W", Qt::SizeHorCursor);
+  if (!phone) {
+    make("E", Qt::SizeHorCursor);
+    make("W", Qt::SizeHorCursor);
+  }
   layoutResizeHandles(frame);
 }
 
 void DashboardPage::layoutResizeHandles(QFrame *frame) const {
   if (!frame)
     return;
-  const int grip = UiScale::dp(16);
+  const bool phone = usePhoneDashboard();
+  const int grip = UiScale::dp(phone ? 24 : 16);
+  const int inset = phone ? UiScale::dp(4) : 0;
   const int w = frame->width();
   const int h = frame->height();
   for (auto *handle : frame->findChildren<QWidget *>(QStringLiteral("DashResizeHandle"))) {
     const QString edge = handle->property("resizeEdge").toString();
     if (edge == QLatin1String("N"))
-      handle->setGeometry((w - grip) / 2, 0, grip, grip);
+      handle->setGeometry((w - grip) / 2, inset, grip, grip);
     else if (edge == QLatin1String("S"))
-      handle->setGeometry((w - grip) / 2, h - grip, grip, grip);
+      handle->setGeometry((w - grip) / 2, h - grip - inset, grip, grip);
     else if (edge == QLatin1String("W"))
-      handle->setGeometry(0, (h - grip) / 2, grip, grip);
+      handle->setGeometry(inset, (h - grip) / 2, grip, grip);
     else if (edge == QLatin1String("E"))
-      handle->setGeometry(w - grip, (h - grip) / 2, grip, grip);
+      handle->setGeometry(w - grip - inset, (h - grip) / 2, grip, grip);
   }
 }
 

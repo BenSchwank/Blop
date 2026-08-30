@@ -46,6 +46,7 @@ private:
   void applyDashboardDensity();
   void rebuildWidgets();
   void rebuildEditBar();
+  void rebuildPhoneEditFooter();
   void ensurePersistentHeader();
   void updatePersistentHeader();
   void purgeFloatingHostWidgets();
@@ -113,6 +114,8 @@ private:
   QGridLayout *m_gridLay{nullptr};
   QWidget *m_editBar{nullptr};
   QHBoxLayout *m_editBarLay{nullptr};
+  QWidget *m_phoneEditFooter{nullptr};
+  QVBoxLayout *m_phoneEditFooterLay{nullptr};
   DashSnapOverlay *m_snapOverlay{nullptr};
   QFrame *m_dragFrame{nullptr};
   bool m_editMode{false};
