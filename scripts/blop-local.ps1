@@ -14,6 +14,7 @@
   ./scripts/blop-local.ps1 build
   ./scripts/blop-local.ps1 run
   ./scripts/blop-local.ps1 br              # build + run
+  ./scripts/blop-local.ps1 br -Trace       # Session-Trace fuer Agent-QA
   ./scripts/blop-local.ps1 tag -Message "J-Rail 3-Punkt Griff ok"
   ./scripts/blop-local.ps1 tag -Message "..." -Push
 #>
@@ -33,7 +34,10 @@ param(
   [switch]$Push,
 
   # Kompletten Neuaufbau: CMake-Cache verwerfen.
-  [switch]$Fresh
+  [switch]$Fresh,
+
+  # Opt-in Session-Trace (BLOP_SESSION_TRACE=1). Standard aus — kein Monitoring.
+  [switch]$Trace
 )
 
 $ErrorActionPreference = 'Stop'
@@ -108,6 +112,18 @@ function Invoke-Build {
   if ($LASTEXITCODE -ne 0) { throw 'Build fehlgeschlagen.' }
   Write-Ok "Binary: $Exe"
 
+  # QA console launcher (optional target; may need reconfigure after first add).
+  if (Test-Path (Join-Path $BuildDir 'build.ninja')) {
+    $traceTarget = & cmake --build $BuildDir --target help 2>$null |
+      Select-String -SimpleMatch 'BlopTrace'
+    if ($traceTarget) {
+      Write-Step 'BlopTrace bauen'
+      & cmake --build $BuildDir --target BlopTrace -j $jobs
+      if ($LASTEXITCODE -ne 0) { Write-Warn2 'BlopTrace-Build fehlgeschlagen (Blop ok).' }
+      else { Write-Ok "BlopTrace: $(Join-Path $BuildDir 'BlopTrace.exe')" }
+    }
+  }
+
   # Side-by-side Qt DLLs so blop:// / Explorer launches work without PATH
   # (and without a console .cmd wrapper that floods terminals).
   Write-Step 'Qt-DLLs neben Blop.exe legen'
@@ -153,6 +169,15 @@ function Invoke-Build {
 function Invoke-Run {
   if (-not (Test-Path $Exe)) { throw "Kein Build vorhanden. Erst: blop-local.ps1 build" }
   Initialize-BuildEnv
+  if ($Trace) {
+    $env:BLOP_SESSION_TRACE = '1'
+    Write-Step 'Session-Trace AN (BLOP_SESSION_TRACE=1) — Log unter AppData/…/session_trace.log'
+  } else {
+    # Do not clear a user-set env from the parent shell; only leave unset if we own it.
+    if ($env:BLOP_SESSION_TRACE -eq '1') {
+      Write-Warn2 'BLOP_SESSION_TRACE=1 ist in der Shell gesetzt (Trace bleibt an).'
+    }
+  }
   Write-Step 'Blop starten (lokal testen)'
   & $Exe
   Write-Ok "Blop beendet (Exit $LASTEXITCODE)"

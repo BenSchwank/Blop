@@ -6,6 +6,11 @@
 /// network and no DSN. Writes a file at <AppDataLocation>/last_crash.txt
 /// when the process is killed by SIGSEGV/SIGABRT/SIGBUS/SIGILL/SIGFPE.
 /// Replay the file contents at next launch via takeCrashReportIfPresent().
+///
+/// Opt-in session trace (default OFF — never monitors normal users):
+///   - Env: BLOP_SESSION_TRACE=1
+///   - Or Settings → Erweitert → "Session-Trace (Entwickler)"
+/// Writes UI actions + warnings/errors to session_trace.log for agent QA.
 namespace BlopDiag {
 
 /// Install the Qt message handler, the POSIX signal handlers, and pre-open
@@ -15,6 +20,7 @@ void install();
 
 /// Append a UI action tag (free-form, e.g. "tab_click", "tile_pill_tap") to
 /// the ring buffer. Cheap. Safe to call from the GUI thread.
+/// When session trace is active, also appends to session_trace.log.
 void recordUiAction(const QString &tag);
 
 /// If a crash dump from the previous run exists, return its contents and
@@ -25,5 +31,14 @@ QString takeCrashReportIfPresent();
 /// Path to the last_crash.txt file (for debugging / docs); valid after
 /// install() has run.
 QString crashReportPath();
+
+/// True only when env BLOP_SESSION_TRACE=1 or settings diag/sessionTrace.
+bool sessionTraceActive();
+
+/// Persist opt-in and open/close the session log. Default remains off.
+void setSessionTraceEnabled(bool on);
+
+/// Absolute path of session_trace.log (resolved even when trace is off).
+QString sessionTracePath();
 
 } // namespace BlopDiag

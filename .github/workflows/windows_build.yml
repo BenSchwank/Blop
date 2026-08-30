@@ -145,6 +145,13 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force deployment | Out-Null
           Copy-Item build\Blop.exe deployment\Blop.exe -Force
+          if (Test-Path build\BlopTrace.exe) {
+            Copy-Item build\BlopTrace.exe deployment\BlopTrace.exe -Force
+          } elseif (Test-Path build\Release\BlopTrace.exe) {
+            Copy-Item build\Release\BlopTrace.exe deployment\BlopTrace.exe -Force
+          } else {
+            Write-Warning "BlopTrace.exe missing — session-trace launcher will not ship in this build"
+          }
           if (Test-Path build\crashpad_handler.exe) {
             Copy-Item build\crashpad_handler.exe deployment\crashpad_handler.exe -Force
           }

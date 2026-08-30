@@ -62,6 +62,9 @@ Section "Install"
   ; Verknüpfungen erstellen
   CreateShortcut "$SMPROGRAMS\Blop.lnk" "$INSTDIR\Blop.exe"
   CreateShortcut "$DESKTOP\Blop.lnk" "$INSTDIR\Blop.exe"
+  ; Opt-in QA console (not the normal app entry) — only if shipped in deployment
+  IfFileExists "$INSTDIR\BlopTrace.exe" 0 +2
+    CreateShortcut "$SMPROGRAMS\Blop Session-Trace.lnk" "$INSTDIR\BlopTrace.exe"
   
   ; Registry Eintrag für Deinstallation (optional, aber gut für Systemsteuerung)
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "DisplayName" "Blop"

@@ -4,6 +4,10 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QIODevice>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QString>
 #include <QtGlobal>
@@ -62,6 +66,91 @@ char g_crashPath[1024] = {0};
 // rotate a fresh fd on every install() call so a previous crash file is
 // overwritten on next start (after replay).
 int g_crashFd = -1;
+
+// Opt-in session trace — OFF by default (no silent user monitoring).
+std::atomic<bool> g_sessionTrace{false};
+QMutex g_sessionMutex;
+QString g_sessionPath;
+QFile *g_sessionFile = nullptr;
+
+void appendSessionLine(const char *prefix, const QString &body) {
+  if (!g_sessionTrace.load(std::memory_order_acquire))
+    return;
+  QMutexLocker lock(&g_sessionMutex);
+  if (!g_sessionFile || !g_sessionFile->isOpen())
+    return;
+  const QString line =
+      QStringLiteral("%1 %2 %3\n")
+          .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs),
+               QString::fromLatin1(prefix ? prefix : "?"), body);
+  g_sessionFile->write(line.toUtf8());
+  g_sessionFile->flush();
+}
+
+bool envWantsSessionTrace() {
+  const QByteArray v = qgetenv("BLOP_SESSION_TRACE").trimmed().toLower();
+  return v == "1" || v == "true" || v == "yes" || v == "on";
+}
+
+bool settingsWantSessionTrace() {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  return s.value(QStringLiteral("diag/sessionTrace"), false).toBool();
+}
+
+QString resolveSessionTracePath() {
+  QString dir =
+      QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+  if (dir.isEmpty())
+    dir = QDir::tempPath();
+  QDir().mkpath(dir);
+  return dir + QStringLiteral("/session_trace.log");
+}
+
+void closeSessionFileLocked() {
+  if (!g_sessionFile)
+    return;
+  if (g_sessionFile->isOpen()) {
+    g_sessionFile->write(
+        QStringLiteral("%1 TRACE end\n")
+            .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs))
+            .toUtf8());
+    g_sessionFile->flush();
+    g_sessionFile->close();
+  }
+  delete g_sessionFile;
+  g_sessionFile = nullptr;
+}
+
+void openSessionFileLocked(bool truncate) {
+  closeSessionFileLocked();
+  g_sessionPath = resolveSessionTracePath();
+  g_sessionFile = new QFile(g_sessionPath);
+  QIODevice::OpenMode mode = QIODevice::WriteOnly | QIODevice::Text;
+  mode |= truncate ? QIODevice::Truncate : QIODevice::Append;
+  if (!g_sessionFile->open(mode)) {
+    delete g_sessionFile;
+    g_sessionFile = nullptr;
+    g_sessionTrace.store(false, std::memory_order_release);
+    return;
+  }
+  g_sessionFile->write(
+      QStringLiteral(
+          "%1 TRACE start (opt-in only; env BLOP_SESSION_TRACE or Settings)\n")
+          .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs))
+          .toUtf8());
+  g_sessionFile->flush();
+}
+
+void applySessionTraceEnabled(bool on, bool truncateOnEnable) {
+  QMutexLocker lock(&g_sessionMutex);
+  if (on) {
+    g_sessionTrace.store(true, std::memory_order_release);
+    openSessionFileLocked(truncateOnEnable);
+  } else {
+    g_sessionTrace.store(false, std::memory_order_release);
+    closeSessionFileLocked();
+  }
+}
 
 void writeLineToRing(const char *prefix, const char *body) {
   if (!body) {
@@ -320,6 +409,12 @@ void qtMessageHandler(QtMsgType type, const QMessageLogContext &ctx,
   const QByteArray utf8 = msg.toUtf8();
   writeLineToRing(prefix, utf8.constData());
 
+  // Opt-in session file: warnings+ only (skip Debug spam).
+  if (type == QtWarningMsg || type == QtCriticalMsg || type == QtFatalMsg ||
+      type == QtInfoMsg) {
+    appendSessionLine(prefix, msg);
+  }
+
   // Forward to the previous handler so logcat / qDebug still work.
   if (g_chainedQtHandler && g_chainedQtHandler != &qtMessageHandler) {
     g_chainedQtHandler(type, ctx, msg);
@@ -424,6 +519,10 @@ void install() {
 
   g_chainedQtHandler = qInstallMessageHandler(&qtMessageHandler);
 
+  // Opt-in only: env var OR Settings checkbox. Never on by default.
+  if (envWantsSessionTrace() || settingsWantSessionTrace())
+    applySessionTraceEnabled(true, /*truncateOnEnable=*/true);
+
   recordUiAction(QStringLiteral("blop_diag_installed"));
 
 #if BLOP_DIAG_HAS_POSIX
@@ -434,6 +533,24 @@ void install() {
 void recordUiAction(const QString &tag) {
   const QByteArray utf8 = tag.toUtf8();
   writeLineToRing("U", utf8.constData());
+  appendSessionLine("U", tag);
+}
+
+bool sessionTraceActive() {
+  return g_sessionTrace.load(std::memory_order_acquire);
+}
+
+void setSessionTraceEnabled(bool enabled) {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  s.setValue(QStringLiteral("diag/sessionTrace"), enabled);
+  applySessionTraceEnabled(enabled, /*truncateOnEnable=*/enabled);
+}
+
+QString sessionTracePath() {
+  QMutexLocker lock(&g_sessionMutex);
+  if (!g_sessionPath.isEmpty())
+    return g_sessionPath;
+  return resolveSessionTracePath();
 }
 
 QString takeCrashReportIfPresent() {

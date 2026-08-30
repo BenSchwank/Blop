@@ -516,6 +516,11 @@ if(WIN32)
     target_link_libraries(Blop PRIVATE dwmapi)
 endif()
 
+# Windows-only QA console: BlopTrace.exe (session log → Downloads). Not linked into Blop.
+if(WIN32 AND NOT ANDROID)
+    add_subdirectory(tools/blop_trace)
+endif()
+
 # --- Additive automation (benchmarks, future headless tools): never linked into Blop ---
 option(BLOP_BUILD_AUTOMATION "Register headless tooling targets (e.g. blop_benchmark_math); does not change Blop behavior" OFF)
 if(BLOP_BUILD_AUTOMATION AND NOT ANDROID)

@@ -14,6 +14,7 @@
 #include "overlayscrollindicator.h"
 #include "uiscale.h"
 #include "ui_SettingsDialog.h"
+#include "blop_diag.h"
 
 #include <QButtonGroup>
 #include <QBoxLayout>
@@ -1863,7 +1864,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Card: Erweitert ----------------------------------------------
     auto *cardAdv = new BlopSettingsCard(
         QStringLiteral("Erweitert"),
-        QStringLiteral("Version, Informationen"),
+        QStringLiteral("Version, Entwickler"),
         contentWidget);
     {
         const QString version = QString(BLOP_VERSION_STR);
@@ -1878,6 +1879,50 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             .arg(settingsInkMuted()));
         cardAdv->addBodyWidget(makePropertyRow(
             cardAdv, QStringLiteral("Version"), info, true));
+
+        // Opt-in only — never on for normal users. Agent QA reads the file.
+        auto *btnTrace = new QPushButton(
+            QStringLiteral("Session-Trace (Entwickler)"), cardAdv);
+        btnTrace->setCheckable(true);
+        btnTrace->setCursor(Qt::PointingHandCursor);
+        btnTrace->setMinimumHeight(40);
+        btnTrace->setChecked(BlopDiag::sessionTraceActive());
+        setThemedQss(btnTrace, QStringLiteral(
+            "QPushButton { background: %1; color: %2;"
+            "  border: 1px solid rgba(20,24,40,0.12); border-radius: 10px;"
+            "  padding: 10px 14px; text-align: left; font-weight: 600; }"
+            "QPushButton:checked { background: %3;"
+            "  border-color: %4; }")
+                .arg(settingsChipBg(), settingsInk(), accentRgba(70),
+                     BlopTheme::accentPrimary().name(QColor::HexRgb)));
+        auto *traceHint = new QLabel(cardAdv);
+        traceHint->setWordWrap(true);
+        setLiteralQss(traceHint, QStringLiteral(
+            "color: %1; font-size: 11px;"
+            "background: transparent; padding: 2px 0 4px 0;")
+            .arg(settingsInkMuted()));
+        const auto refreshTraceHint = [traceHint](bool on) {
+            if (!on) {
+                traceHint->setText(QStringLiteral(
+                    "Aus (Standard). Schreibt keine Klicks/Fehler. Nur für "
+                    "lokale Agent-/QA-Sessions einschalten — oder "
+                    "BLOP_SESSION_TRACE=1 setzen."));
+                return;
+            }
+            traceHint->setText(
+                QStringLiteral(
+                    "An. UI-Aktionen + Warnungen/Fehler →\n%1")
+                    .arg(BlopDiag::sessionTracePath()));
+        };
+        refreshTraceHint(btnTrace->isChecked());
+        connect(btnTrace, &QPushButton::toggled, this,
+                [refreshTraceHint](bool on) {
+                    BlopDiag::setSessionTraceEnabled(on);
+                    refreshTraceHint(on);
+                });
+        BlopRipple::attachPressFeedback(btnTrace, 0.96);
+        cardAdv->addBodyWidget(btnTrace);
+        cardAdv->addBodyWidget(traceHint);
     }
     cardAdv->setExpanded(true);
 
