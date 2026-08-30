@@ -3284,7 +3284,7 @@ void MainWindow::requestPasswordAuth() {
     body.insert(QStringLiteral("email"), email);
 
   auto *nam = new QNetworkAccessManager(this);
-  QNetworkRequest req(QUrl(endpoint));
+  QNetworkRequest req{QUrl(endpoint)};
   req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
   req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                    QNetworkRequest::NoLessSafeRedirectPolicy);
