@@ -35,14 +35,14 @@ namespace {
 // Local copy of the Blop menu QSS so this class doesn't reach into mainwindow.cpp.
 // Kept in sync with blopWebMenuStyleSheet() in src/ui/mainwindow.cpp ~171.
 QString phoneMenuStyleSheet() {
-  // v3.17.1: route through themed() so Light mode sees a white-on-light
-  // menu surface instead of #14121F-on-light-bg (which would look like a
-  // misplaced dark popover).
-  return BlopTheme::themed(QString::fromUtf8(
-      R"(QMenu { background-color: #14121F; border: 1px solid rgba(124, 92, 252, 0.42); border-radius: 12px; padding: 6px; }
-QMenu::separator { height: 1px; background: rgba(255,255,255,0.08); margin: 6px 12px; }
-QMenu::item { color: #E8E4FF; padding: 12px 22px; border-radius: 8px; font-size: 14px; font-weight: 500; }
-QMenu::item:selected { background-color: rgba(124, 92, 252, 0.38); color: #FFFFFF; })"));
+  return QStringLiteral(
+      "QMenu { background-color: #1E1E1E; border: 1px solid rgba(255,255,255,0.10);"
+      "  border-radius: 12px; padding: 6px; }"
+      "QMenu::separator { height: 1px; background: rgba(255,255,255,0.08);"
+      "  margin: 6px 12px; }"
+      "QMenu::item { color: #F0F0F0; padding: 12px 22px; border-radius: 8px;"
+      "  font-size: 14px; font-weight: 500; min-height: 28px; }"
+      "QMenu::item:selected { background-color: rgba(91,157,255,0.38); color: #FFFFFF; }");
 }
 
 // Transparent full-window child that catches outside-taps for the brush sheet.
@@ -660,13 +660,14 @@ void AndroidPhoneToolbar::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing, true);
 
-  // Bottom pill surface (matches BlopStyle::surfaceBg / surfaceBorder).
+  // Bottom pill — NoteChrome charcoal surface when editing.
   const QRectF r = rect().adjusted(0.5, 0.5, -0.5, -0.5);
   const int radius = UiScale::dp(BlopStyle::surfaceRadiusDp() - 4);
   QPainterPath path;
   path.addRoundedRect(r, radius, radius);
-  p.fillPath(path, BlopStyle::surfaceBg());
-  p.setPen(QPen(BlopStyle::surfaceBorder(), 1.0));
+  const QColor fill = NoteChrome::toolbarFill();
+  p.fillPath(path, fill);
+  p.setPen(QPen(NoteChrome::border(), 1.0));
   p.drawPath(path);
 
   // Vertical separators between groups.

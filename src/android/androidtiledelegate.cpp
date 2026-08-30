@@ -1,6 +1,7 @@
 #include "androidtiledelegate.h"
 #include "blop_diag.h"
 #include "blop_theme.h"
+#include "blopstyle.h"
 #include "libraryorgstore.h"
 #include "notepreviewicon.h"
 
@@ -111,22 +112,24 @@ void AndroidTileDelegate::paint(QPainter *painter,
   const QRect rect = option.rect.adjusted(UiScale::dp(4), UiScale::dp(4),
                                           -UiScale::dp(4), -UiScale::dp(4));
 
-  // Card background (Material elevated surface). v3.17.0: pulled from
-  // BlopTheme so Light-mode tiles get the right neutral surface instead of
-  // the hard-coded near-black previously baked in.
-  QColor bg = BlopTheme::surfaceElevated();
+  // Card background — paper rows on Light library, elevated surface on Dark.
+  QColor bg = BlopTheme::instance().isDark() ? BlopTheme::surfaceElevated()
+                                               : BlopStyle::paperRowBg();
   if (option.state & QStyle::State_Selected) {
     QColor accent = m_window ? m_window->currentAccentColor()
-                              : BlopTheme::accentPrimary();
-    bg = BlopTheme::instance().isDark() ? accent.darker(160) : accent.lighter(160);
+                              : QColor(QStringLiteral("#5B9DFF"));
+    bg = BlopTheme::instance().isDark() ? accent.darker(160) : QColor(91, 157, 255, 40);
   } else if (option.state & QStyle::State_MouseOver) {
     bg = BlopTheme::instance().isDark()
              ? BlopTheme::surfaceElevated().lighter(108)
-             : BlopTheme::surfaceMuted();
+             : BlopStyle::paperChipBg();
   }
-  painter->setPen(QPen(BlopTheme::borderSubtle(), 1.0));
+  const QColor borderColor = BlopTheme::instance().isDark()
+                                 ? BlopTheme::borderSubtle()
+                                 : QColor(20, 24, 40, 28);
+  painter->setPen(QPen(borderColor, 1.0));
   painter->setBrush(bg);
-  painter->drawRoundedRect(rect, UiScale::dp(16), UiScale::dp(16));
+  painter->drawRoundedRect(rect, UiScale::dp(12), UiScale::dp(12));
 
   bool isDir = false;
   QString path;
@@ -172,7 +175,8 @@ void AndroidTileDelegate::paint(QPainter *painter,
   // Caption.
   QFont font = BlopTheme::font(BlopTheme::TextRole::LabelMedium);
   painter->setFont(font);
-  painter->setPen(BlopTheme::textPrimary());
+  painter->setPen(BlopTheme::instance().isDark() ? BlopTheme::textPrimary()
+                                                  : BlopStyle::paperInk());
 
   const QRect textRect(rect.left() + UiScale::dp(6),
                        iconRect.bottom() + gap,

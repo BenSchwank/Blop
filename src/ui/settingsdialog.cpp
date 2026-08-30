@@ -78,7 +78,8 @@ constexpr const char *kSurfaceNameProp = "blopSurfaceName";
 // app Dark mode (sidebar stays Obsidian; this panel is the light content).
 constexpr bool kSettingsPaper = true;
 #else
-constexpr bool kSettingsPaper = false;
+// Android phone/tablet: same Notion paper content inside BottomSheet/Card.
+constexpr bool kSettingsPaper = true;
 #endif
 
 void applyStoredQss(QWidget *w) {

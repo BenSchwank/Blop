@@ -221,7 +221,7 @@ void suppressAndroidAccessibilityForSurface() {
 }
 
 QColor androidAuthSurfaceColor() {
-  return QColor(QStringLiteral("#0D0B14"));
+  return BlopStyle::obsidianDesk();
 }
 } // namespace
 
@@ -353,16 +353,9 @@ static QColor libraryNavTint(const QString &iconKey) {
 }
 
 static QColor libraryPageBackground() {
-#ifndef Q_OS_ANDROID
-  // K Hauptmenü paper canvas (mockup: soft gray, not pure white).
-  return BlopStyle::paperBgLibrary();
-#else
-  if (!BlopTheme::instance().isDark())
-    return BlopTheme::surfaceBackground();
-  // Warm charcoal — not true black, so tiles and icons can lift.
-  // Editor canvas stays NoteChrome black.
-  return QColor(0x11, 0x0E, 0x1C);
-#endif
+  // Notion paper (Light) / Obsidian desk (Dark) — same language on desktop + Android.
+  return BlopTheme::instance().isDark() ? BlopStyle::obsidianDesk()
+                                        : BlopStyle::paperBgLibrary();
 }
 
 namespace {
@@ -2091,7 +2084,7 @@ void MainWindow::refreshOpenEditorSceneBackgrounds() {
 #ifdef Q_OS_ANDROID
 void MainWindow::syncStudyChromeTheme() {
   const QColor chrome = m_authNavigationLocked ? androidAuthSurfaceColor()
-                                               : BlopTheme::surfaceBackground();
+                                               : libraryPageBackground();
   if (m_centralContainer) {
     m_centralContainer->setStyleSheet(
         QStringLiteral("QWidget#CentralContainer { background-color: %1; }")
@@ -2105,6 +2098,40 @@ void MainWindow::syncStudyChromeTheme() {
     m_studyQQuickView->setColor(chrome);
     if (QObject *root = m_studyQQuickView->rootObject())
       root->setProperty("studyChromeColor", chrome);
+  }
+}
+
+void MainWindow::refreshAndroidTopChrome() {
+  if (!m_androidHeader || m_authNavigationLocked)
+    return;
+
+  const bool noteOpen =
+      m_documentTabBar && m_documentTabBar->noteChromeMode();
+  const bool onDashboard = m_shellStack && m_shellStack->currentIndex() == 0;
+  QColor bar;
+  QColor pageBg = libraryPageBackground();
+  if (noteOpen) {
+    bar = NoteChrome::toolbarFill();
+    pageBg = NoteChrome::canvasBg();
+  } else if (!BlopTheme::instance().isDark()) {
+    bar = BlopStyle::paperBgLibrary();
+  } else {
+    bar = QColor(0x25, 0x25, 0x25);
+  }
+
+  m_androidHeader->setStyleSheet(
+      QStringLiteral("QWidget#AndroidTopChrome { background-color: %1; "
+                     "border: none; }")
+          .arg(bar.name(QColor::HexRgb)));
+  if (m_centralContainer) {
+    m_centralContainer->setStyleSheet(
+        QStringLiteral("QWidget#CentralContainer { background-color: %1; }")
+            .arg(pageBg.name(QColor::HexRgb)));
+  }
+  if (m_studyContainer && !m_authNavigationLocked) {
+    m_studyContainer->setStyleSheet(
+        QStringLiteral("background-color: %1;")
+            .arg(libraryPageBackground().name(QColor::HexRgb)));
   }
 }
 #endif
@@ -2125,7 +2152,7 @@ void MainWindow::applyThemeRefresh() {
     const QColor centralBg =
 #ifdef Q_OS_ANDROID
         m_authNavigationLocked ? androidAuthSurfaceColor()
-                               : BlopTheme::surfaceBackground();
+                               : libraryPageBackground();
 #else
         BlopTheme::surfaceBackground();
 #endif
@@ -2134,20 +2161,7 @@ void MainWindow::applyThemeRefresh() {
             .arg(centralBg.name(QColor::HexRgb)));
   }
 #ifdef Q_OS_ANDROID
-  if (m_androidHeader) {
-    // v3.18.7: chrome blends into the page background — see setupUi()
-    // for the rationale. Mirror that here so theme toggles take effect
-    // on already-constructed widgets.
-    m_androidHeader->setStyleSheet(
-        QStringLiteral("QWidget#AndroidTopChrome { background-color: %1; "
-                       "border: none; }")
-            .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
-    if (QWidget *inner = m_androidHeader->findChild<QWidget *>(
-            QStringLiteral("AndroidTopHeaderInner"))) {
-      inner->setStyleSheet(QStringLiteral(
-          "QWidget#AndroidTopHeaderInner { background: transparent; }"));
-    }
-  }
+  refreshAndroidTopChrome();
   syncStudyChromeTheme();
 #endif
   refreshOpenEditorSceneBackgrounds();
@@ -2964,65 +2978,84 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   gate->setObjectName(QStringLiteral("AndroidNativeLoginGate"));
   gate->setAttribute(Qt::WA_StyledBackground, true);
   gate->setStyleSheet(QStringLiteral(
-      "QWidget#AndroidNativeLoginGate { background-color: #0D0B14; }"));
+      "QWidget#AndroidNativeLoginGate { background-color: %1; }")
+                          .arg(BlopStyle::obsidianDesk().name(QColor::HexRgb)));
 
-  auto *lay = new QVBoxLayout(gate);
-  lay->setContentsMargins(UiScale::dp(32), UiScale::dp(48), UiScale::dp(32),
-                          UiScale::dp(40));
+  auto *outer = new QVBoxLayout(gate);
+  outer->setContentsMargins(UiScale::safeHorizontalPaddingPx(this),
+                            UiScale::safeTopPx(this) + UiScale::dp(20),
+                            UiScale::safeHorizontalPaddingPx(this),
+                            UiScale::safeBottomPx(this) + UiScale::dp(20));
+  outer->addStretch(1);
+
+  auto *card = new QFrame(gate);
+  card->setObjectName(QStringLiteral("AndroidLoginPaperCard"));
+  card->setAttribute(Qt::WA_StyledBackground, true);
+  const int cardW =
+      qMin(UiScale::dp(360), UiScale::androidContentWidthPx(this));
+  card->setMaximumWidth(cardW);
+  card->setMinimumWidth(qMin(cardW, UiScale::dp(280)));
+  const QString paperHex = BlopStyle::paperBg().name(QColor::HexRgb);
+  const QString inkHex = BlopStyle::paperInk().name(QColor::HexRgb);
+  const QString mutedHex = BlopStyle::paperInkMuted().name(QColor::HexRgb);
+  card->setStyleSheet(QStringLiteral(
+      "QFrame#AndroidLoginPaperCard {"
+      "  background: %1; border: 1px solid rgba(20,24,40,0.10);"
+      "  border-radius: 16px; }")
+                          .arg(paperHex));
+
+  auto *lay = new QVBoxLayout(card);
+  lay->setContentsMargins(UiScale::dp(28), UiScale::dp(32), UiScale::dp(28),
+                          UiScale::dp(28));
   lay->setSpacing(UiScale::dp(10));
-  lay->addStretch(2);
 
-  auto *brand = new QLabel(QStringLiteral("Blop"), gate);
+  auto *brand = new QLabel(QStringLiteral("Blop"), card);
   brand->setAlignment(Qt::AlignCenter);
   brand->setStyleSheet(QStringLiteral(
-      "color: #F4F5FB; font-size: 40px; font-weight: 800; letter-spacing: 1px;"
-      " background: transparent;"));
+      "color: %1; font-size: 32px; font-weight: 800; letter-spacing: 0.5px;"
+      " background: transparent;")
+                           .arg(inkHex));
   lay->addWidget(brand);
 
-  auto *sub = new QLabel(QStringLiteral("Notizen & Lernen in einer App"), gate);
+  auto *sub = new QLabel(QStringLiteral("Notizen & Lernen in einer App"), card);
   sub->setAlignment(Qt::AlignCenter);
   sub->setWordWrap(true);
   sub->setStyleSheet(QStringLiteral(
-      "color: #9AA3BB; font-size: 16px; font-weight: 500; background: transparent;"));
+      "color: %1; font-size: 15px; font-weight: 500; background: transparent;")
+                         .arg(mutedHex));
   lay->addWidget(sub);
 
-  lay->addSpacing(UiScale::dp(28));
+  lay->addSpacing(UiScale::dp(20));
 
-  m_androidNativeLoginProgress = new QProgressBar(gate);
+  m_androidNativeLoginProgress = new QProgressBar(card);
   m_androidNativeLoginProgress->setRange(0, 0);
   m_androidNativeLoginProgress->setTextVisible(false);
-  m_androidNativeLoginProgress->setFixedWidth(UiScale::dp(240));
+  m_androidNativeLoginProgress->setFixedWidth(UiScale::dp(220));
   m_androidNativeLoginProgress->setFixedHeight(UiScale::dp(4));
   m_androidNativeLoginProgress->setStyleSheet(QStringLiteral(
-      "QProgressBar { background: rgba(255,255,255,0.08); border: none;"
-      "  border-radius: 2px; }"
-      "QProgressBar::chunk { background: #5B9DFF; border-radius: 2px; }"));
+      "QProgressBar { background: %1; border: none; border-radius: 2px; }"
+      "QProgressBar::chunk { background: #5B9DFF; border-radius: 2px; }")
+                                                    .arg(BlopStyle::paperChipBg()
+                                                             .name(QColor::HexRgb)));
   m_androidNativeLoginProgress->hide();
   lay->addWidget(m_androidNativeLoginProgress, 0, Qt::AlignHCenter);
 
-  m_androidNativeLoginStatus = new QLabel(gate);
+  m_androidNativeLoginStatus = new QLabel(card);
   m_androidNativeLoginStatus->setAlignment(Qt::AlignCenter);
   m_androidNativeLoginStatus->setWordWrap(true);
   m_androidNativeLoginStatus->setStyleSheet(QStringLiteral(
-      "color: #C8D4F0; font-size: 14px; line-height: 1.4;"
-      " background: transparent; padding: 0 8px;"));
+      "color: %1; font-size: 14px; background: transparent; padding: 0 4px;")
+                                                .arg(mutedHex));
   m_androidNativeLoginStatus->hide();
   lay->addWidget(m_androidNativeLoginStatus);
 
-  lay->addSpacing(UiScale::dp(8));
-
   m_androidNativeLoginGoogleBtn =
-      new QPushButton(QStringLiteral("Mit Google anmelden"), gate);
+      new QPushButton(QStringLiteral("Mit Google anmelden"), card);
   m_androidNativeLoginGoogleBtn->setCursor(Qt::PointingHandCursor);
-  m_androidNativeLoginGoogleBtn->setMinimumHeight(UiScale::dp(52));
+  m_androidNativeLoginGoogleBtn->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
   m_androidNativeLoginGoogleBtn->setSizePolicy(QSizePolicy::Expanding,
                                                QSizePolicy::Fixed);
-  m_androidNativeLoginGoogleBtn->setStyleSheet(QStringLiteral(
-      "QPushButton { background: #5B9DFF; color: #0D0B14;"
-      "  border: none; border-radius: 14px; padding: 14px 20px;"
-      "  font-size: 16px; font-weight: 800; }"
-      "QPushButton:pressed { background: #4A8AE8; }"
-      "QPushButton:disabled { background: #3A4558; color: #8A93A8; }"));
+  m_androidNativeLoginGoogleBtn->setStyleSheet(BlopStyle::paperPrimaryButtonQss());
   connect(m_androidNativeLoginGoogleBtn, &QPushButton::clicked, this,
           [this]() { requestGoogleLogin(); });
   lay->addWidget(m_androidNativeLoginGoogleBtn);
@@ -3030,24 +3063,21 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   auto *hint = new QLabel(
       QStringLiteral("Melde dich an, um Notizen zu synchronisieren und "
                      "Lerninhalte zu nutzen."),
-      gate);
+      card);
   hint->setAlignment(Qt::AlignCenter);
   hint->setWordWrap(true);
   hint->setStyleSheet(QStringLiteral(
-      "color: #6E7894; font-size: 13px; background: transparent; padding: 0 4px;"));
+      "color: %1; font-size: 13px; background: transparent; padding: 0 4px;")
+                          .arg(mutedHex));
   lay->addWidget(hint);
 
   m_androidNativeLoginCancelBtn =
-      new QPushButton(QStringLiteral("Abbrechen"), gate);
+      new QPushButton(QStringLiteral("Abbrechen"), card);
   m_androidNativeLoginCancelBtn->setCursor(Qt::PointingHandCursor);
-  m_androidNativeLoginCancelBtn->setMinimumHeight(UiScale::dp(44));
+  m_androidNativeLoginCancelBtn->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
   m_androidNativeLoginCancelBtn->setSizePolicy(QSizePolicy::Expanding,
                                                QSizePolicy::Fixed);
-  m_androidNativeLoginCancelBtn->setStyleSheet(QStringLiteral(
-      "QPushButton { background: rgba(255,255,255,0.06); color: #C8CDDC;"
-      "  border: 1px solid rgba(255,255,255,0.10); border-radius: 12px;"
-      "  padding: 10px 16px; font-weight: 600; }"
-      "QPushButton:pressed { background: rgba(255,255,255,0.10); }"));
+  m_androidNativeLoginCancelBtn->setStyleSheet(BlopStyle::paperSecondaryButtonQss());
   m_androidNativeLoginCancelBtn->hide();
   connect(m_androidNativeLoginCancelBtn, &QPushButton::clicked, this, [this]() {
     cancelGoogleLogin();
@@ -3055,7 +3085,8 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   });
   lay->addWidget(m_androidNativeLoginCancelBtn);
 
-  lay->addStretch(3);
+  outer->addWidget(card, 0, Qt::AlignHCenter);
+  outer->addStretch(1);
   gate->hide();
   m_androidNativeLoginGate = gate;
 }
@@ -5342,7 +5373,7 @@ void MainWindow::setupUi() {
   // surface; AndroidTopChrome is the chrome strip above it.
   m_centralContainer->setStyleSheet(
       QStringLiteral("QWidget#CentralContainer { background-color: %1; }")
-          .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
+          .arg(libraryPageBackground().name(QColor::HexRgb)));
   m_centralContainer->setObjectName(QStringLiteral("CentralContainer"));
 
   QWidget *androidTopChrome = new QWidget(m_centralContainer);
@@ -5354,7 +5385,7 @@ void MainWindow::setupUi() {
   androidTopChrome->setStyleSheet(
       QStringLiteral("QWidget#AndroidTopChrome { background-color: %1; "
                      "border: none; }")
-          .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
+          .arg(libraryPageBackground().name(QColor::HexRgb)));
   const int androidTopInset = UiScale::safeTopPx(this);
   const int androidHeaderSidePad = UiScale::safeHorizontalPaddingPx(this);
   // v3.18.7: was UiScale::dp(4). Dropped to 0 — the chip row sits flush
@@ -5598,7 +5629,7 @@ void MainWindow::setupUi() {
       qBound(UiScale::dp(120), int(androidScreenW * 0.28), UiScale::dp(220)));
   m_androidTopSearchBar->setMaximumWidth(
       qBound(UiScale::dp(180), int(androidScreenW * 0.46), UiScale::dp(380)));
-  m_androidTopSearchBar->setStyleSheet(BlopTheme::themed(
+  m_androidTopSearchBar->setStyleSheet(QStringLiteral(
       "QLineEdit#androidTopSearchBar {"
       "  background: rgba(255,255,255,0.08);"
       "  color: #F2F1FF;"
@@ -5606,11 +5637,11 @@ void MainWindow::setupUi() {
       "  border-radius: 16px;"
       "  padding: 0 14px;"
       "  font-size: 12px;"
-      "  selection-background-color: rgba(124,92,252,0.55);"
+      "  selection-background-color: rgba(91,157,255,0.45);"
       "}"
       "QLineEdit#androidTopSearchBar:focus {"
-      "  background: rgba(124,92,252,0.14);"
-      "  border: 1px solid rgba(124,92,252,0.66);"
+      "  background: rgba(91,157,255,0.12);"
+      "  border: 1px solid rgba(91,157,255,0.55);"
       "}"
       "QLineEdit#androidTopSearchBar::placeholder {"
       "  color: rgba(255,255,255,0.48);"
@@ -7573,45 +7604,41 @@ void MainWindow::setupWebBrowser() {
 void MainWindow::applyAndroidTabStyles(int index) {
   if (!m_btnAndroidNotes || !m_btnAndroidStudy)
     return;
-  // The compact branch shrinks both the padding AND the font-size so the
-  // Notizen / Study pills stop pushing the right-side header buttons
-  // (Page-Manager, Export-three-dots) off the screen on phones.
   const int contentW = UiScale::androidContentWidthPx(this);
   const bool narrow = contentW < UiScale::dp(420);
-  const QString sizeStyle =
-      narrow
-          ? QStringLiteral("padding: 6px 12px; font-size: 13px;")
-          : QStringLiteral("padding: 5px 14px; font-size: 13px;");
-  const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
-  const QString muted = BlopTheme::textSecondary().name(QColor::HexRgb);
-  const QString accentSoft = m_currentAccentColor.lighter(130).name(QColor::HexArgb);
-  const QString tabActive = BlopTheme::themed(
-      QString("QPushButton {"
-              "  background: %1;"
-              "  color: #FFFFFF;"
-              "  border-radius: 14px;"
-              "  %4"
-              "  font-weight: 600;"
-              "  border: 1px solid %2;"
-              "}"
-              "QPushButton:pressed { background: %3; }")
-          .arg(m_currentAccentColor.name(QColor::HexRgb),
-               accentSoft,
-               m_currentAccentColor.darker(110).name(QColor::HexRgb),
-               sizeStyle));
-  const QString tabInactive = BlopTheme::themed(
-      QString("QPushButton {"
-              "  background: transparent;"
-              "  color: %2;"
-              "  border-radius: 14px;"
-              "  %1"
-              "  font-weight: 600;"
-              "  border: 1px solid %3;"
-              "}"
-              "QPushButton:hover { background: rgba(124,92,252,0.12); color: %4; }"
-              "QPushButton:pressed { background: rgba(124,92,252,0.18); }")
-          .arg(sizeStyle, muted,
-               BlopTheme::borderSubtle().name(QColor::HexArgb), text));
+  const bool noteOpen =
+      m_documentTabBar && m_documentTabBar->noteChromeMode();
+  const QString segBase =
+      noteOpen ? BlopStyle::noteSegmentQss()
+               : (!BlopTheme::instance().isDark() ? BlopStyle::paperSegmentQss()
+                                                  : BlopStyle::segmentQss());
+  const QColor accent = noteOpen ? NoteChrome::accent() : QColor(QStringLiteral("#5B9DFF"));
+  const QString accentHex = accent.name(QColor::HexRgb);
+  const QString accentSoft = QStringLiteral("rgba(%1,%2,%3,0.20)")
+                                 .arg(accent.red())
+                                 .arg(accent.green())
+                                 .arg(accent.blue());
+  const QString sizeExtra =
+      narrow ? QStringLiteral("padding: 6px 12px; font-size: 13px;")
+             : QStringLiteral("padding: 5px 14px; font-size: 13px;");
+  const QString tabActive = QStringLiteral(
+      "QPushButton {"
+      "  background: %1;"
+      "  color: #FFFFFF;"
+      "  border-radius: 10px;"
+      "  %2"
+      "  font-weight: 600;"
+      "  border: 1px solid %3;"
+      "  min-height: %4px;"
+      "}"
+      "QPushButton:pressed { background: %5; }")
+                                .arg(accentSoft, sizeExtra, accentHex,
+                                     QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 8)),
+                                     accent.darker(110).name(QColor::HexRgb));
+  const QString tabInactive = segBase + QStringLiteral(
+      " QPushButton { %1 min-height: %2px; }")
+                                    .arg(sizeExtra,
+                                         QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 8)));
   m_btnAndroidNotes->setStyleSheet(index == 0 ? tabActive : tabInactive);
   m_btnAndroidStudy->setStyleSheet(index >= 1 ? tabActive : tabInactive);
 
@@ -8446,18 +8473,20 @@ void MainWindow::setupSidebar() {
   m_sidebarContainer->setMaximumWidth(SIDEBAR_WIDTH);
   m_sidebarContainer->setAttribute(Qt::WA_LayoutUsesWidgetRect, true);
 #ifdef Q_OS_ANDROID
-  // On Android, give the sidebar a solid background and enable styled background
-  // so touch events are fully absorbed and don't pass through to the main content.
   m_sidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
-  m_sidebarContainer->setStyleSheet(
-      BlopTheme::themed("background-color: #0F111A;"));
+  m_sidebarContainer->setStyleSheet(QStringLiteral(
+      "background-color: %1;")
+          .arg(BlopStyle::obsidianNav().name(QColor::HexRgb)));
+  const bool useShellRail = !UiScale::isAndroidPhoneUi(this);
 #else
   m_sidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
   m_sidebarContainer->setStyleSheet(
       QStringLiteral("background-color: #16181E; border-right: 1px solid #111318;"));
+  const bool useShellRail = true;
 #endif
 
-#ifndef Q_OS_ANDROID
+  QVBoxLayout *layout = nullptr;
+  if (useShellRail) {
   auto *shellLay = new QHBoxLayout(m_sidebarContainer);
   shellLay->setContentsMargins(0, 0, 0, 0);
   shellLay->setSpacing(0);
@@ -8517,10 +8546,10 @@ void MainWindow::setupSidebar() {
   m_sidebarNavPanel->setStyleSheet(QStringLiteral(
       "QWidget#SidebarNavPanel { background: transparent; border: none; }"));
   shellLay->addWidget(m_sidebarNavPanel, 1);
-  QVBoxLayout *layout = new QVBoxLayout(m_sidebarNavPanel);
-#else
-  QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
-#endif
+  layout = new QVBoxLayout(m_sidebarNavPanel);
+  } else {
+  layout = new QVBoxLayout(m_sidebarContainer);
+  }
   layout->setSizeConstraint(QLayout::SetNoConstraint);
 #ifdef Q_OS_ANDROID
   layout->setContentsMargins(UiScale::dp(6), 0, UiScale::dp(6), 0);
@@ -11908,6 +11937,11 @@ void MainWindow::updateSidebarState() {
   const bool titleNoteChrome =
       isEditor && m_documentTabBar && m_documentTabBar->noteChromeMode();
   refreshNoteTitleChrome(titleNoteChrome);
+#endif
+#ifdef Q_OS_ANDROID
+  refreshAndroidTopChrome();
+  if (m_mainContentStack)
+    applyAndroidTabStyles(m_mainContentStack->currentIndex());
 #endif
 }
 

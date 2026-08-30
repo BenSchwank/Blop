@@ -1,6 +1,7 @@
 #include "libraryorgbar.h"
 
 #include "blop_theme.h"
+#include "blopstyle.h"
 #include "blop_scroll.h"
 #include "uiscale.h"
 
@@ -229,19 +230,16 @@ void LibraryOrgBar::refreshSortLabel() {
 
 void LibraryOrgBar::rebuildStyles() {
   const QString accent = m_accent.name(QColor::HexRgb);
-#ifndef Q_OS_ANDROID
-  // Desktop library sits on K Notion paper — use dark ink, not Dark-theme
-  // lavenders that vanish on #F5F5F5.
-  const QString text = QStringLiteral("#1C1E24");
-  const QString muted = QStringLiteral("#6B6F76");
-  const QString border = QStringLiteral("rgba(20,24,40,0.14)");
-  const QString hoverIdle = QStringLiteral("rgba(0,0,0,0.05)");
-#else
-  const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
-  const QString muted = BlopTheme::textSecondary().name(QColor::HexRgb);
-  const QString border = BlopTheme::borderDefault().name(QColor::HexArgb);
-  const QString hoverIdle = QStringLiteral("rgba(255,255,255,0.07)");
-#endif
+  const bool paperLibrary = !BlopTheme::instance().isDark();
+  const QString text = paperLibrary ? BlopStyle::paperInk().name(QColor::HexRgb)
+                                    : BlopTheme::textPrimary().name(QColor::HexRgb);
+  const QString muted = paperLibrary
+                            ? BlopStyle::paperInkMuted().name(QColor::HexRgb)
+                            : BlopTheme::textSecondary().name(QColor::HexRgb);
+  const QString border = paperLibrary ? QStringLiteral("rgba(20,24,40,0.14)")
+                                      : BlopTheme::borderDefault().name(QColor::HexArgb);
+  const QString hoverIdle = paperLibrary ? QStringLiteral("rgba(0,0,0,0.05)")
+                                         : QStringLiteral("rgba(255,255,255,0.07)");
   setStyleSheet(
       QStringLiteral(
           "QWidget#LibraryOrgBar { background: transparent; }"
@@ -275,11 +273,8 @@ void LibraryOrgBar::rebuildStyles() {
 
   if (!m_viewGroup)
     return;
-#ifndef Q_OS_ANDROID
-  const QColor idle(0x6B, 0x6F, 0x76);
-#else
-  const QColor idle = BlopTheme::textSecondary();
-#endif
+  const QColor idle =
+      paperLibrary ? BlopStyle::paperInkMuted() : BlopTheme::textSecondary();
   const QList<QAbstractButton *> btns = m_viewGroup->buttons();
   for (QAbstractButton *b : btns) {
     if (!b)

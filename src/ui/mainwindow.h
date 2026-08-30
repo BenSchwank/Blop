@@ -480,6 +480,7 @@ private:
   /// Shown only while editing a note (overview uses floating btnEditorMenu).
   ModernButton *m_btnAndroidToolbarMenu{nullptr};
   void syncStudyChromeTheme();
+  void refreshAndroidTopChrome();
   /// Orange page manager button (only for A4 notes).
   ModernButton *m_btnAndroidToolbarPageManager{nullptr};
   /// Export current note while editing on Android.

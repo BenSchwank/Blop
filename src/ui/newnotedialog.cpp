@@ -44,7 +44,6 @@ void NewNoteDialog::setupUi()
                                   .arg(accC.blue())
                                   .arg(QString::number(0.16, 'f', 3));
 
-#ifndef Q_OS_ANDROID
     const QString textHex = BlopStyle::paperInk().name(QColor::HexRgb);
     const QString mutedHex = BlopStyle::paperInkMuted().name(QColor::HexRgb);
     BlopStyle::paintPaperSurface(container, QStringLiteral("NewNoteCard"));
@@ -57,40 +56,11 @@ void NewNoteDialog::setupUi()
         "QLabel { color: %2; border: none; background: transparent; }")
                                  .arg(BlopStyle::paperBg().name(QColor::HexRgb),
                                       textHex));
-#else
-    const bool dark = BlopTheme::instance().isDark();
-    const int leR = dark ? 22 : 245;
-    const int leG = dark ? 24 : 244;
-    const int leB = dark ? 36 : 248;
-    const double leA = dark ? 0.95 : 0.80;
-    QString lineEditQssFinal = QStringLiteral(
-        "QLabel { color: %1; border: none; background: transparent; }"
-        "QLineEdit {"
-        "  background: rgba(%2,%3,%4, %5); color: %1;"
-        "  border: 1px solid rgba(120,130,160,0.28); border-radius: 10px;"
-        "  padding: 10px 14px; font-size: 15px;"
-        "  selection-background-color: %6;"
-        "}"
-        "QLineEdit:focus { border: 1px solid %7; }");
-    const QString textHex = BlopTheme::textPrimary().name(QColor::HexRgb);
-    const QString mutedHex = BlopTheme::textSecondary().name(QColor::HexRgb);
-    lineEditQssFinal.replace(QStringLiteral("%1"), textHex);
-    lineEditQssFinal.replace(QStringLiteral("%2"), QString::number(leR));
-    lineEditQssFinal.replace(QStringLiteral("%3"), QString::number(leG));
-    lineEditQssFinal.replace(QStringLiteral("%4"), QString::number(leB));
-    lineEditQssFinal.replace(QStringLiteral("%5"),
-                              QString::number(leA, 'f', 3));
-    lineEditQssFinal.replace(QStringLiteral("%6"), accSubtle);
-    lineEditQssFinal.replace(QStringLiteral("%7"), acc);
-    container->setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("NewNoteCard")) +
-                             lineEditQssFinal);
-#endif
 
     auto *layout = new QVBoxLayout(container);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
-#ifndef Q_OS_ANDROID
     auto *titleBar = new QWidget(container);
     titleBar->setObjectName(QStringLiteral("NewNoteTitleBar"));
     titleBar->setAttribute(Qt::WA_StyledBackground, true);
@@ -120,19 +90,6 @@ void NewNoteDialog::setupUi()
     bodyLay->setContentsMargins(UiScale::dp(20), UiScale::dp(14),
                                 UiScale::dp(20), UiScale::dp(14));
     bodyLay->setSpacing(UiScale::dp(10));
-#else
-    auto *body = container;
-    auto *bodyLay = layout;
-    layout->setContentsMargins(UiScale::dp(22), UiScale::dp(18),
-                               UiScale::dp(22), UiScale::dp(16));
-    layout->setSpacing(UiScale::dp(12));
-    auto *lblTitle = new QLabel(QStringLiteral("Neue Notiz"), container);
-    lblTitle->setStyleSheet(QStringLiteral(
-        "font-size: 20px; font-weight: 700; color: %1; letter-spacing: -0.2px;"
-        "background: transparent;")
-        .arg(textHex));
-    bodyLay->addWidget(lblTitle);
-#endif
 
     auto sectionLabel = [mutedHex](const QString &text, QWidget *parent) {
         auto *lbl = new QLabel(text, parent);
@@ -143,7 +100,6 @@ void NewNoteDialog::setupUi()
         return lbl;
     };
 
-#ifndef Q_OS_ANDROID
     auto makeRowGroup = [](QWidget *parent) -> QFrame * {
         auto *g = new QFrame(parent);
         g->setObjectName(QStringLiteral("NewNoteRowGroup"));
@@ -161,35 +117,22 @@ void NewNoteDialog::setupUi()
         lay->setSpacing(UiScale::dp(8));
         return g;
     };
-#endif
 
     bodyLay->addWidget(sectionLabel(QStringLiteral("TITEL"), body));
     m_nameInput = new QLineEdit(body);
     m_nameInput->setPlaceholderText(QStringLiteral("Unbenannte Notiz"));
-    m_nameInput->setMinimumHeight(UiScale::dp(36));
-#ifndef Q_OS_ANDROID
+    m_nameInput->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
     m_nameInput->setStyleSheet(BlopStyle::paperInputQss());
-#endif
     m_nameInput->setFocus();
     bodyLay->addWidget(m_nameInput);
     connect(m_nameInput, &QLineEdit::returnPressed, this, &QDialog::accept);
 
-#ifndef Q_OS_ANDROID
     const QString segQss = BlopStyle::paperSegmentQss();
-    const int chipH = UiScale::dp(32);
-#else
-    const QString segQss = BlopStyle::segmentQss();
     const int chipH = UiScale::dp(BlopStyle::touchTargetMinDp());
-#endif
 
     bodyLay->addWidget(sectionLabel(QStringLiteral("FORMAT"), body));
-#ifndef Q_OS_ANDROID
     auto *optsGroup = makeRowGroup(body);
     auto *optsLay = qobject_cast<QVBoxLayout *>(optsGroup->layout());
-#else
-    QWidget *optsGroup = body;
-    QVBoxLayout *optsLay = bodyLay;
-#endif
 
     auto *formatRow = new QHBoxLayout();
     formatRow->setSpacing(UiScale::dp(8));
@@ -216,12 +159,8 @@ void NewNoteDialog::setupUi()
     formatRow->addWidget(m_btnFormatA4);
     optsLay->addLayout(formatRow);
 
-#ifndef Q_OS_ANDROID
     auto *layoutCap = sectionLabel(QStringLiteral("LAYOUT"), optsGroup);
     optsLay->addWidget(layoutCap);
-#else
-    bodyLay->addWidget(sectionLabel(QStringLiteral("LAYOUT"), body));
-#endif
     m_groupLayout = new QButtonGroup(this);
     m_groupLayout->setExclusive(true);
     auto *layoutRow = new QHBoxLayout();
@@ -250,26 +189,17 @@ void NewNoteDialog::setupUi()
     connect(m_groupLayout, &QButtonGroup::idClicked, this,
             [this](int id) { m_backgroundType = id; });
     optsLay->addLayout(layoutRow);
-#ifndef Q_OS_ANDROID
     bodyLay->addWidget(optsGroup);
-#endif
 
     bodyLay->addWidget(sectionLabel(QStringLiteral("TAGS"), body));
-#ifndef Q_OS_ANDROID
     auto *tagsGroup = makeRowGroup(body);
     auto *tagsLay = qobject_cast<QVBoxLayout *>(tagsGroup->layout());
-#else
-    QWidget *tagsGroup = body;
-    QVBoxLayout *tagsLay = bodyLay;
-#endif
     auto *tagRow = new QHBoxLayout();
     tagRow->setSpacing(UiScale::dp(8));
     m_tagInput = new QLineEdit(tagsGroup);
     m_tagInput->setPlaceholderText(QStringLiteral("Tag hinzufügen…"));
-    m_tagInput->setMinimumHeight(UiScale::dp(36));
-#ifndef Q_OS_ANDROID
+    m_tagInput->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
     m_tagInput->setStyleSheet(BlopStyle::paperInputQss());
-#endif
     auto *btnAddTag = new QPushButton(QStringLiteral("+"), tagsGroup);
     btnAddTag->setAutoDefault(false);
     btnAddTag->setFixedSize(UiScale::dp(36), UiScale::dp(36));
@@ -297,14 +227,10 @@ void NewNoteDialog::setupUi()
         "QListWidget::item:selected { background: %2; color: %1; }"
         "QListWidget::item:hover:!selected { background: rgba(20,24,40,0.04); }")
         .arg(textHex, accSubtle, QString::number(UiScale::dp(28)))
-#ifndef Q_OS_ANDROID
         + BlopStyle::paperScrollbarQss()
-#endif
     );
     tagsLay->addWidget(m_tagList);
-#ifndef Q_OS_ANDROID
     bodyLay->addWidget(tagsGroup);
-#endif
 
     auto addTagFromInput = [this]() {
         const QString n = LibraryTagStore::normalize(m_tagInput->text());
@@ -331,26 +257,18 @@ void NewNoteDialog::setupUi()
     m_btnCancel = new QPushButton(QStringLiteral("Abbrechen"), body);
     m_btnCancel->setCursor(Qt::PointingHandCursor);
     m_btnCancel->setAutoDefault(false);
-    m_btnCancel->setMinimumHeight(UiScale::dp(36));
-#ifndef Q_OS_ANDROID
+    m_btnCancel->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
     m_btnCancel->setStyleSheet(BlopStyle::paperSecondaryButtonQss() +
                                QStringLiteral(
                                    "QPushButton { text-align: center; }"));
-#else
-    m_btnCancel->setStyleSheet(BlopTheme::tertiaryButtonQss());
-#endif
     connect(m_btnCancel, &QPushButton::clicked, this, &QDialog::reject);
 
     m_btnCreate = new QPushButton(QStringLiteral("Erstellen"), body);
     m_btnCreate->setCursor(Qt::PointingHandCursor);
     m_btnCreate->setAutoDefault(false);
-    m_btnCreate->setMinimumHeight(UiScale::dp(36));
+    m_btnCreate->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
     m_btnCreate->setMinimumWidth(UiScale::dp(112));
-#ifndef Q_OS_ANDROID
     m_btnCreate->setStyleSheet(BlopStyle::paperPrimaryButtonQss());
-#else
-    m_btnCreate->setStyleSheet(BlopTheme::primaryButtonQss());
-#endif
     connect(m_btnCreate, &QPushButton::clicked, this, &QDialog::accept);
     BlopRipple::attachPressFeedback(m_btnCancel, 0.96);
     BlopRipple::attachPressFeedback(m_btnCreate, 0.96);
@@ -358,9 +276,7 @@ void NewNoteDialog::setupUi()
     actionLay->addWidget(m_btnCreate);
     bodyLay->addLayout(actionLay);
 
-#ifndef Q_OS_ANDROID
     layout->addWidget(body, 1);
-#endif
 }
 
 void NewNoteDialog::rebuildTagList()

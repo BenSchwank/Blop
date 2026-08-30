@@ -2,6 +2,7 @@
 
 #include "blop_scroll.h"
 #include "blop_theme.h"
+#include "blopstyle.h"
 #include "cloudstoragestore.h"
 #include "uiscale.h"
 
@@ -73,7 +74,7 @@ public:
     const bool selected = opt.state & QStyle::State_Selected;
     const bool hover = opt.state & QStyle::State_MouseOver;
     if (selected)
-      p->fillPath(path, QColor(124, 92, 252, 56));
+      p->fillPath(path, QColor(91, 157, 255, 56));
     else if (hover)
       p->fillPath(path, QColor(255, 255, 255, 26));
 
@@ -228,7 +229,7 @@ void PhoneLibraryNav::paintEvent(QPaintEvent *) {
   QPainterPath path;
   path.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5),
                       height() / 2.0, height() / 2.0);
-  p.fillPath(path, QColor(22, 24, 32, 235));
+  p.fillPath(path, BlopStyle::obsidianNav());
   p.setPen(QPen(QColor(255, 255, 255, 28), 1));
   p.drawPath(path);
 
@@ -745,7 +746,7 @@ void PhoneLibraryNav::openMenu() {
   sheet->setAttribute(Qt::WA_StyledBackground, true);
   sheet->setFocusPolicy(Qt::StrongFocus);
   sheet->setStyleSheet(QStringLiteral(
-      "QWidget#PhoneLibraryMenuSheet { background: rgba(6,8,14,0.55); }"));
+      "QWidget#PhoneLibraryMenuSheet { background: transparent; }"));
   sheet->setGeometry(win->rect());
   win->installEventFilter(this);
   sheet->installEventFilter(this);
@@ -760,7 +761,8 @@ void PhoneLibraryNav::openMenu() {
   scrim->setAttribute(Qt::WA_StyledBackground, true);
   scrim->setCursor(Qt::ArrowCursor);
   scrim->setStyleSheet(QStringLiteral(
-      "QWidget#PhoneLibraryMenuScrim { background: rgba(6,8,14,0.62); }"));
+      "QWidget#PhoneLibraryMenuScrim { background: %1; }")
+                           .arg(BlopStyle::backdrop(true).name(QColor::HexArgb)));
   scrim->installEventFilter(this);
   root->addWidget(scrim, 1);
 
@@ -779,20 +781,22 @@ void PhoneLibraryNav::openMenu() {
   m_card = card;
   card->setObjectName(QStringLiteral("PhoneLibraryMenuCard"));
   card->setAttribute(Qt::WA_StyledBackground, true);
-  card->setStyleSheet(BlopTheme::themed(
+  card->setStyleSheet(
       roomy ? QStringLiteral(
                   "QWidget#PhoneLibraryMenuCard {"
-                  "  background: #12141C;"
+                  "  background: %1;"
                   "  border-radius: 16px;"
                   "  border: 1px solid rgba(255,255,255,0.06);"
                   "}")
+                .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb))
             : QStringLiteral(
                   "QWidget#PhoneLibraryMenuCard {"
-                  "  background: #12141C;"
+                  "  background: %1;"
                   "  border-top-left-radius: 16px;"
                   "  border-top-right-radius: 16px;"
                   "  border: 1px solid rgba(255,255,255,0.06);"
-                  "}")));
+                  "}")
+                .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb)));
   card->installEventFilter(this);
   if (roomy) {
     auto *shadow = new QGraphicsDropShadowEffect(card);
@@ -862,7 +866,10 @@ void PhoneLibraryNav::openMenu() {
   m_search->setStyleSheet(QStringLiteral(
       "QLineEdit { background: rgba(255,255,255,0.08); color: #E8E4FF;"
       "  border: 1px solid rgba(255,255,255,0.10); border-radius: 10px;"
-      "  padding: 8px 12px; font-size: 14px; selection-background-color: #7C5CFC; }"));
+      "  padding: 8px 12px; font-size: 14px; min-height: %1px;"
+      "  selection-background-color: rgba(91,157,255,0.45); }"
+      "QLineEdit:focus { border: 1px solid rgba(91,157,255,0.55); }")
+                              .arg(UiScale::dp(BlopStyle::touchTargetMinDp() - 4)));
   connect(m_search, &QLineEdit::textChanged, this, &PhoneLibraryNav::searchChanged);
   lay->addWidget(m_search);
 
@@ -881,7 +888,7 @@ void PhoneLibraryNav::openMenu() {
     pal.setColor(QPalette::Text, QColor(QStringLiteral("#F4F2FF")));
     pal.setColor(QPalette::ButtonText, QColor(QStringLiteral("#F4F2FF")));
     pal.setColor(QPalette::HighlightedText, QColor(QStringLiteral("#FFFFFF")));
-    pal.setColor(QPalette::Highlight, QColor(124, 92, 252, 120));
+    pal.setColor(QPalette::Highlight, QColor(91, 157, 255, 120));
     pal.setColor(QPalette::WindowText, QColor(QStringLiteral("#F4F2FF")));
     m_list->setPalette(pal);
   }
