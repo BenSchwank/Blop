@@ -57,6 +57,8 @@ signals:
     void idTokenReceived(const QString& idToken);
     void requireBrowser(const QUrl &url);
     void calendarTokenUpdated();
+    /// Progress phases for native login UI: browser, callback, verify, done.
+    void loginPhaseChanged(const QString &phase);
 #ifdef Q_OS_ANDROID
     /// Custom-scheme redirect arrived; token exchange / backend verify still running.
     void redirectReceived();

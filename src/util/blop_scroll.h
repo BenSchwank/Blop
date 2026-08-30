@@ -7,6 +7,10 @@ class QWidget;
 
 namespace BlopScroll {
 
+/// Axes unlocked for finger flick. VerticalOnly locks horizontal drag so
+/// phone sheets (Settings, burger) cannot pan sideways past the viewport.
+enum class Axes { Both, VerticalOnly };
+
 /// Finger / touch flick-scroll on any QAbstractScrollArea:
 /// tap without moving → click the control under the finger;
 /// tap and drag → scroll the enclosing scrollable (even if the press
@@ -14,7 +18,7 @@ namespace BlopScroll {
 ///
 /// Safe to call more than once. Skips drawing canvases (QGraphicsView) so
 /// ink / pan-zoom are unchanged. Text edits and sliders keep native drag.
-void enableFingerScroll(QWidget *target);
+void enableFingerScroll(QWidget *target, Axes axes = Axes::Both);
 
 /// Size an item-view to its rows and turn off inner scrollbars so an
 /// outer QScrollArea owns the flick (avoids nested scrollers).

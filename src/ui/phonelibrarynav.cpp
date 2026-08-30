@@ -54,6 +54,15 @@ public:
     p->save();
     p->setRenderHint(QPainter::Antialiasing, true);
     const QRect r = opt.rect.adjusted(2, 1, -2, -1);
+    const bool dark = BlopTheme::instance().isDark();
+    const QColor sectionPen =
+        dark ? QColor(QStringLiteral("#8B92A8")) : BlopStyle::paperInkMuted();
+    const QColor titlePen =
+        dark ? QColor(QStringLiteral("#F4F2FF")) : BlopStyle::paperInk();
+    const QColor subPen =
+        dark ? QColor(QStringLiteral("#9AA3BB")) : BlopStyle::paperInkMuted();
+    const QColor hoverFill =
+        dark ? QColor(255, 255, 255, 26) : QColor(20, 24, 40, 18);
     const bool section = index.data(kSectionRole).toBool();
     if (section) {
       QFont f = opt.font;
@@ -61,7 +70,7 @@ public:
       f.setWeight(QFont::DemiBold);
       f.setLetterSpacing(QFont::PercentageSpacing, 112);
       p->setFont(f);
-      p->setPen(QColor(QStringLiteral("#8B92A8")));
+      p->setPen(sectionPen);
       p->drawText(r.adjusted(UiScale::dp(12), 0, -UiScale::dp(12), 0),
                   Qt::AlignVCenter | Qt::AlignLeft,
                   index.data(Qt::DisplayRole).toString());
@@ -76,7 +85,7 @@ public:
     if (selected)
       p->fillPath(path, QColor(91, 157, 255, 56));
     else if (hover)
-      p->fillPath(path, QColor(255, 255, 255, 26));
+      p->fillPath(path, hoverFill);
 
     const QString title = index.data(Qt::DisplayRole).toString();
     const QString sub = index.data(kSubtitleRole).toString();
@@ -89,7 +98,7 @@ public:
     titleFont.setPixelSize(UiScale::sp(15));
     titleFont.setWeight(QFont::DemiBold);
     p->setFont(titleFont);
-    p->setPen(QColor(QStringLiteral("#F4F2FF")));
+    p->setPen(titlePen);
     if (sub.isEmpty()) {
       p->drawText(textR, Qt::AlignVCenter | Qt::AlignLeft, title);
     } else {
@@ -103,13 +112,14 @@ public:
       p->drawText(QRect(textR.x(), y0, textR.width(), titleH),
                   Qt::AlignVCenter | Qt::AlignLeft, title);
       p->setFont(subFont);
-      p->setPen(QColor(QStringLiteral("#9AA3BB")));
+      p->setPen(subPen);
       p->drawText(QRect(textR.x(), y0 + titleH + 1, textR.width(), subH),
                   Qt::AlignVCenter | Qt::AlignLeft, sub);
     }
     if (chevron) {
-      p->setPen(QPen(QColor(200, 208, 235, 180), 1.8, Qt::SolidLine, Qt::RoundCap,
-                     Qt::RoundJoin));
+      QColor chev = titlePen;
+      chev.setAlpha(180);
+      p->setPen(QPen(chev, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
       const int cx = r.right() - UiScale::dp(16);
       const int cy = r.center().y();
       p->drawLine(cx - 4, cy - 5, cx + 2, cy);
@@ -124,9 +134,10 @@ public:
     if (index.data(kSectionRole).toBool())
       return QSize(10, UiScale::dp(index.data(Qt::DisplayRole).toString().isEmpty()
                                        ? 12
-                                       : 30));
+                                       : 32));
     const bool hasSub = !index.data(kSubtitleRole).toString().isEmpty();
-    return QSize(10, UiScale::dp(hasSub ? 58 : 48));
+    // 40dp touch target minimum; subtitle rows get a bit more.
+    return QSize(10, UiScale::dp(hasSub ? 56 : BlopStyle::touchTargetMinDp()));
   }
 };
 } // namespace
@@ -482,7 +493,10 @@ void PhoneLibraryNav::addSection(const QString &title) {
   item->setFlags(Qt::ItemIsEnabled);
   item->setData(Qt::UserRole, QString());
   item->setData(kSectionRole, true);
-  item->setForeground(QBrush(QColor(QStringLiteral("#8B92A8"))));
+  const QColor sectionCol = BlopTheme::instance().isDark()
+                                ? QColor(QStringLiteral("#8B92A8"))
+                                : BlopStyle::paperInkMuted();
+  item->setForeground(QBrush(sectionCol));
   QFont f = m_list->font();
   f.setPixelSize(UiScale::sp(11));
   f.setWeight(QFont::DemiBold);
@@ -502,9 +516,13 @@ void PhoneLibraryNav::addRow(const QString &id, const QString &title,
   item->setData(kSectionRole, false);
   item->setData(kSubtitleRole, subtitle);
   item->setData(kChevronRole, chevron);
-  item->setForeground(QBrush(QColor(QStringLiteral("#F4F2FF"))));
-  item->setSizeHint(QSize(item->sizeHint().width(),
-                          UiScale::dp(subtitle.isEmpty() ? 48 : 58)));
+  const QColor ink = BlopTheme::instance().isDark()
+                         ? QColor(QStringLiteral("#F4F2FF"))
+                         : BlopStyle::paperInk();
+  item->setForeground(QBrush(ink));
+  item->setSizeHint(QSize(
+      item->sizeHint().width(),
+      UiScale::dp(subtitle.isEmpty() ? BlopStyle::touchTargetMinDp() : 56)));
   if (selected)
     item->setSelected(true);
 }
@@ -513,19 +531,18 @@ void PhoneLibraryNav::rebuildMenu() {
   if (!m_list)
     return;
   m_list->clear();
-  const bool roomy = spaciousMenu();
+  // Always show short subtitles — phone sheet matches desktop language.
   addSection(QStringLiteral("Bibliothek"));
   addRow(QStringLiteral("dashboard"), QStringLiteral("Dashboard"),
-         roomy ? QStringLiteral("Start und Blöcke") : QString());
+         QStringLiteral("Start und Blöcke"));
   addRow(QStringLiteral("notes"), QStringLiteral("Notizen"),
-         roomy ? QStringLiteral("Lokale Bibliothek") : QString(), true);
+         QStringLiteral("Lokale Bibliothek"), true);
   addRow(QStringLiteral("study"), QStringLiteral("Study"),
-         roomy ? QStringLiteral("Kurse, Login und Lernen") : QString());
+         QStringLiteral("Kurse und Lernen"));
   addRow(QStringLiteral("device"), QStringLiteral("Gerät"),
-         roomy ? QStringLiteral("Dateien auf diesem Gerät") : QString());
+         QStringLiteral("Dateien auf diesem Gerät"));
   addRow(QStringLiteral("tags"), QStringLiteral("Tags"),
-         roomy ? QStringLiteral("Notizen nach Tags filtern") : QString(), false,
-         true);
+         QStringLiteral("Nach Tags filtern"), false, true);
   addSpacer();
   addSection(QStringLiteral("Cloud"));
   const auto clouds = CloudStorageStore::load();
@@ -533,22 +550,18 @@ void PhoneLibraryNav::rebuildMenu() {
     const QString name = e.name.isEmpty()
                              ? CloudStorageStore::displayNameForType(e.type)
                              : e.name;
-    QString sub;
-    if (roomy) {
-      sub = e.webConnected ? QStringLiteral("Verbunden · in Blop öffnen")
-                           : QStringLiteral("In Blop öffnen");
-      if (!e.path.isEmpty())
-        sub = QStringLiteral("Sync-Ordner · in Blop öffnen");
-    }
+    QString sub = e.webConnected ? QStringLiteral("Verbunden · in Blop öffnen")
+                                 : QStringLiteral("In Blop öffnen");
+    if (!e.path.isEmpty())
+      sub = QStringLiteral("Sync-Ordner · in Blop öffnen");
     addRow(QStringLiteral("cloud:") + e.id, name, sub);
   }
   addRow(QStringLiteral("cloud_add"), QStringLiteral("Eigene Cloud hinzufügen…"),
-         roomy ? QStringLiteral("Adresse oder Anbieter verknüpfen") : QString());
+         QStringLiteral("Adresse oder Anbieter verknüpfen"));
   addSpacer();
   addSection(QStringLiteral("Konto"));
   addRow(QStringLiteral("settings"), QStringLiteral("Einstellungen"),
-         roomy ? QStringLiteral("Konto, Design und Speicher") : QString(), false,
-         true);
+         QStringLiteral("Konto, Design und Speicher"), false, true);
 }
 
 namespace {
@@ -712,8 +725,13 @@ void PhoneLibraryNav::closeMenu() {
   m_swiping = false;
   if (qApp)
     qApp->removeEventFilter(this);
-  if (!m_sheet)
+  if (!m_sheet) {
+    if (isEnabled()) {
+      setVisible(true);
+      syncPillGeometry();
+    }
     return;
+  }
   QWidget *sheet = m_sheet;
   m_sheet = nullptr;
   m_card = nullptr;
@@ -727,6 +745,12 @@ void PhoneLibraryNav::closeMenu() {
   sheet->hide();
   sheet->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   delete sheet;
+  // Restore the floating pill (hidden while the sheet was open).
+  if (isEnabled()) {
+    setVisible(true);
+    syncPillGeometry();
+    raise();
+  }
 }
 
 void PhoneLibraryNav::openMenu() {
@@ -739,6 +763,9 @@ void PhoneLibraryNav::openMenu() {
   }
 
   emit menuAboutToOpen();
+
+  // Hide floating pill while sheet is open (avoids duplicate "Menü" control).
+  hide();
 
   auto *sheet = new QWidget(win);
   m_sheet = sheet;
@@ -766,6 +793,7 @@ void PhoneLibraryNav::openMenu() {
   scrim->installEventFilter(this);
   root->addWidget(scrim, 1);
 
+  const bool dark = BlopTheme::instance().isDark();
   const bool roomy = spaciousMenu();
   const bool wide = wideMenu();
   const int side = roomy ? qMax(UiScale::dp(28), win->width() / 18)
@@ -777,6 +805,27 @@ void PhoneLibraryNav::openMenu() {
       roomy ? qMin(cardCap, qMax(UiScale::dp(320), win->width() - 2 * side))
             : qMax(UiScale::dp(280), win->width() - 2 * side);
 
+  const QColor sheetBg =
+      dark ? BlopStyle::obsidianSheet() : BlopStyle::paperBg();
+  const QString sheetBorder =
+      dark ? QStringLiteral("rgba(255,255,255,0.06)")
+           : QStringLiteral("rgba(20,24,40,0.10)");
+  const QString ink =
+      dark ? QStringLiteral("#F4F2FF")
+           : BlopStyle::paperInk().name(QColor::HexRgb);
+  const QString inkMuted =
+      dark ? QStringLiteral("#9AA3BB")
+           : BlopStyle::paperInkMuted().name(QColor::HexRgb);
+  const QString inputBg =
+      dark ? QStringLiteral("rgba(255,255,255,0.08)")
+           : BlopStyle::paperChipBg().name(QColor::HexRgb);
+  const QString inputBorder =
+      dark ? QStringLiteral("rgba(255,255,255,0.10)")
+           : QStringLiteral("rgba(20,24,40,0.12)");
+  const QString handleBg =
+      dark ? QStringLiteral("rgba(255,255,255,0.22)")
+           : QStringLiteral("rgba(20,24,40,0.18)");
+
   auto *card = new QWidget(sheet);
   m_card = card;
   card->setObjectName(QStringLiteral("PhoneLibraryMenuCard"));
@@ -786,17 +835,17 @@ void PhoneLibraryNav::openMenu() {
                   "QWidget#PhoneLibraryMenuCard {"
                   "  background: %1;"
                   "  border-radius: 16px;"
-                  "  border: 1px solid rgba(255,255,255,0.06);"
+                  "  border: 1px solid %2;"
                   "}")
-                .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb))
+                .arg(sheetBg.name(QColor::HexRgb), sheetBorder)
             : QStringLiteral(
                   "QWidget#PhoneLibraryMenuCard {"
                   "  background: %1;"
                   "  border-top-left-radius: 16px;"
                   "  border-top-right-radius: 16px;"
-                  "  border: 1px solid rgba(255,255,255,0.06);"
+                  "  border: 1px solid %2;"
                   "}")
-                .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb)));
+                .arg(sheetBg.name(QColor::HexRgb), sheetBorder));
   card->installEventFilter(this);
   if (roomy) {
     auto *shadow = new QGraphicsDropShadowEffect(card);
@@ -840,35 +889,35 @@ void PhoneLibraryNav::openMenu() {
   auto *handle = new QWidget(card);
   handle->setFixedSize(UiScale::dp(36), UiScale::dp(4));
   handle->setStyleSheet(
-      QStringLiteral("background: rgba(255,255,255,0.22); border-radius: 2px;"));
+      QStringLiteral("background: %1; border-radius: 2px;").arg(handleBg));
   lay->addWidget(handle, 0, Qt::AlignHCenter);
 
   auto *hdr = new QLabel(QStringLiteral("Menü"), card);
-  hdr->setStyleSheet(BlopTheme::themed(
-      QStringLiteral("color: #F4F2FF; font-size: 18px; font-weight: 700; "
-                     "background: transparent;")));
+  hdr->setStyleSheet(QStringLiteral(
+      "color: %1; font-size: 18px; font-weight: 700; background: transparent;")
+                         .arg(ink));
   lay->addWidget(hdr);
-  if (roomy) {
-    auto *hdrSub = new QLabel(
-        wide ? QStringLiteral("Navigation links · Schnellzugriff rechts")
-             : QStringLiteral("Bibliothek, Clouds und Konto"),
-        card);
-    hdrSub->setStyleSheet(BlopTheme::themed(
-        QStringLiteral("color: #9AA3BB; font-size: 12px; font-weight: 500; "
-                       "background: transparent; padding-bottom: 2px;")));
-    lay->addWidget(hdrSub);
-  }
+  auto *hdrSub = new QLabel(
+      wide ? QStringLiteral("Navigation links · Schnellzugriff rechts")
+           : QStringLiteral("Bibliothek, Clouds und Konto"),
+      card);
+  hdrSub->setStyleSheet(QStringLiteral(
+      "color: %1; font-size: 12px; font-weight: 500; background: transparent;"
+      " padding-bottom: 2px;")
+                            .arg(inkMuted));
+  lay->addWidget(hdrSub);
 
   m_search = new QLineEdit(card);
   m_search->setPlaceholderText(QStringLiteral("Suchen…"));
   m_search->setClearButtonEnabled(true);
-  m_search->setMinimumHeight(UiScale::dp(42));
+  m_search->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
   m_search->setStyleSheet(QStringLiteral(
-      "QLineEdit { background: rgba(255,255,255,0.08); color: #E8E4FF;"
-      "  border: 1px solid rgba(255,255,255,0.10); border-radius: 10px;"
-      "  padding: 8px 12px; font-size: 14px; min-height: %1px;"
+      "QLineEdit { background: %1; color: %2;"
+      "  border: 1px solid %3; border-radius: 10px;"
+      "  padding: 8px 12px; font-size: 14px; min-height: %4px;"
       "  selection-background-color: rgba(91,157,255,0.45); }"
       "QLineEdit:focus { border: 1px solid rgba(91,157,255,0.55); }")
+                              .arg(inputBg, ink, inputBorder)
                               .arg(UiScale::dp(BlopStyle::touchTargetMinDp() - 4)));
   connect(m_search, &QLineEdit::textChanged, this, &PhoneLibraryNav::searchChanged);
   lay->addWidget(m_search);
@@ -885,18 +934,19 @@ void PhoneLibraryNav::openMenu() {
   {
     QPalette pal = m_list->palette();
     pal.setColor(QPalette::Base, Qt::transparent);
-    pal.setColor(QPalette::Text, QColor(QStringLiteral("#F4F2FF")));
-    pal.setColor(QPalette::ButtonText, QColor(QStringLiteral("#F4F2FF")));
-    pal.setColor(QPalette::HighlightedText, QColor(QStringLiteral("#FFFFFF")));
+    pal.setColor(QPalette::Text, QColor(ink));
+    pal.setColor(QPalette::ButtonText, QColor(ink));
+    pal.setColor(QPalette::HighlightedText, QColor(ink));
     pal.setColor(QPalette::Highlight, QColor(91, 157, 255, 120));
-    pal.setColor(QPalette::WindowText, QColor(QStringLiteral("#F4F2FF")));
+    pal.setColor(QPalette::WindowText, QColor(ink));
     m_list->setPalette(pal);
   }
   m_list->setStyleSheet(QStringLiteral(
-      "QListWidget { background: transparent; border: none; outline: none; color: #F4F2FF; }"
-      "QListWidget::item { color: #F4F2FF; padding: 0; border-radius: 10px; }"
+      "QListWidget { background: transparent; border: none; outline: none; color: %1; }"
+      "QListWidget::item { color: %1; padding: 0; border-radius: 10px; }"
       "QListWidget::item:selected { background: transparent; }"
-      "QListWidget::item:hover { background: transparent; }"));
+      "QListWidget::item:hover { background: transparent; }")
+                            .arg(ink));
   m_list->setAttribute(Qt::WA_AcceptTouchEvents, true);
   m_list->setProperty("blopPreferClick", true);
   if (m_list->viewport()) {
@@ -904,7 +954,7 @@ void PhoneLibraryNav::openMenu() {
     m_list->viewport()->setProperty("blopPreferClick", true);
     m_list->viewport()->installEventFilter(this);
   }
-  BlopScroll::enableFingerScroll(m_list);
+  BlopScroll::enableFingerScroll(m_list, BlopScroll::Axes::VerticalOnly);
   connect(m_list, &QListWidget::itemClicked, this,
           [this](QListWidgetItem *item) {
             if (!item)
@@ -977,32 +1027,35 @@ void PhoneLibraryNav::openMenu() {
     list->viewport()->update();
   });
 
-  auto *accountRow = new QWidget(card);
-  auto *accLay = new QHBoxLayout(accountRow);
-  accLay->setContentsMargins(4, 4, 4, 4);
-  m_account = new QLabel(accountRow);
-  if (m_accountName.isEmpty() || m_accountName == QLatin1String("Gast")) {
-    m_account->setText(roomy ? QStringLiteral("Gast · nicht angemeldet")
-                             : QStringLiteral("Gast"));
-  } else {
-    m_account->setText(roomy ? QStringLiteral("Angemeldet als %1").arg(m_accountName)
-                             : m_accountName);
+  // Account / close footer: only on tablet/wide — phone uses list "Einstellungen"
+  // and scrim tap / swipe to dismiss (avoids duplicate Menü chrome).
+  if (roomy) {
+    auto *accountRow = new QWidget(card);
+    auto *accLay = new QHBoxLayout(accountRow);
+    accLay->setContentsMargins(4, 4, 4, 4);
+    m_account = new QLabel(accountRow);
+    if (m_accountName.isEmpty() || m_accountName == QLatin1String("Gast")) {
+      m_account->setText(QStringLiteral("Gast · nicht angemeldet"));
+    } else {
+      m_account->setText(QStringLiteral("Angemeldet als %1").arg(m_accountName));
+    }
+    m_account->setStyleSheet(QStringLiteral(
+        "color: %1; font-size: 13px; font-weight: 600; background: transparent;")
+                                 .arg(inkMuted));
+    accLay->addWidget(m_account, 1);
+    auto *btnClose = new QPushButton(QStringLiteral("Schließen"), accountRow);
+    btnClose->setCursor(Qt::PointingHandCursor);
+    btnClose->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+    btnClose->setStyleSheet(QStringLiteral(
+        "QPushButton { background: %1; color: %2;"
+        "  border: none; border-radius: 10px; padding: 8px 14px; font-weight: 700; }")
+                                .arg(inputBg, ink));
+    connect(btnClose, &QPushButton::clicked, this, &PhoneLibraryNav::closeMenu);
+    accLay->addWidget(btnClose);
+    lay->addWidget(accountRow);
   }
-  m_account->setStyleSheet(BlopTheme::themed(
-      QStringLiteral("color: rgba(200,208,235,0.88); font-size: 13px; "
-                     "font-weight: 600; background: transparent;")));
-  accLay->addWidget(m_account, 1);
-  auto *btnClose = new QPushButton(QStringLiteral("Schließen"), accountRow);
-  btnClose->setCursor(Qt::PointingHandCursor);
-  btnClose->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "QPushButton { background: rgba(255,255,255,0.08); color: #F4F2FF;"
-      "  border: none; border-radius: 10px; padding: 8px 14px; font-weight: 700; }")));
-  connect(btnClose, &QPushButton::clicked, this, &PhoneLibraryNav::closeMenu);
-  accLay->addWidget(btnClose);
-  lay->addWidget(accountRow);
 
   sheet->show();
   sheet->raise();
   sheet->setFocus(Qt::OtherFocusReason);
-  raise();
 }

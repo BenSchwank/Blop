@@ -405,6 +405,7 @@ void GoogleAuthManager::startPkceLogin() {
 
   qInfo() << "GoogleAuthManager: launching PKCE auth via Custom Tab"
           << "redirect=" << m_redirectUri;
+  emit loginPhaseChanged(QStringLiteral("browser"));
   emit requireBrowser(authUrl);
 }
 
@@ -520,10 +521,12 @@ void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
     return;
   }
 
+  emit loginPhaseChanged(QStringLiteral("callback"));
   exchangeAuthorizationCode(code);
 }
 
 void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
+  emit loginPhaseChanged(QStringLiteral("verify"));
   QNetworkRequest req((QUrl(QString::fromLatin1(kGoogleTokenEndpoint))));
   req.setHeader(QNetworkRequest::ContentTypeHeader,
                 "application/x-www-form-urlencoded");
@@ -579,6 +582,7 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
     m_wantCalendar = false;
     parseUserInfoFromIdToken(idToken);
     m_authenticated = true;
+    emit loginPhaseChanged(QStringLiteral("done"));
     emit idTokenReceived(idToken);
     emit authenticated();
   });

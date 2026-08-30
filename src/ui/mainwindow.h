@@ -504,8 +504,6 @@ private:
   void setAndroidStudyBootOverlayVisible(bool visible);
   void completeAndroidStudyTabEntry();
   bool m_pendingStudyStackSwitch{false};
-  /// Guest login boot deferred until after first showEvent (EGL/A11y settle).
-  bool m_pendingAndroidGuestStudyBoot{false};
   /// 0 = Study home, 2 = Study login/register URL, 3 = in-app cloud browser.
   int m_pendingAndroidWebKind{0};
   QString m_pendingAndroidWebUrl;

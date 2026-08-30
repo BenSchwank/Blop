@@ -32,6 +32,7 @@ constexpr const char *kInstalled = "blopFingerScroll";
 constexpr const char *kFitContents = "blopFitContents";
 constexpr const char *kPreferClick = "blopPreferClick";
 constexpr const char *kNoFingerScroll = "blopNoFingerScroll";
+constexpr const char *kVerticalOnly = "blopVerticalOnly";
 constexpr int kDirectDragPx = 8;
 constexpr int kTouchDragPx = 24;
 constexpr int kPreferClickDragPx = 32;
@@ -107,7 +108,7 @@ QAbstractScrollArea *enclosingScrollable(QWidget *w) {
   return nullptr;
 }
 
-void applyScrollerMetrics(QWidget *vp) {
+void applyScrollerMetrics(QWidget *vp, bool verticalOnly) {
   QScroller *scroller = QScroller::scroller(vp);
   if (!scroller)
     return;
@@ -120,10 +121,15 @@ void applyScrollerMetrics(QWidget *vp) {
                      QVariant(0.8));
   sp.setScrollMetric(QScrollerProperties::ScrollingCurve,
                      QVariant::fromValue(QEasingCurve(QEasingCurve::OutQuad)));
-  sp.setScrollMetric(QScrollerProperties::AxisLockThreshold, QVariant(0.55));
+  // Vertical-only: lock to Y early so sideways flicks never pan the sheet.
+  sp.setScrollMetric(QScrollerProperties::AxisLockThreshold,
+                     QVariant(verticalOnly ? 0.15 : 0.55));
   const auto overshootOn =
       QVariant::fromValue(QScrollerProperties::OvershootWhenScrollable);
-  sp.setScrollMetric(QScrollerProperties::HorizontalOvershootPolicy, overshootOn);
+  const auto overshootOff =
+      QVariant::fromValue(QScrollerProperties::OvershootAlwaysOff);
+  sp.setScrollMetric(QScrollerProperties::HorizontalOvershootPolicy,
+                     verticalOnly ? overshootOff : overshootOn);
   sp.setScrollMetric(QScrollerProperties::VerticalOvershootPolicy, overshootOn);
   scroller->setScrollerProperties(sp);
 }
@@ -269,6 +275,8 @@ private:
       if (v->maximum() > v->minimum())
         v->setValue(v->value() - delta.y());
     }
+    if (m.area->property(kVerticalOnly).toBool())
+      return;
     if (auto *h = m.area->horizontalScrollBar()) {
       if (h->maximum() > h->minimum())
         h->setValue(h->value() - delta.x());
@@ -449,7 +457,7 @@ private:
 
 } // namespace
 
-void BlopScroll::enableFingerScroll(QWidget *target) {
+void BlopScroll::enableFingerScroll(QWidget *target, Axes axes) {
   if (!target)
     return;
 
@@ -461,9 +469,18 @@ void BlopScroll::enableFingerScroll(QWidget *target) {
   if (isDrawingCanvas(area))
     return;
 
+  const bool verticalOnly = axes == Axes::VerticalOnly;
+  if (verticalOnly)
+    area->setProperty(kVerticalOnly, true);
+
   QWidget *vp = area->viewport() ? area->viewport() : static_cast<QWidget *>(area);
   if (area->property(kInstalled).toBool()) {
-    applyScrollerMetrics(vp);
+    if (verticalOnly) {
+      area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+      if (auto *hs = area->horizontalScrollBar())
+        hs->setEnabled(false);
+    }
+    applyScrollerMetrics(vp, area->property(kVerticalOnly).toBool());
     return;
   }
 
@@ -472,6 +489,12 @@ void BlopScroll::enableFingerScroll(QWidget *target) {
 
   area->setAttribute(Qt::WA_AcceptTouchEvents, true);
   vp->setAttribute(Qt::WA_AcceptTouchEvents, true);
+
+  if (verticalOnly) {
+    area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    if (auto *hs = area->horizontalScrollBar())
+      hs->setEnabled(false);
+  }
 
   if (auto *view = qobject_cast<QAbstractItemView *>(area)) {
     view->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -484,7 +507,7 @@ void BlopScroll::enableFingerScroll(QWidget *target) {
   QScroller::ungrabGesture(area);
   QScroller::ungrabGesture(vp);
   QScroller::scroller(vp);
-  applyScrollerMetrics(vp);
+  applyScrollerMetrics(vp, verticalOnly);
 }
 
 void BlopScroll::makeListFitContents(QAbstractItemView *view) {

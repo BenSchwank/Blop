@@ -6,6 +6,8 @@ Rectangle {
     id: studyRoot
     // v3.18.2+: driven from C++ (syncStudyChromeTheme) for Light/Dark parity.
     property color studyChromeColor: "#000000"
+    // Guest native login gate: suppress WebView overlay / SurfaceView boot.
+    property bool authLocked: false
     // v3.18.20: always transparent so the Android SurfaceView (which renders
     // behind all QML layers) is never obscured by this root Rectangle.
     // The startupLoadingOverlayLoader covers the background during startup.
@@ -201,6 +203,10 @@ Rectangle {
     }
 
     function requestSurfaceActivation(reason) {
+        if (authLocked) {
+            console.log("BlopStudy: skip surface activation — authLocked reason=", reason)
+            return
+        }
         if (!tabActive || !ssoPollingEnabled) {
             console.log("BlopStudy: skip surface activation — tabActive=", tabActive,
                         "ssoPollingEnabled=", ssoPollingEnabled, "reason=", reason)
@@ -214,6 +220,10 @@ Rectangle {
     // Arms the WebView Loader after the boot delay and tells C++ it may
     // swap the main stack to Study (avoids EGL deadlock with Notes GL).
     function commitSurfacePhase(reason) {
+        if (authLocked) {
+            console.log("BlopStudy: commitSurfacePhase skipped — authLocked")
+            return
+        }
         if (!tabActive) {
             console.log("BlopStudy: commitSurfacePhase skipped — tab inactive")
             return
@@ -1014,7 +1024,8 @@ Rectangle {
         // v3.18.12: Loader only live when tab is active AND surface phase
         // is armed. surfacePhaseActive stays false during boot wait and
         // recreate cooldown so no SurfaceView occludes loading UI.
-        active: tabActive && surfacePhaseActive
+        // authLocked: guest native login owns the screen — no WebView boot.
+        active: tabActive && surfacePhaseActive && !authLocked
         asynchronous: false
         sourceComponent: studyWebViewComponent
         Component.onCompleted: {
@@ -1075,8 +1086,9 @@ Rectangle {
         z: 5
         // Gate on surfacePhaseActive so QQuickView does not allocate QRhi
         // during the boot delay while the Notes canvas still holds EGL.
+        // authLocked: guest native login gate owns the screen — no gray overlay.
         active: (!firstLoadDone || studyLoadFailed) && ssoPollingEnabled
-                && tabActive && surfacePhaseActive
+                && tabActive && surfacePhaseActive && !authLocked
         sourceComponent: startupLoadingOverlayComponent
     }
 

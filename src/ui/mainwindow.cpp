@@ -221,7 +221,9 @@ void suppressAndroidAccessibilityForSurface() {
 }
 
 QColor androidAuthSurfaceColor() {
-  return BlopStyle::obsidianDesk();
+  // Match library paper/obsidian desk so guest cold-start is not a flat #121212 slab.
+  return BlopTheme::instance().isDark() ? BlopStyle::obsidianDesk()
+                                        : BlopStyle::paperBgLibrary();
 }
 } // namespace
 
@@ -1837,6 +1839,19 @@ MainWindow::MainWindow(QWidget *parent)
             if (m_androidNativeLoginGate)
               setAndroidNativeLoginGateVisible(true);
           });
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::loginPhaseChanged,
+          this, [this](const QString &phase) {
+            if (phase == QLatin1String("browser")) {
+              setAndroidNativeLoginBusy(
+                  true, QStringLiteral("Google-Konto wählen und auf Weiter tippen…"));
+            } else if (phase == QLatin1String("callback")) {
+              setAndroidNativeLoginBusy(
+                  true, QStringLiteral("Zurück in Blop — Anmeldung wird abgeschlossen…"));
+            } else if (phase == QLatin1String("verify")) {
+              setAndroidNativeLoginBusy(
+                  true, QStringLiteral("Anmeldung wird bestätigt…"));
+            }
+          });
 #endif
 
   // Close the overlay when login completes successfully
@@ -2096,8 +2111,10 @@ void MainWindow::syncStudyChromeTheme() {
   }
   if (m_studyQQuickView) {
     m_studyQQuickView->setColor(chrome);
-    if (QObject *root = m_studyQQuickView->rootObject())
+    if (QObject *root = m_studyQQuickView->rootObject()) {
       root->setProperty("studyChromeColor", chrome);
+      root->setProperty("authLocked", m_authNavigationLocked);
+    }
   }
 }
 
@@ -2979,7 +2996,7 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   gate->setAttribute(Qt::WA_StyledBackground, true);
   gate->setStyleSheet(QStringLiteral(
       "QWidget#AndroidNativeLoginGate { background-color: %1; }")
-                          .arg(BlopStyle::obsidianDesk().name(QColor::HexRgb)));
+                          .arg(libraryPageBackground().name(QColor::HexRgb)));
 
   auto *outer = new QVBoxLayout(gate);
   outer->setContentsMargins(UiScale::safeHorizontalPaddingPx(this),
@@ -3101,8 +3118,16 @@ void MainWindow::setAndroidNativeLoginGateVisible(bool visible) {
   ensureAndroidNativeLoginGate();
   if (!m_androidNativeLoginGate)
     return;
+  // Keep gate fill in sync with Light/Dark library desk.
+  m_androidNativeLoginGate->setStyleSheet(QStringLiteral(
+      "QWidget#AndroidNativeLoginGate { background-color: %1; }")
+                                              .arg(libraryPageBackground().name(
+                                                  QColor::HexRgb)));
   syncAndroidNativeLoginGateGeometry();
   m_androidNativeLoginGate->setVisible(visible);
+  if (m_studyQQuickView && m_studyQQuickView->rootObject())
+    m_studyQQuickView->rootObject()->setProperty("authLocked",
+                                                 m_authNavigationLocked);
   if (visible) {
     m_androidNativeLoginGate->raise();
     if (!m_googleLoginInFlight)
@@ -7985,6 +8010,12 @@ void MainWindow::requestGoogleLogin() {
         return;
       }
     }
+#ifdef Q_OS_ANDROID
+    // Immediate feedback before OAuth deferral — login felt stalled otherwise.
+    setAndroidNativeLoginGateVisible(true);
+    setAndroidNativeLoginBusy(true,
+                              QStringLiteral("Google wird geöffnet…"));
+#endif
     // Defer OAuth start out of WebView/JS callback stack to reduce Android reentrancy crashes.
     QTimer::singleShot(0, this, [this]() {
       if (m_googleLoginInFlight)
@@ -7993,6 +8024,8 @@ void MainWindow::requestGoogleLogin() {
       if (!QSslSocket::supportsSsl()) {
         qCritical() << "Google login start skipped: TLS unavailable";
         emit oauthFailed(QStringLiteral("tls_unavailable"));
+        setAndroidNativeLoginBusy(
+            false, QStringLiteral("Anmeldung fehlgeschlagen. Bitte erneut versuchen."));
         const QString user =
             QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
                 .value(QStringLiteral("username"))
@@ -8307,13 +8340,9 @@ void MainWindow::updateSidebarUser(const QString &username) {
     syncAndroidHeaderGeometry(this);
     syncStudyChromeTheme();
     setAndroidNativeLoginGateVisible(true);
-    if (isVisible()) {
-      onModeChanged(1);
-    } else {
-      m_pendingAndroidGuestStudyBoot = true;
-      if (m_mainContentStack)
-        m_mainContentStack->setCurrentIndex(1);
-    }
+    // Keep Notes under the gate — do not boot Study WebView (gray overlay).
+    if (m_mainContentStack)
+      m_mainContentStack->setCurrentIndex(0);
     // Keep login screen clean: hide Notes/Study pills until session is confirmed.
     if (m_btnAndroidNotes) {
       m_btnAndroidNotes->setVisible(false);
@@ -13313,34 +13342,8 @@ void MainWindow::showEvent(QShowEvent *event) {
     m_androidHeader->raise();
   if (m_authNavigationLocked)
     setAndroidNativeLoginGateVisible(true);
-  if (m_pendingAndroidGuestStudyBoot) {
-    m_pendingAndroidGuestStudyBoot = false;
-    QTimer::singleShot(900, this, [this]() {
-      if (!m_authNavigationLocked)
-        return;
-      suppressAndroidAccessibilityForSurface();
-      onModeChanged(1);
-    });
-  } else if (m_authNavigationLocked && m_mainContentStack &&
-             m_mainContentStack->currentIndex() == 1) {
-    QTimer::singleShot(400, this, [this]() {
-      if (!m_authNavigationLocked)
-        return;
-      if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
-        return;
-      setAndroidStudyBootOverlayVisible(true);
-      suppressAndroidAccessibilityForSurface();
-      if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
-        QObject *root = m_studyQQuickView->rootObject();
-        root->setProperty("tabActive", true);
-        QMetaObject::invokeMethod(
-            root, "requestSurfaceActivation", Qt::QueuedConnection,
-            Q_ARG(QVariant, QVariant(QStringLiteral("showEvent"))));
-        QMetaObject::invokeMethod(root, "ensureStudyLoaded",
-                                  Qt::QueuedConnection);
-      }
-    });
-  }
+  // Guests stay on the native login gate only — never arm Study WebView /
+  // startupLoadingOverlay (that produced the full-screen gray cold-start).
 #endif
 #if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
   if (m_studyWebView) {
