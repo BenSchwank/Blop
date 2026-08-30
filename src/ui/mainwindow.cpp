@@ -219,6 +219,10 @@ namespace {
 void suppressAndroidAccessibilityForSurface() {
   QAccessible::setActive(false);
 }
+
+QColor androidAuthSurfaceColor() {
+  return QColor(QStringLiteral("#0D0B14"));
+}
 } // namespace
 
 static const int SIDEBAR_WIDTH = 248;
@@ -1797,7 +1801,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_androidHeader->raise();
     }
     if (m_authNavigationLocked)
-      setAndroidNativeLoginGateVisible(m_googleLoginInFlight);
+      setAndroidNativeLoginGateVisible(true);
 #endif
     emit oauthFailed(reason);
   };
@@ -2086,7 +2090,13 @@ void MainWindow::refreshOpenEditorSceneBackgrounds() {
 
 #ifdef Q_OS_ANDROID
 void MainWindow::syncStudyChromeTheme() {
-  const QColor chrome = BlopTheme::surfaceBackground();
+  const QColor chrome = m_authNavigationLocked ? androidAuthSurfaceColor()
+                                               : BlopTheme::surfaceBackground();
+  if (m_centralContainer) {
+    m_centralContainer->setStyleSheet(
+        QStringLiteral("QWidget#CentralContainer { background-color: %1; }")
+            .arg(chrome.name(QColor::HexRgb)));
+  }
   if (m_studyContainer) {
     m_studyContainer->setStyleSheet(
         QStringLiteral("background-color: %1;").arg(chrome.name(QColor::HexRgb)));
@@ -2112,9 +2122,16 @@ void MainWindow::applyThemeRefresh() {
   }
 #endif
   if (m_centralContainer) {
+    const QColor centralBg =
+#ifdef Q_OS_ANDROID
+        m_authNavigationLocked ? androidAuthSurfaceColor()
+                               : BlopTheme::surfaceBackground();
+#else
+        BlopTheme::surfaceBackground();
+#endif
     m_centralContainer->setStyleSheet(
         QStringLiteral("QWidget#CentralContainer { background-color: %1; }")
-            .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
+            .arg(centralBg.name(QColor::HexRgb)));
   }
 #ifdef Q_OS_ANDROID
   if (m_androidHeader) {
@@ -2950,32 +2967,36 @@ void MainWindow::ensureAndroidNativeLoginGate() {
       "QWidget#AndroidNativeLoginGate { background-color: #0D0B14; }"));
 
   auto *lay = new QVBoxLayout(gate);
-  lay->setContentsMargins(UiScale::dp(28), UiScale::dp(36), UiScale::dp(28),
-                          UiScale::dp(28));
-  lay->setSpacing(UiScale::dp(14));
-  lay->addStretch(1);
+  lay->setContentsMargins(UiScale::dp(32), UiScale::dp(48), UiScale::dp(32),
+                          UiScale::dp(40));
+  lay->setSpacing(UiScale::dp(10));
+  lay->addStretch(2);
 
   auto *brand = new QLabel(QStringLiteral("Blop"), gate);
   brand->setAlignment(Qt::AlignCenter);
   brand->setStyleSheet(QStringLiteral(
-      "color: #E0E0E0; font-size: 32px; font-weight: 800; background: transparent;"));
+      "color: #F4F5FB; font-size: 40px; font-weight: 800; letter-spacing: 1px;"
+      " background: transparent;"));
   lay->addWidget(brand);
 
-  auto *sub = new QLabel(
-      QStringLiteral("Google-Anmeldung"),
-      gate);
+  auto *sub = new QLabel(QStringLiteral("Notizen & Lernen in einer App"), gate);
   sub->setAlignment(Qt::AlignCenter);
   sub->setWordWrap(true);
   sub->setStyleSheet(QStringLiteral(
-      "color: #9AA3BB; font-size: 15px; font-weight: 500; background: transparent;"));
+      "color: #9AA3BB; font-size: 16px; font-weight: 500; background: transparent;"));
   lay->addWidget(sub);
 
-  lay->addSpacing(UiScale::dp(12));
+  lay->addSpacing(UiScale::dp(28));
 
   m_androidNativeLoginProgress = new QProgressBar(gate);
   m_androidNativeLoginProgress->setRange(0, 0);
   m_androidNativeLoginProgress->setTextVisible(false);
-  m_androidNativeLoginProgress->setFixedWidth(UiScale::dp(220));
+  m_androidNativeLoginProgress->setFixedWidth(UiScale::dp(240));
+  m_androidNativeLoginProgress->setFixedHeight(UiScale::dp(4));
+  m_androidNativeLoginProgress->setStyleSheet(QStringLiteral(
+      "QProgressBar { background: rgba(255,255,255,0.08); border: none;"
+      "  border-radius: 2px; }"
+      "QProgressBar::chunk { background: #5B9DFF; border-radius: 2px; }"));
   m_androidNativeLoginProgress->hide();
   lay->addWidget(m_androidNativeLoginProgress, 0, Qt::AlignHCenter);
 
@@ -2983,30 +3004,50 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   m_androidNativeLoginStatus->setAlignment(Qt::AlignCenter);
   m_androidNativeLoginStatus->setWordWrap(true);
   m_androidNativeLoginStatus->setStyleSheet(QStringLiteral(
-      "color: #C8C4E8; font-size: 14px; background: transparent;"));
+      "color: #C8D4F0; font-size: 14px; line-height: 1.4;"
+      " background: transparent; padding: 0 8px;"));
   m_androidNativeLoginStatus->hide();
   lay->addWidget(m_androidNativeLoginStatus);
+
+  lay->addSpacing(UiScale::dp(8));
 
   m_androidNativeLoginGoogleBtn =
       new QPushButton(QStringLiteral("Mit Google anmelden"), gate);
   m_androidNativeLoginGoogleBtn->setCursor(Qt::PointingHandCursor);
-  m_androidNativeLoginGoogleBtn->setMinimumHeight(UiScale::dp(48));
+  m_androidNativeLoginGoogleBtn->setMinimumHeight(UiScale::dp(52));
+  m_androidNativeLoginGoogleBtn->setSizePolicy(QSizePolicy::Expanding,
+                                               QSizePolicy::Fixed);
   m_androidNativeLoginGoogleBtn->setStyleSheet(QStringLiteral(
       "QPushButton { background: #5B9DFF; color: #0D0B14;"
-      "  border: none; border-radius: 12px; padding: 12px 18px;"
+      "  border: none; border-radius: 14px; padding: 14px 20px;"
       "  font-size: 16px; font-weight: 800; }"
+      "QPushButton:pressed { background: #4A8AE8; }"
       "QPushButton:disabled { background: #3A4558; color: #8A93A8; }"));
   connect(m_androidNativeLoginGoogleBtn, &QPushButton::clicked, this,
           [this]() { requestGoogleLogin(); });
   lay->addWidget(m_androidNativeLoginGoogleBtn);
 
+  auto *hint = new QLabel(
+      QStringLiteral("Melde dich an, um Notizen zu synchronisieren und "
+                     "Lerninhalte zu nutzen."),
+      gate);
+  hint->setAlignment(Qt::AlignCenter);
+  hint->setWordWrap(true);
+  hint->setStyleSheet(QStringLiteral(
+      "color: #6E7894; font-size: 13px; background: transparent; padding: 0 4px;"));
+  lay->addWidget(hint);
+
   m_androidNativeLoginCancelBtn =
       new QPushButton(QStringLiteral("Abbrechen"), gate);
   m_androidNativeLoginCancelBtn->setCursor(Qt::PointingHandCursor);
   m_androidNativeLoginCancelBtn->setMinimumHeight(UiScale::dp(44));
+  m_androidNativeLoginCancelBtn->setSizePolicy(QSizePolicy::Expanding,
+                                               QSizePolicy::Fixed);
   m_androidNativeLoginCancelBtn->setStyleSheet(QStringLiteral(
-      "QPushButton { background: rgba(255,255,255,0.08); color: #E0E0E0;"
-      "  border: none; border-radius: 12px; padding: 10px 16px; font-weight: 700; }"));
+      "QPushButton { background: rgba(255,255,255,0.06); color: #C8CDDC;"
+      "  border: 1px solid rgba(255,255,255,0.10); border-radius: 12px;"
+      "  padding: 10px 16px; font-weight: 600; }"
+      "QPushButton:pressed { background: rgba(255,255,255,0.10); }"));
   m_androidNativeLoginCancelBtn->hide();
   connect(m_androidNativeLoginCancelBtn, &QPushButton::clicked, this, [this]() {
     cancelGoogleLogin();
@@ -3014,7 +3055,7 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   });
   lay->addWidget(m_androidNativeLoginCancelBtn);
 
-  lay->addStretch(2);
+  lay->addStretch(3);
   gate->hide();
   m_androidNativeLoginGate = gate;
 }
@@ -7948,7 +7989,7 @@ void MainWindow::cancelGoogleLogin() {
 #ifdef Q_OS_ANDROID
   dismissAndroidOAuthOverlay();
   setAndroidNativeLoginBusy(false, QString());
-  setAndroidNativeLoginGateVisible(false);
+  setAndroidNativeLoginGateVisible(m_authNavigationLocked);
 #endif
   m_googleLoginInFlight = false;
   m_googleLoginInFlightSinceMs = 0;
@@ -8180,6 +8221,7 @@ void MainWindow::updateSidebarUser(const QString &username) {
     m_authNavigationLocked = false;
 #ifdef Q_OS_ANDROID
     setAndroidNativeLoginGateVisible(false);
+    syncStudyChromeTheme();
 #endif
     // Logged in: Switch to Blop Notes mode
     if (m_topNavControls) m_topNavControls->show();
@@ -8236,7 +8278,8 @@ void MainWindow::updateSidebarUser(const QString &username) {
       m_androidHeader->setFixedHeight(0);
     }
     syncAndroidHeaderGeometry(this);
-    setAndroidNativeLoginGateVisible(false);
+    syncStudyChromeTheme();
+    setAndroidNativeLoginGateVisible(true);
     if (isVisible()) {
       onModeChanged(1);
     } else {
@@ -13234,6 +13277,8 @@ void MainWindow::showEvent(QShowEvent *event) {
   syncAndroidHeaderGeometry(this);
   if (m_androidHeader)
     m_androidHeader->raise();
+  if (m_authNavigationLocked)
+    setAndroidNativeLoginGateVisible(true);
   if (m_pendingAndroidGuestStudyBoot) {
     m_pendingAndroidGuestStudyBoot = false;
     QTimer::singleShot(900, this, [this]() {
