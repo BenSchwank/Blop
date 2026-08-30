@@ -130,38 +130,37 @@ BlopTheme::Accent BlopTheme::accentFromKey(const QString &k) {
 // =====================================================================
 
 QColor BlopTheme::surfaceBackground() {
-  // True black in dark mode — the previous #0B0B1A read as bluish navy.
-  return instance().isDark() ? QColor(0x00, 0x00, 0x00) : QColor(0xF5, 0xF4, 0xF8);
+  // Match library sidebar charcoal — never pure black (too harsh vs nav).
+  return instance().isDark() ? QColor(0x16, 0x18, 0x1E) : QColor(0xF5, 0xF4, 0xF8);
 }
 
 QColor BlopTheme::surfaceBase() {
-  return instance().isDark() ? QColor(0x14, 0x12, 0x1F) : QColor(0xFF, 0xFF, 0xFF);
+  return instance().isDark() ? QColor(0x1A, 0x1D, 0x24) : QColor(0xFF, 0xFF, 0xFF);
 }
 
 QColor BlopTheme::surfaceElevated() {
-  // Dark uses a slightly brighter card than the page; light uses pure white
-  // so drop-shadows give the elevation cue instead of a shade change.
-  return instance().isDark() ? QColor(0x1A, 0x17, 0x2A) : QColor(0xFF, 0xFF, 0xFF);
+  // Cards / page manager: clearly above sidebar so panels read as surfaces.
+  return instance().isDark() ? QColor(0x22, 0x26, 0x2F) : QColor(0xFF, 0xFF, 0xFF);
 }
 
 QColor BlopTheme::surfaceMuted() {
-  return instance().isDark() ? QColor(0x21, 0x1E, 0x33) : QColor(0xEC, 0xEB, 0xF1);
+  return instance().isDark() ? QColor(0x2A, 0x2E, 0x38) : QColor(0xEC, 0xEB, 0xF1);
 }
 
 QColor BlopTheme::surfaceInverse() {
-  return instance().isDark() ? QColor(0xF5, 0xF4, 0xF8) : QColor(0x14, 0x12, 0x1F);
+  return instance().isDark() ? QColor(0xF5, 0xF4, 0xF8) : QColor(0x16, 0x18, 0x1E);
 }
 
 QColor BlopTheme::textPrimary() {
-  return instance().isDark() ? QColor(0xE8, 0xE4, 0xFF) : QColor(0x1A, 0x17, 0x26);
+  return instance().isDark() ? QColor(0xF2, 0xF2, 0xF2) : QColor(0x1A, 0x17, 0x26);
 }
 
 QColor BlopTheme::textSecondary() {
-  return instance().isDark() ? QColor(0xB4, 0xAE, 0xD4) : QColor(0x52, 0x51, 0x6B);
+  return instance().isDark() ? QColor(0xB8, 0xBC, 0xC4) : QColor(0x52, 0x51, 0x6B);
 }
 
 QColor BlopTheme::textTertiary() {
-  return instance().isDark() ? QColor(0x78, 0x73, 0x95) : QColor(0x80, 0x7F, 0x9A);
+  return instance().isDark() ? QColor(0x8A, 0x8F, 0x9A) : QColor(0x80, 0x7F, 0x9A);
 }
 
 QColor BlopTheme::textOnAccent() { return QColor(0xFF, 0xFF, 0xFF); }

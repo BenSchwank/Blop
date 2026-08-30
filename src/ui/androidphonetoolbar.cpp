@@ -599,7 +599,7 @@ void AndroidPhoneToolbar::showBrushSizeSheet() {
   slider->setStyleSheet(BlopTheme::themed(
       QStringLiteral(
           "QSlider::groove:horizontal { border: 1px solid #333; height: 6px; "
-          "background: #121212; margin: 2px 0; border-radius: 3px; }"
+          "background: #1A1D24; margin: 2px 0; border-radius: 3px; }"
           "QSlider::handle:horizontal { background: %1; border: 1px solid "
           "%1; width: 18px; height: 18px; margin: -7px 0; border-radius: 9px; }"
           "QSlider::sub-page:horizontal { background: %2; "

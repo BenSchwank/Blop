@@ -66,11 +66,13 @@ QColor paperInk() { return QColor(0x1C, 0x1E, 0x24); }
 QColor paperInkMuted() { return QColor(0x6B, 0x6F, 0x76); }
 QColor paperChipBg() { return QColor(0xF0, 0xEF, 0xED); }
 QColor paperRowBg() { return QColor(0xFF, 0xFF, 0xFF); }
-QColor obsidianBg() { return QColor(0x1A, 0x1A, 0x1A); }
-QColor obsidianDesk() { return QColor(0x12, 0x12, 0x12); }
+// Dark shell anchored on library sidebar (obsidianNav). Desk matches nav so
+// title bar / workspace are not a black hole under the chrome; sheets lift up.
+QColor obsidianBg() { return QColor(0x1A, 0x1D, 0x24); }
+QColor obsidianDesk() { return QColor(0x16, 0x18, 0x1E); }
 QColor obsidianNav() { return QColor(0x16, 0x18, 0x1E); }
 QColor obsidianText() { return QColor(0xF2, 0xF2, 0xF2); }
-QColor obsidianSheet() { return QColor(0x1E, 0x1E, 0x1E); }
+QColor obsidianSheet() { return QColor(0x22, 0x26, 0x2F); }
 
 namespace {
 

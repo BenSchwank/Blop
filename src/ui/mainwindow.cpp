@@ -4462,7 +4462,8 @@ void MainWindow::openSettingsWorkspace() {
             if (!page || !card)
               return;
 #ifndef Q_OS_ANDROID
-            const QString pageBg = QStringLiteral("#121212");
+            const QString pageBg =
+                BlopStyle::obsidianDesk().name(QColor::HexRgb);
             const QString cardBg = QStringLiteral("transparent");
             const QString cardBorder = QStringLiteral("transparent");
 #else
@@ -4604,8 +4605,8 @@ void MainWindow::syncWindowsDwmChrome() {
                      SWP_FRAMECHANGED);
   }
 
-  // Keep DWM caption tint in sync with the painted title bar (library/dashboard
-  // use elevated dark gray in Dark mode — not surfaceBackground / paper).
+  // Keep DWM caption tint in sync with the painted title bar. Dark chrome
+  // follows library sidebar charcoal (BlopStyle::obsidianNav), not pure black.
   const bool onDashboard =
       m_shellStack && m_shellStack->currentIndex() == 0;
   const bool notesMode =
@@ -4615,11 +4616,11 @@ void MainWindow::syncWindowsDwmChrome() {
       m_rightStack && m_rightStack->currentWidget() == m_editorContainer;
   QColor titleBg = BlopTheme::surfaceBackground();
   if (m_authNavigationLocked) {
-    titleBg = QColor(QStringLiteral("#0F1115"));
+    titleBg = BlopStyle::obsidianNav();
   } else if (noteChrome) {
     titleBg = NoteChrome::toolbarFill();
   } else if (notesMode || onDashboard) {
-    titleBg = BlopTheme::instance().isDark() ? QColor(0x25, 0x25, 0x25)
+    titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianBg()
                                              : BlopStyle::paperBgLibrary();
   }
 
@@ -4983,8 +4984,7 @@ void MainWindow::applyTheme() {
         QString::number(UiScale::dp(BlopStyle::touchTargetMinDp()));
 #ifndef Q_OS_ANDROID
     // Desktop K: always Notion paper in the content pane (sidebar stays dark).
-    // Never use surfaceBackground() here — in Dark mode that is #000000 and
-    // reads as a broken "black screen" next to the Obsidian sidebar.
+    // Dark desk tokens match sidebar charcoal — never pure black.
     const QString text = QStringLiteral("#1C1E24");
     const QString muted = QStringLiteral("#ECEAE8");
     const QString border = QStringLiteral("rgba(20,24,40,0.12)");

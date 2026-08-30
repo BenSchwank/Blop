@@ -148,7 +148,7 @@ void BlopWindowControls::paintGlyph(QPainter &p, Hit which, const QRect &cell,
                                s * 1.6),
                         1.2, 1.2);
       p.setBrush(m_lightBar ? QColor(0xFF, 0xFF, 0xFF, 235)
-                            : QColor(0x28, 0x2A, 0x30, 240));
+                            : QColor(0x22, 0x26, 0x2F, 240));
       p.drawRoundedRect(QRectF(c.x() - s - off / 2, c.y() - s + off, s * 1.6,
                                s * 1.6),
                         1.2, 1.2);
@@ -193,7 +193,7 @@ void BlopWindowControls::paintEvent(QPaintEvent *event) {
   }
 
   const QColor shellBg =
-      m_lightBar ? QColor(0xFF, 0xFF, 0xFF, 235) : QColor(0x28, 0x2A, 0x30, 220);
+      m_lightBar ? QColor(0xFF, 0xFF, 0xFF, 235) : QColor(0x22, 0x26, 0x2F, 220);
   const QColor shellBorder =
       m_lightBar ? QColor(0x37, 0x35, 0x2F, 40) : QColor(0xFF, 0xFF, 0xFF, 42);
 

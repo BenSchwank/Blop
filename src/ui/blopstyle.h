@@ -50,11 +50,11 @@ QColor paperInk();         // #1C1E24
 QColor paperInkMuted();    // #6B6F76
 QColor paperChipBg();      // #F0EFED
 QColor paperRowBg();       // #FFFFFF row groups on paper
-QColor obsidianBg();       // #1A1A1A chrome / nav
-QColor obsidianDesk();     // #121212 workspace desk
-QColor obsidianNav();      // #16181E library sidebar
+QColor obsidianBg();       // #1A1D24 chrome / elevated nav
+QColor obsidianDesk();     // #16181E workspace (= sidebar)
+QColor obsidianNav();      // #16181E library sidebar (dark anchor)
 QColor obsidianText();     // #F2F2F2
-QColor obsidianSheet();    // #1E1E1E overflow sheet
+QColor obsidianSheet();    // #22262F overflow / elevated sheet
 
 int surfaceRadiusDp();
 
