@@ -145,15 +145,22 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force deployment | Out-Null
           Copy-Item build\Blop.exe deployment\Blop.exe -Force
-          if (Test-Path build\BlopTrace.exe) {
-            Copy-Item build\BlopTrace.exe deployment\BlopTrace.exe -Force
-          } elseif (Test-Path build\Release\BlopTrace.exe) {
-            Copy-Item build\Release\BlopTrace.exe deployment\BlopTrace.exe -Force
-          } else {
-            Write-Warning "BlopTrace.exe missing — session-trace launcher will not ship in this build"
-          }
           if (Test-Path build\crashpad_handler.exe) {
             Copy-Item build\crashpad_handler.exe deployment\crashpad_handler.exe -Force
+          }
+
+          # BlopTrace: standalone release asset only (not inside ZIP / installer).
+          $traceCandidates = @(
+            'build\BlopTrace.exe',
+            'build\Release\BlopTrace.exe',
+            'build\tools\blop_trace\BlopTrace.exe'
+          )
+          $traceSrc = $traceCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($traceSrc) {
+            Copy-Item $traceSrc BlopTrace.exe -Force
+            Write-Host "BlopTrace.exe ready as release asset (from $traceSrc)"
+          } else {
+            Write-Warning "BlopTrace.exe missing — will not upload standalone QA launcher"
           }
 
       # windeployqt muss ebenfalls den korrekten Pfad nutzen (ist aber durch PATH bereits verfügbar)
@@ -286,6 +293,7 @@ jobs:
           files: |
             deployment/Blop_Windows.zip
             Blop_Windows_Installer.exe
+            BlopTrace.exe
           draft: false
           prerelease: false
           repository: BenSchwank/Blop-releases
@@ -301,6 +309,7 @@ jobs:
           files: |
             deployment/Blop_Windows.zip
             Blop_Windows_Installer.exe
+            BlopTrace.exe
           draft: false
           prerelease: true
           repository: BenSchwank/Blop-releases

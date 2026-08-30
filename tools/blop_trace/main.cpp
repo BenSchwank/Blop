@@ -277,13 +277,31 @@ int main() {
       << L"  • Strg+C = Log finalisieren und beenden\n\n";
 
   std::wstring blopExe = firstArgBlopPath();
-  if (blopExe.empty())
-    blopExe = joinPath(exeDir(), L"Blop.exe");
+  if (blopExe.empty()) {
+    const std::wstring beside = joinPath(exeDir(), L"Blop.exe");
+    if (fileExists(beside)) {
+      blopExe = beside;
+    } else {
+      // Standalone release asset: Blop lives in the normal install dir.
+      const wchar_t *installCandidates[] = {
+          L"C:\\Program Files\\Blop\\Blop.exe",
+          L"C:\\Program Files (x86)\\Blop\\Blop.exe",
+      };
+      for (const wchar_t *c : installCandidates) {
+        if (fileExists(c)) {
+          blopExe = c;
+          break;
+        }
+      }
+      if (blopExe.empty())
+        blopExe = beside; // keep error message path
+    }
+  }
 
   if (!fileExists(blopExe)) {
     std::wcerr << L"Blop.exe nicht gefunden: " << blopExe << L"\n"
-               << L"BlopTrace.exe neben Blop.exe legen (Release-ZIP) oder "
-                  L"Pfad als Argument uebergeben.\n";
+               << L"Installer-Blop unter Program Files\\Blop, oder BlopTrace.exe "
+                  L"neben Blop.exe legen, oder Pfad als Argument uebergeben.\n";
     std::wcout << L"\nTaste druecken zum Schliessen...";
     std::cin.get();
     return 1;
