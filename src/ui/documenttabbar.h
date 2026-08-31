@@ -34,7 +34,7 @@ public:
   /// Charcoal NoteChrome look while the note editor is active.
   void setNoteChromeMode(bool on);
   bool noteChromeMode() const { return m_noteChromeMode; }
-  /// Desktop: bookmark / Lesezeichen tabs hanging from the title bar.
+  /// Desktop: inline pill tabs (Cursor-style) in the title bar.
   void setReadingMarkMode(bool on);
   bool readingMarkMode() const { return m_readingMarkMode; }
   void refreshTheme();

@@ -4618,7 +4618,8 @@ void MainWindow::syncWindowsDwmChrome() {
   if (m_authNavigationLocked) {
     titleBg = BlopStyle::obsidianNav();
   } else if (noteChrome) {
-    titleBg = NoteChrome::toolbarFill();
+    titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianBg()
+                                             : NoteChrome::toolbarFill();
   } else if (notesMode || onDashboard) {
     titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianBg()
                                              : BlopStyle::paperBgLibrary();
@@ -15207,10 +15208,13 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                 : QStringLiteral("rgba(55,53,47,0.14)");
 
   const QColor titleBg =
-      authChrome ? QColor(QStringLiteral("#0F1115"))
-                 : (libraryShellChrome ? libraryBarBg
-                                       : (noteChrome ? NoteChrome::toolbarFill()
-                                                     : BlopTheme::surfaceBackground()));
+      authChrome ? BlopStyle::obsidianNav()
+                 : (libraryShellChrome
+                        ? libraryBarBg
+                        : (noteChrome
+                               ? (darkShell ? BlopStyle::obsidianBg()
+                                            : NoteChrome::toolbarFill())
+                               : BlopTheme::surfaceBackground()));
   // Icon contrast follows the painted title-bar luminance.
   const bool iconsOnDarkBar =
       authChrome || titleBg.lightness() < 148;
@@ -15437,15 +15441,28 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 
   if (m_btnNewTab) {
     if (noteChrome) {
-      m_btnNewTab->setIcon(
-          createModernIcon(QStringLiteral("add"), NoteChrome::textSecondary()));
-      m_btnNewTab->setIconSize(QSize(UiScale::dp(18), UiScale::dp(18)));
-      m_btnNewTab->setStyleSheet(QStringLiteral(
-          "QPushButton {"
-          "  background: transparent; border: none; border-radius: 8px;"
-          "}"
-          "QPushButton:hover { %1 }")
-                                     .arg(hoverGray));
+      const bool darkBar = darkShell;
+      m_btnNewTab->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+      m_btnNewTab->setIcon(createModernIcon(
+          QStringLiteral("add"),
+          darkBar ? QColor(0xC8, 0xCC, 0xD4) : NoteChrome::textSecondary()));
+      m_btnNewTab->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
+      m_btnNewTab->setStyleSheet(
+          darkBar
+              ? QStringLiteral(
+                    "QPushButton {"
+                    "  background: rgba(255,255,255,0.06);"
+                    "  border: none; border-radius: 16px;"
+                    "}"
+                    "QPushButton:hover {"
+                    "  background: rgba(255,255,255,0.12);"
+                    "}")
+              : QStringLiteral(
+                    "QPushButton {"
+                    "  background: transparent; border: none; border-radius: 8px;"
+                    "}"
+                    "QPushButton:hover { %1 }")
+                    .arg(hoverGray));
     } else {
       m_btnNewTab->setIcon(
           createModernIcon(QStringLiteral("add"), chromeFg));
@@ -15462,29 +15479,45 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 
   if (m_titleSearchBar) {
     if (noteChrome) {
-      m_titleSearchBar->setStyleSheet(QStringLiteral(
-          "QLineEdit {"
-          "  background: %1;"
-          "  border: 1px solid %2;"
-          "  border-radius: 10px;"
-          "  color: %3; font-size: 12px;"
-          "  padding: 0 14px;"
-          "}"
-          "QLineEdit:focus {"
-          "  background: %1;"
-          "  border: 1px solid %4;"
-          "}"
-          "QLineEdit::placeholder { color: %5; }")
-                                          .arg(NoteChrome::panelBg().name(
-                                                   QColor::HexRgb),
-                                               NoteChrome::borderSoft().name(
-                                                   QColor::HexRgb),
-                                               NoteChrome::textPrimary().name(
-                                                   QColor::HexRgb),
-                                               NoteChrome::accent().name(
-                                                   QColor::HexRgb),
-                                               NoteChrome::textSecondary().name(
-                                                   QColor::HexRgb)));
+      if (darkShell) {
+        m_titleSearchBar->setStyleSheet(QStringLiteral(
+            "QLineEdit {"
+            "  background: rgba(255,255,255,0.06);"
+            "  border: 1px solid rgba(255,255,255,0.08);"
+            "  border-radius: 10px;"
+            "  color: #E8EAEE; font-size: 12px;"
+            "  padding: 0 14px;"
+            "}"
+            "QLineEdit:focus {"
+            "  background: rgba(255,255,255,0.10);"
+            "  border: 1px solid rgba(91,157,255,0.45);"
+            "}"
+            "QLineEdit::placeholder { color: rgba(255,255,255,0.38); }"));
+      } else {
+        m_titleSearchBar->setStyleSheet(QStringLiteral(
+            "QLineEdit {"
+            "  background: %1;"
+            "  border: 1px solid %2;"
+            "  border-radius: 10px;"
+            "  color: %3; font-size: 12px;"
+            "  padding: 0 14px;"
+            "}"
+            "QLineEdit:focus {"
+            "  background: %1;"
+            "  border: 1px solid %4;"
+            "}"
+            "QLineEdit::placeholder { color: %5; }")
+                                            .arg(NoteChrome::panelBg().name(
+                                                     QColor::HexRgb),
+                                                 NoteChrome::borderSoft().name(
+                                                     QColor::HexRgb),
+                                                 NoteChrome::textPrimary().name(
+                                                     QColor::HexRgb),
+                                                 NoteChrome::accent().name(
+                                                     QColor::HexRgb),
+                                                 NoteChrome::textSecondary().name(
+                                                     QColor::HexRgb)));
+      }
     } else if (libraryShellChrome) {
       m_titleSearchBar->setStyleSheet(QStringLiteral(
           "QLineEdit {"

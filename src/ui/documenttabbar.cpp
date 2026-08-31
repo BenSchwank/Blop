@@ -37,6 +37,10 @@ int tabMaxWidthPx() {
     return UiScale::dp(120);
   return UiScale::dp(360);
 }
+
+bool readingMarkUsesDarkBar() {
+  return BlopTheme::instance().isDark();
+}
 } // namespace
 
 // -----------------------------------------------------------------------------
@@ -109,51 +113,72 @@ void DocumentTab::setReadingMarkMode(bool on) {
   if (m_readingMarkMode == on)
     return;
   m_readingMarkMode = on;
-  if (on) {
-    setFixedHeight(UiScale::dp(28));
-    if (auto *iconLbl = findChild<QLabel *>(QStringLiteral("DocumentTabIcon")))
-      iconLbl->hide();
-  } else if (auto *iconLbl = findChild<QLabel *>(QStringLiteral("DocumentTabIcon"))) {
-    iconLbl->show();
-    setFixedHeight(UiScale::dp(36));
+  const int tabH = UiScale::dp(on ? 32 : 36);
+  setFixedHeight(tabH);
+  if (auto *iconLbl = findChild<QLabel *>(QStringLiteral("DocumentTabIcon"))) {
+    if (on) {
+      iconLbl->show();
+      iconLbl->setPixmap(
+          makeTabIcon(m_iconName, readingMarkUsesDarkBar()
+                                        ? QColor(0xC8, 0xCC, 0xD4)
+                                        : QColor(0x6B, 0x72, 0x80),
+                      UiScale::dp(14))
+              .pixmap(UiScale::dp(14), UiScale::dp(14)));
+    } else {
+      iconLbl->show();
+      setFixedHeight(UiScale::dp(36));
+    }
   }
   refreshChromeStyle();
   update();
 }
 
 void DocumentTab::refreshChromeStyle() {
+  const bool darkBar = m_readingMarkMode && readingMarkUsesDarkBar();
   const QColor fg = m_readingMarkMode
-                        ? (m_active ? QColor(0x1C, 0x1E, 0x24)
-                                    : QColor(0x6B, 0x72, 0x80))
+                        ? (m_active ? (darkBar ? QColor(0xF2, 0xF2, 0xF2)
+                                               : QColor(0x1C, 0x1E, 0x24))
+                                    : (darkBar ? QColor(0x9C, 0xA3, 0xAF)
+                                               : QColor(0x6B, 0x72, 0x80)))
                         : (m_noteChromeMode ? NoteChrome::textPrimary()
                                             : BlopTheme::textPrimary());
   if (auto *iconLbl = findChild<QLabel *>(QStringLiteral("DocumentTabIcon"))) {
-    if (m_readingMarkMode)
-      iconLbl->hide();
-    else
-      iconLbl->setPixmap(
-          makeTabIcon(m_iconName, fg, UiScale::dp(18))
-              .pixmap(UiScale::dp(18), UiScale::dp(18)));
+    const QColor iconFg =
+        m_readingMarkMode
+            ? (m_active ? (darkBar ? QColor(0xE8, 0xEA, 0xEE)
+                                   : QColor(0x1C, 0x1E, 0x24))
+                        : (darkBar ? QColor(0x8A, 0x90, 0x9C)
+                                   : QColor(0x9C, 0xA3, 0xAF)))
+            : fg;
+    iconLbl->setPixmap(
+        makeTabIcon(m_iconName, iconFg, m_readingMarkMode ? UiScale::dp(14)
+                                                          : UiScale::dp(18))
+            .pixmap(m_readingMarkMode ? UiScale::dp(14) : UiScale::dp(18),
+                    m_readingMarkMode ? UiScale::dp(14) : UiScale::dp(18)));
   }
   if (m_textLbl) {
     m_textLbl->setStyleSheet(
-        QStringLiteral("QLabel { color: %1; font-size: 12px; font-weight: 600; }")
-            .arg(fg.name(QColor::HexRgb)));
+        QStringLiteral("QLabel { color: %1; font-size: %2px; font-weight: 500; }")
+            .arg(fg.name(QColor::HexRgb))
+            .arg(m_readingMarkMode ? 12 : 13));
   }
   if (auto *closeBtn =
           findChild<QPushButton *>(QStringLiteral("DocumentTabClose"))) {
     const QString idle = m_readingMarkMode
-                             ? QStringLiteral("#9CA3AF")
+                             ? (darkBar ? QStringLiteral("#9CA3AF")
+                                        : QStringLiteral("#9CA3AF"))
                              : (m_noteChromeMode
                                     ? NoteChrome::textSecondary().name(QColor::HexRgb)
                                     : BlopTheme::textTertiary().name(QColor::HexRgb));
     const QString hoverFg =
         m_readingMarkMode
-            ? QStringLiteral("#1C1E24")
+            ? (darkBar ? QStringLiteral("#F2F2F2")
+                       : QStringLiteral("#1C1E24"))
             : (m_noteChromeMode ? NoteChrome::textPrimary().name(QColor::HexRgb)
                                 : BlopTheme::textPrimary().name(QColor::HexRgb));
     const QString hoverBg = m_readingMarkMode
-                                ? QStringLiteral("rgba(0,0,0,0.06)")
+                                ? (darkBar ? QStringLiteral("rgba(255,255,255,0.12)")
+                                           : QStringLiteral("rgba(0,0,0,0.06)"))
                                 : (BlopTheme::instance().isDark()
                                        ? QStringLiteral("rgba(255,255,255,0.10)")
                                        : QStringLiteral("rgba(0,0,0,0.08)"));
@@ -201,6 +226,8 @@ void DocumentTab::setActive(bool active, const QColor &accent) {
     return;
   m_active = active;
   m_accentColor = accent;
+  if (m_readingMarkMode)
+    refreshChromeStyle();
   update();
 }
 
@@ -221,11 +248,11 @@ QSize DocumentTab::sizeHint() const {
     QFontMetrics fm(font());
     const QString shown = m_textLbl ? m_textLbl->text() : m_title;
     int textW = fm.horizontalAdvance(shown.isEmpty() ? QStringLiteral("W") : shown);
-    int w = UiScale::dp(14) + textW + (m_closable ? UiScale::dp(18) : 0) +
-            UiScale::dp(10);
+    int w = UiScale::dp(10) + UiScale::dp(14) + UiScale::dp(6) + textW +
+            (m_closable ? UiScale::dp(20) : 0) + UiScale::dp(10);
     if (m_title.isEmpty() && !m_closable)
       w = UiScale::dp(28);
-    return QSize(qMin(w, tabMaxWidthPx()), UiScale::dp(28));
+    return QSize(qMin(w, tabMaxWidthPx()), UiScale::dp(32));
   }
   QFontMetrics fm(font());
   const QString shown = m_textLbl ? m_textLbl->text() : m_title;
@@ -247,28 +274,29 @@ void DocumentTab::paintEvent(QPaintEvent *) {
 
   if (m_readingMarkMode) {
     const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-    const qreal rad = UiScale::dp(5);
+    const qreal rad = r.height() / 2.0;
     QPainterPath path;
-    path.moveTo(r.left(), r.bottom());
-    path.lineTo(r.left(), r.top() + rad);
-    path.quadTo(r.left(), r.top(), r.left() + rad, r.top());
-    path.lineTo(r.right() - rad, r.top());
-    path.quadTo(r.right(), r.top(), r.right(), r.top() + rad);
-    path.lineTo(r.right(), r.bottom());
-    path.closeSubpath();
+    path.addRoundedRect(r, rad, rad);
 
-    const QColor accent =
-        m_accentColor.isValid() ? m_accentColor : NoteChrome::accent();
+    const bool darkBar = readingMarkUsesDarkBar();
     if (m_active) {
-      p.fillPath(path, QColor(0xFF, 0xFF, 0xFF));
-      p.setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1.0));
-      p.drawPath(path);
-      p.fillRect(QRectF(r.left(), r.top(), UiScale::dp(3), r.height()), accent);
+      if (darkBar) {
+        p.fillPath(path, QColor(0x2B, 0x30, 0x3B));
+        p.setPen(Qt::NoPen);
+      } else {
+        p.fillPath(path, QColor(0xFF, 0xFF, 0xFF));
+        p.setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1.0));
+        p.drawPath(path);
+      }
     } else if (m_hovered) {
-      p.fillPath(path, QColor(0xF3, 0xF4, 0xF7));
-      p.setPen(QPen(QColor(0xD8, 0xDC, 0xE4), 1));
-      p.drawPath(path);
-    } else {
+      if (darkBar) {
+        p.fillPath(path, QColor(255, 255, 255, 16));
+      } else {
+        p.fillPath(path, QColor(0xF3, 0xF4, 0xF7));
+        p.setPen(QPen(QColor(0xD8, 0xDC, 0xE4), 1));
+        p.drawPath(path);
+      }
+    } else if (!darkBar) {
       p.fillPath(path, QColor(0xF8, 0xF9, 0xFB));
       p.setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1));
       p.drawPath(path);
@@ -529,17 +557,17 @@ void DocumentTabBar::setReadingMarkMode(bool on) {
   if (m_readingMarkMode == on)
     return;
   m_readingMarkMode = on;
-  setFixedHeight(on ? UiScale::dp(44) : UiScale::dp(40));
+  setFixedHeight(UiScale::dp(40));
   if (m_scroll)
-    m_scroll->setFixedHeight(on ? UiScale::dp(44) : UiScale::dp(40));
+    m_scroll->setFixedHeight(UiScale::dp(40));
   if (m_scrollContent)
-    m_scrollContent->setFixedHeight(on ? UiScale::dp(44) : UiScale::dp(40));
+    m_scrollContent->setFixedHeight(UiScale::dp(40));
   if (m_homeTab)
     m_homeTab->setReadingMarkMode(on);
   for (DocumentTab *tab : m_tabs)
     tab->setReadingMarkMode(on);
   if (m_tabsLayout)
-    m_tabsLayout->setContentsMargins(0, on ? UiScale::dp(16) : 2, 0, 0);
+    m_tabsLayout->setContentsMargins(0, UiScale::dp(4), 0, UiScale::dp(4));
   if (m_indicator)
     m_indicator->setVisible(!on);
   updateIndicator(false);
