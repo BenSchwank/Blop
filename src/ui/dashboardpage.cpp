@@ -289,6 +289,26 @@ QString dashButtonQss(bool primary = false) {
            hex(t.borderHover));
 }
 
+QString dashDialogQss() {
+  const DashTheme &t = dash();
+  return QStringLiteral(
+             "QDialog { background: %1; color: %2; }"
+             "QLabel { color: %2; background: transparent; font-size: 13px; }"
+             "QPushButton { background: %3; color: %2; border: 1px solid %4;"
+             " border-radius: 8px; padding: 8px 18px; min-width: 88px;"
+             " font-size: 13px; font-weight: 600; }"
+             "QPushButton:hover { background: %5; border-color: %6; }"
+             "QPushButton:default { background: %6; color: white; border-color: %6; }"
+             "QPushButton:default:hover { background: %7; }"
+             "QCalendarWidget QWidget { background: %1; color: %2; }"
+             "QCalendarWidget QToolButton { min-width: 32px; border: none; }"
+             "QCalendarWidget QAbstractItemView { selection-background-color: %6;"
+             " selection-color: white; outline: none; }")
+      .arg(hex(t.cardBg), hex(t.ink), hex(t.inputBg), hex(t.border),
+           hex(t.hover), accent(),
+           BlopTheme::accentHover().name(QColor::HexRgb));
+}
+
 QString statMetricQss() {
   return QStringLiteral(
              "color: %1; font-size: 12px; font-weight: 400;"
@@ -912,8 +932,7 @@ void DashboardPage::setEditMode(bool on) {
     m_btnEdit->setVisible(true);
   }
   if (m_scroll) {
-    // Block finger-flick only (conflicts with drag grips); wheel/scrollbar OK.
-    m_scroll->setProperty(BlopScroll::kNoFingerScrollProperty, m_editMode);
+    m_scroll->setProperty(BlopScroll::kNoFingerScrollProperty, false);
     m_scroll->verticalScrollBar()->setEnabled(true);
     m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   }
@@ -1686,7 +1705,7 @@ void DashboardPage::beginGesture(QFrame *frame, const QString &blockId,
   m_previewRowSpan = spec.rowSpan;
   m_floatActive = false;
 
-  setScrollLocked(true);
+  setScrollLocked(false);
   if (!m_appFilterInstalled) {
     qApp->installEventFilter(this);
     m_appFilterInstalled = true;
@@ -1938,10 +1957,8 @@ QWidget *DashboardPage::buildCaptureBlock() {
   add->setStyleSheet(dashButtonQss(true));
   row->addWidget(input, 1);
   row->addWidget(add, 0);
+  input->setToolTip(QStringLiteral("Enter speichert direkt als Aufgabe"));
   lay->addLayout(row);
-  auto *hint = new QLabel(QStringLiteral("Enter speichert als Aufgabe"), body);
-  hint->setStyleSheet(QStringLiteral("color: %1; font-size: 11px; background: transparent;").arg(muted()));
-  lay->addWidget(hint);
   auto quickTask = [this, input]() {
     const QString title = input->text().trimmed();
     if (title.isEmpty())
@@ -2618,6 +2635,21 @@ void DashboardPage::applyResizePreview(const QPoint &hostPos) {
 void DashboardPage::applyMovePreview(const QPoint &hostPos) {
   if (!m_dragFrame)
     return;
+  if (m_scroll && m_scroll->viewport()) {
+    const QPoint viewportPos =
+        m_scroll->viewport()->mapFromGlobal(QCursor::pos());
+    const int edge = UiScale::dp(56);
+    int delta = 0;
+    if (viewportPos.y() < edge)
+      delta = -UiScale::dp(18);
+    else if (viewportPos.y() > m_scroll->viewport()->height() - edge)
+      delta = UiScale::dp(18);
+    if (delta != 0) {
+      auto *bar = m_scroll->verticalScrollBar();
+      bar->setValue(qBound(bar->minimum(), bar->value() + delta,
+                           bar->maximum()));
+    }
+  }
   // Keep the grabbed point under the cursor (delta from press).
   const QPoint topLeft = m_dragOriginHost + (hostPos - m_pressHostPos);
   if (m_floatActive)
@@ -2660,10 +2692,6 @@ bool DashboardPage::eventFilter(QObject *watched, QEvent *event) {
       handleGestureRelease();
       event->accept();
       return true;
-    case QEvent::Wheel:
-    case QEvent::Scroll:
-    case QEvent::NativeGesture:
-    case QEvent::Gesture:
     case QEvent::MouseButtonPress:
     case QEvent::TouchBegin:
       event->accept();
@@ -2765,7 +2793,11 @@ void DashboardPage::showCalendarMaximized() {
   auto *dlg = new QDialog(window());
   m_calMaxDlg = dlg;
   dlg->setWindowTitle(QStringLiteral("Kalender"));
-  dlg->setMinimumSize(UiScale::dp(560), UiScale::dp(480));
+  dlg->setStyleSheet(dashDialogQss());
+  if (usePhoneDashboard())
+    dlg->setMinimumSize(UiScale::dp(300), UiScale::dp(440));
+  else
+    dlg->setMinimumSize(UiScale::dp(640), UiScale::dp(520));
   auto *lay = new QVBoxLayout(dlg);
   lay->setContentsMargins(UiScale::dp(12), UiScale::dp(12), UiScale::dp(12),
                           UiScale::dp(12));
@@ -2782,7 +2814,12 @@ void DashboardPage::showCalendarMaximized() {
 void DashboardPage::openCreateTodoDialog(const QString &presetTitle) {
   QDialog dlg(window());
   dlg.setWindowTitle(QStringLiteral("Aufgabe erfassen"));
+  dlg.setStyleSheet(dashDialogQss());
   auto *form = new QFormLayout(&dlg);
+  form->setContentsMargins(UiScale::dp(24), UiScale::dp(22), UiScale::dp(24),
+                           UiScale::dp(20));
+  form->setHorizontalSpacing(UiScale::dp(18));
+  form->setVerticalSpacing(UiScale::dp(12));
   auto *title = new QLineEdit(presetTitle, &dlg);
   title->setPlaceholderText(QStringLiteral("Was ist zu tun?"));
   title->setStyleSheet(dashInputQss());
@@ -2807,6 +2844,9 @@ void DashboardPage::openCreateTodoDialog(const QString &presetTitle) {
   form->addRow(QStringLiteral("Tags"), tags);
   auto *buttons =
       new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dlg);
+  buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("Speichern"));
+  buttons->button(QDialogButtonBox::Save)->setDefault(true);
+  buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
   form->addRow(buttons);
   connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
   connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
@@ -2825,7 +2865,12 @@ void DashboardPage::openCreateTodoDialog(const QString &presetTitle) {
 void DashboardPage::openEditTodoDialog(const TodoItem &item) {
   QDialog dlg(window());
   dlg.setWindowTitle(QStringLiteral("Aufgabe bearbeiten"));
+  dlg.setStyleSheet(dashDialogQss());
   auto *form = new QFormLayout(&dlg);
+  form->setContentsMargins(UiScale::dp(24), UiScale::dp(22), UiScale::dp(24),
+                           UiScale::dp(20));
+  form->setHorizontalSpacing(UiScale::dp(18));
+  form->setVerticalSpacing(UiScale::dp(12));
   auto *title = new QLineEdit(item.title, &dlg);
   title->setStyleSheet(dashInputQss());
   auto *priority = new QComboBox(&dlg);
@@ -2849,6 +2894,9 @@ void DashboardPage::openEditTodoDialog(const TodoItem &item) {
   form->addRow(QStringLiteral("Tags"), tags);
   auto *buttons =
       new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dlg);
+  buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("Speichern"));
+  buttons->button(QDialogButtonBox::Save)->setDefault(true);
+  buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
   form->addRow(buttons);
   connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
   connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
@@ -2872,25 +2920,38 @@ void DashboardPage::openCreateEventDialog(const QDateTime &presetStart,
                                           const QString &presetTitle) {
   QDialog dlg(window());
   dlg.setWindowTitle(QStringLiteral("Neuer Termin"));
+  dlg.setStyleSheet(dashDialogQss());
   auto *form = new QFormLayout(&dlg);
+  form->setContentsMargins(UiScale::dp(24), UiScale::dp(22), UiScale::dp(24),
+                           UiScale::dp(20));
+  form->setHorizontalSpacing(UiScale::dp(18));
+  form->setVerticalSpacing(UiScale::dp(12));
   auto *title = new QLineEdit(presetTitle, &dlg);
-  title->setPlaceholderText(QStringLiteral("Titel"));
+  title->setPlaceholderText(QStringLiteral("Worum geht es?"));
+  title->setStyleSheet(dashInputQss());
   const QDateTime startDt =
       presetStart.isValid() ? presetStart : QDateTime::currentDateTime();
   auto *start = new QDateTimeEdit(startDt, &dlg);
   start->setCalendarPopup(true);
+  start->setDisplayFormat(QStringLiteral("dd.MM.yyyy  ·  HH:mm"));
+  start->setStyleSheet(dashControlQss());
   auto *end = new QDateTimeEdit(startDt.addSecs(3600), &dlg);
   end->setCalendarPopup(true);
+  end->setDisplayFormat(QStringLiteral("dd.MM.yyyy  ·  HH:mm"));
+  end->setStyleSheet(dashControlQss());
   form->addRow(QStringLiteral("Titel"), title);
   form->addRow(QStringLiteral("Start"), start);
   form->addRow(QStringLiteral("Ende"), end);
   auto *buttons =
       new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+  buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Termin erstellen"));
+  buttons->button(QDialogButtonBox::Ok)->setDefault(true);
+  buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
   form->addRow(buttons);
   connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
   connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
   if (BlopModal::execBlocking(window(), &dlg, BlopModal::Mode::Card,
-                              UiScale::dp(420)) != QDialog::Accepted)
+                              UiScale::dp(480)) != QDialog::Accepted)
     return;
   CalendarService::instance().createEvent(title->text(), start->dateTime(),
                                           end->dateTime());
