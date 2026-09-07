@@ -640,7 +640,7 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   m_snapOverlay->hide();
 
   connect(&CalendarService::instance(), &CalendarService::eventsChanged, this,
-          &DashboardPage::refresh);
+          &DashboardPage::refresh, Qt::QueuedConnection);
   connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this, [this]() {
     applyChromeStyles();
     refresh();
@@ -1554,8 +1554,7 @@ int DashboardPage::minRowSpanForBlock(const QString &id) {
   if (id == QLatin1String("clock"))
     return 2;
   if (id == QLatin1String("todos") || id == QLatin1String("calendar") ||
-      id == QLatin1String("today") || id == QLatin1String("capture") ||
-      id == QLatin1String("projects"))
+      id == QLatin1String("today") || id == QLatin1String("projects"))
     return 2;
   return 1;
 }
@@ -1896,7 +1895,7 @@ QWidget *DashboardPage::buildTodayBlock() {
     row->setStyleSheet(checkBoxQss());
     connect(row, &QCheckBox::toggled, this, [this, id = item.id](bool done) {
       TodoStore::setDone(id, done);
-      refresh();
+      QTimer::singleShot(0, this, &DashboardPage::refresh);
     });
     lay->addWidget(row);
     ++shown;
@@ -1926,61 +1925,45 @@ QWidget *DashboardPage::buildCaptureBlock() {
   auto *lay = new QVBoxLayout(body);
   lay->setContentsMargins(0, 0, 0, 0);
   lay->setSpacing(UiScale::dp(8));
+  auto *row = new QHBoxLayout();
+  row->setSpacing(UiScale::dp(6));
   auto *input = new QLineEdit(body);
-  input->setPlaceholderText(QStringLiteral("Was möchtest du festhalten?"));
-  input->setMinimumHeight(UiScale::dp(40));
+  input->setPlaceholderText(QStringLiteral("Gedanke oder Aufgabe festhalten…"));
+  input->setMinimumHeight(UiScale::dp(42));
   input->setStyleSheet(dashInputQss());
-  lay->addWidget(input);
-  auto *options = new QBoxLayout(usePhoneDashboard() ? QBoxLayout::TopToBottom
-                                                     : QBoxLayout::LeftToRight);
-  options->setSpacing(UiScale::dp(6));
-  auto *priority = new QComboBox(body);
-  priority->addItem(QStringLiteral("Normal"), QStringLiteral("normal"));
-  priority->addItem(QStringLiteral("Hoch"), QStringLiteral("high"));
-  priority->addItem(QStringLiteral("Niedrig"), QStringLiteral("low"));
-  priority->setStyleSheet(dashControlQss());
-  auto *project = new QLineEdit(body);
-  project->setPlaceholderText(QStringLiteral("Projekt / Fach"));
-  project->setStyleSheet(dashInputQss());
-  auto *due = new QDateEdit(QDate::currentDate(), body);
-  due->setCalendarPopup(true);
-  due->setSpecialValueText(QStringLiteral("Heute"));
-  due->setStyleSheet(dashControlQss());
-  options->addWidget(priority, 0);
-  options->addWidget(project, 1);
-  options->addWidget(due, 0);
-  lay->addLayout(options);
-  auto *tags = new QLineEdit(body);
-  tags->setPlaceholderText(QStringLiteral("Tags, mit Komma getrennt"));
-  tags->setStyleSheet(dashInputQss());
-  lay->addWidget(tags);
-  auto *actions = new QHBoxLayout();
-  auto *task = new QPushButton(QStringLiteral("Aufgabe"), body);
-  auto *event = new QPushButton(QStringLiteral("Termin"), body);
-  auto *note = new QPushButton(QStringLiteral("Notiz"), body);
-  for (QPushButton *button : {task, event, note}) {
-    button->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
-    button->setCursor(Qt::PointingHandCursor);
-    button->setStyleSheet(dashButtonQss());
-    actions->addWidget(button, 1);
-  }
-  connect(task, &QPushButton::clicked, this, [this, input, priority, project, due, tags]() {
-    if (input->text().trimmed().isEmpty())
+  auto *add = new QPushButton(QStringLiteral("+"), body);
+  add->setFixedSize(UiScale::dp(42), UiScale::dp(42));
+  add->setCursor(Qt::PointingHandCursor);
+  add->setToolTip(QStringLiteral("Weitere Erfassungsoptionen"));
+  add->setStyleSheet(dashButtonQss(true));
+  row->addWidget(input, 1);
+  row->addWidget(add, 0);
+  lay->addLayout(row);
+  auto *hint = new QLabel(QStringLiteral("Enter speichert als Aufgabe"), body);
+  hint->setStyleSheet(QStringLiteral("color: %1; font-size: 11px; background: transparent;").arg(muted()));
+  lay->addWidget(hint);
+  auto quickTask = [this, input]() {
+    const QString title = input->text().trimmed();
+    if (title.isEmpty())
       return;
-    QStringList tagList;
-    for (const QString &tag : tags->text().split(QLatin1Char(','), Qt::SkipEmptyParts))
-      tagList.append(tag.trimmed());
-    TodoStore::add(input->text(), QDateTime(due->date(), QTime(23, 59)),
-                   priority->currentData().toString(), project->text(), tagList);
-    refresh();
+    TodoStore::add(title);
+    QTimer::singleShot(0, this, &DashboardPage::refresh);
+  };
+  connect(input, &QLineEdit::returnPressed, this, quickTask);
+  connect(add, &QPushButton::clicked, this, [this, add, input, quickTask]() {
+    const QString title = input->text().trimmed();
+    QList<BlopInWindowMenu::Item> items;
+    items.push_back({QStringLiteral("Als Aufgabe speichern"), QIcon(), quickTask});
+    items.push_back({QStringLiteral("Aufgabe mit Details…"), QIcon(),
+                     [this, title]() { openCreateTodoDialog(title); }});
+    items.push_back({QStringLiteral("Als Termin…"), QIcon(),
+                     [this, title]() {
+                       openCreateEventDialog(QDateTime::currentDateTime(), title);
+                     }});
+    items.push_back({QStringLiteral("Neue Notiz"), QIcon(),
+                     [this]() { emit newNoteRequested(); }});
+    BlopInWindowMenu::show(this, add->mapToGlobal(QPoint(0, add->height())), items);
   });
-  connect(event, &QPushButton::clicked, this, [this, input]() {
-    openCreateEventDialog(QDateTime::currentDateTime());
-    input->clear();
-  });
-  connect(note, &QPushButton::clicked, this, [this]() { emit newNoteRequested(); });
-  connect(input, &QLineEdit::returnPressed, task, &QPushButton::click);
-  lay->addLayout(actions);
   lay->addStretch(1);
   return wrapBlock(QStringLiteral("capture"), body);
 }
@@ -2075,10 +2058,17 @@ QWidget *DashboardPage::buildTodosBlock() {
     const QString id = t.id;
     connect(cb, &QCheckBox::toggled, this, [this, id](bool on) {
       TodoStore::setDone(id, on);
-      refresh();
+      QTimer::singleShot(0, this, &DashboardPage::refresh);
     });
+    auto *edit = new QPushButton(usePhoneDashboard() ? QStringLiteral("⋯")
+                                                     : QStringLiteral("Bearbeiten"), row);
+    edit->setCursor(Qt::PointingHandCursor);
+    edit->setStyleSheet(quietBtnQss());
+    connect(edit, &QPushButton::clicked, this,
+            [this, item = t]() { openEditTodoDialog(item); });
     rl->addWidget(cb, 0);
     rl->addWidget(textHost, 1);
+    rl->addWidget(edit, 0);
     lay->addWidget(row);
     ++shown;
   }
@@ -2109,7 +2099,7 @@ QWidget *DashboardPage::buildTodosBlock() {
       return;
     TodoStore::add(input->text());
     input->clear();
-    refresh();
+    QTimer::singleShot(0, this, &DashboardPage::refresh);
   };
   connect(addBtn, &QPushButton::clicked, this, doAdd);
   connect(input, &QLineEdit::returnPressed, this, doAdd);
@@ -2789,11 +2779,101 @@ void DashboardPage::showCalendarMaximized() {
   m_calMaxDlg = nullptr;
 }
 
-void DashboardPage::openCreateEventDialog(const QDateTime &presetStart) {
+void DashboardPage::openCreateTodoDialog(const QString &presetTitle) {
+  QDialog dlg(window());
+  dlg.setWindowTitle(QStringLiteral("Aufgabe erfassen"));
+  auto *form = new QFormLayout(&dlg);
+  auto *title = new QLineEdit(presetTitle, &dlg);
+  title->setPlaceholderText(QStringLiteral("Was ist zu tun?"));
+  title->setStyleSheet(dashInputQss());
+  auto *priority = new QComboBox(&dlg);
+  priority->addItem(QStringLiteral("Normal"), QStringLiteral("normal"));
+  priority->addItem(QStringLiteral("Hoch"), QStringLiteral("high"));
+  priority->addItem(QStringLiteral("Niedrig"), QStringLiteral("low"));
+  priority->setStyleSheet(dashControlQss());
+  auto *project = new QLineEdit(&dlg);
+  project->setPlaceholderText(QStringLiteral("Projekt oder Schulfach"));
+  project->setStyleSheet(dashInputQss());
+  auto *due = new QDateEdit(QDate::currentDate(), &dlg);
+  due->setCalendarPopup(true);
+  due->setStyleSheet(dashControlQss());
+  auto *tags = new QLineEdit(&dlg);
+  tags->setPlaceholderText(QStringLiteral("z. B. lernen, wichtig"));
+  tags->setStyleSheet(dashInputQss());
+  form->addRow(QStringLiteral("Aufgabe"), title);
+  form->addRow(QStringLiteral("Priorität"), priority);
+  form->addRow(QStringLiteral("Projekt"), project);
+  form->addRow(QStringLiteral("Fällig"), due);
+  form->addRow(QStringLiteral("Tags"), tags);
+  auto *buttons =
+      new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dlg);
+  form->addRow(buttons);
+  connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+  connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+  if (BlopModal::execBlocking(window(), &dlg, BlopModal::Mode::Card,
+                              UiScale::dp(440)) != QDialog::Accepted ||
+      title->text().trimmed().isEmpty())
+    return;
+  QStringList tagList;
+  for (const QString &tag : tags->text().split(QLatin1Char(','), Qt::SkipEmptyParts))
+    tagList.append(tag.trimmed());
+  TodoStore::add(title->text(), QDateTime(due->date(), QTime(23, 59)),
+                 priority->currentData().toString(), project->text(), tagList);
+  QTimer::singleShot(0, this, &DashboardPage::refresh);
+}
+
+void DashboardPage::openEditTodoDialog(const TodoItem &item) {
+  QDialog dlg(window());
+  dlg.setWindowTitle(QStringLiteral("Aufgabe bearbeiten"));
+  auto *form = new QFormLayout(&dlg);
+  auto *title = new QLineEdit(item.title, &dlg);
+  title->setStyleSheet(dashInputQss());
+  auto *priority = new QComboBox(&dlg);
+  priority->addItem(QStringLiteral("Normal"), QStringLiteral("normal"));
+  priority->addItem(QStringLiteral("Hoch"), QStringLiteral("high"));
+  priority->addItem(QStringLiteral("Niedrig"), QStringLiteral("low"));
+  priority->setCurrentIndex(qMax(0, priority->findData(item.priority)));
+  priority->setStyleSheet(dashControlQss());
+  auto *project = new QLineEdit(item.project, &dlg);
+  project->setStyleSheet(dashInputQss());
+  auto *due = new QDateEdit(item.due.isValid() ? item.due.date()
+                                               : QDate::currentDate(), &dlg);
+  due->setCalendarPopup(true);
+  due->setStyleSheet(dashControlQss());
+  auto *tags = new QLineEdit(item.tags.join(QStringLiteral(", ")), &dlg);
+  tags->setStyleSheet(dashInputQss());
+  form->addRow(QStringLiteral("Aufgabe"), title);
+  form->addRow(QStringLiteral("Priorität"), priority);
+  form->addRow(QStringLiteral("Projekt"), project);
+  form->addRow(QStringLiteral("Fällig"), due);
+  form->addRow(QStringLiteral("Tags"), tags);
+  auto *buttons =
+      new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dlg);
+  form->addRow(buttons);
+  connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+  connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+  if (BlopModal::execBlocking(window(), &dlg, BlopModal::Mode::Card,
+                              UiScale::dp(440)) != QDialog::Accepted ||
+      title->text().trimmed().isEmpty())
+    return;
+  TodoItem updated = item;
+  updated.title = title->text().trimmed();
+  updated.priority = priority->currentData().toString();
+  updated.project = project->text().trimmed();
+  updated.due = QDateTime(due->date(), QTime(23, 59));
+  updated.tags.clear();
+  for (const QString &tag : tags->text().split(QLatin1Char(','), Qt::SkipEmptyParts))
+    updated.tags.append(tag.trimmed());
+  TodoStore::update(updated);
+  QTimer::singleShot(0, this, &DashboardPage::refresh);
+}
+
+void DashboardPage::openCreateEventDialog(const QDateTime &presetStart,
+                                          const QString &presetTitle) {
   QDialog dlg(window());
   dlg.setWindowTitle(QStringLiteral("Neuer Termin"));
   auto *form = new QFormLayout(&dlg);
-  auto *title = new QLineEdit(&dlg);
+  auto *title = new QLineEdit(presetTitle, &dlg);
   title->setPlaceholderText(QStringLiteral("Titel"));
   const QDateTime startDt =
       presetStart.isValid() ? presetStart : QDateTime::currentDateTime();
@@ -2814,5 +2894,5 @@ void DashboardPage::openCreateEventDialog(const QDateTime &presetStart) {
     return;
   CalendarService::instance().createEvent(title->text(), start->dateTime(),
                                           end->dateTime());
-  refresh();
+  QTimer::singleShot(0, this, &DashboardPage::refresh);
 }

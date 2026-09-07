@@ -134,7 +134,7 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::defaults() {
   return {
       make(QStringLiteral("greeting"), 0, 0, 0, 12, 1),
       make(QStringLiteral("today"), 1, 0, 0, 8, 2),
-      make(QStringLiteral("capture"), 2, 0, 8, 4, 2),
+      make(QStringLiteral("capture"), 2, 0, 8, 4, 1),
       make(QStringLiteral("todos"), 3, 2, 0, 6, 3),
       make(QStringLiteral("calendar"), 4, 2, 6, 6, 3, 8),
       make(QStringLiteral("projects"), 5, 5, 0, 5, 2),
@@ -230,6 +230,8 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
     }
   }
   for (auto &s : out) {
+    if (s.id == QLatin1String("capture"))
+      s.rowSpan = 1;
     if (s.id == QLatin1String("actions"))
       s.visible = false;
     if (s.id == QLatin1String("greeting"))
