@@ -89,6 +89,9 @@ private:
                      bool showTitle = true);
   QWidget *buildEditChrome(const QString &id);
   QWidget *buildEmptyStatePanel();
+  QWidget *buildTodayBlock();
+  QWidget *buildCaptureBlock();
+  QWidget *buildProjectsBlock();
   QWidget *buildTodosBlock();
   QWidget *buildClockBlock();
   QWidget *buildCalendarBlock(bool maximizedChrome);

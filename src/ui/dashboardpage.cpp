@@ -17,6 +17,7 @@
 #include <QCursor>
 #include <QComboBox>
 #include <QDateTimeEdit>
+#include <QDateEdit>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QEvent>
@@ -30,6 +31,7 @@
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QScrollArea>
 #include <QSettings>
 #include <QSizePolicy>
@@ -153,16 +155,15 @@ QString compactPrimaryQss() {
 QString compactGhostQss() {
   return QStringLiteral(
              "QPushButton {"
-             "  background: transparent; color: %1; border: none;"
-             "  border-radius: 6px; padding: 5px 10px;"
-             "  font-size: 12px; font-weight: 500; min-height: 28px;"
+             "  background: %1; color: %2; border: 1px solid %3;"
+             "  border-radius: 7px; padding: 5px 11px;"
+             "  font-size: 12px; font-weight: 600; min-height: 28px;"
              "}"
-             "QPushButton:hover { color: %2; background: %3; }")
-      .arg(muted(), ink(), hover());
+             "QPushButton:hover { color: %4; background: %5; border-color: %6; }")
+      .arg(card(), muted(), border(), ink(), hover(), accent());
 }
 
 QString softBlockQss(bool editing, const QString &blockId = QString()) {
-  Q_UNUSED(blockId);
   const DashTheme &t = dash();
   // Quiet Notion-style cards: soft fill + hairline, never rainbow.
   if (editing) {
@@ -175,11 +176,20 @@ QString softBlockQss(bool editing, const QString &blockId = QString()) {
                "QFrame#DashBlock:hover { border-color: %3; }")
         .arg(hex(t.cardBg), hex(t.border), hex(BlopTheme::accentBorder()));
   }
+  if (blockId == QLatin1String("today")) {
+    QColor glow = BlopTheme::accentPrimary();
+    glow.setAlpha(22);
+    return QStringLiteral(
+               "QFrame#DashBlock { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 %1, stop:1 %2);"
+               " border: 1px solid %3; border-left: 3px solid %4; border-radius: 12px; }"
+               "QFrame#DashBlock:hover { border-color: %4; }")
+        .arg(hex(glow), hex(t.cardBg), hex(t.border), accent());
+  }
   return QStringLiteral(
              "QFrame#DashBlock {"
              "  background: %1;"
              "  border: 1px solid %2;"
-             "  border-radius: 10px;"
+             "  border-radius: 12px;"
              "}"
              "QFrame#DashBlock:hover { border-color: %3; }"
              "QFrame#DashBlock QLabel#DashDragGrip { color: transparent; }"
@@ -243,6 +253,42 @@ QString dashInputQss() {
       .arg(hex(t.inputBg), hex(t.ink), hex(t.border), accent(), hex(t.muted));
 }
 
+QString dashControlQss() {
+  const DashTheme &t = dash();
+  return QStringLiteral(
+             "QComboBox, QDateEdit, QDateTimeEdit {"
+             "  background: %1; color: %2; border: 1px solid %3;"
+             "  border-radius: 7px; padding: 7px 30px 7px 10px;"
+             "  min-height: 24px; font-size: 12px;"
+             "}"
+             "QComboBox:hover, QDateEdit:hover, QDateTimeEdit:hover { border-color: %4; }"
+             "QComboBox:focus, QDateEdit:focus, QDateTimeEdit:focus { border-color: %5; }"
+             "QComboBox::drop-down, QDateEdit::drop-down, QDateTimeEdit::drop-down {"
+             "  subcontrol-origin: padding; subcontrol-position: top right;"
+             "  width: 26px; border: none; border-left: 1px solid %3;"
+             "}"
+             "QComboBox QAbstractItemView {"
+             "  background: %1; color: %2; border: 1px solid %4;"
+             "  border-radius: 7px; padding: 4px; selection-background-color: %6;"
+             "}")
+      .arg(hex(t.inputBg), hex(t.ink), hex(t.border), hex(t.borderHover),
+           accent(), hex(t.hover));
+}
+
+QString dashButtonQss(bool primary = false) {
+  const DashTheme &t = dash();
+  if (primary)
+    return compactPrimaryQss();
+  return QStringLiteral(
+             "QPushButton { background: %1; color: %2; border: 1px solid %3;"
+             " border-radius: 7px; padding: 7px 12px; font-size: 12px;"
+             " font-weight: 600; min-height: 28px; }"
+             "QPushButton:hover { background: %4; border-color: %5; }"
+             "QPushButton:pressed { background: %6; }")
+      .arg(hex(t.inputBg), hex(t.ink), hex(t.border), hex(t.hover), accent(),
+           hex(t.borderHover));
+}
+
 QString statMetricQss() {
   return QStringLiteral(
              "color: %1; font-size: 12px; font-weight: 400;"
@@ -253,12 +299,12 @@ QString statMetricQss() {
 QString quietBtnQss() {
   return QStringLiteral(
              "QPushButton {"
-             "  background: transparent; color: %1; border: none;"
-             "  font-weight: 500; font-size: 12px; padding: 4px 8px;"
-             "  border-radius: 4px;"
+             "  background: transparent; color: %1; border: 1px solid %2;"
+             "  font-weight: 600; font-size: 12px; padding: 5px 9px;"
+             "  border-radius: 6px;"
              "}"
-             "QPushButton:hover { color: %2; background: %3; }")
-      .arg(muted(), ink(), hover());
+             "QPushButton:hover { color: %3; background: %4; border-color: %5; }")
+      .arg(muted(), border(), ink(), hover(), accent());
 }
 
 QString editChipQss() {
@@ -569,6 +615,7 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   m_clockTimer->start(1000);
 
   auto *scroll = new QScrollArea(this);
+  scroll->setObjectName(QStringLiteral("DashPageScroll"));
   m_scroll = scroll;
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
@@ -676,7 +723,16 @@ void DashboardPage::applyChromeStyles() {
   }
   if (m_scroll) {
     m_scroll->setStyleSheet(
-        QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+        QStringLiteral(
+            "QScrollArea#DashPageScroll { background: transparent; border: none; }"
+            "QScrollArea#DashPageScroll > QWidget > QWidget { background: transparent; }"
+            "QScrollBar:vertical { width: 8px; background: transparent; margin: 8px 2px; }"
+            "QScrollBar::handle:vertical { background: %1; border-radius: 4px; min-height: 36px; }"
+            "QScrollBar::handle:vertical:hover { background: %2; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; border: none; }"
+            "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }"
+            "QScrollBar:horizontal { height: 0; }")
+            .arg(hex(dash().scrollHandle), hex(dash().borderHover)));
   }
   if (m_host)
     m_host->setStyleSheet(QStringLiteral("background: transparent;"));
@@ -1250,11 +1306,11 @@ void DashboardPage::ensurePersistentHeader() {
   actions->setSpacing(UiScale::dp(4));
   actions->setContentsMargins(0, 0, 0, 0);
 
-  auto *btnNotes = new QPushButton(QStringLiteral("Notizen"), actionsHost);
+  auto *btnNotes = new QPushButton(QStringLiteral("+  Neue Notiz"), actionsHost);
   btnNotes->setCursor(Qt::PointingHandCursor);
-  btnNotes->setStyleSheet(compactGhostQss());
+  btnNotes->setStyleSheet(compactPrimaryQss());
   connect(btnNotes, &QPushButton::clicked, this,
-          &DashboardPage::snapToNotesRequested);
+          &DashboardPage::newNoteRequested);
 
   m_btnBlocks = new QPushButton(QStringLiteral("Blöcke"), actionsHost);
   m_btnBlocks->setCursor(Qt::PointingHandCursor);
@@ -1406,7 +1462,9 @@ QWidget *DashboardPage::wrapBlock(const QString &id, QWidget *content,
   // scrollbar tracks that look like stray gray bars across the card.
   const bool needsScroll = id == QLatin1String("todos") ||
                            id == QLatin1String("calendar") ||
-                           id == QLatin1String("recent");
+                           id == QLatin1String("recent") ||
+                           id == QLatin1String("today") ||
+                           id == QLatin1String("projects");
   if (needsScroll) {
     auto *scroller = new QScrollArea(frame);
     scroller->setObjectName(QStringLiteral("DashBlockScroll"));
@@ -1495,7 +1553,9 @@ int DashboardPage::minRowSpanForBlock(const QString &id) {
     return 2;
   if (id == QLatin1String("clock"))
     return 2;
-  if (id == QLatin1String("todos") || id == QLatin1String("calendar"))
+  if (id == QLatin1String("todos") || id == QLatin1String("calendar") ||
+      id == QLatin1String("today") || id == QLatin1String("capture") ||
+      id == QLatin1String("projects"))
     return 2;
   return 1;
 }
@@ -1798,6 +1858,175 @@ QWidget *DashboardPage::buildClockBlock() {
   return wrapBlock(QStringLiteral("clock"), body, 0, true);
 }
 
+QWidget *DashboardPage::buildTodayBlock() {
+  auto *body = new QWidget();
+  auto *lay = new QVBoxLayout(body);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(6));
+  const QDate today = QDate::currentDate();
+  const auto todos = TodoStore::load();
+  int open = 0;
+  int overdue = 0;
+  int dueToday = 0;
+  for (const TodoItem &item : todos) {
+    if (item.done)
+      continue;
+    ++open;
+    if (item.due.isValid() && item.due.date() < today)
+      ++overdue;
+    else if (item.due.isValid() && item.due.date() == today)
+      ++dueToday;
+  }
+  const auto events = CalendarService::instance().eventsForDay(today);
+  auto *summary = new QLabel(
+      QStringLiteral("%1 offen  ·  %2 heute  ·  %3 Termine")
+          .arg(open).arg(dueToday).arg(events.size()), body);
+  summary->setStyleSheet(QStringLiteral("color: %1; font-size: 13px; font-weight: 600; background: transparent;").arg(ink()));
+  lay->addWidget(summary);
+  if (overdue > 0) {
+    auto *warning = new QLabel(QStringLiteral("%1 überfällig — zuerst erledigen").arg(overdue), body);
+    warning->setStyleSheet(QStringLiteral("color: #D85B53; font-size: 12px; font-weight: 600; background: transparent;"));
+    lay->addWidget(warning);
+  }
+  int shown = 0;
+  for (const TodoItem &item : todos) {
+    if (item.done || !item.due.isValid() || item.due.date() > today || shown >= 3)
+      continue;
+    auto *row = new QCheckBox(item.title, body);
+    row->setStyleSheet(checkBoxQss());
+    connect(row, &QCheckBox::toggled, this, [this, id = item.id](bool done) {
+      TodoStore::setDone(id, done);
+      refresh();
+    });
+    lay->addWidget(row);
+    ++shown;
+  }
+  for (const CalendarEvent &event : events) {
+    if (shown >= 5)
+      break;
+    const QString time = event.allDay ? QStringLiteral("Ganztägig") : event.start.time().toString(QStringLiteral("HH:mm"));
+    auto *label = new QLabel(QStringLiteral("%1  %2").arg(time, event.title), body);
+    label->setWordWrap(true);
+    label->setStyleSheet(bodyTextQss());
+    lay->addWidget(label);
+    ++shown;
+  }
+  if (shown == 0) {
+    auto *empty = new QLabel(QStringLiteral("Heute ist noch frei — Zeit für deinen wichtigsten Schritt."), body);
+    empty->setWordWrap(true);
+    empty->setStyleSheet(QStringLiteral("color: %1; font-size: 13px; background: transparent;").arg(muted()));
+    lay->addWidget(empty);
+  }
+  lay->addStretch(1);
+  return wrapBlock(QStringLiteral("today"), body);
+}
+
+QWidget *DashboardPage::buildCaptureBlock() {
+  auto *body = new QWidget();
+  auto *lay = new QVBoxLayout(body);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(8));
+  auto *input = new QLineEdit(body);
+  input->setPlaceholderText(QStringLiteral("Was möchtest du festhalten?"));
+  input->setMinimumHeight(UiScale::dp(40));
+  input->setStyleSheet(dashInputQss());
+  lay->addWidget(input);
+  auto *options = new QBoxLayout(usePhoneDashboard() ? QBoxLayout::TopToBottom
+                                                     : QBoxLayout::LeftToRight);
+  options->setSpacing(UiScale::dp(6));
+  auto *priority = new QComboBox(body);
+  priority->addItem(QStringLiteral("Normal"), QStringLiteral("normal"));
+  priority->addItem(QStringLiteral("Hoch"), QStringLiteral("high"));
+  priority->addItem(QStringLiteral("Niedrig"), QStringLiteral("low"));
+  priority->setStyleSheet(dashControlQss());
+  auto *project = new QLineEdit(body);
+  project->setPlaceholderText(QStringLiteral("Projekt / Fach"));
+  project->setStyleSheet(dashInputQss());
+  auto *due = new QDateEdit(QDate::currentDate(), body);
+  due->setCalendarPopup(true);
+  due->setSpecialValueText(QStringLiteral("Heute"));
+  due->setStyleSheet(dashControlQss());
+  options->addWidget(priority, 0);
+  options->addWidget(project, 1);
+  options->addWidget(due, 0);
+  lay->addLayout(options);
+  auto *tags = new QLineEdit(body);
+  tags->setPlaceholderText(QStringLiteral("Tags, mit Komma getrennt"));
+  tags->setStyleSheet(dashInputQss());
+  lay->addWidget(tags);
+  auto *actions = new QHBoxLayout();
+  auto *task = new QPushButton(QStringLiteral("Aufgabe"), body);
+  auto *event = new QPushButton(QStringLiteral("Termin"), body);
+  auto *note = new QPushButton(QStringLiteral("Notiz"), body);
+  for (QPushButton *button : {task, event, note}) {
+    button->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+    button->setCursor(Qt::PointingHandCursor);
+    button->setStyleSheet(dashButtonQss());
+    actions->addWidget(button, 1);
+  }
+  connect(task, &QPushButton::clicked, this, [this, input, priority, project, due, tags]() {
+    if (input->text().trimmed().isEmpty())
+      return;
+    QStringList tagList;
+    for (const QString &tag : tags->text().split(QLatin1Char(','), Qt::SkipEmptyParts))
+      tagList.append(tag.trimmed());
+    TodoStore::add(input->text(), QDateTime(due->date(), QTime(23, 59)),
+                   priority->currentData().toString(), project->text(), tagList);
+    refresh();
+  });
+  connect(event, &QPushButton::clicked, this, [this, input]() {
+    openCreateEventDialog(QDateTime::currentDateTime());
+    input->clear();
+  });
+  connect(note, &QPushButton::clicked, this, [this]() { emit newNoteRequested(); });
+  connect(input, &QLineEdit::returnPressed, task, &QPushButton::click);
+  lay->addLayout(actions);
+  lay->addStretch(1);
+  return wrapBlock(QStringLiteral("capture"), body);
+}
+
+QWidget *DashboardPage::buildProjectsBlock() {
+  auto *body = new QWidget();
+  auto *lay = new QVBoxLayout(body);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(8));
+  QMap<QString, QPair<int, int>> projects;
+  for (const TodoItem &item : TodoStore::load()) {
+    if (item.project.trimmed().isEmpty())
+      continue;
+    auto progress = projects.value(item.project);
+    ++progress.second;
+    if (item.done)
+      ++progress.first;
+    projects.insert(item.project, progress);
+  }
+  for (auto it = projects.cbegin(); it != projects.cend(); ++it) {
+    auto *row = new QWidget(body);
+    auto *rowLay = new QVBoxLayout(row);
+    rowLay->setContentsMargins(0, 0, 0, 0);
+    rowLay->setSpacing(UiScale::dp(3));
+    auto *title = new QLabel(QStringLiteral("%1  ·  %2/%3").arg(it.key()).arg(it.value().first).arg(it.value().second), row);
+    title->setStyleSheet(bodyTextQss());
+    auto *bar = new QProgressBar(row);
+    bar->setRange(0, qMax(1, it.value().second));
+    bar->setValue(it.value().first);
+    bar->setTextVisible(false);
+    bar->setFixedHeight(UiScale::dp(6));
+    bar->setStyleSheet(QStringLiteral("QProgressBar { background: %1; border: none; border-radius: 3px; } QProgressBar::chunk { background: %2; border-radius: 3px; }").arg(border(), accent()));
+    rowLay->addWidget(title);
+    rowLay->addWidget(bar);
+    lay->addWidget(row);
+  }
+  if (projects.isEmpty()) {
+    auto *empty = new QLabel(QStringLiteral("Gib Aufgaben ein Projekt oder Schulfach, um Fortschritt zu sehen."), body);
+    empty->setWordWrap(true);
+    empty->setStyleSheet(QStringLiteral("color: %1; font-size: 13px; background: transparent;").arg(muted()));
+    lay->addWidget(empty);
+  }
+  lay->addStretch(1);
+  return wrapBlock(QStringLiteral("projects"), body);
+}
+
 QWidget *DashboardPage::buildTodosBlock() {
   auto *body = new QWidget();
   auto *lay = new QVBoxLayout(body);
@@ -1821,16 +2050,35 @@ QWidget *DashboardPage::buildTodosBlock() {
     auto *cb = new QCheckBox(row);
     cb->setChecked(t.done);
     cb->setStyleSheet(checkBoxQss());
-    auto *lbl = new QLabel(t.title, row);
+    auto *textHost = new QWidget(row);
+    auto *textLay = new QVBoxLayout(textHost);
+    textLay->setContentsMargins(0, 0, 0, 0);
+    textLay->setSpacing(UiScale::dp(2));
+    auto *lbl = new QLabel(t.title, textHost);
     lbl->setWordWrap(true);
     lbl->setStyleSheet(bodyTextQss(t.done));
+    textLay->addWidget(lbl);
+    QStringList meta;
+    if (t.due.isValid())
+      meta.append(t.due.date() == QDate::currentDate() ? QStringLiteral("Heute") : t.due.date().toString(QStringLiteral("dd.MM.")));
+    if (!t.priority.isEmpty() && t.priority != QLatin1String("normal"))
+      meta.append(t.priority == QLatin1String("high") ? QStringLiteral("Hohe Priorität") : QStringLiteral("Niedrige Priorität"));
+    if (!t.project.isEmpty())
+      meta.append(t.project);
+    meta.append(t.tags);
+    if (!meta.isEmpty()) {
+      auto *details = new QLabel(meta.join(QStringLiteral("  ·  ")), textHost);
+      details->setWordWrap(true);
+      details->setStyleSheet(QStringLiteral("color: %1; font-size: 11px; background: transparent;").arg(muted()));
+      textLay->addWidget(details);
+    }
     const QString id = t.id;
     connect(cb, &QCheckBox::toggled, this, [this, id](bool on) {
       TodoStore::setDone(id, on);
       refresh();
     });
     rl->addWidget(cb, 0);
-    rl->addWidget(lbl, 1);
+    rl->addWidget(textHost, 1);
     lay->addWidget(row);
     ++shown;
   }
@@ -2090,6 +2338,12 @@ QWidget *DashboardPage::buildActionsBlock() {
 QWidget *DashboardPage::buildContentFor(const QString &id, bool maximizedChrome) {
   if (id == QLatin1String("greeting"))
     return nullptr;
+  if (id == QLatin1String("today"))
+    return buildTodayBlock();
+  if (id == QLatin1String("capture"))
+    return buildCaptureBlock();
+  if (id == QLatin1String("projects"))
+    return buildProjectsBlock();
   if (id == QLatin1String("clock"))
     return buildClockBlock();
   if (id == QLatin1String("todos"))
