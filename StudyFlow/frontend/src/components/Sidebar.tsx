@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Settings, Shield } from 'lucide-react';
+import { Home, Settings, Shield, CreditCard } from 'lucide-react';
 
 const navItems = [
     { href: '/', label: 'Dashboard', icon: Home },
@@ -123,26 +123,48 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
 
                 {/* Admin Panel */}
                 {mounted && isAdmin && (
-                    <Link
-                        href="/admin"
-                        title={isCollapsed ? 'Admin Panel' : undefined}
-                        className={`
-                            flex items-center gap-3 py-2.5 rounded-lg text-[14px] transition-all relative overflow-hidden group
-                            ${isCollapsed ? 'justify-center px-0' : 'px-4'}
-                            ${pathname === '/admin'
-                                ? 'bg-[#252526] text-white font-medium'
-                                : 'text-[#DDD] hover:bg-[#252526] active:bg-[#333]'
-                            }
-                        `}
-                    >
-                        <Shield
-                            size={18}
-                            strokeWidth={pathname === '/admin' ? 2.5 : 2}
-                            className={`${pathname === '/admin' ? 'text-red-500' : 'text-[#888]'} relative z-10 shrink-0`}
-                        />
-                        {!isCollapsed && <span className="relative z-10 whitespace-nowrap">Admin Panel</span>}
-                        {pathname === '/admin' && !isCollapsed && <div className="absolute left-0 top-1 bottom-1 w-1 bg-red-500 rounded-r-full" />}
-                    </Link>
+                    <>
+                        <Link
+                            href="/admin"
+                            title={isCollapsed ? 'Admin Panel' : undefined}
+                            className={`
+                                flex items-center gap-3 py-2.5 rounded-lg text-[14px] transition-all relative overflow-hidden group
+                                ${isCollapsed ? 'justify-center px-0' : 'px-4'}
+                                ${pathname === '/admin'
+                                    ? 'bg-[#252526] text-white font-medium'
+                                    : 'text-[#DDD] hover:bg-[#252526] active:bg-[#333]'
+                                }
+                            `}
+                        >
+                            <Shield
+                                size={18}
+                                strokeWidth={pathname === '/admin' ? 2.5 : 2}
+                                className={`${pathname === '/admin' ? 'text-red-500' : 'text-[#888]'} relative z-10 shrink-0`}
+                            />
+                            {!isCollapsed && <span className="relative z-10 whitespace-nowrap">Admin Panel</span>}
+                            {pathname === '/admin' && !isCollapsed && <div className="absolute left-0 top-1 bottom-1 w-1 bg-red-500 rounded-r-full" />}
+                        </Link>
+                        <Link
+                            href="/admin/subscriptions"
+                            title={isCollapsed ? 'Abos' : undefined}
+                            className={`
+                                flex items-center gap-3 py-2 rounded-lg text-[14px] transition-all relative overflow-hidden group
+                                ${isCollapsed ? 'justify-center px-0' : 'pl-10 pr-4'}
+                                ${pathname === '/admin/subscriptions'
+                                    ? 'bg-[#252526] text-white font-medium'
+                                    : 'text-[#AAA] hover:bg-[#252526] active:bg-[#333]'
+                                }
+                            `}
+                        >
+                            <CreditCard
+                                size={16}
+                                strokeWidth={pathname === '/admin/subscriptions' ? 2.5 : 2}
+                                className={`${pathname === '/admin/subscriptions' ? 'text-[#5E5CE6]' : 'text-[#888]'} relative z-10 shrink-0`}
+                            />
+                            {!isCollapsed && <span className="relative z-10 whitespace-nowrap">Abos</span>}
+                            {pathname === '/admin/subscriptions' && !isCollapsed && <div className="absolute left-0 top-1 bottom-1 w-1 bg-[#5E5CE6] rounded-r-full" />}
+                        </Link>
+                    </>
                 )}
             </nav>
 

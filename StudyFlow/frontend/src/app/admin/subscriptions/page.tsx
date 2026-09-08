@@ -30,8 +30,19 @@ export default function AdminSubscriptionsPage() {
     const [tiers, setTiers] = useState<Tier[]>([]);
     const [subscriptions, setSubscriptions] = useState<AdminSubscription[]>([]);
     const [refresh, setRefresh] = useState(0);
+    const [initialSearch, setInitialSearch] = useState('');
 
     useEffect(() => {
+        // Read ?user=... from URL to prefill search.
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const userParam = params.get('user') || '';
+            if (userParam) {
+                setInitialSearch(userParam);
+                setActiveTab('subscriptions');
+            }
+        }
+
         const username = localStorage.getItem('username') || '';
         if (!username) {
             router.replace('/login');
@@ -122,7 +133,7 @@ export default function AdminSubscriptionsPage() {
                 ) : (
                     <>
                         {activeTab === 'subscriptions' && (
-                            <SubscriptionsPanel subscriptions={subscriptions} tiers={tiers} onRefresh={() => setRefresh((r) => r + 1)} onError={setError} />
+                            <SubscriptionsPanel subscriptions={subscriptions} tiers={tiers} initialSearch={initialSearch} onRefresh={() => setRefresh((r) => r + 1)} onError={setError} />
                         )}
                         {activeTab === 'tiers' && (
                             <TiersPanel tiers={tiers} onRefresh={() => setRefresh((r) => r + 1)} onError={setError} />
@@ -142,15 +153,17 @@ export default function AdminSubscriptionsPage() {
 function SubscriptionsPanel({
     subscriptions,
     tiers,
+    initialSearch,
     onRefresh,
     onError,
 }: {
     subscriptions: AdminSubscription[];
     tiers: Tier[];
+    initialSearch?: string;
     onRefresh: () => void;
     onError: (msg: string) => void;
 }) {
-    const [search, setSearch] = useState('');
+    const [search, setSearch] = useState(initialSearch || '');
     const [editing, setEditing] = useState<AdminSubscription | null>(null);
     const [saving, setSaving] = useState(false);
 
