@@ -68,6 +68,18 @@ export async function createStripeCheckout(tier: string, interval: 'month' | 'ye
     return data;
 }
 
+export async function confirmStripeCheckout(checkoutSessionId: string): Promise<{ status: string; tier: string }> {
+    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const res = await fetch(`${API_BASE}/subscription/confirm-checkout?session_id=${encodeURIComponent(sid)}`, {
+        method: 'POST',
+        headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkout_session_id: checkoutSessionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Stripe-Zahlung konnte nicht bestätigt werden.');
+    return data;
+}
+
 export async function createStripePortal(): Promise<{ url: string }> {
     const username = getUsername();
     const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';

@@ -3910,6 +3910,17 @@ def create_subscription_checkout(http_request: Request, request: CheckoutRequest
     )
 
 
+@app.post("/api/subscription/confirm-checkout")
+def confirm_subscription_checkout(
+    http_request: Request,
+    checkout_session_id: str = Body(..., embed=True),
+    session_id: str = "",
+):
+    """Synchronize a paid Stripe checkout even if webhook delivery is delayed."""
+    user = require_session_user(http_request, session_id=session_id or None)
+    return payment_manager.reconcile_checkout_session(user, checkout_session_id)
+
+
 @app.post("/api/subscription/portal")
 def create_subscription_portal(http_request: Request, username: str, session_id: str = ""):
     """Creates a Stripe Customer Portal session."""
@@ -3983,8 +3994,22 @@ def admin_list_subscriptions(http_request: Request, admin_username: str, session
     if not db:
         raise HTTPException(status_code=500, detail="Datenbank nicht erreichbar")
     try:
-        res = db.table("subscriptions").select("*").execute()
-        return {"subscriptions": res.data}
+        users_res = db.table("users").select("username, subscription_tier").execute()
+        subscriptions_res = db.table("subscriptions").select("*").execute()
+        subscriptions_by_user = {row["username"]: row for row in subscriptions_res.data}
+        rows = []
+        for account in users_res.data:
+            username = account["username"]
+            rows.append(subscriptions_by_user.get(username) or {
+                "username": username,
+                "tier": account.get("subscription_tier") or "free",
+                "status": "active",
+                "provider": "none",
+                "current_period_start": None,
+                "current_period_end": None,
+                "cancel_at_period_end": False,
+            })
+        return {"subscriptions": rows}
     except Exception as exc:
         print(f"admin_list_subscriptions error: {exc}")
         raise HTTPException(status_code=500, detail="Fehler beim Laden der Abos.")
