@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Users, TrendingUp, Award, Shield, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { Users, TrendingUp, Award, Shield, RefreshCw, CreditCard, Wallet } from 'lucide-react';
 
 interface User {
     username: string;
@@ -91,7 +92,7 @@ export default function AdminPanel() {
                 </div>
 
                 {/* Stats Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                     <div className="blop-card p-6">
                         <div className="flex items-center gap-3 mb-2">
                             <Users className="w-5 h-5 text-[#5E5CE6]" />
@@ -115,6 +116,14 @@ export default function AdminPanel() {
                         </div>
                         <p className="text-3xl font-bold text-white">{activeStreaks}</p>
                     </div>
+
+                    <Link href="/admin/subscriptions" className="blop-card p-6 hover:bg-[#252526] transition-colors group">
+                        <div className="flex items-center gap-3 mb-2">
+                            <CreditCard className="w-5 h-5 text-[#5E5CE6] group-hover:text-[#7D7AFF]" />
+                            <h3 className="text-sm font-medium text-[#888]">Abonnements</h3>
+                        </div>
+                        <p className="text-3xl font-bold text-white">Tiers & Features</p>
+                    </Link>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -135,6 +144,7 @@ export default function AdminPanel() {
                                             <th className="text-left py-3 px-4 text-sm font-medium text-[#888]">XP</th>
                                             <th className="text-left py-3 px-4 text-sm font-medium text-[#888]">Streak</th>
                                             <th className="text-left py-3 px-4 text-sm font-medium text-[#888]">Erstellt</th>
+                                            <th className="text-right py-3 px-4 text-sm font-medium text-[#888]">Aktion</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -163,6 +173,15 @@ export default function AdminPanel() {
                                                     </span>
                                                 </td>
                                                 <td className="py-3 px-4 text-[#888] text-sm">{user.created_at}</td>
+                                                <td className="py-3 px-4 text-right">
+                                                    <Link
+                                                        href={`/admin/subscriptions?user=${encodeURIComponent(user.username)}`}
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5E5CE6]/10 hover:bg-[#5E5CE6]/20 text-[#5E5CE6] text-xs font-medium transition-colors"
+                                                    >
+                                                        <Wallet size={12} />
+                                                        Abo
+                                                    </Link>
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>

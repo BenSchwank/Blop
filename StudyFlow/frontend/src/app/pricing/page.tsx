@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Loader2, Sparkles, Zap, Crown } from 'lucide-react';
+import { Check, Loader2, LogIn, Sparkles, Zap, Crown } from 'lucide-react';
 import { motion } from 'framer-motion';
 import {
     fetchTiers,
@@ -39,6 +39,8 @@ export default function PricingPage() {
     const [interval, setInterval] = useState<'month' | 'year'>('month');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [sessionExpired, setSessionExpired] = useState(false);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [checkoutTier, setCheckoutTier] = useState<string | null>(null);
     const [paypalProvider, setPaypalProvider] = useState<'stripe' | 'paypal' | null>(null);
 
@@ -59,17 +61,30 @@ export default function PricingPage() {
 
     async function loadData() {
         try {
-            const [tiersData, statusData] = await Promise.all([
-                fetchTiers(),
-                fetchSubscriptionStatus().catch(() => null),
-            ]);
+            const tiersData = await fetchTiers();
             setTiers(tiersData);
-            setStatus(statusData);
         } catch (err: any) {
             setError(err?.message || 'Preise konnten nicht geladen werden.');
-        } finally {
             setLoading(false);
+            return;
         }
+
+        // Subscription status is optional; only load if user is logged in.
+        const username = localStorage.getItem('username');
+        const sid = localStorage.getItem('session_id');
+        const hasSession = Boolean(username && sid);
+        setIsAuthenticated(hasSession);
+        if (hasSession) {
+            try {
+                const statusData = await fetchSubscriptionStatus();
+                setStatus(statusData);
+            } catch {
+                // If status fails, treat it as a stale session but still show public pricing.
+                setStatus(null);
+                setSessionExpired(true);
+            }
+        }
+        setLoading(false);
     }
 
     async function handlePayPalCapture(orderId: string) {
@@ -135,6 +150,21 @@ export default function PricingPage() {
                 {error && (
                     <div className="max-w-xl mx-auto mb-8 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-center">
                         {error}
+                    </div>
+                )}
+
+                {sessionExpired && (
+                    <div className="max-w-xl mx-auto mb-8 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-center text-sm">
+                        Deine Sitzung ist abgelaufen. Melde dich neu an, um ein Abo zu buchen.
+                        <div className="mt-3">
+                            <button
+                                onClick={() => router.push('/login')}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#5E5CE6] text-white text-sm font-medium hover:bg-[#4d4ac9]"
+                            >
+                                <LogIn size={16} />
+                                Anmelden
+                            </button>
+                        </div>
                     </div>
                 )}
 
@@ -230,6 +260,14 @@ export default function PricingPage() {
                                         className="w-full py-3 rounded-xl bg-[#2A2A40] text-gray-400 font-semibold cursor-default"
                                     >
                                         Aktuelles Abo
+                                    </button>
+                                ) : !isAuthenticated || sessionExpired ? (
+                                    <button
+                                        onClick={() => router.push('/login')}
+                                        className="w-full py-3 rounded-xl bg-[#2A2A40] hover:bg-[#333] text-white font-semibold transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <LogIn size={18} />
+                                        Anmelden zum Buchen
                                     </button>
                                 ) : tier.name === 'free' ? (
                                     <button
