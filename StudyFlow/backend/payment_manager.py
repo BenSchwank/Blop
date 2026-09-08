@@ -88,7 +88,7 @@ def create_checkout_session(
 
     price_id = _price_id(tier, interval)
     base = _public_app_url()
-    success = (success_url or f"{base}/settings?subscription=success").rstrip("/")
+    success = (success_url or f"{base}/settings").rstrip("/")
     cancel = (cancel_url or f"{base}/pricing?subscription=canceled").rstrip("/")
 
     try:
@@ -102,7 +102,7 @@ def create_checkout_session(
             customer=customer.id,
             mode="subscription",
             line_items=[{"price": price_id, "quantity": 1}],
-            success_url=f"{success}?session_id={{CHECKOUT_SESSION_ID}}",
+            success_url=f"{success}?subscription=success&checkout_session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=cancel,
             subscription_data={
                 "metadata": {"username": username, "tier": tier, "interval": interval},
@@ -118,6 +118,30 @@ def create_checkout_session(
     except Exception as exc:
         print(f"Stripe create_checkout_session unexpected error: {exc}")
         raise HTTPException(status_code=500, detail="Interner Fehler beim Stripe Checkout.")
+
+
+def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[str, Any]:
+    """Verify a completed Checkout Session and synchronize its subscription."""
+    if not _stripe_enabled():
+        raise HTTPException(status_code=503, detail="Stripe ist nicht konfiguriert.")
+    try:
+        session = stripe.checkout.Session.retrieve(checkout_session_id)
+        metadata = session.get("metadata", {})
+        if metadata.get("username") != username:
+            raise HTTPException(status_code=403, detail="Checkout gehört nicht zum angemeldeten Benutzer.")
+        if session.get("payment_status") not in ("paid", "no_payment_required"):
+            raise HTTPException(status_code=409, detail="Die Zahlung ist noch nicht abgeschlossen.")
+        subscription_id = session.get("subscription")
+        if not subscription_id:
+            raise HTTPException(status_code=409, detail="Stripe-Abo wurde noch nicht erstellt.")
+        subscription = stripe.Subscription.retrieve(subscription_id)
+        _handle_subscription_created_or_updated(subscription)
+        return {"status": "success", "tier": metadata.get("tier", "free")}
+    except HTTPException:
+        raise
+    except stripe.error.StripeError as exc:
+        print(f"Stripe reconcile checkout failed: {exc}")
+        raise HTTPException(status_code=502, detail="Stripe-Zahlung konnte nicht bestätigt werden.")
 
 
 # ---------------------------------------------------------------------------
@@ -229,20 +253,14 @@ def handle_stripe_webhook(payload: bytes, sig_header: str) -> Dict[str, str]:
         # Expand the subscription to get full metadata and period dates.
         subscription_id = data.get("subscription")
         if subscription_id:
-            try:
-                sub = stripe.Subscription.retrieve(subscription_id)
-                _handle_subscription_created_or_updated(sub)
-            except Exception as exc:
-                print(f"PaymentManager: retrieve subscription failed: {exc}")
+            sub = stripe.Subscription.retrieve(subscription_id)
+            _handle_subscription_created_or_updated(sub)
     elif event_type == "invoice.paid":
         # Recurring payment succeeded: credit tokens again.
         subscription_id = data.get("subscription")
         if subscription_id:
-            try:
-                sub = stripe.Subscription.retrieve(subscription_id)
-                _handle_subscription_created_or_updated(sub)
-            except Exception as exc:
-                print(f"PaymentManager: invoice.paid retrieve subscription failed: {exc}")
+            sub = stripe.Subscription.retrieve(subscription_id)
+            _handle_subscription_created_or_updated(sub)
     elif event_type == "customer.subscription.deleted":
         _handle_subscription_deleted(data)
     elif event_type == "customer.subscription.updated":

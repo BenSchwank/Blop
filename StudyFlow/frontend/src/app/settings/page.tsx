@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, AlertTriangle, Loader2, LogOut, CreditCard, Calendar, ArrowUpRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { fetchSubscriptionStatus, createStripePortal, SubscriptionStatus } from '@/lib/subscription';
+import { fetchSubscriptionStatus, confirmStripeCheckout, createStripePortal, SubscriptionStatus } from '@/lib/subscription';
 
 export default function Settings() {
     const router = useRouter();
@@ -29,11 +29,27 @@ export default function Settings() {
 
     useEffect(() => {
         const user = localStorage.getItem("username");
-        if (user) {
-            setUsername(user);
-            fetchUserInfo(user);
-            loadSubscriptionStatus();
+        if (!user) return;
+        setUsername(user);
+
+        const params = new URLSearchParams(window.location.search);
+        const checkoutSessionId = params.get("checkout_session_id");
+        if (params.get("subscription") === "success" && checkoutSessionId) {
+            setUpgradeStatus({ message: "Zahlung wird bestätigt…", isError: false });
+            confirmStripeCheckout(checkoutSessionId)
+                .then(() => {
+                    setUpgradeStatus({ message: "Dein Abo ist jetzt aktiv.", isError: false });
+                    window.history.replaceState({}, "", "/settings");
+                    return Promise.all([fetchUserInfo(user), loadSubscriptionStatus()]);
+                })
+                .catch((err: any) => {
+                    setUpgradeStatus({ message: err?.message || "Zahlung konnte noch nicht bestätigt werden.", isError: true });
+                });
+            return;
         }
+
+        fetchUserInfo(user);
+        loadSubscriptionStatus();
     }, []);
 
     const fetchUserInfo = async (user: string) => {
@@ -219,7 +235,7 @@ export default function Settings() {
                                         className="bg-[#333] hover:bg-[#444] text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2 min-w-[180px]"
                                     >
                                         {portalLoading ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
-                                        Abo verwalten
+                                        Abo verwalten / kündigen
                                     </button>
                                 ) : null}
                                 <button
