@@ -5,7 +5,7 @@ import json
 import os
 import re
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 import requests
@@ -21,6 +21,7 @@ class AuthManager:
         from data_manager import DataManager
         return DataManager._init_supabase()
 
+    # --- Local file fallback (legacy / offline fallback) ---
     @staticmethod
     def _load_sessions():
         if os.path.exists(SESSION_DB_FILE):
@@ -46,46 +47,129 @@ class AuthManager:
         AuthManager._sessions_mtime = os.path.getmtime(SESSION_DB_FILE)
 
     @staticmethod
+    def _delete_local_session(session_id):
+        sessions = AuthManager._load_sessions()
+        if session_id in sessions:
+            del sessions[session_id]
+            AuthManager._save_sessions(sessions)
+
+    @staticmethod
+    def _migrate_local_session_to_db(session_id, session_data):
+        """Best-effort migration of a legacy local session into Supabase."""
+        db = AuthManager._get_db()
+        if not db:
+            return
+        try:
+            db.table("sessions").upsert({
+                "id": session_id,
+                "username": session_data["username"],
+                "created_at": session_data.get("created_at", datetime.now(timezone.utc).isoformat()),
+                "last_active": session_data.get("last_active", datetime.now(timezone.utc).isoformat()),
+            }).execute()
+        except Exception as exc:
+            print(f"AuthManager: migrate local session failed: {exc}")
+
+    @staticmethod
+    def _is_expired(last_active):
+        """Returns True if the session is older than 24 hours."""
+        if not last_active:
+            return True
+        try:
+            if isinstance(last_active, str):
+                last_active = datetime.fromisoformat(last_active)
+            # Legacy local sessions were written without timezone; treat them as UTC.
+            if last_active.tzinfo is None:
+                last_active = last_active.replace(tzinfo=timezone.utc)
+            return (datetime.now(timezone.utc) - last_active).total_seconds() > 86400
+        except Exception:
+            return True
+
+    @staticmethod
     def create_session(username):
         session_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+
+        # 1. Persist in Supabase (primary source of truth)
+        db = AuthManager._get_db()
+        if db:
+            try:
+                db.table("sessions").insert({
+                    "id": session_id,
+                    "username": username,
+                    "created_at": now,
+                    "last_active": now,
+                }).execute()
+            except Exception as exc:
+                print(f"AuthManager: create_session DB write failed: {exc}")
+
+        # 2. Keep local copy as fallback / migration bridge
         sessions = AuthManager._load_sessions()
-        
         sessions[session_id] = {
             "username": username,
-            "created_at": datetime.now().isoformat(),
-            "last_active": datetime.now().isoformat()
+            "created_at": now,
+            "last_active": now,
         }
         AuthManager._save_sessions(sessions)
+
         return session_id
 
     @staticmethod
     def validate_session(session_id):
+        if not session_id:
+            return None
+
+        # 1. Try Supabase first
+        db = AuthManager._get_db()
+        if db:
+            try:
+                res = db.table("sessions").select("*").eq("id", session_id).execute()
+                if res.data:
+                    session = res.data[0]
+                    if AuthManager._is_expired(session.get("last_active")):
+                        db.table("sessions").delete().eq("id", session_id).execute()
+                        AuthManager._delete_local_session(session_id)
+                        return None
+
+                    # Touch last_active
+                    db.table("sessions").update({"last_active": datetime.now(timezone.utc).isoformat()}).eq("id", session_id).execute()
+                    return session["username"]
+            except Exception as exc:
+                print(f"AuthManager: validate_session DB read failed: {exc}")
+
+        # 2. Fallback to local file (legacy sessions, DB unreachable, etc.)
         sessions = AuthManager._load_sessions()
         if session_id not in sessions:
             return None
-            
+
         session = sessions[session_id]
-        
-        try:
-            last_active = datetime.fromisoformat(session["last_active"])
-            # Extended session timeout for production (e.g. 24 hours)
-            if (datetime.now() - last_active).total_seconds() > 86400:
-                del sessions[session_id]
-                AuthManager._save_sessions(sessions)
-                return None
-        except:
-             return None 
-            
-        session["last_active"] = datetime.now().isoformat()
+        if AuthManager._is_expired(session.get("last_active")):
+            del sessions[session_id]
+            AuthManager._save_sessions(sessions)
+            return None
+
+        # Migrate to DB if available
+        if db:
+            AuthManager._migrate_local_session_to_db(session_id, session)
+
+        session["last_active"] = datetime.now(timezone.utc).isoformat()
         AuthManager._save_sessions(sessions)
         return session["username"]
 
     @staticmethod
     def logout_session(session_id):
-        sessions = AuthManager._load_sessions()
-        if session_id in sessions:
-            del sessions[session_id]
-            AuthManager._save_sessions(sessions)
+        if not session_id:
+            return
+
+        # Delete from Supabase
+        db = AuthManager._get_db()
+        if db:
+            try:
+                db.table("sessions").delete().eq("id", session_id).execute()
+            except Exception as exc:
+                print(f"AuthManager: logout_session DB delete failed: {exc}")
+
+        # Delete from local file
+        AuthManager._delete_local_session(session_id)
 
     @staticmethod
     def _db_unreachable_message(exc: Exception = None) -> str:
