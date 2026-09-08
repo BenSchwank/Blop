@@ -75,7 +75,13 @@ export async function confirmStripeCheckout(checkoutSessionId: string): Promise<
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ checkout_session_id: checkoutSessionId }),
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data: any;
+    try {
+        data = JSON.parse(text);
+    } catch {
+        data = { detail: text || `Serverfehler (${res.status})` };
+    }
     if (!res.ok) throw new Error(data.detail || 'Stripe-Zahlung konnte nicht bestätigt werden.');
     return data;
 }

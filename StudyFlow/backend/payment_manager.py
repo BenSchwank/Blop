@@ -112,12 +112,12 @@ def create_checkout_session(
             billing_address_collection="auto",
         )
         return {"url": session.url, "session_id": session.id}
-    except stripe.error.StripeError as exc:
-        print(f"Stripe create_checkout_session failed: {exc}")
-        raise HTTPException(status_code=500, detail=f"Stripe Checkout konnte nicht erstellt werden: {exc.user_message or str(exc)}")
+    except HTTPException:
+        raise
     except Exception as exc:
-        print(f"Stripe create_checkout_session unexpected error: {exc}")
-        raise HTTPException(status_code=500, detail="Interner Fehler beim Stripe Checkout.")
+        print(f"Stripe create_checkout_session failed ({type(exc).__name__}): {exc}")
+        message = getattr(exc, "user_message", None) or str(exc)
+        raise HTTPException(status_code=502, detail=f"Stripe Checkout konnte nicht erstellt werden: {message}")
 
 
 def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[str, Any]:
@@ -139,9 +139,10 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
         return {"status": "success", "tier": metadata.get("tier", "free")}
     except HTTPException:
         raise
-    except stripe.error.StripeError as exc:
-        print(f"Stripe reconcile checkout failed: {exc}")
-        raise HTTPException(status_code=502, detail="Stripe-Zahlung konnte nicht bestätigt werden.")
+    except Exception as exc:
+        print(f"Stripe reconcile checkout failed ({type(exc).__name__}): {exc}")
+        message = getattr(exc, "user_message", None) or str(exc)
+        raise HTTPException(status_code=502, detail=f"Stripe-Zahlung konnte nicht bestätigt werden: {message}")
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +159,12 @@ def create_portal_session(username: str, customer_id: str) -> Dict[str, Any]:
             return_url=f"{base}/settings",
         )
         return {"url": session.url}
-    except stripe.error.StripeError as exc:
-        print(f"Stripe create_portal_session failed: {exc}")
-        raise HTTPException(status_code=500, detail=f"Stripe Portal konnte nicht erstellt werden: {exc.user_message or str(exc)}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Stripe create_portal_session failed ({type(exc).__name__}): {exc}")
+        message = getattr(exc, "user_message", None) or str(exc)
+        raise HTTPException(status_code=502, detail=f"Stripe Portal konnte nicht erstellt werden: {message}")
 
 
 # ---------------------------------------------------------------------------
@@ -240,10 +244,9 @@ def handle_stripe_webhook(payload: bytes, sig_header: str) -> Dict[str, str]:
         raise HTTPException(status_code=503, detail="Stripe Webhook ist nicht konfiguriert.")
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Ungültiger Stripe-Payload: {exc}")
-    except stripe.error.SignatureVerificationError as exc:
-        raise HTTPException(status_code=400, detail=f"Ungültige Stripe-Signatur: {exc}")
+    except Exception as exc:
+        print(f"Stripe webhook verification failed ({type(exc).__name__}): {exc}")
+        raise HTTPException(status_code=400, detail=f"Ungültiger Stripe-Webhook: {exc}")
 
     event_type = event.get("type")
     data = event.get("data", {}).get("object", {})
