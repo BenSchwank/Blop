@@ -17,6 +17,7 @@ class QTimer;
 class QVBoxLayout;
 class QFrame;
 class DashSnapOverlay;
+struct TodoItem;
 
 /// Notion-style dashboard: soft blocks on a 12-column grid with edit mode.
 class DashboardPage : public QWidget {
@@ -89,6 +90,9 @@ private:
                      bool showTitle = true);
   QWidget *buildEditChrome(const QString &id);
   QWidget *buildEmptyStatePanel();
+  QWidget *buildTodayBlock();
+  QWidget *buildCaptureBlock();
+  QWidget *buildProjectsBlock();
   QWidget *buildTodosBlock();
   QWidget *buildClockBlock();
   QWidget *buildCalendarBlock(bool maximizedChrome);
@@ -97,7 +101,10 @@ private:
   QWidget *buildActionsBlock();
   QWidget *buildContentFor(const QString &id, bool maximizedChrome = false);
 
-  void openCreateEventDialog(const QDateTime &presetStart = QDateTime());
+  void openCreateTodoDialog(const QString &presetTitle = QString());
+  void openEditTodoDialog(const TodoItem &item);
+  void openCreateEventDialog(const QDateTime &presetStart = QDateTime(),
+                             const QString &presetTitle = QString());
 
   QVBoxLayout *m_rootLay{nullptr};
   QWidget *m_persistentHeader{nullptr};

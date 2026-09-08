@@ -8,7 +8,7 @@
 #include <algorithm>
 
 namespace {
-QString settingsKey() { return QStringLiteral("dashboard/layout_v4"); }
+QString settingsKey() { return QStringLiteral("dashboard/layout_v5"); }
 
 DashboardWidgetSpec make(const QString &id, int order, int row, int col,
                          int colSpan, int rowSpan, int itemLimit = 0) {
@@ -22,6 +22,27 @@ DashboardWidgetSpec make(const QString &id, int order, int row, int col,
   s.rowSpan = rowSpan;
   s.itemLimit = itemLimit;
   return s;
+}
+
+QVector<DashboardWidgetSpec> migrateFromV4() {
+  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const QJsonDocument doc = QJsonDocument::fromJson(
+      st.value(QStringLiteral("dashboard/layout_v4")).toByteArray());
+  if (!doc.isArray())
+    return {};
+  auto out = DashboardLayoutStore::defaults();
+  for (const QJsonValue &value : doc.array()) {
+    const QJsonObject old = value.toObject();
+    const QString id = old.value(QStringLiteral("id")).toString();
+    for (auto &spec : out) {
+      if (spec.id != id)
+        continue;
+      spec.visible = old.value(QStringLiteral("visible")).toBool(spec.visible);
+      spec.itemLimit = old.value(QStringLiteral("itemLimit")).toInt(spec.itemLimit);
+      break;
+    }
+  }
+  return out;
 }
 
 QVector<DashboardWidgetSpec> migrateFromV1() {
@@ -69,15 +90,22 @@ QVector<DashboardWidgetSpec> migrateFromV1() {
 } // namespace
 
 QStringList DashboardLayoutStore::knownIds() {
-  return {QStringLiteral("greeting"), QStringLiteral("clock"),
-          QStringLiteral("todos"),    QStringLiteral("calendar"),
-          QStringLiteral("recent"),   QStringLiteral("shortcuts"),
-          QStringLiteral("actions")};
+  return {QStringLiteral("greeting"), QStringLiteral("today"),
+          QStringLiteral("capture"),  QStringLiteral("projects"),
+          QStringLiteral("clock"),    QStringLiteral("todos"),
+          QStringLiteral("calendar"), QStringLiteral("recent"),
+          QStringLiteral("shortcuts"), QStringLiteral("actions")};
 }
 
 QString DashboardLayoutStore::displayName(const QString &id) {
   if (id == QLatin1String("greeting"))
     return QStringLiteral("Begrüßung");
+  if (id == QLatin1String("today"))
+    return QStringLiteral("Heute im Fokus");
+  if (id == QLatin1String("capture"))
+    return QStringLiteral("Schnellerfassung");
+  if (id == QLatin1String("projects"))
+    return QStringLiteral("Projekte");
   if (id == QLatin1String("clock"))
     return QStringLiteral("Uhr");
   if (id == QLatin1String("todos"))
@@ -105,11 +133,14 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::defaults() {
   // Notion-style home: two tall columns, then clock + recent, then shortcuts.
   return {
       make(QStringLiteral("greeting"), 0, 0, 0, 12, 1),
-      make(QStringLiteral("todos"), 1, 1, 0, 6, 3),
-      make(QStringLiteral("calendar"), 2, 1, 6, 6, 3, 8),
-      make(QStringLiteral("clock"), 3, 4, 0, 4, 2),
-      make(QStringLiteral("recent"), 4, 4, 4, 8, 2, 5),
-      make(QStringLiteral("shortcuts"), 5, 6, 0, 12, 2),
+      make(QStringLiteral("today"), 1, 0, 0, 8, 2),
+      make(QStringLiteral("capture"), 2, 0, 8, 4, 1),
+      make(QStringLiteral("todos"), 3, 2, 0, 6, 3),
+      make(QStringLiteral("calendar"), 4, 2, 6, 6, 3, 8),
+      make(QStringLiteral("projects"), 5, 5, 0, 5, 2),
+      make(QStringLiteral("recent"), 6, 5, 5, 7, 2, 5),
+      make(QStringLiteral("shortcuts"), 7, 7, 0, 12, 2),
+      make(QStringLiteral("clock"), 8, 9, 0, 4, 2),
   };
 }
 
@@ -125,9 +156,13 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   const QByteArray raw = st.value(settingsKey()).toByteArray();
   if (raw.isEmpty()) {
-    const auto migrated = migrateFromV1();
-    if (!migrated.isEmpty())
+    auto migrated = migrateFromV4();
+    if (migrated.isEmpty())
+      migrated = migrateFromV1();
+    if (!migrated.isEmpty()) {
+      save(migrated);
       return migrated;
+    }
     return defaults();
   }
 
@@ -182,7 +217,21 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
                 return a.col < b.col;
               return a.order < b.order;
             });
+  int firstGridRow = 24;
+  for (const auto &s : out) {
+    if (s.visible && s.id != QLatin1String("greeting") &&
+        s.id != QLatin1String("actions"))
+      firstGridRow = qMin(firstGridRow, s.row);
+  }
+  if (firstGridRow > 0 && firstGridRow < 24) {
+    for (auto &s : out) {
+      if (s.id != QLatin1String("greeting") && s.id != QLatin1String("actions"))
+        s.row = qMax(0, s.row - firstGridRow);
+    }
+  }
   for (auto &s : out) {
+    if (s.id == QLatin1String("capture"))
+      s.rowSpan = 1;
     if (s.id == QLatin1String("actions"))
       s.visible = false;
     if (s.id == QLatin1String("greeting"))

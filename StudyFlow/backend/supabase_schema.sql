@@ -94,3 +94,48 @@ CREATE INDEX IF NOT EXISTS sessions_last_active_idx
 COMMENT ON TABLE public.sessions IS 'Blop Study: server-side session tokens written by the backend.';
 
 ALTER TABLE public.sessions DISABLE ROW LEVEL SECURITY;
+
+-- 9. Subscription tiers (admin-editable feature matrix)
+CREATE TABLE IF NOT EXISTS public.subscription_tiers (
+    name TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    price_monthly_eur NUMERIC(10,2) NOT NULL DEFAULT 0,
+    price_yearly_eur NUMERIC(10,2) NOT NULL DEFAULT 0,
+    tokens_monthly INTEGER NOT NULL DEFAULT 0,
+    is_admin_only BOOLEAN NOT NULL DEFAULT FALSE,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.subscription_features (
+    tier_name TEXT NOT NULL REFERENCES public.subscription_tiers(name) ON DELETE CASCADE,
+    feature_key TEXT NOT NULL,
+    allowed BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (tier_name, feature_key)
+);
+
+CREATE INDEX IF NOT EXISTS subscription_features_tier_idx
+    ON public.subscription_features (tier_name);
+
+-- 10. Current subscription per user
+CREATE TABLE IF NOT EXISTS public.subscriptions (
+    username TEXT PRIMARY KEY REFERENCES public.users(username) ON DELETE CASCADE,
+    tier TEXT NOT NULL REFERENCES public.subscription_tiers(name),
+    status TEXT NOT NULL DEFAULT 'active',
+    provider TEXT NOT NULL DEFAULT 'none',
+    provider_customer_id TEXT,
+    provider_subscription_id TEXT,
+    current_period_start TIMESTAMP WITH TIME ZONE,
+    current_period_end TIMESTAMP WITH TIME ZONE,
+    cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS subscriptions_status_period_idx
+    ON public.subscriptions (status, current_period_end);
+
+ALTER TABLE public.subscription_tiers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscription_features DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscriptions DISABLE ROW LEVEL SECURITY;

@@ -11789,6 +11789,8 @@ void MainWindow::updateSidebarState() {
   const bool inEditorStack =
       inNotesMode && m_rightStack &&
       (m_rightStack->currentWidget() == m_editorContainer);
+  const bool dashboardHome = inNotesMode && m_shellStack &&
+                             m_shellStack->currentIndex() == 0;
   const bool workspaceTab = editorTabIsWorkspace(
       m_editorTabs ? m_editorTabs->currentWidget() : nullptr);
   bool isEditor = inEditorStack && !workspaceTab;
@@ -11826,14 +11828,20 @@ void MainWindow::updateSidebarState() {
   // Mode switch lives in the K sidebar header when the drawer is open.
   const bool hasOpenNotes = m_editorTabs && m_editorTabs->count() > 0;
   const bool inEditorWithTabs = isEditor && hasOpenNotes;
+  if (m_titleBarWidget)
+    m_titleBarWidget->setFixedHeight(dashboardHome ? UiScale::dp(40) : UiScale::dp(52));
+  if (m_topNavControls)
+    m_topNavControls->setVisible(true);
+  if (m_titleBarSep)
+    m_titleBarSep->setVisible(!dashboardHome);
   if (m_btnMode)
-    m_btnMode->setVisible(inNotesMode && !m_isSidebarOpen && !inEditorWithTabs &&
-                          !m_authNavigationLocked);
+    m_btnMode->setVisible(inNotesMode && !dashboardHome && !m_isSidebarOpen &&
+                          !inEditorWithTabs && !m_authNavigationLocked);
   // Library: rail compose + title-bar + create notes. Web-bookmark + lives in Study.
   if (m_btnAddWebBookmark)
     m_btnAddWebBookmark->setVisible(!inNotesMode && !m_authNavigationLocked);
   if (m_btnNewTab) {
-    m_btnNewTab->setVisible(inNotesMode && !m_authNavigationLocked);
+    m_btnNewTab->setVisible(inNotesMode && !dashboardHome && !m_authNavigationLocked);
     m_btnNewTab->setToolTip(QStringLiteral("Neue Notiz"));
   }
   if (m_documentTabBar) {

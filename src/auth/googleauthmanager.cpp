@@ -370,6 +370,12 @@ void GoogleAuthManager::startPkceLogin() {
   m_loginInProgress = true;
   m_loginInProgressSinceMs = nowMs;
   ++m_authResumeGeneration;
+  QTimer::singleShot(10 * 60 * 1000, this, [this, nowMs]() {
+    if (!m_loginInProgress || m_loginInProgressSinceMs != nowMs)
+      return;
+    cancelPendingLogin();
+    emit authenticationFailed(QStringLiteral("oauth_timeout"));
+  });
 
   // PKCE: generate a high-entropy code_verifier and S256-hashed challenge.
   m_pkceVerifier = generateRandomString(64);
@@ -530,6 +536,7 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
   QNetworkRequest req((QUrl(QString::fromLatin1(kGoogleTokenEndpoint))));
   req.setHeader(QNetworkRequest::ContentTypeHeader,
                 "application/x-www-form-urlencoded");
+  req.setTransferTimeout(30000);
 
   QUrlQuery body;
   body.addQueryItem("grant_type", "authorization_code");
@@ -872,6 +879,7 @@ void GoogleAuthManager::exchangeDesktopAuthorizationCode(const QString &code) {
                   QStringLiteral("application/json"));
     req.setHeader(QNetworkRequest::UserAgentHeader,
                   QStringLiteral("BlopDesktop/GoogleAuthExchange"));
+    req.setTransferTimeout(30000);
     QNetworkReply *reply = m_networkManager->post(
         req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this,
@@ -912,6 +920,7 @@ void GoogleAuthManager::exchangeDesktopAuthorizationCode(const QString &code) {
                   (QUrl(QString::fromLatin1(kGoogleTokenEndpoint))));
               treq.setHeader(QNetworkRequest::ContentTypeHeader,
                              QStringLiteral("application/x-www-form-urlencoded"));
+              treq.setTransferTimeout(30000);
               QUrlQuery body;
               body.addQueryItem(QStringLiteral("grant_type"),
                                 QStringLiteral("authorization_code"));
@@ -1061,6 +1070,7 @@ void GoogleAuthManager::claimDesktopState(const QString &state, bool fromDeepLin
   QNetworkRequest req(url);
   req.setHeader(QNetworkRequest::UserAgentHeader,
                 QStringLiteral("BlopDesktop/GoogleAuthClaim"));
+  req.setTransferTimeout(15000);
   QNetworkReply *reply = m_networkManager->get(req);
   connect(reply, &QNetworkReply::finished, this,
           [this, reply, fromDeepLink, state]() {
