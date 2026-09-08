@@ -20,3 +20,6 @@ json-repair
 youtube-transcript-api
 Pillow
 runwayml
+# Subscriptions
+stripe
+paypal-checkout-serversdk

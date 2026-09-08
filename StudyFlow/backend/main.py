@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import uvicorn
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import shutil
 import tempfile
@@ -26,6 +26,8 @@ except ImportError:
 # Import local modules
 from data_manager import DataManager
 from auth_manager import AuthManager
+from subscription_manager import SubscriptionManager
+import payment_manager
 from email_notify import try_notify_document_ready
 from genai_warnings import suppress_known_google_warnings
 
@@ -58,6 +60,12 @@ async def native_entry_no_store_headers(request: Request, call_next):
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
     return response
+
+# Seed subscription tiers/features and ensure every user has a subscription row.
+try:
+    SubscriptionManager.seed_defaults()
+except Exception as e:
+    print(f"Subscription seed error: {e}")
 
 # Lernvideo: lange ffmpeg/TTS-Pipeline — synchron würde Render/Proxy-Timeouts (502) auslösen
 _LEARNING_VIDEO_JOBS: dict = {}
@@ -1651,10 +1659,6 @@ def delete_file(http_request: Request, file_id: str, username: str = "", folder_
 
 # --- UPLOAD & AI ENDPOINTS ---
 
-class SubscriptionUpgradeRequest(BaseModel):
-    username: str
-    tier: str
-
 class UserModelPreferenceRequest(BaseModel):
     username: str
     preferred_model: str = ""
@@ -1692,47 +1696,6 @@ def update_user_model_preference(body: UserModelPreferenceRequest):
         raise HTTPException(status_code=500, detail="Model preference could not be saved")
     return {"status": "success", "preferred_model": (body.preferred_model or "").strip()}
 
-@app.post("/api/subscription/upgrade")
-def upgrade_subscription(http_request: Request, request: SubscriptionUpgradeRequest, session_id: str = ""):
-    """Mock endpoint to upgrade subscription and grant tokens."""
-    if os.environ.get("ALLOW_MOCK_UPGRADE", "") != "1":
-        raise HTTPException(status_code=403, detail="Mock-Upgrade ist in dieser Umgebung nicht aktiviert.")
-    user = require_session_user(http_request, session_id=session_id or None, username=request.username or None)
-    tier_lower = request.tier.lower()
-    
-    # Define token grants per tier
-    tier_tokens = {
-        "basic": 1000,
-        "pro": 5000,
-        "premium": 15000
-    }
-    
-    if tier_lower not in tier_tokens:
-        raise HTTPException(status_code=400, detail="Ungültiges Abo-Modell (Verfügbar: basic, pro, premium)")
-
-    db = AuthManager._get_db()
-    if not db:
-        raise HTTPException(status_code=500, detail="DB Error")
-
-    user_record = AuthManager.get_user(user)
-    if not user_record:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    new_tokens = user_record.get("tokens", 0) + tier_tokens[tier_lower]
-
-    # Update DB
-    db.table("users").update({
-        "subscription_tier": tier_lower,
-        "tokens": new_tokens
-    }).eq("username", user).execute()
-
-    return {
-        "status": "success",
-        "message": f"Erfolgreich auf {tier_lower.capitalize()} hochgestuft. {tier_tokens[tier_lower]} Tokens hinzugefügt!",
-        "new_tokens": new_tokens,
-        "subscription_tier": tier_lower
-    }
-
 MODEL_TOKEN_RATES_PER_1K = {
     "gemini-2.5-pro": {"in": 7.0, "out": 21.0},
     "gemini-2.0-pro-exp": {"in": 5.0, "out": 12.0},
@@ -1759,6 +1722,7 @@ FEATURE_MULTIPLIER = {
     "document_chat": 0.8,
     "selection_edit": 0.7,
     "audio_transcribe": 1.0,
+    "image_to_text": 1.0,
     "podcast": 1.2,
     "learning_video": 1.4,
 }
@@ -1923,7 +1887,8 @@ async def upload_audio(
     try:
         if not file.filename.lower().endswith(('.webm', '.wav', '.mp3', '.m4a')):
              raise HTTPException(status_code=400, detail="Nur unterstützte Audioformate (.webm, .wav, .mp3, .m4a)")
-             
+
+        SubscriptionManager.ensure_feature(user, "audio_transcribe")
         ensure_minimum_tokens(user, 1)
         _configure_genai(user)
         model_pref = resolve_model_preference(user, None)
@@ -1993,9 +1958,10 @@ async def upload_image(
         if not file.filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
              raise HTTPException(status_code=400, detail="Nur unterstützte Bildformate (.jpg, .jpeg, .png, .webp)")
              
+        SubscriptionManager.ensure_feature(user, "image_to_text")
         ensure_minimum_tokens(user, 1)
         _configure_genai(user)
-        
+
         content = await file.read()
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_img:
@@ -2020,7 +1986,7 @@ async def upload_image(
             
             charge = deduct_tokens_by_usage(
                 username,
-                "summary",
+                "image_to_text",
                 "gemini-1.5-pro",
                 {
                     "prompt_tokens": int(getattr(getattr(response, "usage_metadata", None), "prompt_token_count", 0) or 0),
@@ -2523,8 +2489,9 @@ def recognize_math_ink(request: MathInkRecognizeRequest):
 def create_study_plan(request: PlanRequest, background_tasks: BackgroundTasks):
     """Generates a study plan from folder contents."""
     from ai_service import AIService
-    
+
     try:
+        SubscriptionManager.ensure_feature(request.username, "plan")
         ensure_minimum_tokens(request.username, 2)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -2709,6 +2676,7 @@ def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
     from ai_service import AIService
     from datetime import datetime
     try:
+        SubscriptionManager.ensure_feature(request.username, "quiz")
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -2756,6 +2724,7 @@ def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
     from ai_service import AIService
     from datetime import datetime
     try:
+        SubscriptionManager.ensure_feature(request.username, "flashcards")
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -2804,6 +2773,7 @@ def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
 def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
     from ai_service import AIService
     try:
+        SubscriptionManager.ensure_feature(request.username, "summary")
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -2842,6 +2812,7 @@ def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
 def create_elaboration(request: ElaborationRequest):
     """Startet Ausarbeitung im Hintergrund (vermeidet HTTP-502 durch Proxy-Timeouts)."""
     try:
+        SubscriptionManager.ensure_feature(request.username, "elaboration")
         ensure_minimum_tokens(request.username, 2)
     except HTTPException:
         raise
@@ -2927,6 +2898,7 @@ def refine_elaboration(request: ElaborationRefineRequest):
     from ai_service import AIService
     from datetime import datetime
     try:
+        SubscriptionManager.ensure_feature(request.username, "elaboration_refine")
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -3086,6 +3058,7 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
     from ai_service import AIService
     from datetime import datetime
     try:
+        SubscriptionManager.ensure_feature(request.username, "repetition")
         ensure_minimum_tokens(request.username, 2)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -3134,6 +3107,7 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
 def get_task_help(request: TaskHelpRequest):
     from ai_service import AIService
     try:
+        SubscriptionManager.ensure_feature(request.username, "task_help")
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -3165,6 +3139,7 @@ def get_task_help(request: TaskHelpRequest):
 def chat_endpoint_stream(request: ChatRequest):
     from ai_service import AIService
     try:
+        SubscriptionManager.ensure_feature(request.username, "chat")
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -3210,6 +3185,7 @@ def chat_endpoint_stream(request: ChatRequest):
 def chat_endpoint(request: ChatRequest):
     from ai_service import AIService
     try:
+        SubscriptionManager.ensure_feature(request.username, "chat")
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -3252,6 +3228,7 @@ def chat_endpoint(request: ChatRequest):
 def document_chat_patch(request: DocumentChatPatchRequest):
     from ai_service import AIService
     try:
+        SubscriptionManager.ensure_feature(request.username, "chat")
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -3295,6 +3272,7 @@ def document_chat_patch(request: DocumentChatPatchRequest):
 def edit_selection(request: SelectionEditRequest):
     from ai_service import AIService
     try:
+        SubscriptionManager.ensure_feature(request.username, "chat")
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
@@ -3356,6 +3334,7 @@ def tts_preview(request: TtsPreviewRequest):
 def create_podcast(request: PodcastRequest):
     """Startet Podcast-Erstellung im Hintergrund (vermeidet HTTP-502 durch Proxy-Timeouts)."""
     try:
+        SubscriptionManager.ensure_feature(request.username, "podcast")
         ensure_minimum_tokens(request.username, 2)
     except HTTPException:
         raise
@@ -3438,6 +3417,7 @@ def podcast_job_status(job_id: str, username: str):
 def create_learning_video(request: LearningVideoRequest):
     """Startet Lernvideo-Erstellung im Hintergrund (vermeidet HTTP-502 durch Proxy-Timeouts)."""
     try:
+        SubscriptionManager.ensure_feature(request.username, "learning_video")
         ensure_minimum_tokens(request.username, 3)
     except HTTPException:
         raise
@@ -3852,6 +3832,255 @@ def download_marketing_pack_zip(pack_id: str):
         headers={"Content-Disposition": f'attachment; filename="marketing_pack_{pack_id}.zip"'},
     )
 
+
+# ---------------------------------------------------------------------------
+# Subscription & Payment endpoints
+# ---------------------------------------------------------------------------
+
+class CheckoutRequest(BaseModel):
+    tier: str
+    interval: str = "month"  # "month" or "year"
+
+
+class PayPalCreateRequest(BaseModel):
+    tier: str
+    interval: str = "month"
+
+
+class AdminSetSubscriptionRequest(BaseModel):
+    tier: str
+    status: str = "active"
+    provider: str = "admin"
+    months: int = 1
+
+
+class AdminSetTierRequest(BaseModel):
+    display_name: str
+    price_monthly_eur: float
+    price_yearly_eur: float
+    tokens_monthly: int
+    is_admin_only: bool = False
+    is_default: bool = False
+
+
+class AdminSetFeatureRequest(BaseModel):
+    allowed: bool
+
+
+@app.get("/api/subscription/tiers")
+def list_subscription_tiers():
+    """Public list of available tiers and their features."""
+    tiers = SubscriptionManager.get_tiers()
+    all_features = SubscriptionManager.get_all_features()
+    out = []
+    for tier in tiers:
+        if tier.get("is_admin_only"):
+            continue
+        name = tier.get("name")
+        out.append({
+            **tier,
+            "features": all_features.get(name, {}),
+        })
+    return {"tiers": out}
+
+
+@app.get("/api/subscription/status")
+def get_subscription_status(http_request: Request, username: str, session_id: str = ""):
+    """Returns current subscription status and publishable payment keys."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    sub = SubscriptionManager.get_user_subscription(user)
+    return {
+        "username": user,
+        "subscription": sub,
+        "stripe_publishable_key": payment_manager.stripe_publishable_key(),
+        "paypal_client_id": payment_manager.paypal_client_id(),
+    }
+
+
+@app.post("/api/subscription/checkout")
+def create_subscription_checkout(http_request: Request, request: CheckoutRequest, session_id: str = ""):
+    """Creates a Stripe Checkout session for Pro/Premium."""
+    user = require_session_user(http_request, session_id=session_id or None)
+    user_record = AuthManager.get_user(user)
+    email = user_record.get("email") if user_record else ""
+    return payment_manager.create_checkout_session(
+        username=user,
+        email=email or "",
+        tier=request.tier,
+        interval=request.interval,
+    )
+
+
+@app.post("/api/subscription/portal")
+def create_subscription_portal(http_request: Request, username: str, session_id: str = ""):
+    """Creates a Stripe Customer Portal session."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    sub = SubscriptionManager.get_user_subscription(user)
+    customer_id = sub.get("provider_customer_id")
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="Kein Stripe-Kundenkonto vorhanden.")
+    return payment_manager.create_portal_session(user, customer_id)
+
+
+@app.post("/api/subscription/webhook")
+async def stripe_webhook(request: Request):
+    """Stripe webhook for subscription lifecycle events."""
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+    return payment_manager.handle_stripe_webhook(payload, sig_header)
+
+
+@app.post("/api/subscription/paypal/create")
+def create_paypal_subscription_order(http_request: Request, request: PayPalCreateRequest, session_id: str = ""):
+    """Creates a one-time PayPal order for a subscription period."""
+    user = require_session_user(http_request, session_id=session_id or None)
+    return payment_manager.create_paypal_order(
+        username=user,
+        tier=request.tier,
+        interval=request.interval,
+    )
+
+
+@app.post("/api/subscription/paypal/capture")
+def capture_paypal_subscription_order(http_request: Request, order_id: str = Body(..., embed=True), session_id: str = ""):
+    """Captures a PayPal order and activates the subscription."""
+    user = require_session_user(http_request, session_id=session_id or None)
+    return payment_manager.capture_paypal_order(order_id, user)
+
+
+# --- Admin endpoints ---
+
+@app.get("/api/admin/subscriptions")
+def admin_list_subscriptions(http_request: Request, admin_username: str, session_id: str = ""):
+    """Admin: list all subscriptions."""
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    admin_record = AuthManager.get_user(user)
+    if not admin_record or not admin_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    db = SubscriptionManager._get_db()
+    if not db:
+        raise HTTPException(status_code=500, detail="Datenbank nicht erreichbar")
+    try:
+        res = db.table("subscriptions").select("*").execute()
+        return {"subscriptions": res.data}
+    except Exception as exc:
+        print(f"admin_list_subscriptions error: {exc}")
+        raise HTTPException(status_code=500, detail="Fehler beim Laden der Abos.")
+
+
+@app.put("/api/admin/subscriptions/{username}")
+def admin_set_subscription(
+    http_request: Request,
+    username: str,
+    request: AdminSetSubscriptionRequest,
+    admin_username: str = "",
+    session_id: str = "",
+):
+    """Admin: change a user's subscription tier/period."""
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    admin_record = AuthManager.get_user(user)
+    if not admin_record or not admin_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+
+    now = datetime.now(timezone.utc)
+    period_end = now + timedelta(days=30 * request.months)
+    return SubscriptionManager.set_user_subscription(
+        username=username,
+        tier=request.tier,
+        status=request.status,
+        provider=request.provider,
+        current_period_start=now,
+        current_period_end=period_end,
+        reset_tokens=True,
+    )
+
+
+@app.post("/api/admin/subscriptions/{username}/custom")
+def admin_grant_custom_subscription(
+    http_request: Request,
+    username: str,
+    request: AdminSetSubscriptionRequest,
+    admin_username: str = "",
+    session_id: str = "",
+):
+    """Admin: grant a custom subscription (admin-only tier) to a user."""
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    admin_record = AuthManager.get_user(user)
+    if not admin_record or not admin_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+
+    now = datetime.now(timezone.utc)
+    period_end = now + timedelta(days=30 * request.months)
+    return SubscriptionManager.set_user_subscription(
+        username=username,
+        tier=request.tier,
+        status=request.status,
+        provider="admin",
+        current_period_start=now,
+        current_period_end=period_end,
+        reset_tokens=True,
+    )
+
+
+@app.put("/api/admin/tiers/{name}")
+def admin_upsert_tier(
+    http_request: Request,
+    name: str,
+    request: AdminSetTierRequest,
+    admin_username: str = "",
+    session_id: str = "",
+):
+    """Admin: create or update a subscription tier."""
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    admin_record = AuthManager.get_user(user)
+    if not admin_record or not admin_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    return SubscriptionManager.upsert_tier(
+        name=name,
+        display_name=request.display_name,
+        price_monthly_eur=request.price_monthly_eur,
+        price_yearly_eur=request.price_yearly_eur,
+        tokens_monthly=request.tokens_monthly,
+        is_admin_only=request.is_admin_only,
+        is_default=request.is_default,
+    )
+
+
+@app.put("/api/admin/features/{tier_name}/{feature_key}")
+def admin_set_feature(
+    http_request: Request,
+    tier_name: str,
+    feature_key: str,
+    request: AdminSetFeatureRequest,
+    admin_username: str = "",
+    session_id: str = "",
+):
+    """Admin: allow/disallow a feature for a tier."""
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    admin_record = AuthManager.get_user(user)
+    if not admin_record or not admin_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    return SubscriptionManager.set_feature(tier_name, feature_key, request.allowed)
+
+
+@app.delete("/api/admin/tiers/{name}")
+def admin_delete_tier(
+    http_request: Request,
+    name: str,
+    admin_username: str = "",
+    session_id: str = "",
+):
+    """Admin: delete a custom tier."""
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    admin_record = AuthManager.get_user(user)
+    if not admin_record or not admin_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    return SubscriptionManager.delete_tier(name)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))

@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Trash2, AlertTriangle, Loader2, LogOut } from 'lucide-react';
+import { Trash2, AlertTriangle, Loader2, LogOut, CreditCard, Calendar, ArrowUpRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { fetchSubscriptionStatus, createStripePortal, SubscriptionStatus } from '@/lib/subscription';
 
 export default function Settings() {
     const router = useRouter();
@@ -18,19 +19,20 @@ export default function Settings() {
     // Auth Token Stats
     const [tokens, setTokens] = useState<number | null>(null);
     const [tier, setTier] = useState<string>("free");
-    const [upgradeLoading, setUpgradeLoading] = useState<string | null>(null);
+    const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
+    const [portalLoading, setPortalLoading] = useState(false);
     const [upgradeStatus, setUpgradeStatus] = useState<{message: string, isError: boolean} | null>(null);
     const [preferredModel, setPreferredModel] = useState<string>("");
     const [savingModel, setSavingModel] = useState(false);
 
     const API_BASE = '/api';
-    const allowMockUpgrade = process.env.NEXT_PUBLIC_ALLOW_MOCK_UPGRADE === '1';
 
     useEffect(() => {
         const user = localStorage.getItem("username");
         if (user) {
             setUsername(user);
             fetchUserInfo(user);
+            loadSubscriptionStatus();
         }
     }, []);
 
@@ -47,6 +49,28 @@ export default function Settings() {
             }
         } catch (error) {
             console.error("Error fetching user info:", error);
+        }
+    };
+
+    const loadSubscriptionStatus = async () => {
+        try {
+            const status = await fetchSubscriptionStatus();
+            setSubscriptionStatus(status);
+            setTier(status.subscription.tier);
+        } catch (error) {
+            console.error("Error fetching subscription status:", error);
+        }
+    };
+
+    const openCustomerPortal = async () => {
+        setPortalLoading(true);
+        setUpgradeStatus(null);
+        try {
+            const { url } = await createStripePortal();
+            window.location.href = url;
+        } catch (err: any) {
+            setUpgradeStatus({ message: err?.message || "Portal konnte nicht geöffnet werden.", isError: true });
+            setPortalLoading(false);
         }
     };
 
@@ -72,32 +96,6 @@ export default function Settings() {
         }
     };
 
-    const handleUpgrade = async (newTier: string) => {
-        if (!username) return;
-        setUpgradeLoading(newTier);
-        setUpgradeStatus(null);
-        try {
-            const sid = localStorage.getItem("session_id") || "";
-            const res = await fetch(`${API_BASE}/subscription/upgrade?session_id=${encodeURIComponent(sid)}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
-                body: JSON.stringify({ username, tier: newTier })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                // Update local state
-                setTokens(data.new_tokens);
-                setTier(data.subscription_tier);
-                setUpgradeStatus({message: data.message, isError: false});
-            } else {
-                setUpgradeStatus({message: data.detail || "Fehler beim Upgrade.", isError: true});
-            }
-        } catch (error) {
-            setUpgradeStatus({message: "Verbindungsfehler zur API.", isError: true});
-        } finally {
-            setUpgradeLoading(null);
-        }
-    };
 
     const handleDeleteAccount = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -182,8 +180,7 @@ export default function Settings() {
                         <div className="flex flex-col md:flex-row gap-6 justify-between items-start md:items-center">
                             <div className="flex-1">
                                 <p className="text-gray-400 text-sm mb-4">
-                                    Nutze Tokens für AI-Funktionen wie Zusammenfassungen, Quizze und Audios.
-                                    Upgrade dein Abo für mehr Tokens.
+                                    Nutze Tokens für KI-Funktionen. Dein Abo verlängert sich automatisch und kann jederzeit gekündigt werden.
                                 </p>
                                 <div className="flex items-center gap-3">
                                     <span className="text-3xl font-bold text-white flex items-center gap-2">
@@ -191,38 +188,46 @@ export default function Settings() {
                                     </span>
                                     <span className="text-sm text-gray-500 font-medium">Tokens verfügbar</span>
                                 </div>
-                                <div className="mt-3 inline-block px-3 py-1 bg-[#333] rounded-md text-sm text-[#5E5CE6] font-medium border border-[#444]">
-                                    Aktuelles Abo: {tier.toUpperCase()}
+                                <div className="mt-3 flex flex-wrap items-center gap-3">
+                                    <span className="inline-block px-3 py-1 bg-[#333] rounded-md text-sm text-[#5E5CE6] font-medium border border-[#444]">
+                                        Aktuelles Abo: {tier.toUpperCase()}
+                                    </span>
+                                    {subscriptionStatus?.subscription?.provider && subscriptionStatus.subscription.provider !== 'none' && (
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#1C1C33] rounded-md text-sm text-gray-400 font-medium border border-[#2A2A40]">
+                                            <CreditCard size={14} />
+                                            Zahlung über {subscriptionStatus.subscription.provider === 'stripe' ? 'Stripe' : 'PayPal'}
+                                        </span>
+                                    )}
+                                    {subscriptionStatus?.subscription?.current_period_end && (
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#1C1C33] rounded-md text-sm text-gray-400 font-medium border border-[#2A2A40]">
+                                            <Calendar size={14} />
+                                            Aktiv bis {new Date(subscriptionStatus.subscription.current_period_end).toLocaleDateString('de-DE')}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 
-                            {allowMockUpgrade && (
                             <div className="flex flex-col gap-3 w-full md:w-auto shrink-0 md:min-w-[180px]">
+                                {tier !== 'free' && subscriptionStatus?.subscription?.provider === 'stripe' ? (
+                                    <button
+                                        onClick={openCustomerPortal}
+                                        disabled={portalLoading}
+                                        className="bg-[#333] hover:bg-[#444] text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2 min-w-[180px]"
+                                    >
+                                        {portalLoading ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
+                                        Abo verwalten
+                                    </button>
+                                ) : null}
                                 <button
-                                    onClick={() => handleUpgrade('basic')}
-                                    disabled={upgradeLoading !== null}
-                                    className="bg-[#333] hover:bg-[#444] text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center min-w-[140px]"
+                                    onClick={() => router.push('/pricing')}
+                                    className="bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] hover:opacity-90 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 min-w-[180px]"
                                 >
-                                    {upgradeLoading === 'basic' ? <Loader2 size={16} className="animate-spin" /> : "Basic (+1000)"}
-                                </button>
-                                <button
-                                    onClick={() => handleUpgrade('pro')}
-                                    disabled={upgradeLoading !== null}
-                                    className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center min-w-[140px]"
-                                >
-                                    {upgradeLoading === 'pro' ? <Loader2 size={16} className="animate-spin" /> : "Pro (+5000)"}
-                                </button>
-                                <button
-                                    onClick={() => handleUpgrade('premium')}
-                                    disabled={upgradeLoading !== null}
-                                    className="bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-90 text-white shadow-lg shadow-orange-500/20 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center min-w-[140px]"
-                                >
-                                    {upgradeLoading === 'premium' ? <Loader2 size={16} className="animate-spin" /> : "Premium (+15000)"}
+                                    {tier === 'free' ? 'Upgrade wählen' : 'Abo ändern'}
+                                    <ArrowUpRight size={16} />
                                 </button>
                             </div>
-                            )}
                         </div>
-                        
+
                         {upgradeStatus && (
                             <div className={`mt-4 p-3 rounded-xl border text-sm text-center ${upgradeStatus.isError ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-green-500/10 border-green-500/20 text-green-400'}`}>
                                 {upgradeStatus.message}
