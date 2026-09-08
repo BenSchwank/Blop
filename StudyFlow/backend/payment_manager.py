@@ -44,6 +44,17 @@ def _stripe_enabled() -> bool:
     return bool(STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY)
 
 
+def _stripe_dict(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "to_dict_recursive"):
+        return value.to_dict_recursive()
+    try:
+        return dict(value)
+    except (TypeError, ValueError):
+        return {}
+
+
 def _price_id(tier: str, interval: str) -> str:
     price_id = STRIPE_PRICE_IDS.get((tier, interval))
     if not price_id:
@@ -135,8 +146,8 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
     if not _stripe_enabled():
         raise HTTPException(status_code=503, detail="Stripe ist nicht konfiguriert.")
     try:
-        session = stripe.checkout.Session.retrieve(checkout_session_id)
-        metadata = session.get("metadata", {})
+        session = _stripe_dict(stripe.checkout.Session.retrieve(checkout_session_id))
+        metadata = _stripe_dict(session.get("metadata", {}))
         if metadata.get("username") != username:
             raise HTTPException(status_code=403, detail="Checkout gehört nicht zum angemeldeten Benutzer.")
         if session.get("payment_status") not in ("paid", "no_payment_required"):
@@ -144,7 +155,7 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
         subscription_id = session.get("subscription")
         if not subscription_id:
             raise HTTPException(status_code=409, detail="Stripe-Abo wurde noch nicht erstellt.")
-        subscription = stripe.Subscription.retrieve(subscription_id)
+        subscription = _stripe_dict(stripe.Subscription.retrieve(subscription_id))
         _handle_subscription_created_or_updated(subscription)
         return {"status": "success", "tier": metadata.get("tier", "free")}
     except HTTPException:
@@ -198,7 +209,8 @@ def _credit_tokens(username: str, tier: str, interval: str):
 
 
 def _handle_subscription_created_or_updated(subscription: Dict[str, Any]):
-    metadata = subscription.get("metadata", {})
+    subscription = _stripe_dict(subscription)
+    metadata = _stripe_dict(subscription.get("metadata", {}))
     username = metadata.get("username")
     tier = metadata.get("tier")
     interval = metadata.get("interval", "month")
@@ -237,7 +249,8 @@ def _handle_subscription_created_or_updated(subscription: Dict[str, Any]):
 
 
 def _handle_subscription_deleted(subscription: Dict[str, Any]):
-    metadata = subscription.get("metadata", {})
+    subscription = _stripe_dict(subscription)
+    metadata = _stripe_dict(subscription.get("metadata", {}))
     username = metadata.get("username")
     if not username:
         return
@@ -258,26 +271,27 @@ def handle_stripe_webhook(payload: bytes, sig_header: str) -> Dict[str, str]:
     if not _stripe_enabled() or not STRIPE_WEBHOOK_SECRET:
         raise HTTPException(status_code=503, detail="Stripe Webhook ist nicht konfiguriert.")
     try:
-        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+        event = _stripe_dict(stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET))
     except Exception as exc:
         print(f"Stripe webhook verification failed ({type(exc).__name__}): {exc}")
         raise HTTPException(status_code=400, detail=f"Ungültiger Stripe-Webhook: {exc}")
 
     event_type = event.get("type")
-    data = event.get("data", {}).get("object", {})
+    event_data = _stripe_dict(event.get("data", {}))
+    data = _stripe_dict(event_data.get("object", {}))
     print(f"Stripe webhook received: {event_type}")
 
     if event_type == "checkout.session.completed":
         # Expand the subscription to get full metadata and period dates.
         subscription_id = data.get("subscription")
         if subscription_id:
-            sub = stripe.Subscription.retrieve(subscription_id)
+            sub = _stripe_dict(stripe.Subscription.retrieve(subscription_id))
             _handle_subscription_created_or_updated(sub)
     elif event_type == "invoice.paid":
         # Recurring payment succeeded: credit tokens again.
         subscription_id = data.get("subscription")
         if subscription_id:
-            sub = stripe.Subscription.retrieve(subscription_id)
+            sub = _stripe_dict(stripe.Subscription.retrieve(subscription_id))
             _handle_subscription_created_or_updated(sub)
     elif event_type == "customer.subscription.deleted":
         _handle_subscription_deleted(data)
