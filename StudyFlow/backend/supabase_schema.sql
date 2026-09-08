@@ -76,3 +76,21 @@ CREATE TABLE IF NOT EXISTS public.share_links (
 
 CREATE INDEX IF NOT EXISTS share_links_active_expiry_idx
     ON public.share_links (is_active, expires_at);
+
+-- 8. Sessions (server-side, persistent across Render restarts)
+CREATE TABLE IF NOT EXISTS public.sessions (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL REFERENCES public.users(username) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_active TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS sessions_username_idx
+    ON public.sessions (username);
+
+CREATE INDEX IF NOT EXISTS sessions_last_active_idx
+    ON public.sessions (last_active);
+
+COMMENT ON TABLE public.sessions IS 'Blop Study: server-side session tokens written by the backend.';
+
+ALTER TABLE public.sessions DISABLE ROW LEVEL SECURITY;
