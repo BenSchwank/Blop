@@ -1,5 +1,6 @@
 import base64
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -7,6 +8,7 @@ import requests as paypal_requests
 import stripe
 from fastapi import HTTPException, Request
 
+from email_notify import try_notify_subscription_started
 from subscription_manager import SubscriptionManager
 
 
@@ -65,6 +67,14 @@ def _subscription_credits_for_interval(tier: str, interval: str) -> int:
     if interval == "year":
         return tokens_monthly * 12
     return tokens_monthly
+
+
+def _notify_subscription_started(username: str, tier: str, interval: str, provider: str) -> None:
+    threading.Thread(
+        target=try_notify_subscription_started,
+        args=(username, tier, interval, provider),
+        daemon=True,
+    ).start()
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +216,9 @@ def _handle_subscription_created_or_updated(subscription: Dict[str, Any]):
     if current_period_start_ts:
         period_start = datetime.fromtimestamp(current_period_start_ts, tz=timezone.utc)
 
+    previous = SubscriptionManager.get_user_subscription(username)
+    is_new_subscription = previous.get("provider_subscription_id") != subscription.get("id")
+
     SubscriptionManager.set_user_subscription(
         username=username,
         tier=tier,
@@ -219,6 +232,8 @@ def _handle_subscription_created_or_updated(subscription: Dict[str, Any]):
         reset_tokens=False,
     )
     _credit_tokens(username, tier, interval)
+    if is_new_subscription:
+        _notify_subscription_started(username, tier, interval, "stripe")
 
 
 def _handle_subscription_deleted(subscription: Dict[str, Any]):
@@ -410,6 +425,9 @@ def capture_paypal_order(order_id: str, expected_username: str) -> Dict[str, Any
     months = 12 if interval == "year" else 1
     period_end = now + timedelta(days=30 * months)
 
+    previous = SubscriptionManager.get_user_subscription(username)
+    is_new_subscription = previous.get("provider_subscription_id") != order_id
+
     SubscriptionManager.set_user_subscription(
         username=username,
         tier=tier,
@@ -426,6 +444,8 @@ def capture_paypal_order(order_id: str, expected_username: str) -> Dict[str, Any
         db = SubscriptionManager._get_db()
         if db:
             db.table("users").update({"tokens": credits}).eq("username", username).execute()
+    if is_new_subscription:
+        _notify_subscription_started(username, tier, interval, "paypal")
 
     return {"status": "success", "tier": tier, "interval": interval, "username": username}
 

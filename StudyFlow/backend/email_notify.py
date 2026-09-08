@@ -15,6 +15,7 @@ Absender / SMTP-Server (ein technisches Postfach des Betreibers) über Env:
   BLOP_APP_PUBLIC_URL  z. B. https://deine-domain.de — für Link zum Ordner
 """
 
+import html
 import os
 import smtplib
 import ssl
@@ -99,6 +100,73 @@ def send_document_ready_email(
                 server.sendmail(from_addr, [to_addr], msg.as_string())
     except Exception as e:
         print(f"[email_notify] SMTP send failed: {e}")
+
+
+def try_notify_subscription_started(username: str, tier: str, interval: str, provider: str) -> None:
+    if not smtp_configured():
+        return
+    try:
+        from auth_manager import AuthManager
+
+        user = AuthManager.get_user(username)
+        to_addr = ((user or {}).get("email") or "").strip()
+        if not to_addr or "@" not in to_addr:
+            return
+
+        host = os.environ.get("BLOP_SMTP_HOST", "").strip()
+        port = int(os.environ.get("BLOP_SMTP_PORT", "587") or "587")
+        smtp_user = os.environ.get("BLOP_SMTP_USER", "").strip()
+        password = os.environ.get("BLOP_SMTP_PASSWORD", "").strip()
+        from_addr = (os.environ.get("BLOP_SMTP_FROM", "") or smtp_user).strip()
+        base_url = os.environ.get("BLOP_APP_PUBLIC_URL", "").rstrip("/")
+        tier_label = tier.capitalize()
+        interval_label = "jährlich" if interval == "year" else "monatlich"
+        settings_url = f"{base_url}/settings" if base_url else ""
+        safe_user = html.escape(username)
+        safe_tier = html.escape(tier_label)
+        safe_provider = html.escape(provider.capitalize())
+
+        text_body = (
+            f"Hallo {username},\n\n"
+            f"dein Blop Study {tier_label}-Abo ist jetzt aktiv.\n\n"
+            f"Abrechnung: {interval_label}\n"
+            f"Zahlungsanbieter: {provider.capitalize()}\n\n"
+            f"Du kannst dein Abo jederzeit in den Einstellungen verwalten oder kündigen.\n"
+            f"{settings_url}\n\n— Blop Study\n"
+        )
+        html_body = f"""<html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#111">
+  <h2>Dein Blop Study {safe_tier}-Abo ist aktiv</h2>
+  <p>Hallo {safe_user},</p>
+  <p>vielen Dank für dein Vertrauen. Dein <strong>{safe_tier}-Abo</strong> wurde erfolgreich aktiviert.</p>
+  <p><strong>Abrechnung:</strong> {interval_label}<br><strong>Zahlungsanbieter:</strong> {safe_provider}</p>
+  <p>Du kannst dein Abo jederzeit in den Einstellungen verwalten oder kündigen.</p>
+  {f'<p><a href="{settings_url}">Abo verwalten</a></p>' if settings_url else ''}
+  <p style="color:#666;font-size:12px;margin-top:2rem">Automatische Bestätigung — bitte nicht antworten.</p>
+</body></html>"""
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"Blop Study: Dein {tier_label}-Abo ist aktiv"
+        msg["From"] = from_addr
+        msg["To"] = to_addr
+        msg.attach(MIMEText(text_body, "plain", "utf-8"))
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+        context = ssl.create_default_context()
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=30, context=context) as server:
+                if password:
+                    server.login(smtp_user, password)
+                server.sendmail(from_addr, [to_addr], msg.as_string())
+        else:
+            with smtplib.SMTP(host, port, timeout=30) as server:
+                server.ehlo()
+                server.starttls(context=context)
+                server.ehlo()
+                if password:
+                    server.login(smtp_user, password)
+                server.sendmail(from_addr, [to_addr], msg.as_string())
+    except Exception as e:
+        print(f"[email_notify] subscription confirmation failed: {e}")
 
 
 def try_notify_document_ready(username: str, folder_id: str, document_label: str) -> None:
