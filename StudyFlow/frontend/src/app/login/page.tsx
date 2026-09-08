@@ -37,15 +37,15 @@ export default function LoginPage() {
         localStorage.removeItem('username');
 
         const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-        const android = /Android/i.test(ua);
         const nativeQuery =
             typeof window !== 'undefined' &&
             new URLSearchParams(window.location.search).get('native') === '1';
-        // Android WebView / ?native=1: never fall back to GIS popup
-        // (Google rejects embedded WebView user-agents).
-        if (android || nativeQuery) {
+        // Only use the native deep-link flow when explicitly inside the native app.
+        // A normal mobile browser (Chrome/Safari on Android/iOS) should use the
+        // standard Google Identity Services popup button.
+        if (nativeQuery) {
             setIsNativeApp(true);
-            setUseNativeGoogle(android || nativeQuery);
+            setUseNativeGoogle(true);
         }
 
         // Check if inside Qt Native App (injected by QWebEngine / Android WebView)
@@ -53,16 +53,10 @@ export default function LoginPage() {
             const w = window as any;
             if (w.isBlopNativeApp || w.isBlopDesktopApp) {
                 setIsNativeApp(!!w.isBlopNativeApp || !!w.isBlopDesktopApp);
-                const uaNow = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-                const androidNow = /Android/i.test(uaNow);
-                // Android → Custom Tab PKCE. Desktop Blop → system-browser GIS
-                // bridge (claim/poll + blop://). Never use GIS popup inside
-                // Qt WebEngine: Google often escapes to Chrome with no return.
+                // Native flow only when the app explicitly identifies itself.
+                // Android Chrome/Safari on its own must keep the GIS popup.
                 setUseNativeGoogle(
-                    androidNow ||
-                        nativeQuery ||
-                        (!!w.isBlopNativeApp && androidNow) ||
-                        !!w.isBlopDesktopApp
+                    nativeQuery || !!w.isBlopNativeApp || !!w.isBlopDesktopApp
                 );
                 clearInterval(checkNative);
             }

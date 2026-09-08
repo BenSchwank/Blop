@@ -1421,18 +1421,17 @@ def validate_session(session_id: str):
 
 class DeleteAccountRequest(BaseModel):
     username: str
-    password: str
+    confirmation: str
     session_id: Optional[str] = None
 
 @app.delete("/api/auth/user")
 def delete_account(http_request: Request, request: DeleteAccountRequest):
-    """Permanently deletes a user account."""
+    """Permanently deletes a user account after confirmation phrase."""
     # 1. Require valid session matching the username
     user = require_session_user(http_request, session_id=request.session_id or None, username=request.username or None)
-    # 2. Verify password
-    ok, _ = AuthManager.login(user, request.password)
-    if not ok:
-        raise HTTPException(status_code=401, detail="Falsches Passwort.")
+    # 2. Verify confirmation phrase
+    if request.confirmation.strip() != "Konto Löschen":
+        raise HTTPException(status_code=400, detail="Bestätigung falsch. Bitte gib 'Konto Löschen' ein.")
     # 3. Delete
     if AuthManager.delete_user(user):
         return {"success": True, "message": "Account gelöscht."}

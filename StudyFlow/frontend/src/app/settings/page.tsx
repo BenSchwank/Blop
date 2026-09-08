@@ -13,7 +13,7 @@ export default function Settings() {
 
     // Delete State
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-    const [deletePassword, setDeletePassword] = useState("");
+    const [deleteConfirmation, setDeleteConfirmation] = useState("");
     const [deleteError, setDeleteError] = useState("");
 
     // Auth Token Stats
@@ -99,6 +99,10 @@ export default function Settings() {
 
     const handleDeleteAccount = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (deleteConfirmation.trim() !== "Konto Löschen") {
+            setDeleteError("Bitte gib exakt 'Konto Löschen' ein.");
+            return;
+        }
         setLoading(true);
         setDeleteError("");
 
@@ -107,7 +111,7 @@ export default function Settings() {
             const res = await fetch(`${API_BASE}/auth/user`, {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json", "X-Session-Id": sid },
-                body: JSON.stringify({ username, password: deletePassword, session_id: sid })
+                body: JSON.stringify({ username, confirmation: deleteConfirmation, session_id: sid })
             });
 
             if (res.ok) {
@@ -311,12 +315,14 @@ export default function Settings() {
 
                         <form onSubmit={handleDeleteAccount} className="space-y-4">
                             <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1.5 ml-1">Zur Bestätigung Passwort eingeben:</label>
+                                <label className="block text-xs font-medium text-gray-500 mb-1.5 ml-1">
+                                    Zur Bestätigung <strong className="text-white">Konto Löschen</strong> eingeben:
+                                </label>
                                 <input
-                                    type="password"
-                                    value={deletePassword}
-                                    onChange={(e) => setDeletePassword(e.target.value)}
-                                    placeholder="Dein Passwort"
+                                    type="text"
+                                    value={deleteConfirmation}
+                                    onChange={(e) => setDeleteConfirmation(e.target.value)}
+                                    placeholder="Konto Löschen"
                                     className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none transition-all"
                                     autoFocus
                                 />
@@ -331,14 +337,14 @@ export default function Settings() {
                             <div className="flex gap-3 pt-2">
                                 <button
                                     type="button"
-                                    onClick={() => { setIsDeleteOpen(false); setDeletePassword(""); setDeleteError(""); }}
+                                    onClick={() => { setIsDeleteOpen(false); setDeleteConfirmation(""); setDeleteError(""); }}
                                     className="flex-1 py-3 text-sm font-medium text-gray-300 hover:text-white bg-[#333] hover:bg-[#444] rounded-xl transition-all"
                                 >
                                     Abbrechen
                                 </button>
                                 <button
                                     type="submit"
-                                    disabled={!deletePassword || loading}
+                                    disabled={deleteConfirmation.trim() !== "Konto Löschen" || loading}
                                     className="flex-1 py-3 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg shadow-red-900/20"
                                 >
                                     {loading ? <Loader2 size={18} className="animate-spin" /> : "Endgültig löschen"}
