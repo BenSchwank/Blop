@@ -3950,7 +3950,30 @@ def capture_paypal_subscription_order(http_request: Request, order_id: str = Bod
 
 # --- Admin endpoints ---
 
-@app.get("/api/admin/subscriptions")
+@app.get("/api/admin/tiers")
+def admin_list_tiers(http_request: Request, admin_username: str, session_id: str = ""):
+    """Admin: list all tiers including admin-only ones."""
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    admin_record = AuthManager.get_user(user)
+    if not admin_record or not admin_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    all_features = SubscriptionManager.get_all_features()
+    tiers = SubscriptionManager.get_tiers()
+    # include admin-only tiers as well
+    db = SubscriptionManager._get_db()
+    if db:
+        try:
+            res = db.table("subscription_tiers").select("*").execute()
+            tiers = sorted(
+                res.data,
+                key=lambda t: (not t.get("is_default", False), t.get("price_monthly_eur", 0), t.get("name")),
+            )
+        except Exception as exc:
+            print(f"admin_list_tiers error: {exc}")
+    return {
+        "tiers": [{**tier, "features": all_features.get(tier.get("name"), {})} for tier in tiers]
+    }
+
 def admin_list_subscriptions(http_request: Request, admin_username: str, session_id: str = ""):
     """Admin: list all subscriptions."""
     user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
