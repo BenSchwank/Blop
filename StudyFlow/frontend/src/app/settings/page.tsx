@@ -42,7 +42,7 @@ export default function Settings() {
                 .catch(() => syncStripeSubscription())
                 .then((result) => {
                     if ('found' in result && !result.found) {
-                        throw new Error('Stripe hat für die E-Mail dieses Blop-Accounts kein aktives Abo gefunden.');
+                        throw new Error('Stripe hat für diesen Blop-Account kein aktives Abo gefunden.');
                     }
                     setUpgradeStatus({ message: "Dein Abo ist jetzt aktiv.", isError: false });
                     window.history.replaceState({}, "", "/settings");

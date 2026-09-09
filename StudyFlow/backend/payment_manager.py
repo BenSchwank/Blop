@@ -292,15 +292,37 @@ def sync_stripe_subscription(username: str, email: str) -> Dict[str, Any]:
     if not _stripe_enabled():
         raise HTTPException(status_code=503, detail="Stripe ist nicht konfiguriert.")
     email = (email or "").strip().lower()
-    if not email:
-        raise HTTPException(status_code=400, detail="Für diesen Account ist keine E-Mail-Adresse hinterlegt.")
     try:
-        customers = _stripe_dict(stripe.Customer.list(email=email, limit=100)).get("data", []) or []
-        candidates = []
-        for customer_value in customers:
+        customers_by_id: Dict[str, Dict[str, Any]] = {}
+        if email:
+            for customer_value in _stripe_dict(stripe.Customer.list(email=email, limit=100)).get("data", []) or []:
+                customer = _stripe_dict(customer_value)
+                if customer.get("id"):
+                    customers_by_id[customer["id"]] = customer
+        safe_username = username.replace("\\", "\\\\").replace("'", "\\'")
+        try:
+            username_customers = _stripe_dict(
+                stripe.Customer.search(query=f"metadata['username']:'{safe_username}'", limit=100)
+            ).get("data", []) or []
+        except Exception as exc:
+            print(f"Stripe customer metadata search unavailable ({type(exc).__name__}): {exc}")
+            username_customers = []
+        for customer_value in username_customers:
             customer = _stripe_dict(customer_value)
+            if customer.get("id"):
+                customers_by_id[customer["id"]] = customer
+        for customer_value in _stripe_dict(stripe.Customer.list(limit=100)).get("data", []) or []:
+            customer = _stripe_dict(customer_value)
+            metadata = _stripe_dict(customer.get("metadata", {}))
+            if metadata.get("username") == username and customer.get("id"):
+                customers_by_id[customer["id"]] = customer
+
+        candidates = []
+        for customer in customers_by_id.values():
             customer_id = customer.get("id")
-            if not customer_id or str(customer.get("email") or "").strip().lower() != email:
+            customer_email = str(customer.get("email") or "").strip().lower()
+            customer_username = _stripe_dict(customer.get("metadata", {})).get("username")
+            if not customer_id or (customer_username != username and (not email or customer_email != email)):
                 continue
             subscriptions = _stripe_dict(
                 stripe.Subscription.list(customer=customer_id, status="all", limit=100)
