@@ -39,7 +39,11 @@ export default function Settings() {
         if (params.get("subscription") === "success" && checkoutSessionId) {
             setUpgradeStatus({ message: "Zahlung wird bestätigt…", isError: false });
             confirmStripeCheckout(checkoutSessionId)
-                .then(() => {
+                .catch(() => syncStripeSubscription())
+                .then((result) => {
+                    if ('found' in result && !result.found) {
+                        throw new Error('Stripe hat für die E-Mail dieses Blop-Accounts kein aktives Abo gefunden.');
+                    }
                     setUpgradeStatus({ message: "Dein Abo ist jetzt aktiv.", isError: false });
                     window.history.replaceState({}, "", "/settings");
                     return Promise.all([fetchUserInfo(user), loadSubscriptionStatus()]);
