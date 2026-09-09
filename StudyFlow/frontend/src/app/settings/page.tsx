@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, AlertTriangle, Loader2, LogOut, CreditCard, Calendar, ArrowUpRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { fetchSubscriptionStatus, confirmStripeCheckout, createStripePortal, SubscriptionStatus } from '@/lib/subscription';
+import { fetchSubscriptionStatus, syncStripeSubscription, cancelStripeSubscription, confirmStripeCheckout, createStripePortal, SubscriptionStatus } from '@/lib/subscription';
 
 export default function Settings() {
     const router = useRouter();
@@ -21,6 +21,8 @@ export default function Settings() {
     const [tier, setTier] = useState<string>("free");
     const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
     const [portalLoading, setPortalLoading] = useState(false);
+    const [cancelLoading, setCancelLoading] = useState(false);
+    const [isCancelOpen, setIsCancelOpen] = useState(false);
     const [upgradeStatus, setUpgradeStatus] = useState<{message: string, isError: boolean} | null>(null);
     const [preferredModel, setPreferredModel] = useState<string>("");
     const [savingModel, setSavingModel] = useState(false);
@@ -48,8 +50,15 @@ export default function Settings() {
             return;
         }
 
-        fetchUserInfo(user);
-        loadSubscriptionStatus();
+        setUpgradeStatus({ message: "Abo-Status wird mit Stripe abgeglichen…", isError: false });
+        syncStripeSubscription()
+            .then(() => Promise.all([fetchUserInfo(user), loadSubscriptionStatus()]))
+            .then(() => setUpgradeStatus(null))
+            .catch((err: any) => {
+                setUpgradeStatus({ message: err?.message || "Stripe-Abgleich fehlgeschlagen.", isError: true });
+                fetchUserInfo(user);
+                loadSubscriptionStatus();
+            });
     }, []);
 
     const fetchUserInfo = async (user: string) => {
@@ -87,6 +96,21 @@ export default function Settings() {
         } catch (err: any) {
             setUpgradeStatus({ message: err?.message || "Portal konnte nicht geöffnet werden.", isError: true });
             setPortalLoading(false);
+        }
+    };
+
+    const cancelSubscription = async () => {
+        setCancelLoading(true);
+        setUpgradeStatus(null);
+        try {
+            await cancelStripeSubscription();
+            setIsCancelOpen(false);
+            setUpgradeStatus({ message: "Dein Abo wurde zum Ende des Abrechnungszeitraums gekündigt.", isError: false });
+            await loadSubscriptionStatus();
+        } catch (err: any) {
+            setUpgradeStatus({ message: err?.message || "Abo konnte nicht gekündigt werden.", isError: true });
+        } finally {
+            setCancelLoading(false);
         }
     };
 
@@ -229,14 +253,23 @@ export default function Settings() {
 
                             <div className="flex flex-col gap-3 w-full md:w-auto shrink-0 md:min-w-[180px]">
                                 {tier !== 'free' && subscriptionStatus?.subscription?.provider === 'stripe' ? (
-                                    <button
-                                        onClick={openCustomerPortal}
-                                        disabled={portalLoading}
-                                        className="bg-[#333] hover:bg-[#444] text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2 min-w-[180px]"
-                                    >
-                                        {portalLoading ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
-                                        Abo verwalten / kündigen
-                                    </button>
+                                    <>
+                                        <button
+                                            onClick={openCustomerPortal}
+                                            disabled={portalLoading}
+                                            className="bg-[#333] hover:bg-[#444] text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2 min-w-[180px]"
+                                        >
+                                            {portalLoading ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
+                                            Abo verwalten
+                                        </button>
+                                        <button
+                                            onClick={() => setIsCancelOpen(true)}
+                                            disabled={subscriptionStatus.subscription.cancel_at_period_end}
+                                            className="border border-red-500/40 bg-red-500/10 hover:bg-red-500/20 text-red-400 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 min-w-[180px]"
+                                        >
+                                            {subscriptionStatus.subscription.cancel_at_period_end ? 'Kündigung vorgemerkt' : 'Abo kündigen'}
+                                        </button>
+                                    </>
                                 ) : null}
                                 <button
                                     onClick={() => router.push('/pricing')}
@@ -313,6 +346,40 @@ export default function Settings() {
                 </section>
 
             </div>
+
+            {isCancelOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md p-8 shadow-2xl">
+                        <div className="flex flex-col items-center text-center mb-6">
+                            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4 text-red-500">
+                                <AlertTriangle size={32} />
+                            </div>
+                            <h3 className="text-2xl font-bold text-white mb-2">Abo wirklich kündigen?</h3>
+                            <p className="text-gray-400 text-sm">
+                                Dein Abo bleibt bis zum Ende des bereits bezahlten Zeitraums aktiv. Danach erfolgt keine weitere Abbuchung und dein Account wechselt zu Free.
+                            </p>
+                        </div>
+                        <div className="flex gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setIsCancelOpen(false)}
+                                disabled={cancelLoading}
+                                className="flex-1 py-3 text-sm font-medium text-gray-300 bg-[#333] hover:bg-[#444] rounded-xl disabled:opacity-50"
+                            >
+                                Behalten
+                            </button>
+                            <button
+                                type="button"
+                                onClick={cancelSubscription}
+                                disabled={cancelLoading}
+                                className="flex-1 py-3 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-xl disabled:opacity-50 flex justify-center items-center gap-2"
+                            >
+                                {cancelLoading ? <Loader2 size={18} className="animate-spin" /> : 'Kündigung bestätigen'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Delete Confirmation Modal */}
             {isDeleteOpen && (

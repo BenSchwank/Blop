@@ -3916,6 +3916,22 @@ def create_subscription_checkout(http_request: Request, request: CheckoutRequest
     )
 
 
+@app.post("/api/subscription/sync")
+def sync_subscription(http_request: Request, session_id: str = ""):
+    """Synchronize the authenticated account with active Stripe subscriptions by email."""
+    user = require_session_user(http_request, session_id=session_id or None)
+    user_record = AuthManager.get_user(user)
+    email = (user_record or {}).get("email") or ""
+    return payment_manager.sync_stripe_subscription(user, email)
+
+
+@app.post("/api/subscription/cancel")
+def cancel_subscription(http_request: Request, session_id: str = ""):
+    """Cancel the authenticated Stripe subscription at the end of its billing period."""
+    user = require_session_user(http_request, session_id=session_id or None)
+    return payment_manager.cancel_stripe_subscription(user)
+
+
 @app.post("/api/subscription/confirm-checkout")
 def confirm_subscription_checkout(
     http_request: Request,

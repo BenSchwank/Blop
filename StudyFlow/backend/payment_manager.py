@@ -135,7 +135,7 @@ def create_checkout_session(
         if active_subscriptions:
             active_subscriptions.sort(key=lambda item: int(item.get("created") or 0), reverse=True)
             active = active_subscriptions[0]
-            _handle_subscription_created_or_updated(active)
+            _handle_subscription_created_or_updated(active, grant_period_tokens=False)
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -254,6 +254,100 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
         raise HTTPException(status_code=502, detail=f"Stripe-Zahlung konnte nicht bestätigt werden: {message}")
 
 
+def _tier_from_stripe_subscription(subscription: Dict[str, Any]) -> str:
+    metadata = _stripe_dict(subscription.get("metadata", {}))
+    tier = str(metadata.get("tier") or "").strip().lower()
+    if tier in ("pro", "premium"):
+        return tier
+    items = _stripe_dict(subscription.get("items", {})).get("data", []) or []
+    for item in items:
+        price_id = _stripe_dict(_stripe_dict(item).get("price", {})).get("id")
+        for (configured_tier, _), configured_price_id in STRIPE_PRICE_IDS.items():
+            if configured_price_id and price_id == configured_price_id:
+                return configured_tier
+    return ""
+
+
+def sync_stripe_subscription(username: str, email: str) -> Dict[str, Any]:
+    if not _stripe_enabled():
+        raise HTTPException(status_code=503, detail="Stripe ist nicht konfiguriert.")
+    email = (email or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Für diesen Account ist keine E-Mail-Adresse hinterlegt.")
+    try:
+        customers = _stripe_dict(stripe.Customer.list(email=email, limit=100)).get("data", []) or []
+        candidates = []
+        for customer_value in customers:
+            customer = _stripe_dict(customer_value)
+            customer_id = customer.get("id")
+            if not customer_id or str(customer.get("email") or "").strip().lower() != email:
+                continue
+            subscriptions = _stripe_dict(
+                stripe.Subscription.list(customer=customer_id, status="all", limit=100)
+            ).get("data", []) or []
+            for subscription_value in subscriptions:
+                subscription = _stripe_dict(subscription_value)
+                if subscription.get("status") in ("active", "trialing", "past_due"):
+                    tier = _tier_from_stripe_subscription(subscription)
+                    if tier:
+                        candidates.append(subscription)
+        if candidates:
+            candidates.sort(key=lambda item: int(item.get("created") or 0), reverse=True)
+            subscription = candidates[0]
+            metadata = _stripe_dict(subscription.get("metadata", {}))
+            if metadata.get("username") != username:
+                stripe.Subscription.modify(
+                    subscription["id"],
+                    metadata={**metadata, "username": username, "tier": _tier_from_stripe_subscription(subscription)},
+                )
+                subscription["metadata"] = {**metadata, "username": username, "tier": _tier_from_stripe_subscription(subscription)}
+            _handle_subscription_created_or_updated(subscription, grant_period_tokens=False)
+            return {
+                "status": "success",
+                "found": True,
+                "tier": _tier_from_stripe_subscription(subscription),
+                "cancel_at_period_end": bool(subscription.get("cancel_at_period_end")),
+            }
+
+        current = SubscriptionManager.get_user_subscription(username)
+        if current.get("provider") == "stripe" and current.get("tier") != "free":
+            SubscriptionManager.set_user_subscription(
+                username=username,
+                tier=SubscriptionManager._get_default_tier(),
+                status="canceled",
+                provider="stripe",
+                reset_tokens=False,
+            )
+        return {"status": "success", "found": False, "tier": "free"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Stripe subscription sync failed ({type(exc).__name__}): {exc}")
+        message = getattr(exc, "user_message", None) or str(exc)
+        raise HTTPException(status_code=502, detail=f"Stripe-Abo konnte nicht synchronisiert werden: {message}")
+
+
+def cancel_stripe_subscription(username: str) -> Dict[str, Any]:
+    current = SubscriptionManager.get_user_subscription(username)
+    subscription_id = current.get("provider_subscription_id")
+    if current.get("provider") != "stripe" or not subscription_id:
+        raise HTTPException(status_code=400, detail="Kein aktives Stripe-Abo für diesen Account gefunden.")
+    try:
+        subscription = _stripe_dict(
+            stripe.Subscription.modify(subscription_id, cancel_at_period_end=True)
+        )
+        _handle_subscription_created_or_updated(subscription, grant_period_tokens=False)
+        return {
+            "status": "success",
+            "cancel_at_period_end": True,
+            "current_period_end": subscription.get("current_period_end"),
+        }
+    except Exception as exc:
+        print(f"Stripe subscription cancellation failed ({type(exc).__name__}): {exc}")
+        message = getattr(exc, "user_message", None) or str(exc)
+        raise HTTPException(status_code=502, detail=f"Abo konnte nicht gekündigt werden: {message}")
+
+
 # ---------------------------------------------------------------------------
 # Customer portal
 # ---------------------------------------------------------------------------
@@ -296,7 +390,7 @@ def _credit_tokens(username: str, tier: str, interval: str):
         print(f"PaymentManager: credit_tokens failed: {exc}")
 
 
-def _handle_subscription_created_or_updated(subscription: Dict[str, Any]):
+def _handle_subscription_created_or_updated(subscription: Dict[str, Any], grant_period_tokens: bool = True):
     subscription = _stripe_dict(subscription)
     metadata = _stripe_dict(subscription.get("metadata", {}))
     username = metadata.get("username")
@@ -331,7 +425,8 @@ def _handle_subscription_created_or_updated(subscription: Dict[str, Any]):
         cancel_at_period_end=subscription.get("cancel_at_period_end", False),
         reset_tokens=False,
     )
-    _credit_tokens(username, tier, interval)
+    if grant_period_tokens or is_new_subscription:
+        _credit_tokens(username, tier, interval)
     if is_new_subscription:
         _notify_subscription_started(username, tier, interval, "stripe")
 
@@ -384,7 +479,7 @@ def handle_stripe_webhook(payload: bytes, sig_header: str) -> Dict[str, str]:
     elif event_type == "customer.subscription.deleted":
         _handle_subscription_deleted(data)
     elif event_type == "customer.subscription.updated":
-        _handle_subscription_created_or_updated(data)
+        _handle_subscription_created_or_updated(data, grant_period_tokens=False)
 
     return {"status": "ok"}
 
