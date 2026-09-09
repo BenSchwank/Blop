@@ -185,23 +185,35 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
         customer_id = session.get("customer")
         customer = _stripe_dict(stripe.Customer.retrieve(customer_id)) if customer_id else {}
         subscription_id = session.get("subscription")
-        if not subscription_id and customer_id:
-            subscriptions = _stripe_dict(stripe.Subscription.list(customer=customer_id, status="all", limit=10))
-            candidates = [
-                _stripe_dict(item)
-                for item in subscriptions.get("data", [])
-                if _stripe_dict(_stripe_dict(item).get("metadata", {})).get("username") == username
-                and _stripe_dict(item).get("status") in ("active", "trialing", "past_due")
-            ]
+        subscription = _stripe_dict(stripe.Subscription.retrieve(subscription_id)) if subscription_id else {}
+        if not subscription:
+            safe_username = username.replace("\\", "\\\\").replace("'", "\\'")
+            matching_customers = _stripe_dict(
+                stripe.Customer.search(query=f"metadata['username']:'{safe_username}'", limit=100)
+            ).get("data") or []
+            candidates = []
+            for matching_customer in matching_customers:
+                matching_customer = _stripe_dict(matching_customer)
+                matching_customer_id = matching_customer.get("id")
+                if not matching_customer_id:
+                    continue
+                subscriptions = _stripe_dict(
+                    stripe.Subscription.list(customer=matching_customer_id, status="all", limit=100)
+                )
+                for item in subscriptions.get("data", []) or []:
+                    item = _stripe_dict(item)
+                    if item.get("status") in ("active", "trialing", "past_due"):
+                        candidates.append((item, matching_customer))
             if candidates:
-                candidates.sort(key=lambda item: int(item.get("created") or 0), reverse=True)
-                subscription_id = candidates[0].get("id")
-        if not subscription_id:
+                candidates.sort(key=lambda pair: int(pair[0].get("created") or 0), reverse=True)
+                subscription, customer = candidates[0]
+                subscription_id = subscription.get("id")
+                customer_id = customer.get("id")
+        if not subscription_id or not subscription:
             raise HTTPException(
                 status_code=409,
-                detail="Stripe hat für diese Zahlung noch kein Abo erstellt. Prüfe in Stripe unter Zahlungen, ob die Zahlung erfolgreich ist.",
+                detail="Stripe hat für diesen Blop-Account kein aktives Abo gefunden. Prüfe in Stripe die Kunden-Metadaten 'username'.",
             )
-        subscription = _stripe_dict(stripe.Subscription.retrieve(subscription_id))
         subscription_metadata = _stripe_dict(subscription.get("metadata", {}))
         payment_status = session.get("payment_status")
         checkout_status = session.get("status")
