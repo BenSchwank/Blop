@@ -71,7 +71,7 @@ class AuthManager:
 
     @staticmethod
     def _is_expired(last_active):
-        """Returns True if the session is older than 24 hours."""
+        """Returns True if the session has been inactive for 30 days."""
         if not last_active:
             return True
         try:
@@ -80,7 +80,7 @@ class AuthManager:
             # Legacy local sessions were written without timezone; treat them as UTC.
             if last_active.tzinfo is None:
                 last_active = last_active.replace(tzinfo=timezone.utc)
-            return (datetime.now(timezone.utc) - last_active).total_seconds() > 86400
+            return (datetime.now(timezone.utc) - last_active).total_seconds() > 60 * 60 * 24 * 30
         except Exception:
             return True
 

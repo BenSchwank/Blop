@@ -146,6 +146,10 @@ export default function Dashboard() {
         const data = await res.json();
         setFolders(data);
         setError("");
+      } else if (res.status === 401) {
+        localStorage.removeItem("session_id");
+        localStorage.removeItem("username");
+        window.location.replace("/login?reason=session-expired");
       } else {
         setError("Server antwortet nicht (Fehler " + res.status + ")");
       }

@@ -35,6 +35,10 @@ export default function LoginPage() {
         // Clear stale session on login page load
         localStorage.removeItem('session_id');
         localStorage.removeItem('username');
+        const loginParams = new URLSearchParams(window.location.search);
+        if (loginParams.get('reason') === 'session-expired') {
+            setError('Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.');
+        }
 
         const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
         const nativeQuery =
