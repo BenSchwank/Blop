@@ -91,16 +91,21 @@ class AuthManager:
 
         # 1. Persist in Supabase (primary source of truth)
         db = AuthManager._get_db()
-        if db:
-            try:
-                db.table("sessions").insert({
-                    "id": session_id,
-                    "username": username,
-                    "created_at": now,
-                    "last_active": now,
-                }).execute()
-            except Exception as exc:
-                print(f"AuthManager: create_session DB write failed: {exc}")
+        if not db:
+            raise RuntimeError("Supabase-Verbindung fehlt; Session kann nicht sicher gespeichert werden.")
+        try:
+            db.table("sessions").insert({
+                "id": session_id,
+                "username": username,
+                "created_at": now,
+                "last_active": now,
+            }).execute()
+            persisted = db.table("sessions").select("id").eq("id", session_id).execute()
+            if not persisted.data:
+                raise RuntimeError("Supabase hat die Session nicht gespeichert.")
+        except Exception as exc:
+            print(f"AuthManager: create_session DB write failed ({type(exc).__name__}): {exc}")
+            raise RuntimeError(f"Session-Datenbankfehler: {exc}") from exc
 
         # 2. Keep local copy as fallback / migration bridge
         sessions = AuthManager._load_sessions()

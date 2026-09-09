@@ -834,7 +834,10 @@ def login(request: LoginRequest):
     """Login endpoint - returns session token"""
     success, result_or_error = AuthManager.login(request.username, request.password)
     if success:
-        session_id = AuthManager.create_session(result_or_error)
+        try:
+            session_id = AuthManager.create_session(result_or_error)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
         return {
             "success": True,
             "session_id": session_id,
@@ -1391,7 +1394,10 @@ def verify_google_oauth(req: GoogleVerifyRequest):
         if username == "admin_":
             raise HTTPException(status_code=403, detail="Google Login für admin_ gesperrt")
 
-        session_id = AuthManager.create_session(username)
+        try:
+            session_id = AuthManager.create_session(username)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
         return {"session_id": session_id, "username": username}
 
     except ValueError as ve:
