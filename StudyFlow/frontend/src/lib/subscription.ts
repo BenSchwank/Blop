@@ -68,6 +68,40 @@ export async function createStripeCheckout(tier: string, interval: 'month' | 'ye
     return data;
 }
 
+export async function syncStripeSubscription(): Promise<{ status: string; found: boolean; tier: string; cancel_at_period_end?: boolean }> {
+    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const res = await fetch(`${API_BASE}/subscription/sync?session_id=${encodeURIComponent(sid)}`, {
+        method: 'POST',
+        headers: sessionHeaders(),
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+        data = JSON.parse(text);
+    } catch {
+        data = { detail: text || `Serverfehler (${res.status})` };
+    }
+    if (!res.ok) throw new Error(data.detail || 'Stripe-Abo konnte nicht synchronisiert werden.');
+    return data;
+}
+
+export async function cancelStripeSubscription(): Promise<{ status: string; cancel_at_period_end: boolean; current_period_end?: number }> {
+    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const res = await fetch(`${API_BASE}/subscription/cancel?session_id=${encodeURIComponent(sid)}`, {
+        method: 'POST',
+        headers: sessionHeaders(),
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+        data = JSON.parse(text);
+    } catch {
+        data = { detail: text || `Serverfehler (${res.status})` };
+    }
+    if (!res.ok) throw new Error(data.detail || 'Abo konnte nicht gekündigt werden.');
+    return data;
+}
+
 export async function confirmStripeCheckout(checkoutSessionId: string): Promise<{ status: string; tier: string }> {
     const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
     const res = await fetch(`${API_BASE}/subscription/confirm-checkout?session_id=${encodeURIComponent(sid)}`, {
