@@ -149,13 +149,25 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
     try:
         session = _stripe_dict(stripe.checkout.Session.retrieve(checkout_session_id))
         metadata = _stripe_dict(session.get("metadata", {}))
-        if session.get("payment_status") not in ("paid", "no_payment_required"):
-            raise HTTPException(status_code=409, detail="Die Zahlung ist noch nicht abgeschlossen.")
         subscription_id = session.get("subscription")
         if not subscription_id:
             raise HTTPException(status_code=409, detail="Stripe-Abo wurde noch nicht erstellt.")
         subscription = _stripe_dict(stripe.Subscription.retrieve(subscription_id))
         subscription_metadata = _stripe_dict(subscription.get("metadata", {}))
+        payment_status = session.get("payment_status")
+        checkout_status = session.get("status")
+        subscription_status = subscription.get("status")
+        payment_confirmed = payment_status in ("paid", "no_payment_required")
+        active_subscription = checkout_status == "complete" and subscription_status in ("active", "trialing")
+        if not payment_confirmed and not active_subscription:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Die Zahlung ist bei Stripe noch nicht bestätigt "
+                    f"(Checkout: {checkout_status or 'unbekannt'}, Zahlung: {payment_status or 'unbekannt'}, "
+                    f"Abo: {subscription_status or 'unbekannt'})."
+                ),
+            )
         customer = _stripe_dict(stripe.Customer.retrieve(session.get("customer"))) if session.get("customer") else {}
         customer_metadata = _stripe_dict(customer.get("metadata", {}))
         owner_candidates = {
