@@ -260,8 +260,15 @@ def _tier_from_stripe_subscription(subscription: Dict[str, Any]) -> str:
     if tier in ("pro", "premium"):
         return tier
     items = _stripe_dict(subscription.get("items", {})).get("data", []) or []
-    for item in items:
-        price_id = _stripe_dict(_stripe_dict(item).get("price", {})).get("id")
+    for item_value in items:
+        item = _stripe_dict(item_value)
+        legacy_price = _stripe_dict(item.get("price", {}))
+        pricing = _stripe_dict(item.get("pricing", {}))
+        price_details = _stripe_dict(pricing.get("price_details", {}))
+        price_value = price_details.get("price")
+        price_id = legacy_price.get("id") or (
+            price_value if isinstance(price_value, str) else _stripe_dict(price_value).get("id")
+        )
         for (configured_tier, _), configured_price_id in STRIPE_PRICE_IDS.items():
             if configured_price_id and price_id == configured_price_id:
                 return configured_tier
@@ -403,6 +410,11 @@ def _handle_subscription_created_or_updated(subscription: Dict[str, Any], grant_
     # Determine period end from the subscription object.
     current_period_end_ts = subscription.get("current_period_end")
     current_period_start_ts = subscription.get("current_period_start")
+    items = _stripe_dict(subscription.get("items", {})).get("data", []) or []
+    if items and (not current_period_start_ts or not current_period_end_ts):
+        first_item = _stripe_dict(items[0])
+        current_period_start_ts = current_period_start_ts or first_item.get("current_period_start")
+        current_period_end_ts = current_period_end_ts or first_item.get("current_period_end")
     period_end = None
     period_start = None
     if current_period_end_ts:
