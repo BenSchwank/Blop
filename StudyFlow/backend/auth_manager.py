@@ -70,6 +70,56 @@ class AuthManager:
             print(f"AuthManager: migrate local session failed: {exc}")
 
     @staticmethod
+    def _session_signing_key():
+        key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
+        if key.startswith("sb_secret_"):
+            return key.encode("utf-8")
+        if key.count(".") == 2:
+            try:
+                encoded = key.split(".")[1]
+                payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+                if payload.get("role") == "service_role":
+                    return key.encode("utf-8")
+            except Exception:
+                pass
+        return None
+
+    @staticmethod
+    def _create_signed_session_id(username):
+        key = AuthManager._session_signing_key()
+        if not key:
+            return str(uuid.uuid4())
+        payload = json.dumps({
+            "username": username,
+            "issued_at": int(datetime.now(timezone.utc).timestamp()),
+            "nonce": secrets.token_urlsafe(16),
+        }, separators=(",", ":")).encode("utf-8")
+        encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+        signature = hmac.new(key, encoded.encode("ascii"), hashlib.sha256).digest()
+        signed = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+        return f"v1.{encoded}.{signed}"
+
+    @staticmethod
+    def _decode_signed_session_id(session_id):
+        key = AuthManager._session_signing_key()
+        if not key or not session_id.startswith("v1."):
+            return None
+        try:
+            _, encoded, supplied = session_id.split(".", 2)
+            expected = base64.urlsafe_b64encode(
+                hmac.new(key, encoded.encode("ascii"), hashlib.sha256).digest()
+            ).decode("ascii").rstrip("=")
+            if not hmac.compare_digest(supplied, expected):
+                return None
+            payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+            issued_at = int(payload.get("issued_at") or 0)
+            if not payload.get("username") or datetime.now(timezone.utc).timestamp() - issued_at > 60 * 60 * 24 * 30:
+                return None
+            return payload
+        except Exception:
+            return None
+
+    @staticmethod
     def _is_expired(last_active):
         """Returns True if the session has been inactive for 30 days."""
         if not last_active:
@@ -86,7 +136,7 @@ class AuthManager:
 
     @staticmethod
     def create_session(username):
-        session_id = str(uuid.uuid4())
+        session_id = AuthManager._create_signed_session_id(username)
         now = datetime.now(timezone.utc).isoformat()
 
         # 1. Persist in Supabase (primary source of truth)
@@ -131,8 +181,9 @@ class AuthManager:
                 if res.data:
                     session = res.data[0]
                     if AuthManager._is_expired(session.get("last_active")):
-                        db.table("sessions").delete().eq("id", session_id).execute()
-                        AuthManager._delete_local_session(session_id)
+                        if not session_id.startswith("v1."):
+                            db.table("sessions").delete().eq("id", session_id).execute()
+                            AuthManager._delete_local_session(session_id)
                         return None
 
                     # Touch last_active
@@ -140,6 +191,22 @@ class AuthManager:
                     return session["username"]
             except Exception as exc:
                 print(f"AuthManager: validate_session DB read failed: {exc}")
+
+        signed = AuthManager._decode_signed_session_id(session_id)
+        if signed:
+            username = signed["username"]
+            now = datetime.now(timezone.utc).isoformat()
+            if db:
+                try:
+                    db.table("sessions").upsert({
+                        "id": session_id,
+                        "username": username,
+                        "created_at": datetime.fromtimestamp(signed["issued_at"], tz=timezone.utc).isoformat(),
+                        "last_active": now,
+                    }).execute()
+                except Exception as exc:
+                    print(f"AuthManager: signed session repair failed: {exc}")
+            return username
 
         # 2. Fallback to local file (legacy sessions, DB unreachable, etc.)
         sessions = AuthManager._load_sessions()
@@ -169,7 +236,10 @@ class AuthManager:
         db = AuthManager._get_db()
         if db:
             try:
-                db.table("sessions").delete().eq("id", session_id).execute()
+                if session_id.startswith("v1."):
+                    db.table("sessions").update({"last_active": "1970-01-01T00:00:00+00:00"}).eq("id", session_id).execute()
+                else:
+                    db.table("sessions").delete().eq("id", session_id).execute()
             except Exception as exc:
                 print(f"AuthManager: logout_session DB delete failed: {exc}")
 
