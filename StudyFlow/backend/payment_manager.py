@@ -272,6 +272,19 @@ def _tier_from_stripe_subscription(subscription: Dict[str, Any]) -> str:
         for (configured_tier, _), configured_price_id in STRIPE_PRICE_IDS.items():
             if configured_price_id and price_id == configured_price_id:
                 return configured_tier
+        product_value = legacy_price.get("product") or price_details.get("product")
+        product_id = product_value if isinstance(product_value, str) else _stripe_dict(product_value).get("id")
+        if not product_id and price_id:
+            price = _stripe_dict(stripe.Price.retrieve(price_id))
+            product_value = price.get("product")
+            product_id = product_value if isinstance(product_value, str) else _stripe_dict(product_value).get("id")
+        if product_id:
+            product = _stripe_dict(stripe.Product.retrieve(product_id))
+            product_name = str(product.get("name") or "").strip().lower()
+            if "premium" in product_name:
+                return "premium"
+            if "pro" in product_name:
+                return "pro"
     return ""
 
 
