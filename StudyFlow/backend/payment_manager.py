@@ -113,14 +113,22 @@ def create_checkout_session(
     cancel = (cancel_url or f"{base}/pricing?subscription=canceled").rstrip("/")
 
     try:
-        # Create a customer and link it to the username via metadata.
-        customer = stripe.Customer.create(
-            email=email,
-            metadata={"username": username},
-        )
+        existing = SubscriptionManager.get_user_subscription(username)
+        customer_id = existing.get("provider_customer_id") if existing.get("provider") == "stripe" else None
+        if not customer_id:
+            safe_username = username.replace("\\", "\\\\").replace("'", "\\'")
+            customers = _stripe_dict(stripe.Customer.search(query=f"metadata['username']:'{safe_username}'", limit=1))
+            customer_rows = customers.get("data") or []
+            if customer_rows:
+                customer_id = _stripe_dict(customer_rows[0]).get("id")
+        if not customer_id:
+            customer_id = stripe.Customer.create(
+                email=email,
+                metadata={"username": username},
+            ).id
 
         session = stripe.checkout.Session.create(
-            customer=customer.id,
+            customer=customer_id,
             client_reference_id=username,
             mode="subscription",
             line_items=[{"price": price_id, "quantity": 1}],
@@ -149,9 +157,25 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
     try:
         session = _stripe_dict(stripe.checkout.Session.retrieve(checkout_session_id))
         metadata = _stripe_dict(session.get("metadata", {}))
+        customer_id = session.get("customer")
+        customer = _stripe_dict(stripe.Customer.retrieve(customer_id)) if customer_id else {}
         subscription_id = session.get("subscription")
+        if not subscription_id and customer_id:
+            subscriptions = _stripe_dict(stripe.Subscription.list(customer=customer_id, status="all", limit=10))
+            candidates = [
+                _stripe_dict(item)
+                for item in subscriptions.get("data", [])
+                if _stripe_dict(_stripe_dict(item).get("metadata", {})).get("username") == username
+                and _stripe_dict(item).get("status") in ("active", "trialing", "past_due")
+            ]
+            if candidates:
+                candidates.sort(key=lambda item: int(item.get("created") or 0), reverse=True)
+                subscription_id = candidates[0].get("id")
         if not subscription_id:
-            raise HTTPException(status_code=409, detail="Stripe-Abo wurde noch nicht erstellt.")
+            raise HTTPException(
+                status_code=409,
+                detail="Stripe hat für diese Zahlung noch kein Abo erstellt. Prüfe in Stripe unter Zahlungen, ob die Zahlung erfolgreich ist.",
+            )
         subscription = _stripe_dict(stripe.Subscription.retrieve(subscription_id))
         subscription_metadata = _stripe_dict(subscription.get("metadata", {}))
         payment_status = session.get("payment_status")
@@ -168,7 +192,6 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
                     f"Abo: {subscription_status or 'unbekannt'})."
                 ),
             )
-        customer = _stripe_dict(stripe.Customer.retrieve(session.get("customer"))) if session.get("customer") else {}
         customer_metadata = _stripe_dict(customer.get("metadata", {}))
         owner_candidates = {
             str(value).strip()
