@@ -121,6 +121,7 @@ def create_checkout_session(
 
         session = stripe.checkout.Session.create(
             customer=customer.id,
+            client_reference_id=username,
             mode="subscription",
             line_items=[{"price": price_id, "quantity": 1}],
             success_url=f"{success}?subscription=success&checkout_session_id={{CHECKOUT_SESSION_ID}}",
@@ -148,16 +149,31 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
     try:
         session = _stripe_dict(stripe.checkout.Session.retrieve(checkout_session_id))
         metadata = _stripe_dict(session.get("metadata", {}))
-        if metadata.get("username") != username:
-            raise HTTPException(status_code=403, detail="Checkout gehört nicht zum angemeldeten Benutzer.")
         if session.get("payment_status") not in ("paid", "no_payment_required"):
             raise HTTPException(status_code=409, detail="Die Zahlung ist noch nicht abgeschlossen.")
         subscription_id = session.get("subscription")
         if not subscription_id:
             raise HTTPException(status_code=409, detail="Stripe-Abo wurde noch nicht erstellt.")
         subscription = _stripe_dict(stripe.Subscription.retrieve(subscription_id))
+        subscription_metadata = _stripe_dict(subscription.get("metadata", {}))
+        customer = _stripe_dict(stripe.Customer.retrieve(session.get("customer"))) if session.get("customer") else {}
+        customer_metadata = _stripe_dict(customer.get("metadata", {}))
+        owner_candidates = {
+            str(value).strip()
+            for value in (
+                metadata.get("username"),
+                subscription_metadata.get("username"),
+                customer_metadata.get("username"),
+                session.get("client_reference_id"),
+            )
+            if value
+        }
+        if username not in owner_candidates:
+            print(f"Stripe checkout owner mismatch: session={checkout_session_id}, authenticated={username}, candidates={sorted(owner_candidates)}")
+            raise HTTPException(status_code=403, detail="Checkout gehört nicht zum angemeldeten Benutzer.")
         _handle_subscription_created_or_updated(subscription)
-        return {"status": "success", "tier": metadata.get("tier", "free")}
+        tier = metadata.get("tier") or subscription_metadata.get("tier") or "free"
+        return {"status": "success", "tier": tier}
     except HTTPException:
         raise
     except Exception as exc:
