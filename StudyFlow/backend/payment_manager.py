@@ -115,12 +115,37 @@ def create_checkout_session(
     try:
         existing = SubscriptionManager.get_user_subscription(username)
         customer_id = existing.get("provider_customer_id") if existing.get("provider") == "stripe" else None
-        if not customer_id:
-            safe_username = username.replace("\\", "\\\\").replace("'", "\\'")
-            customers = _stripe_dict(stripe.Customer.search(query=f"metadata['username']:'{safe_username}'", limit=1))
-            customer_rows = customers.get("data") or []
-            if customer_rows:
-                customer_id = _stripe_dict(customer_rows[0]).get("id")
+        safe_username = username.replace("\\", "\\\\").replace("'", "\\'")
+        customers = _stripe_dict(stripe.Customer.search(query=f"metadata['username']:'{safe_username}'", limit=100))
+        customer_rows = [_stripe_dict(row) for row in (customers.get("data") or [])]
+        if customer_id and all(row.get("id") != customer_id for row in customer_rows):
+            customer_rows.insert(0, {"id": customer_id})
+
+        active_subscriptions = []
+        for customer_row in customer_rows:
+            candidate_customer_id = customer_row.get("id")
+            if not candidate_customer_id:
+                continue
+            result = _stripe_dict(stripe.Subscription.list(customer=candidate_customer_id, status="all", limit=100))
+            for item in result.get("data") or []:
+                subscription = _stripe_dict(item)
+                if subscription.get("status") in ("active", "trialing", "past_due"):
+                    active_subscriptions.append(subscription)
+
+        if active_subscriptions:
+            active_subscriptions.sort(key=lambda item: int(item.get("created") or 0), reverse=True)
+            active = active_subscriptions[0]
+            _handle_subscription_created_or_updated(active)
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Für diesen Account existiert bereits ein aktives Stripe-Abo. "
+                    "Es wurde mit Blop Study synchronisiert; weitere Käufe wurden blockiert."
+                ),
+            )
+
+        if not customer_id and customer_rows:
+            customer_id = customer_rows[0].get("id")
         if not customer_id:
             customer_id = stripe.Customer.create(
                 email=email,
