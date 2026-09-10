@@ -257,7 +257,10 @@ class SubscriptionManager:
             # Move users on this tier to default tier first.
             default = SubscriptionManager._get_default_tier()
             db.table("subscriptions").update({"tier": default}).eq("tier", name).execute()
-            db.table("users").update({"subscription_tier": default}).eq("subscription_tier", name).execute()
+            try:
+                db.table("users").update({"subscription_tier": default}).eq("subscription_tier", name).execute()
+            except Exception as exc:
+                print(f"SubscriptionManager: users.subscription_tier cleanup failed (column missing?): {exc}")
             db.table("subscription_tiers").delete().eq("name", name).execute()
             return {"status": "success", "deleted": name}
         except Exception as exc:
@@ -379,8 +382,11 @@ class SubscriptionManager:
                 "activated_at": now.isoformat() if status in ("active", "trialing") else None,
             }).execute()
 
-            # Keep users.subscription_tier in sync for legacy reads.
-            db.table("users").update({"subscription_tier": tier}).eq("username", username).execute()
+            # Keep users.subscription_tier in sync for legacy reads (best effort).
+            try:
+                db.table("users").update({"subscription_tier": tier}).eq("username", username).execute()
+            except Exception as exc:
+                print(f"SubscriptionManager: users.subscription_tier sync failed (column missing?): {exc}")
 
             # Optionally grant tokens based on the new tier.
             if reset_tokens and tier_info.get("tokens_monthly", 0) > 0:

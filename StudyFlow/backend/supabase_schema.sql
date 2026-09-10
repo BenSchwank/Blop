@@ -9,6 +9,10 @@ CREATE TABLE public.users (
     xp INTEGER DEFAULT 0 NOT NULL,
     streak_days INTEGER DEFAULT 0 NOT NULL,
     is_admin BOOLEAN DEFAULT FALSE NOT NULL,
+    email TEXT,
+    auth_id UUID,
+    preferred_model TEXT DEFAULT '',
+    subscription_tier TEXT DEFAULT 'free',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

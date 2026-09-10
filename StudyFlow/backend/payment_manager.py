@@ -345,7 +345,11 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
         if resolved_metadata != subscription_metadata:
             stripe.Subscription.modify(subscription_id, metadata=resolved_metadata)
         subscription["metadata"] = resolved_metadata
-        _handle_subscription_created_or_updated(subscription, operation_key=f"checkout:{checkout_session_id}")
+        _handle_subscription_created_or_updated(
+            subscription,
+            grant_period_tokens=True,
+            operation_key=f"checkout:{checkout_session_id}",
+        )
         _complete_checkout(checkout_session_id, subscription_id, customer_id)
         return {"status": "active", "tier": tier}
     except HTTPException:
@@ -662,7 +666,10 @@ def _credit_tokens(username: str, tier: str, interval: str, grant_key: str) -> b
     )
     if existing.data:
         return False
-    db.table("users").update({"tokens": credits}).eq("username", username).execute()
+    user_res = db.table("users").select("tokens").eq("username", username).execute()
+    current = int(user_res.data[0]["tokens"]) if user_res.data else 0
+    new_balance = current + credits
+    db.table("users").update({"tokens": new_balance}).eq("username", username).execute()
     try:
         db.table("subscription_token_grants").insert({
             "provider": "stripe",
@@ -678,7 +685,7 @@ def _credit_tokens(username: str, tier: str, interval: str, grant_key: str) -> b
         )
         if not existing.data:
             raise
-    print(f"PaymentManager: reset {username} to {credits} tokens for {tier}/{interval}")
+    print(f"PaymentManager: credited {credits} tokens to {username} (new balance {new_balance}) for {tier}/{interval}")
     return True
 
 
@@ -728,8 +735,10 @@ def _handle_subscription_created_or_updated(
         last_provider_event_id=event_id,
     )
     if grant_period_tokens:
-        key = operation_key or event_id or f"subscription:{subscription.get('id')}"
-        _credit_tokens(username, tier, interval, key)
+        # Use one canonical key per billing period so checkout.session.completed,
+        # customer.subscription.created and invoice.paid cannot triple-grant tokens.
+        period_grant_key = f"subscription_period:{subscription.get('id')}:{current_period_start_ts or 'unknown'}"
+        _credit_tokens(username, tier, interval, period_grant_key)
     if is_new_subscription:
         _notify_subscription_started(username, tier, interval, "stripe")
 
@@ -839,6 +848,7 @@ def handle_stripe_webhook(payload: bytes, sig_header: str) -> Dict[str, str]:
             }
             _handle_subscription_created_or_updated(
                 subscription,
+                grant_period_tokens=True,
                 operation_key=f"checkout:{data.get('id')}",
                 event_id=event_id,
             )
@@ -856,6 +866,7 @@ def handle_stripe_webhook(payload: bytes, sig_header: str) -> Dict[str, str]:
             subscription = _stripe_dict(stripe.Subscription.retrieve(subscription_id))
             _handle_subscription_created_or_updated(
                 subscription,
+                grant_period_tokens=True,
                 operation_key=f"invoice:{data.get('id')}",
                 event_id=event_id,
             )

@@ -754,7 +754,7 @@ def health_users_schema():
         return {"ok": False, "error": "Supabase nicht konfiguriert"}
 
     present = {}
-    for column in ("email", "auth_id", "preferred_model", "created_at"):
+    for column in ("email", "auth_id", "preferred_model", "created_at", "subscription_tier"):
         try:
             db.table("users").select(column).limit(1).execute()
             present[column] = True
@@ -767,7 +767,7 @@ def health_users_schema():
         "columns": present,
         "missing": missing,
         "hint": (
-            "migrations/003_users_email_auth_id.sql im Supabase SQL-Editor ausführen"
+            "supabase/migrations/20260910130000_users_subscription_tier.sql (und ggf. migrations/003_users_email_auth_id.sql) im Supabase SQL-Editor ausführen"
             if missing
             else ""
         ),
@@ -4059,7 +4059,7 @@ def admin_list_subscriptions(http_request: Request, admin_username: str, session
     if not db:
         raise HTTPException(status_code=500, detail="Datenbank nicht erreichbar")
     try:
-        users_res = db.table("users").select("username, subscription_tier").execute()
+        users_res = db.table("users").select("username").execute()
         subscriptions_res = db.table("subscriptions").select("*").execute()
         subscriptions_by_user = {row["username"]: row for row in subscriptions_res.data}
         rows = []
@@ -4067,7 +4067,7 @@ def admin_list_subscriptions(http_request: Request, admin_username: str, session
             username = account["username"]
             rows.append(subscriptions_by_user.get(username) or {
                 "username": username,
-                "tier": account.get("subscription_tier") or "free",
+                "tier": "free",
                 "status": "active",
                 "provider": "none",
                 "current_period_start": None,
