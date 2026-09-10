@@ -2,11 +2,13 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Shield, Users, Layers, ToggleRight, Search, Save, Pencil, Trash2, Plus, Check, X } from 'lucide-react';
+import { Loader2, Shield, Users, Layers, ToggleRight, Search, Save, Pencil, Trash2, Plus, Check, X, RefreshCw, Wrench } from 'lucide-react';
 import { motion } from 'framer-motion';
 import {
     adminListTiers,
     adminListSubscriptions,
+    adminReconcileStripe,
+    adminRepairStripe,
     adminSetSubscription,
     adminUpsertTier,
     adminSetFeature,
@@ -166,10 +168,46 @@ function SubscriptionsPanel({
     const [search, setSearch] = useState(initialSearch || '');
     const [editing, setEditing] = useState<AdminSubscription | null>(null);
     const [saving, setSaving] = useState(false);
+    const [reconciling, setReconciling] = useState(false);
+    const [repairUsername, setRepairUsername] = useState(initialSearch || '');
+    const [repairSubscriptionId, setRepairSubscriptionId] = useState('');
+    const [repairMessage, setRepairMessage] = useState('');
 
     const filtered = useMemo(() => {
         return subscriptions.filter((s) => s.username.toLowerCase().includes(search.toLowerCase()));
     }, [subscriptions, search]);
+
+    async function reconcileStripe(apply: boolean) {
+        setReconciling(true);
+        try {
+            const result = await adminReconcileStripe(apply);
+            const matched = result.results.filter((row) => row.outcome === (apply ? 'applied' : 'matched')).length;
+            const unmatched = result.results.filter((row) => row.outcome === 'unmatched').length;
+            setRepairMessage(apply
+                ? `${matched} Stripe-Abos wurden übernommen; ${unmatched} blieben ungeklärt.`
+                : `Prüfung: ${matched} eindeutig zuordenbar, ${unmatched} ungeklärt.`);
+            if (apply) onRefresh();
+        } catch (err: any) {
+            onError(err?.message || 'Stripe-Reconcile fehlgeschlagen.');
+        } finally {
+            setReconciling(false);
+        }
+    }
+
+    async function repairStripe() {
+        if (!repairUsername.trim() || !repairSubscriptionId.trim()) return;
+        setReconciling(true);
+        try {
+            const result = await adminRepairStripe(repairUsername.trim(), repairSubscriptionId.trim());
+            setRepairSubscriptionId('');
+            setRepairMessage(`${result.username} wurde erfolgreich auf ${result.tier.toUpperCase()} gesetzt.`);
+            onRefresh();
+        } catch (err: any) {
+            onError(err?.message || 'Stripe-Abo konnte nicht repariert werden.');
+        } finally {
+            setReconciling(false);
+        }
+    }
 
     async function saveSubscription(months: number, tier: string) {
         if (!editing) return;
@@ -187,6 +225,48 @@ function SubscriptionsPanel({
 
     return (
         <div className="space-y-4">
+            <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-5 space-y-4">
+                <div className="flex flex-wrap gap-3">
+                    <button
+                        onClick={() => reconcileStripe(false)}
+                        disabled={reconciling}
+                        className="px-4 py-2 rounded-xl bg-[#2A2A40] text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                    >
+                        {reconciling ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                        Stripe Dry Run
+                    </button>
+                    <button
+                        onClick={() => reconcileStripe(true)}
+                        disabled={reconciling}
+                        className="px-4 py-2 rounded-xl bg-[#5E5CE6] text-sm font-medium disabled:opacity-50"
+                    >
+                        Eindeutige Treffer übernehmen
+                    </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-3">
+                    <input
+                        value={repairUsername}
+                        onChange={(event) => setRepairUsername(event.target.value)}
+                        placeholder="Username"
+                        className="bg-[#0B0B1A] border border-[#2A2A40] rounded-xl px-3 py-2 text-sm"
+                    />
+                    <input
+                        value={repairSubscriptionId}
+                        onChange={(event) => setRepairSubscriptionId(event.target.value)}
+                        placeholder="sub_... (nur Notfall)"
+                        className="bg-[#0B0B1A] border border-[#2A2A40] rounded-xl px-3 py-2 text-sm"
+                    />
+                    <button
+                        onClick={repairStripe}
+                        disabled={reconciling || !repairUsername.trim() || !repairSubscriptionId.trim()}
+                        className="px-4 py-2 rounded-xl bg-amber-500/20 text-amber-300 text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                    >
+                        <Wrench size={16} /> Reparieren
+                    </button>
+                </div>
+                {repairMessage && <p className="text-sm text-green-400">{repairMessage}</p>}
+            </div>
+
             <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
                 <input

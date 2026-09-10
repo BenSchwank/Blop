@@ -290,7 +290,7 @@ class SubscriptionManager:
         """Returns subscription row + tier + features for a user."""
         db = SubscriptionManager._get_db()
         if not db:
-            return {"tier": "free", "status": "active", "features": SubscriptionManager.DEFAULT_FEATURE_MATRIX.get("free", {})}
+            raise HTTPException(status_code=503, detail="Abo-Datenbank nicht erreichbar.")
         try:
             sub_res = db.table("subscriptions").select("*").eq("username", username).execute()
             if not sub_res.data:
@@ -298,13 +298,17 @@ class SubscriptionManager:
                 default = SubscriptionManager._get_default_tier()
                 SubscriptionManager._ensure_subscription_row(username, default)
                 sub_res = db.table("subscriptions").select("*").eq("username", username).execute()
+            if not sub_res.data:
+                raise HTTPException(status_code=503, detail="Abo-Status konnte nicht initialisiert werden.")
             sub = sub_res.data[0]
             tier_name = sub.get("tier", "free")
             features = SubscriptionManager.get_features(tier_name)
             return {**sub, "features": features}
+        except HTTPException:
+            raise
         except Exception as exc:
             print(f"SubscriptionManager: get_user_subscription failed: {exc}")
-            return {"tier": "free", "status": "active", "features": SubscriptionManager.get_features("free")}
+            raise HTTPException(status_code=503, detail="Abo-Status konnte nicht geladen werden.")
 
     @staticmethod
     def _ensure_subscription_row(username: str, tier: str):
@@ -312,18 +316,23 @@ class SubscriptionManager:
         if not db:
             return
         try:
-            db.table("subscriptions").upsert({
+            existing = db.table("subscriptions").select("username").eq("username", username).execute()
+            if existing.data:
+                return
+            db.table("subscriptions").insert({
                 "username": username,
                 "tier": tier,
                 "status": "active",
                 "provider": "none",
-                "current_period_start": SubscriptionManager._now().isoformat(),
-                "current_period_end": SubscriptionManager._default_period_end().isoformat(),
+                "current_period_start": None,
+                "current_period_end": None,
                 "cancel_at_period_end": False,
                 "updated_at": SubscriptionManager._now().isoformat(),
             }).execute()
         except Exception as exc:
-            print(f"SubscriptionManager: ensure_subscription_row failed: {exc}")
+            existing = db.table("subscriptions").select("username").eq("username", username).execute()
+            if not existing.data:
+                print(f"SubscriptionManager: ensure_subscription_row failed: {exc}")
 
     @staticmethod
     def set_user_subscription(
@@ -337,6 +346,7 @@ class SubscriptionManager:
         current_period_end: Optional[datetime] = None,
         cancel_at_period_end: bool = False,
         reset_tokens: bool = True,
+        last_provider_event_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Admin or payment-webhook: set a user's subscription tier and period."""
         db = SubscriptionManager._get_db()
@@ -364,6 +374,9 @@ class SubscriptionManager:
                 "current_period_end": period_end.isoformat(),
                 "cancel_at_period_end": cancel_at_period_end,
                 "updated_at": now.isoformat(),
+                "last_provider_sync_at": now.isoformat(),
+                "last_provider_event_id": last_provider_event_id,
+                "activated_at": now.isoformat() if status in ("active", "trialing") else None,
             }).execute()
 
             # Keep users.subscription_tier in sync for legacy reads.
@@ -390,7 +403,7 @@ class SubscriptionManager:
             # Unknown features default to allowed (safer than breaking existing routes).
             return True
         sub = SubscriptionManager.get_user_subscription(username)
-        if sub.get("status") != "active":
+        if sub.get("status") not in ("active", "trialing"):
             return False
         features = sub.get("features", {})
         return bool(features.get(feature_key, False))
@@ -426,15 +439,24 @@ class SubscriptionManager:
             print("SubscriptionManager: seed_defaults skipped, no DB")
             return
         try:
+            existing_tiers = {
+                row["name"] for row in db.table("subscription_tiers").select("name").execute().data
+            }
             for tier in SubscriptionManager.DEFAULT_TIERS:
-                db.table("subscription_tiers").upsert(tier).execute()
+                if tier["name"] not in existing_tiers:
+                    db.table("subscription_tiers").insert(tier).execute()
+            existing_features = {
+                (row["tier_name"], row["feature_key"])
+                for row in db.table("subscription_features").select("tier_name, feature_key").execute().data
+            }
             for tier_name, features in SubscriptionManager.DEFAULT_FEATURE_MATRIX.items():
                 for feature_key, allowed in features.items():
-                    db.table("subscription_features").upsert({
-                        "tier_name": tier_name,
-                        "feature_key": feature_key,
-                        "allowed": allowed,
-                    }).execute()
+                    if (tier_name, feature_key) not in existing_features:
+                        db.table("subscription_features").insert({
+                            "tier_name": tier_name,
+                            "feature_key": feature_key,
+                            "allowed": allowed,
+                        }).execute()
             # Ensure every user has a subscription row.
             users_res = db.table("users").select("username").execute()
             default = SubscriptionManager._get_default_tier()
