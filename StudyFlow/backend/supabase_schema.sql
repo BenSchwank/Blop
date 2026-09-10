@@ -104,7 +104,8 @@ CREATE TABLE IF NOT EXISTS public.subscription_tiers (
     tokens_monthly INTEGER NOT NULL DEFAULT 0,
     is_admin_only BOOLEAN NOT NULL DEFAULT FALSE,
     is_default BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.subscription_features (
@@ -130,12 +131,64 @@ CREATE TABLE IF NOT EXISTS public.subscriptions (
     current_period_end TIMESTAMP WITH TIME ZONE,
     cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_provider_sync_at TIMESTAMP WITH TIME ZONE,
+    last_provider_event_id TEXT,
+    activated_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE INDEX IF NOT EXISTS subscriptions_status_period_idx
     ON public.subscriptions (status, current_period_end);
 
+CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_provider_subscription_unique_idx
+    ON public.subscriptions (provider_subscription_id)
+    WHERE provider_subscription_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.subscription_checkouts (
+    checkout_session_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL REFERENCES public.users(username) ON DELETE CASCADE,
+    tier TEXT NOT NULL REFERENCES public.subscription_tiers(name),
+    billing_interval TEXT NOT NULL CHECK (billing_interval IN ('month', 'year')),
+    provider_customer_id TEXT,
+    provider_subscription_id TEXT,
+    status TEXT NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'completed', 'failed', 'expired')),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS subscription_checkouts_provider_subscription_unique_idx
+    ON public.subscription_checkouts (provider_subscription_id)
+    WHERE provider_subscription_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS subscription_checkouts_username_created_idx
+    ON public.subscription_checkouts (username, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.stripe_webhook_events (
+    event_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    object_id TEXT,
+    processing_status TEXT NOT NULL DEFAULT 'processing' CHECK (processing_status IN ('processing', 'processed', 'failed')),
+    attempt_count INTEGER NOT NULL DEFAULT 1,
+    last_error TEXT,
+    received_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    processed_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.subscription_token_grants (
+    provider TEXT NOT NULL,
+    provider_invoice_id TEXT NOT NULL,
+    username TEXT NOT NULL REFERENCES public.users(username) ON DELETE CASCADE,
+    tier TEXT NOT NULL REFERENCES public.subscription_tiers(name),
+    tokens INTEGER NOT NULL,
+    granted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (provider, provider_invoice_id)
+);
+
 ALTER TABLE public.subscription_tiers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subscription_features DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subscriptions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscription_checkouts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.stripe_webhook_events DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscription_token_grants DISABLE ROW LEVEL SECURITY;

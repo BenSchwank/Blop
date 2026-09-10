@@ -12,6 +12,13 @@ function getUsername(): string {
     return localStorage.getItem('username') || '';
 }
 
+function handleUnauthorized(response: Response): void {
+    if (response.status !== 401 || typeof window === 'undefined') return;
+    localStorage.removeItem('session_id');
+    localStorage.removeItem('username');
+    window.location.replace('/login?reason=session-expired');
+}
+
 export interface Tier {
     name: string;
     display_name: string;
@@ -31,6 +38,7 @@ export interface SubscriptionStatus {
         provider: string;
         current_period_end?: string;
         cancel_at_period_end?: boolean;
+        last_provider_sync_at?: string;
         features: Record<string, boolean>;
     };
     stripe_publishable_key?: string;
@@ -51,17 +59,17 @@ export async function fetchSubscriptionStatus(): Promise<SubscriptionStatus> {
         `${API_BASE}/subscription/status?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`,
         { headers: sessionHeaders() }
     );
+    handleUnauthorized(res);
     if (!res.ok) throw new Error('Abo-Status konnte nicht geladen werden.');
     return res.json();
 }
 
 export async function createStripeCheckout(tier: string, interval: 'month' | 'year'): Promise<{ url: string; session_id: string }> {
-    const username = getUsername();
     const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
     const res = await fetch(`${API_BASE}/subscription/checkout?session_id=${encodeURIComponent(sid)}`, {
         method: 'POST',
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier, interval, username }),
+        body: JSON.stringify({ tier, interval }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Stripe Checkout fehlgeschlagen.');
@@ -74,6 +82,7 @@ export async function syncStripeSubscription(): Promise<{ status: string; found:
         method: 'POST',
         headers: sessionHeaders(),
     });
+    handleUnauthorized(res);
     const text = await res.text();
     let data: any;
     try {
@@ -91,6 +100,7 @@ export async function cancelStripeSubscription(): Promise<{ status: string; canc
         method: 'POST',
         headers: sessionHeaders(),
     });
+    handleUnauthorized(res);
     const text = await res.text();
     let data: any;
     try {
@@ -109,6 +119,7 @@ export async function confirmStripeCheckout(checkoutSessionId: string): Promise<
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ checkout_session_id: checkoutSessionId }),
     });
+    handleUnauthorized(res);
     const text = await res.text();
     let data: any;
     try {
@@ -136,12 +147,11 @@ export async function createStripePortal(): Promise<{ url: string }> {
 }
 
 export async function createPayPalOrder(tier: string, interval: 'month' | 'year'): Promise<{ order_id: string; approval_url: string }> {
-    const username = getUsername();
     const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
     const res = await fetch(`${API_BASE}/subscription/paypal/create?session_id=${encodeURIComponent(sid)}`, {
         method: 'POST',
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier, interval, username }),
+        body: JSON.stringify({ tier, interval }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'PayPal Order fehlgeschlagen.');
@@ -172,6 +182,8 @@ export interface AdminSubscription {
     current_period_start?: string;
     current_period_end?: string;
     cancel_at_period_end?: boolean;
+    last_provider_sync_at?: string;
+    last_provider_event_id?: string;
 }
 
 export async function adminListTiers(adminUsername: string): Promise<Tier[]> {
@@ -183,6 +195,50 @@ export async function adminListTiers(adminUsername: string): Promise<Tier[]> {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Tiers konnten nicht geladen werden.');
     return data.tiers || [];
+}
+
+export interface StripeReconcileResult {
+    subscription_id: string;
+    customer_id: string;
+    username?: string;
+    tier?: string;
+    status: string;
+    match_reason?: string;
+    outcome: string;
+}
+
+export async function adminReconcileStripe(apply: boolean): Promise<{ status: string; apply: boolean; results: StripeReconcileResult[] }> {
+    const adminUsername = getUsername();
+    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const res = await fetch(
+        `${API_BASE}/admin/subscriptions/reconcile?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
+        {
+            method: 'POST',
+            headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apply }),
+        }
+    );
+    handleUnauthorized(res);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Stripe-Reconcile fehlgeschlagen.');
+    return data;
+}
+
+export async function adminRepairStripe(username: string, subscriptionId: string): Promise<{ status: string; username: string; tier: string }> {
+    const adminUsername = getUsername();
+    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const res = await fetch(
+        `${API_BASE}/admin/subscriptions/repair?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
+        {
+            method: 'POST',
+            headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, subscription_id: subscriptionId }),
+        }
+    );
+    handleUnauthorized(res);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Stripe-Abo konnte nicht repariert werden.');
+    return data;
 }
 
 export async function adminListSubscriptions(adminUsername: string): Promise<AdminSubscription[]> {

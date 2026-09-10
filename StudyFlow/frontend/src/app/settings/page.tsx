@@ -22,6 +22,7 @@ export default function Settings() {
     const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
     const [portalLoading, setPortalLoading] = useState(false);
     const [cancelLoading, setCancelLoading] = useState(false);
+    const [syncLoading, setSyncLoading] = useState(false);
     const [isCancelOpen, setIsCancelOpen] = useState(false);
     const [upgradeStatus, setUpgradeStatus] = useState<{message: string, isError: boolean} | null>(null);
     const [preferredModel, setPreferredModel] = useState<string>("");
@@ -39,30 +40,21 @@ export default function Settings() {
         if (params.get("subscription") === "success" && checkoutSessionId) {
             setUpgradeStatus({ message: "Zahlung wird bestätigt…", isError: false });
             confirmStripeCheckout(checkoutSessionId)
-                .catch(() => syncStripeSubscription())
-                .then((result) => {
-                    if ('found' in result && !result.found) {
-                        throw new Error('Stripe hat für diesen Blop-Account kein aktives Abo gefunden.');
-                    }
+                .then(() => {
                     setUpgradeStatus({ message: "Dein Abo ist jetzt aktiv.", isError: false });
                     window.history.replaceState({}, "", "/settings");
                     return Promise.all([fetchUserInfo(user), loadSubscriptionStatus()]);
                 })
                 .catch((err: any) => {
-                    setUpgradeStatus({ message: err?.message || "Zahlung konnte noch nicht bestätigt werden.", isError: true });
+                    setUpgradeStatus({ message: err?.message || "Die Zahlung wird noch verarbeitet. Bitte gleich erneut abgleichen.", isError: true });
+                    fetchUserInfo(user);
+                    loadSubscriptionStatus();
                 });
             return;
         }
 
-        setUpgradeStatus({ message: "Abo-Status wird mit Stripe abgeglichen…", isError: false });
-        syncStripeSubscription()
-            .then(() => Promise.all([fetchUserInfo(user), loadSubscriptionStatus()]))
-            .then(() => setUpgradeStatus(null))
-            .catch((err: any) => {
-                setUpgradeStatus({ message: err?.message || "Stripe-Abgleich fehlgeschlagen.", isError: true });
-                fetchUserInfo(user);
-                loadSubscriptionStatus();
-            });
+        fetchUserInfo(user);
+        loadSubscriptionStatus();
     }, []);
 
     const fetchUserInfo = async (user: string) => {
@@ -100,6 +92,24 @@ export default function Settings() {
         } catch (err: any) {
             setUpgradeStatus({ message: err?.message || "Portal konnte nicht geöffnet werden.", isError: true });
             setPortalLoading(false);
+        }
+    };
+
+    const syncSubscription = async () => {
+        setSyncLoading(true);
+        setUpgradeStatus(null);
+        try {
+            const result = await syncStripeSubscription();
+            if (!result.found) {
+                setUpgradeStatus({ message: "Kein eindeutig zuordenbares aktives Stripe-Abo gefunden. Bitte wende dich an den Support.", isError: true });
+                return;
+            }
+            setUpgradeStatus({ message: "Stripe-Abo wurde erfolgreich abgeglichen.", isError: false });
+            await Promise.all([fetchUserInfo(username), loadSubscriptionStatus()]);
+        } catch (err: any) {
+            setUpgradeStatus({ message: err?.message || "Stripe-Abgleich fehlgeschlagen.", isError: true });
+        } finally {
+            setSyncLoading(false);
         }
     };
 
@@ -246,13 +256,18 @@ export default function Settings() {
                                             Zahlung über {subscriptionStatus.subscription.provider === 'stripe' ? 'Stripe' : 'PayPal'}
                                         </span>
                                     )}
-                                    {subscriptionStatus?.subscription?.current_period_end && (
+                                    {tier !== 'free' && subscriptionStatus?.subscription?.current_period_end && (
                                         <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#1C1C33] rounded-md text-sm text-gray-400 font-medium border border-[#2A2A40]">
                                             <Calendar size={14} />
                                             Aktiv bis {new Date(subscriptionStatus.subscription.current_period_end).toLocaleDateString('de-DE')}
                                         </span>
                                     )}
                                 </div>
+                                {subscriptionStatus?.subscription?.last_provider_sync_at && (
+                                    <p className="mt-2 text-xs text-gray-500">
+                                        Zuletzt mit Stripe bestätigt: {new Date(subscriptionStatus.subscription.last_provider_sync_at).toLocaleString('de-DE')}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="flex flex-col gap-3 w-full md:w-auto shrink-0 md:min-w-[180px]">
@@ -275,6 +290,14 @@ export default function Settings() {
                                         </button>
                                     </>
                                 ) : null}
+                                <button
+                                    onClick={syncSubscription}
+                                    disabled={syncLoading}
+                                    className="bg-[#333] hover:bg-[#444] text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2 min-w-[180px]"
+                                >
+                                    {syncLoading ? <Loader2 size={16} className="animate-spin" /> : null}
+                                    Mit Stripe abgleichen
+                                </button>
                                 <button
                                     onClick={() => router.push('/pricing')}
                                     className="bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] hover:opacity-90 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 min-w-[180px]"

@@ -61,12 +61,6 @@ async def native_entry_no_store_headers(request: Request, call_next):
         response.headers["Expires"] = "0"
     return response
 
-# Seed subscription tiers/features and ensure every user has a subscription row.
-try:
-    SubscriptionManager.seed_defaults()
-except Exception as e:
-    print(f"Subscription seed error: {e}")
-
 # Lernvideo: lange ffmpeg/TTS-Pipeline — synchron würde Render/Proxy-Timeouts (502) auslösen
 _LEARNING_VIDEO_JOBS: dict = {}
 _LEARNING_VIDEO_JOBS_LOCK = threading.Lock()
@@ -3872,6 +3866,15 @@ class AdminSetFeatureRequest(BaseModel):
     allowed: bool
 
 
+class AdminStripeReconcileRequest(BaseModel):
+    apply: bool = False
+
+
+class AdminStripeRepairRequest(BaseModel):
+    username: str
+    subscription_id: str
+
+
 @app.get("/api/subscription/tiers")
 def list_subscription_tiers():
     """Public list of available tiers and their features."""
@@ -3982,6 +3985,45 @@ def capture_paypal_subscription_order(http_request: Request, order_id: str = Bod
 
 # --- Admin endpoints ---
 
+@app.get("/api/admin/subscriptions/health")
+def admin_subscription_health(http_request: Request, admin_username: str, session_id: str = ""):
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    admin_record = AuthManager.get_user(user)
+    if not admin_record or not admin_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    return payment_manager.stripe_subscription_health()
+
+
+@app.post("/api/admin/subscriptions/reconcile")
+def admin_reconcile_subscriptions(
+    http_request: Request,
+    request: AdminStripeReconcileRequest,
+    admin_username: str = "",
+    session_id: str = "",
+):
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    admin_record = AuthManager.get_user(user)
+    if not admin_record or not admin_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    return payment_manager.admin_reconcile_stripe_subscriptions(request.apply)
+
+
+@app.post("/api/admin/subscriptions/repair")
+def admin_repair_subscription(
+    http_request: Request,
+    request: AdminStripeRepairRequest,
+    admin_username: str = "",
+    session_id: str = "",
+):
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    admin_record = AuthManager.get_user(user)
+    if not admin_record or not admin_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    if not AuthManager.get_user(request.username):
+        raise HTTPException(status_code=404, detail="Blop-Nutzer nicht gefunden.")
+    return payment_manager.admin_repair_stripe_subscription(request.username, request.subscription_id)
+
+
 @app.get("/api/admin/tiers")
 def admin_list_tiers(http_request: Request, admin_username: str, session_id: str = ""):
     """Admin: list all tiers including admin-only ones."""
@@ -4006,6 +4048,7 @@ def admin_list_tiers(http_request: Request, admin_username: str, session_id: str
         "tiers": [{**tier, "features": all_features.get(tier.get("name"), {})} for tier in tiers]
     }
 
+@app.get("/api/admin/subscriptions")
 def admin_list_subscriptions(http_request: Request, admin_username: str, session_id: str = ""):
     """Admin: list all subscriptions."""
     user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
