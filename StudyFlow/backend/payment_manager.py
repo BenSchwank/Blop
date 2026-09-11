@@ -258,8 +258,8 @@ def create_checkout_session(
     except HTTPException:
         raise
     except Exception as exc:
-        print(f"Stripe create_checkout_session failed ({type(exc).__name__}): {exc}")
-        message = getattr(exc, "user_message", None) or str(exc)
+        print(f"Stripe create_checkout_session failed ({type(exc).__name__}): {exc!r}")
+        message = getattr(exc, "user_message", None) or f"{type(exc).__name__}: {exc!r}"
         raise HTTPException(status_code=502, detail=f"Stripe Checkout konnte nicht erstellt werden: {message}")
 
 
@@ -355,8 +355,8 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
     except HTTPException:
         raise
     except Exception as exc:
-        print(f"Stripe reconcile checkout failed ({type(exc).__name__}): {exc}")
-        message = getattr(exc, "user_message", None) or str(exc)
+        print(f"Stripe reconcile checkout failed ({type(exc).__name__}): {exc!r}")
+        message = getattr(exc, "user_message", None) or f"{type(exc).__name__}: {exc!r}"
         raise HTTPException(status_code=502, detail=f"Stripe-Zahlung konnte nicht bestätigt werden: {message}")
 
 
@@ -426,7 +426,7 @@ def sync_stripe_subscription(username: str, email: str) -> Dict[str, Any]:
                 stripe.Customer.search(query=f"metadata['username']:'{safe_username}'", limit=100)
             ).get("data", []) or []
         except Exception as exc:
-            print(f"Stripe customer metadata search unavailable ({type(exc).__name__}): {exc}")
+            print(f"Stripe customer metadata search unavailable ({type(exc).__name__}): {exc!r}")
             username_customers = []
         for customer_value in username_customers:
             customer = _stripe_dict(customer_value)
@@ -489,8 +489,8 @@ def sync_stripe_subscription(username: str, email: str) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as exc:
-        print(f"Stripe subscription sync failed ({type(exc).__name__}): {exc}")
-        message = getattr(exc, "user_message", None) or str(exc)
+        print(f"Stripe subscription sync failed ({type(exc).__name__}): {exc!r}")
+        message = getattr(exc, "user_message", None) or f"{type(exc).__name__}: {exc!r}"
         raise HTTPException(status_code=502, detail=f"Stripe-Abo konnte nicht synchronisiert werden: {message}")
 
 
@@ -624,8 +624,8 @@ def cancel_stripe_subscription(username: str) -> Dict[str, Any]:
             "current_period_end": subscription.get("current_period_end"),
         }
     except Exception as exc:
-        print(f"Stripe subscription cancellation failed ({type(exc).__name__}): {exc}")
-        message = getattr(exc, "user_message", None) or str(exc)
+        print(f"Stripe subscription cancellation failed ({type(exc).__name__}): {exc!r}")
+        message = getattr(exc, "user_message", None) or f"{type(exc).__name__}: {exc!r}"
         raise HTTPException(status_code=502, detail=f"Abo konnte nicht gekündigt werden: {message}")
 
 
@@ -646,8 +646,8 @@ def create_portal_session(username: str, customer_id: str) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as exc:
-        print(f"Stripe create_portal_session failed ({type(exc).__name__}): {exc}")
-        message = getattr(exc, "user_message", None) or str(exc)
+        print(f"Stripe create_portal_session failed ({type(exc).__name__}): {exc!r}")
+        message = getattr(exc, "user_message", None) or f"{type(exc).__name__}: {exc!r}"
         raise HTTPException(status_code=502, detail=f"Stripe Portal konnte nicht erstellt werden: {message}")
 
 
@@ -803,7 +803,7 @@ def handle_stripe_webhook(payload: bytes, sig_header: str) -> Dict[str, str]:
     try:
         event = _stripe_dict(stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET))
     except Exception as exc:
-        print(f"Stripe webhook verification failed ({type(exc).__name__}): {exc}")
+        print(f"Stripe webhook verification failed ({type(exc).__name__}): {exc!r}")
         raise HTTPException(status_code=400, detail=f"Ungültiger Stripe-Webhook: {exc}")
 
     event_id = event.get("id")
@@ -888,7 +888,7 @@ def handle_stripe_webhook(payload: bytes, sig_header: str) -> Dict[str, str]:
             _finish_webhook_event(event_id, str(exc)[:1000])
         except Exception as persistence_exc:
             print(f"Stripe webhook failure persistence failed: {persistence_exc}")
-        print(f"Stripe webhook processing failed ({event_type}, {event_id}): {exc}")
+        print(f"Stripe webhook processing failed ({event_type}, {event_id}): {exc!r}")
         raise HTTPException(status_code=500, detail="Stripe-Webhook konnte nicht verarbeitet werden.")
 
     return {"status": "ok"}
