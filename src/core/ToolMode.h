@@ -11,5 +11,7 @@ enum class ToolMode {
     Shape,
     StickyNote,
     Text,
-    Hand
+    Hand,
+    Formula,  // π / math block
+    Molecule  // structure / chemistry
 };

@@ -91,6 +91,9 @@ public:
     QString caption() const { return m_caption; }
     void setLightStudioStyle(bool on);
     bool lightStudioStyle() const { return m_lightStudioStyle; }
+    /// Force light glyphs/captions (dark charcoal pill on light canvas).
+    void setForceLightGlyphs(bool on);
+    bool forceLightGlyphs() const { return m_forceLightGlyphs; }
 
     double animScale() const { return m_animScale; }
     void setAnimScale(double s) { m_animScale = s; update(); }
@@ -140,6 +143,7 @@ private:
     QString m_badgeText;
     QString m_caption;
     bool m_lightStudioStyle{false};
+    bool m_forceLightGlyphs{false};
     QColor m_glyphColor; // invalid = use default chrome foreground
 
     double m_animScale{1.0};
@@ -200,6 +204,14 @@ public:
         CatReview,
         CatInsert
     };
+    /// Desktop studio mockup layouts (2×2). Legacy keeps current K/J path.
+    enum class StudioToolbarVariant {
+      Legacy = 0,
+      HorizontalLabeled, // A
+      HorizontalFlat,    // B
+      ComplexRadial,     // C
+      VerticalGrid       // D
+    };
 
     explicit ModernToolbar(QWidget* parent=nullptr);
 
@@ -217,6 +229,10 @@ public:
     /// K snapped pill (edge) vs J floating vertical rail (desktop studio).
     void applyStudioSnappedPill();
     void applyStudioFloatingRail();
+    /// Apply one of the four mockup toolbar layouts (A–D). Persists when persist=true.
+    void setStudioToolbarVariant(StudioToolbarVariant v, bool persist = true);
+    StudioToolbarVariant studioToolbarVariant() const { return m_studioVariant; }
+    void applyStudioToolbarVariant();
     bool isStudioChrome() const;
     bool isMarkupToolbar() const { return m_markupBarMode != MarkupOff; }
     bool isDrawboardVerticalRail() const;
@@ -333,6 +349,7 @@ private:
     bool m_draggable{true};
     bool m_isPreview{false};
     bool m_isDockedMode{false};
+    StudioToolbarVariant m_studioVariant{StudioToolbarVariant::Legacy};
 
     bool m_isScrolling{false};
     bool m_hasScrolled{false};
@@ -372,6 +389,8 @@ private:
     ToolbarBtn* btnText;
     ToolbarBtn* btnImage;
     ToolbarBtn* btnHand;
+    ToolbarBtn *btnFormula{nullptr};
+    ToolbarBtn *btnMolecule{nullptr};
 
     ToolbarBtn* btnUndo;
     ToolbarBtn* btnRedo;

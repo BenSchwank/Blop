@@ -36,8 +36,11 @@ param(
   # Kompletten Neuaufbau: CMake-Cache verwerfen.
   [switch]$Fresh,
 
-  # Opt-in Session-Trace (BLOP_SESSION_TRACE=1). Standard aus — kein Monitoring.
-  [switch]$Trace
+  # Opt-in Session-Trace (BLOP_SESSION_TRACE=1).
+  [switch]$Trace,
+
+  # Opt-in Toolbar-Debug palette (BLOP_TOOLBAR_DEBUG=1).
+  [switch]$ToolbarDebug
 )
 
 $ErrorActionPreference = 'Stop'
@@ -177,6 +180,10 @@ function Invoke-Run {
     if ($env:BLOP_SESSION_TRACE -eq '1') {
       Write-Warn2 'BLOP_SESSION_TRACE=1 ist in der Shell gesetzt (Trace bleibt an).'
     }
+  }
+  if ($ToolbarDebug) {
+    $env:BLOP_TOOLBAR_DEBUG = '1'
+    Write-Step 'Toolbar-Debug AN (BLOP_TOOLBAR_DEBUG=1) — Varianten-Palette in der Notiz'
   }
   Write-Step 'Blop starten (lokal testen)'
   & $Exe

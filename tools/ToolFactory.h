@@ -9,6 +9,8 @@
 #include "TextTool.h"
 #include "StickyNoteTool.h"
 #include "HandTool.h"
+#include "FormulaTool.h"
+#include "MoleculeTool.h"
 
 class ToolFactory {
 public:
@@ -25,5 +27,7 @@ public:
         mgr.registerTool(new TextTool(&mgr));
         mgr.registerTool(new StickyNoteTool(&mgr));
         mgr.registerTool(new HandTool(&mgr));
+        mgr.registerTool(new FormulaTool(&mgr));
+        mgr.registerTool(new MoleculeTool(&mgr));
     }
 };

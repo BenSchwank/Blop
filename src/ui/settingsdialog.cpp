@@ -1923,6 +1923,45 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         BlopRipple::attachPressFeedback(btnTrace, 0.96);
         cardAdv->addBodyWidget(btnTrace);
         cardAdv->addBodyWidget(traceHint);
+
+#ifndef Q_OS_ANDROID
+        auto *btnTbDebug = new QPushButton(
+            QStringLiteral("Toolbar-Debug (Entwickler)"), cardAdv);
+        btnTbDebug->setCheckable(true);
+        btnTbDebug->setCursor(Qt::PointingHandCursor);
+        btnTbDebug->setMinimumHeight(40);
+        {
+          QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+          btnTbDebug->setChecked(
+              s.value(QStringLiteral("diag/toolbarDebug"), false).toBool() ||
+              qEnvironmentVariableIsSet("BLOP_TOOLBAR_DEBUG"));
+        }
+        setThemedQss(btnTbDebug, QStringLiteral(
+            "QPushButton { background: %1; color: %2;"
+            "  border: 1px solid rgba(20,24,40,0.12); border-radius: 10px;"
+            "  padding: 10px 14px; text-align: left; font-weight: 600; }"
+            "QPushButton:checked { background: %3;"
+            "  border-color: %4; }")
+                .arg(settingsChipBg(), settingsInk(), accentRgba(70),
+                     BlopTheme::accentPrimary().name(QColor::HexRgb)));
+        auto *tbHint = new QLabel(
+            QStringLiteral(
+                "Zeigt die Varianten-Palette (A–D) in der Notiz. "
+                "Neustart nötig. Oder BLOP_TOOLBAR_DEBUG=1."),
+            cardAdv);
+        tbHint->setWordWrap(true);
+        setLiteralQss(tbHint, QStringLiteral(
+            "color: %1; font-size: 11px;"
+            "background: transparent; padding: 2px 0 4px 0;")
+            .arg(settingsInkMuted()));
+        connect(btnTbDebug, &QPushButton::toggled, this, [](bool on) {
+          QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+          s.setValue(QStringLiteral("diag/toolbarDebug"), on);
+        });
+        BlopRipple::attachPressFeedback(btnTbDebug, 0.96);
+        cardAdv->addBodyWidget(btnTbDebug);
+        cardAdv->addBodyWidget(tbHint);
+#endif
     }
     cardAdv->setExpanded(true);
 

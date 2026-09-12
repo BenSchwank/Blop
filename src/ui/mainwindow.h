@@ -54,6 +54,7 @@ class PageThumbnailSidebar;
 class PenPresetBar;
 class NoteLeftRail;
 class RadialToolbarFab;
+class StudioToolbarDebugPalette;
 class MultiPageNoteView;
 class ToolPropertiesPanel;
 class AllPagesOverlay;
@@ -736,6 +737,9 @@ private:
 
   QWidget *m_floatingTools{nullptr};
   PenPresetBar *m_penPresetBar{nullptr};
+#ifndef Q_OS_ANDROID
+  StudioToolbarDebugPalette *m_toolbarDebugPalette{nullptr};
+#endif
 
   PageManager *m_pageManager{nullptr};
 

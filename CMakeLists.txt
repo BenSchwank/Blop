@@ -139,6 +139,8 @@ qt_add_executable(Blop
     src/ui/markdowneditor.h
     src/ui/moderntoolbar.cpp
     src/ui/moderntoolbar.h
+    src/ui/studiotoolbardebugpalette.cpp
+    src/ui/studiotoolbardebugpalette.h
     src/ui/androidphonetoolbar.cpp
     src/ui/androidphonetoolbar.h
     src/ui/bloommenu.cpp

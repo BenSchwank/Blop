@@ -11,6 +11,7 @@
 #include "tools/ShapeTool.h"
 #include "tools/WritingTools.h"
 #include "uiscale.h"
+#include <cmath>
 #include <QApplication>
 #include <QCoreApplication>
 #include <QButtonGroup>
@@ -789,6 +790,60 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawPath(loop);
     return;
   }
+  if (name == QLatin1String("pi") || name == QLatin1String("formula")) {
+    // Outlined π — consistent stroke with other chrome glyphs.
+    p->setPen(QPen(primary, 3.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->setBrush(Qt::NoBrush);
+    QPainterPath pi;
+    pi.moveTo(18, 18);
+    pi.lineTo(46, 18);
+    pi.moveTo(26, 18);
+    pi.cubicTo(24, 28, 22, 40, 20, 50);
+    pi.moveTo(38, 18);
+    pi.cubicTo(40, 30, 42, 40, 46, 50);
+    p->drawPath(pi);
+    return;
+  }
+  if (name == QLatin1String("molecule") || name == QLatin1String("benzene")) {
+    // Outlined benzene hexagon with short bond stubs.
+    p->setPen(QPen(primary, 2.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->setBrush(Qt::NoBrush);
+    QPolygonF hex;
+    const qreal cx = 32, cy = 32, r = 16;
+    for (int i = 0; i < 6; ++i) {
+      const qreal a = -1.5707963267948966 + i * 1.0471975511965976; // -π/2 + i*π/3
+      hex << QPointF(cx + r * std::cos(a), cy + r * std::sin(a));
+    }
+    p->drawPolygon(hex);
+    for (int i = 0; i < 6; i += 2) {
+      const QPointF a = hex[i];
+      const QPointF b = hex[(i + 1) % 6];
+      const QPointF mid = (a + b) * 0.5;
+      const QPointF dir = mid - QPointF(cx, cy);
+      const qreal len = std::hypot(dir.x(), dir.y());
+      if (len > 1.0) {
+        const QPointF n = dir * (4.0 / len);
+        p->drawLine(mid - n * 0.2, mid + n);
+      }
+    }
+    return;
+  }
+  if (name == QLatin1String("set_square") ||
+      name == QLatin1String("protractor") ||
+      name == QLatin1String("geodreieck")) {
+    // Set square / triangle ruler (Messen companion).
+    p->setPen(QPen(primary, 2.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->setBrush(Qt::NoBrush);
+    QPainterPath tri;
+    tri.moveTo(14, 50);
+    tri.lineTo(50, 50);
+    tri.lineTo(14, 16);
+    tri.closeSubpath();
+    p->drawPath(tri);
+    p->drawLine(20, 44, 36, 44);
+    p->drawLine(20, 44, 20, 30);
+    return;
+  }
   // Fallback: single-character / unknown (legacy)
   QFont f = p->font();
   f.setPixelSize(28);
@@ -1039,6 +1094,13 @@ void ToolbarBtn::setLightStudioStyle(bool on) {
   if (m_lightStudioStyle == on)
     return;
   m_lightStudioStyle = on;
+  update();
+}
+
+void ToolbarBtn::setForceLightGlyphs(bool on) {
+  if (m_forceLightGlyphs == on)
+    return;
+  m_forceLightGlyphs = on;
   update();
 }
 void ToolbarBtn::setIcon(const QString &name) {
@@ -1496,8 +1558,10 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.translate(0.0, -m_liftOffset);
 
   if (!m_caption.isEmpty()) {
-    QColor ink = m_active ? NoteChrome::accent()
-                          : NoteChrome::textPrimary();
+    QColor ink = m_active
+                     ? (m_accentColor.isValid() ? m_accentColor : NoteChrome::accent())
+                     : (m_forceLightGlyphs ? QColor(0xE8, 0xEA, 0xEE)
+                                          : NoteChrome::textPrimary());
     // K mockup: inactive pen/pencil/highlighter keep saturated tip colours.
     // If the tip colour would vanish on the light pill, fall back to a safe
     // dark neutral while keeping the tool tint for highlighters via lime.
@@ -1506,7 +1570,8 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
          m_iconName == QLatin1String("pencil") ||
          m_iconName == QLatin1String("highlighter"))) {
       QColor safe = m_glyphColor;
-      if (!NoteChrome::isDark() && safe.lightnessF() > 0.65) {
+      if (!m_forceLightGlyphs && !NoteChrome::isDark() &&
+          safe.lightnessF() > 0.65) {
         safe = (m_iconName == QLatin1String("highlighter"))
                    ? QColor(90, 220, 70)
                    : QColor(QStringLiteral("#3A404C"));
@@ -1543,20 +1608,25 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
   if (m_lightStudioStyle) {
     if (m_active) {
       p.setPen(Qt::NoPen);
-      p.setBrush(QColor(91, 157, 255, 52));
+      const QColor acc =
+          m_accentColor.isValid() ? m_accentColor : NoteChrome::accent();
+      p.setBrush(QColor(acc.red(), acc.green(), acc.blue(), 52));
       p.drawRoundedRect(rect().adjusted(4, 4, -4, -4), UiScale::dp(10),
                         UiScale::dp(10));
     } else if (m_hover) {
       p.setPen(Qt::NoPen);
-      p.setBrush(NoteChrome::isDark() ? QColor(255, 255, 255, 18)
-                                       : QColor(0, 0, 0, 12));
+      p.setBrush(m_forceLightGlyphs || NoteChrome::isDark()
+                     ? QColor(255, 255, 255, 18)
+                     : QColor(0, 0, 0, 12));
       p.drawRoundedRect(rect().adjusted(4, 4, -4, -4), UiScale::dp(10),
                         UiScale::dp(10));
     }
     const QColor ink =
-        m_active ? QColor(QStringLiteral("#5B9DFF"))
-                 : (NoteChrome::isDark() ? NoteChrome::textPrimary()
-                                         : QColor(QStringLiteral("#3A404C")));
+        m_active
+            ? (m_accentColor.isValid() ? m_accentColor : NoteChrome::accent())
+            : (m_forceLightGlyphs || NoteChrome::isDark()
+                   ? NoteChrome::textPrimary()
+                   : QColor(QStringLiteral("#3A404C")));
     p.save();
     p.translate(w / 2.0, h / 2.0);
     p.scale(m_animScale, m_animScale);
@@ -2745,6 +2815,10 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnText = new ToolbarBtn("text", this);
   btnImage = new ToolbarBtn("image", this);
   btnHand = new ToolbarBtn("hand", this);
+  btnFormula = new ToolbarBtn("pi", this);
+  btnFormula->setToolTip(tr("Formel"));
+  btnMolecule = new ToolbarBtn("molecule", this);
+  btnMolecule->setToolTip(tr("Molekül"));
   btnUndo = new ToolbarBtn("undo", this);
   btnUndo->setToolTip(tr("Rückgängig"));
   btnRedo = new ToolbarBtn("redo", this);
@@ -2779,7 +2853,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
 
   m_buttons = {btnSave,     btnPen,      btnPencil, btnHighlighter,
                  btnEraser,    btnLasso,    btnRuler,    btnShape,  btnStickyNote,
-                 btnText,      btnImage,    btnHand,     btnBackOverview,
+                 btnText,      btnImage,    btnHand,     btnFormula, btnMolecule,
+                 btnBackOverview,
                  btnUndo,      btnRedo,     btnPalette,  btnBrushSize, btnDockToggle,
                  btnAddTool, btnLibrary, btnRailChevron, btnMoreProps,
                  btnLayoutToggle};
@@ -2911,6 +2986,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   wireTool(btnText, ToolMode::Text);
   wireTool(btnHand, ToolMode::Hand);
   wireTool(btnImage, ToolMode::Image);
+  wireTool(btnFormula, ToolMode::Formula);
+  wireTool(btnMolecule, ToolMode::Molecule);
 
 #if BLOP_TOOLBAR_LONGPRESS
   auto connectLongPressClose = [this](ToolbarBtn *btn, ToolMode mode) {
@@ -3043,12 +3120,21 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
     if (m_orientation == Vertical || m_orientation == Horizontal) {
       if (m_isDockedMode) {
         // K snapped pill: NoteChrome-aware plate, fully rounded capsule.
+        // Mockup variants A–D keep a charcoal pill even on light canvas.
         const int r = h / 2;
+        QColor fill = NoteChrome::toolbarFill();
+        QColor border = NoteChrome::border();
+        if (m_studioVariant != StudioToolbarVariant::Legacy) {
+          fill = NoteChrome::isDark() ? QColor(0x3A, 0x3E, 0x48)
+                                      : QColor(0x2C, 0x2E, 0x34);
+          border = NoteChrome::isDark() ? QColor(255, 255, 255, 28)
+                                        : QColor(255, 255, 255, 22);
+        }
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 60 : 22));
         p.drawRoundedRect(rect().adjusted(0, 2, 0, 0), r, r);
-        p.setBrush(NoteChrome::toolbarFill());
-        p.setPen(QPen(NoteChrome::border(), 1));
+        p.setBrush(fill);
+        p.setPen(QPen(border, 1));
         p.drawRoundedRect(rect(), r, r);
 
         p.setPen(QPen(NoteChrome::isDark() ? QColor(255, 255, 255, 18)
@@ -3067,14 +3153,23 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
           p.drawLine(UiScale::dp(8), m_markupRowDividerY, w - UiScale::dp(8),
                      m_markupRowDividerY);
         }
-      } else if (isDrawboardVerticalRail()) {
-        // J floating vertical pill: NoteChrome-aware capsule.
+      } else if (isDrawboardVerticalRail() ||
+                 m_studioVariant == StudioToolbarVariant::VerticalGrid) {
+        // J floating vertical pill / VerticalGrid (D): charcoal capsule.
         const int r = w / 2;
+        QColor fill = NoteChrome::toolbarFill();
+        QColor border = NoteChrome::border();
+        if (m_studioVariant == StudioToolbarVariant::VerticalGrid) {
+          fill = NoteChrome::isDark() ? QColor(0x3A, 0x3E, 0x48)
+                                      : QColor(0x2C, 0x2E, 0x34);
+          border = NoteChrome::isDark() ? QColor(255, 255, 255, 28)
+                                        : QColor(255, 255, 255, 22);
+        }
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 60 : 26));
         p.drawRoundedRect(rect().adjusted(1, 2, -1, 0), r, r);
-        p.setBrush(NoteChrome::toolbarFill());
-        p.setPen(QPen(NoteChrome::border(), 1));
+        p.setBrush(fill);
+        p.setPen(QPen(border, 1));
         p.drawRoundedRect(rect(), r, r);
         if (m_draggable) {
           p.setBrush(NoteChrome::isDark() ? QColor(255, 255, 255, 40)
@@ -4372,6 +4467,10 @@ ToolbarBtn *ModernToolbar::getButtonForMode(ToolMode m) {
     return btnImage;
   case ToolMode::Hand:
     return btnHand;
+  case ToolMode::Formula:
+    return btnFormula;
+  case ToolMode::Molecule:
+    return btnMolecule;
   default:
     return btnPen;
   }
@@ -5058,6 +5157,8 @@ ModernToolbar::categoryForTool(ToolMode m) const {
     return CatFreeform;
   case ToolMode::Shape:
   case ToolMode::Ruler:
+  case ToolMode::Formula:
+  case ToolMode::Molecule:
     return CatShapes;
   case ToolMode::Text:
     return CatReview;
@@ -5077,7 +5178,7 @@ ModernToolbar::toolsForCategory(MarkupCategory cat) const {
   case CatFreeform:
     return {btnPen, btnPencil, btnHighlighter};
   case CatShapes:
-    return {btnShape, btnRuler};
+    return {btnShape, btnRuler, btnFormula, btnMolecule};
   case CatReview:
     return {btnText};
   case CatInsert:
@@ -5323,6 +5424,8 @@ void ModernToolbar::contextMenuEvent(QContextMenuEvent *e) {
 
 bool ModernToolbar::isStudioChrome() const {
 #ifndef Q_OS_ANDROID
+  if (m_studioVariant != StudioToolbarVariant::Legacy)
+    return true;
   return m_style == Normal && m_markupBarMode == MarkupOff;
 #else
   return false;
@@ -5344,6 +5447,14 @@ static QString studioCaptionForIcon(const QString &icon) {
     return QStringLiteral("Auswählen");
   if (icon == QLatin1String("hand"))
     return QStringLiteral("Hand");
+  if (icon == QLatin1String("pi") || icon == QLatin1String("formula"))
+    return QStringLiteral("Formel");
+  if (icon == QLatin1String("measure") || icon == QLatin1String("ruler"))
+    return QStringLiteral("Messen");
+  if (icon == QLatin1String("set_square") || icon == QLatin1String("protractor"))
+    return QStringLiteral("Messen");
+  if (icon == QLatin1String("molecule") || icon == QLatin1String("benzene"))
+    return QStringLiteral("Molekül");
   if (icon == QLatin1String("undo"))
     return QStringLiteral("Rückgängig");
   if (icon == QLatin1String("redo"))
@@ -5564,6 +5675,129 @@ void ModernToolbar::applyStudioFloatingRail() {
 #endif
 }
 
+void ModernToolbar::setStudioToolbarVariant(StudioToolbarVariant v,
+                                            bool persist) {
+#ifndef Q_OS_ANDROID
+  if (m_studioVariant == v) {
+    applyStudioToolbarVariant();
+    return;
+  }
+  m_studioVariant = v;
+  if (persist) {
+    QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    s.setValue(QStringLiteral("ui/studio_toolbar_variant"),
+               static_cast<int>(v));
+  }
+  applyStudioToolbarVariant();
+#else
+  Q_UNUSED(v);
+  Q_UNUSED(persist);
+#endif
+}
+
+void ModernToolbar::applyStudioToolbarVariant() {
+#ifndef Q_OS_ANDROID
+  const bool darkPill =
+      m_studioVariant != StudioToolbarVariant::Legacy;
+  auto prepButtons = [this, darkPill](bool captions) {
+    for (ToolbarBtn *b : m_buttons) {
+      if (!b)
+        continue;
+      b->setForceLightGlyphs(darkPill);
+      b->setLightStudioStyle(true);
+      b->setRailSlotStyle(false);
+      if (captions)
+        b->setCaption(studioCaptionForIcon(b->iconName()));
+      else
+        b->setCaption(QString());
+    }
+  };
+
+  switch (m_studioVariant) {
+  case StudioToolbarVariant::HorizontalLabeled:
+    m_style = Normal;
+    m_markupBarMode = MarkupOff;
+    applyStudioSnappedPill();
+    prepButtons(true);
+    if (btnFormula)
+      btnFormula->setCaption(QStringLiteral("Formel"));
+    if (btnMolecule)
+      btnMolecule->setCaption(QStringLiteral("Molekül"));
+    if (btnRuler)
+      btnRuler->setCaption(QStringLiteral("Messen"));
+    updateLayout(false);
+    break;
+  case StudioToolbarVariant::HorizontalFlat:
+    m_style = Normal;
+    m_markupBarMode = MarkupOff;
+    applyStudioSnappedPill();
+    prepButtons(false);
+    setFixedHeight(UiScale::dp(48));
+    updateLayout(false);
+    break;
+  case StudioToolbarVariant::ComplexRadial:
+    m_markupBarMode = MarkupOff;
+    m_isDockedMode = false;
+    m_draggable = true;
+    setStyle(Radial);
+    setRadialType(FullCircle);
+    prepButtons(false);
+    for (ToolbarBtn *b : m_buttons) {
+      if (b)
+        b->setForceLightGlyphs(true);
+    }
+    updateLayout(false);
+    break;
+  case StudioToolbarVariant::VerticalGrid:
+    m_style = Normal;
+    m_markupBarMode = MarkupOff;
+    m_isDockedMode = false;
+    m_draggable = true;
+    m_allowResize = false;
+    if (m_orientation != Vertical)
+      setOrientation(Vertical, false);
+    prepButtons(false);
+    for (ToolbarBtn *b : m_buttons) {
+      if (!b)
+        continue;
+      b->hide();
+    }
+    {
+      const QList<ToolbarBtn *> grid = {
+          btnHand, btnPen, btnEraser, btnLasso, btnFormula, btnRuler,
+          btnMolecule, btnShape, btnImage, btnText, btnUndo, btnRedo};
+      for (ToolbarBtn *b : grid) {
+        if (!b)
+          continue;
+        b->setForceLightGlyphs(true);
+        b->setLightStudioStyle(true);
+        b->setRailSlotStyle(false);
+        b->setCaption(QString());
+        b->setBtnCell(UiScale::dp(40), UiScale::dp(40));
+        b->show();
+      }
+    }
+    if (btnPalette)
+      btnPalette->show();
+    setMinimumSize(0, 0);
+    setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    setFixedWidth(UiScale::dp(96));
+    resize(UiScale::dp(96), UiScale::dp(420));
+    updateLayout(false);
+    break;
+  case StudioToolbarVariant::Legacy:
+  default:
+    for (ToolbarBtn *b : m_buttons) {
+      if (b)
+        b->setForceLightGlyphs(false);
+    }
+    applyStudioSnappedPill();
+    break;
+  }
+  update();
+#endif
+}
+
 bool ModernToolbar::isDrawboardVerticalRail() const {
 #ifndef Q_OS_ANDROID
   return isStudioChrome() && !m_isDockedMode && m_orientation == Vertical;
@@ -5595,6 +5829,8 @@ void ModernToolbar::loadRailTools() {
     case ToolMode::StickyNote:
     case ToolMode::Text:
     case ToolMode::Hand:
+    case ToolMode::Formula:
+    case ToolMode::Molecule:
       return true;
     }
     return false;
@@ -5780,6 +6016,10 @@ QString ModernToolbar::iconForSlot(const RailSlot &s) const {
     return QStringLiteral("image");
   case ToolMode::Hand:
     return QStringLiteral("hand");
+  case ToolMode::Formula:
+    return QStringLiteral("pi");
+  case ToolMode::Molecule:
+    return QStringLiteral("molecule");
   }
   return QStringLiteral("pen");
 }
@@ -5812,6 +6052,12 @@ void ModernToolbar::syncSlotButtonAppearance(int index) {
   switch (s.mode) {
   case ToolMode::Hand:
     tip = tr("Hand · Leertaste = vorübergehend schwenken");
+    break;
+  case ToolMode::Formula:
+    tip = tr("Formel (π)");
+    break;
+  case ToolMode::Molecule:
+    tip = tr("Molekül");
     break;
   case ToolMode::Lasso:
     tip = tr("Auswahl (V)");
@@ -6641,6 +6887,55 @@ void ModernToolbar::updateLayout(bool animate) {
     updateActiveIndicator(false);
     return;
   }
+  // Variant D: 2-column vertical grid floating pill.
+  if (m_studioVariant == StudioToolbarVariant::VerticalGrid &&
+      m_style == Normal) {
+    const int w = width();
+    const int h = height();
+    const int cell = UiScale::dp(40);
+    const int gap = UiScale::dp(6);
+    const int cols = 2;
+    const QList<ToolbarBtn *> grid = {
+        btnHand,     btnPen,      btnEraser, btnLasso,    btnFormula, btnRuler,
+        btnMolecule, btnShape,    btnImage,  btnText,     btnUndo,    btnRedo};
+    for (ToolbarBtn *b : m_buttons) {
+      if (b && !grid.contains(b) && b != btnPalette)
+        b->hide();
+    }
+    int i = 0;
+    const int rows = (grid.size() + cols - 1) / cols;
+    const int gridH = rows * cell + (rows - 1) * gap;
+    const int top = UiScale::dp(12);
+    const int left = qMax(UiScale::dp(6), (w - (cols * cell + gap)) / 2);
+    for (ToolbarBtn *b : grid) {
+      if (!b)
+        continue;
+      const int col = i % cols;
+      const int row = i / cols;
+      b->setBtnCell(cell, cell);
+      b->setGeometry(left + col * (cell + gap), top + row * (cell + gap), cell,
+                     cell);
+      b->show();
+      b->raise();
+      ++i;
+    }
+    if (btnPalette) {
+      const int pw = UiScale::dp(56);
+      const int ph = UiScale::dp(56);
+      btnPalette->setBtnCell(pw, ph);
+      btnPalette->setGeometry((w - pw) / 2, qMin(h - ph - UiScale::dp(12),
+                                                top + gridH + UiScale::dp(16)),
+                              pw, ph);
+      btnPalette->setIcon(QStringLiteral("palette"));
+      btnPalette->setForceLightGlyphs(true);
+      btnPalette->setLightStudioStyle(true);
+      btnPalette->show();
+      btnPalette->raise();
+    }
+    updateActiveIndicator(false);
+    Q_UNUSED(animate);
+    return;
+  }
 #endif
   // Hide markup-only chrome unless the docked markup layout is active.
   const bool markupActive = (m_markupBarMode != MarkupOff && m_isDockedMode &&
@@ -6702,15 +6997,31 @@ void ModernToolbar::updateLayout(bool animate) {
           b->hide();
       }
       QList<ToolbarBtn *> row;
-      const QList<ToolbarBtn *> preferred = {
-          getButtonForMode(ToolMode::Pen),
-          getButtonForMode(ToolMode::Pencil),
-          getButtonForMode(ToolMode::Highlighter),
-          getButtonForMode(ToolMode::Eraser),
-          getButtonForMode(ToolMode::Lasso),
-          getButtonForMode(ToolMode::Hand),
-          btnUndo,
-          btnMoreProps};
+      QList<ToolbarBtn *> preferred;
+      if (m_studioVariant == StudioToolbarVariant::HorizontalLabeled ||
+          m_studioVariant == StudioToolbarVariant::HorizontalFlat) {
+        preferred = {
+            getButtonForMode(ToolMode::Hand),
+            getButtonForMode(ToolMode::Pen),
+            getButtonForMode(ToolMode::Eraser),
+            getButtonForMode(ToolMode::Lasso),
+            getButtonForMode(ToolMode::Formula),
+            getButtonForMode(ToolMode::Ruler),
+            getButtonForMode(ToolMode::Molecule),
+            getButtonForMode(ToolMode::Shape),
+            btnUndo,
+            btnRedo};
+      } else {
+        preferred = {
+            getButtonForMode(ToolMode::Pen),
+            getButtonForMode(ToolMode::Pencil),
+            getButtonForMode(ToolMode::Highlighter),
+            getButtonForMode(ToolMode::Eraser),
+            getButtonForMode(ToolMode::Lasso),
+            getButtonForMode(ToolMode::Hand),
+            btnUndo,
+            btnMoreProps};
+      }
       for (ToolbarBtn *b : preferred) {
         if (!b || row.contains(b))
           continue;
@@ -6718,10 +7029,15 @@ void ModernToolbar::updateLayout(bool animate) {
         b->setDrawFloatingBg(false);
         b->setLightStudioStyle(true);
         b->setRailSlotStyle(false);
+        b->setForceLightGlyphs(m_studioVariant !=
+                               StudioToolbarVariant::Legacy);
         if (b == btnLasso)
           b->setIcon(QStringLiteral("lasso_loop"));
-        else if (b == btnHand)
+        else if (b == btnHand &&
+                 m_studioVariant == StudioToolbarVariant::Legacy)
           b->setIcon(QStringLiteral("select_rect"));
+        else if (b == btnHand)
+          b->setIcon(QStringLiteral("hand"));
         if (b == btnPen)
           b->setGlyphColor(
               ToolManager::instance().configFor(ToolMode::Pen).penColor);
@@ -6747,6 +7063,10 @@ void ModernToolbar::updateLayout(bool animate) {
           b->setGlyphColor(QColor());
           b->setLightStudioStyle(true);
           b->setRailSlotStyle(false);
+        } else if (m_studioVariant == StudioToolbarVariant::HorizontalFlat) {
+          b->setCaption(QString());
+        } else if (m_studioVariant == StudioToolbarVariant::HorizontalLabeled) {
+          b->setCaption(studioCaptionForIcon(b->iconName()));
         } else {
           b->setCaption(studioCaptionForIcon(b->iconName()));
         }

@@ -2,6 +2,7 @@
 #include "UIStyles.h"
 #include "canvasview.h"
 #include "moderntoolbar.h"
+#include "studiotoolbardebugpalette.h"
 #include "notechrome.h"
 #include "notechromeedge.h"
 #include "toolpropertiespanel.h"
@@ -67,6 +68,8 @@
 #include "tools/TextTool.h" // Neu: TextTool
 #include "tools/StickyNoteTool.h"
 #include "tools/HandTool.h"
+#include "tools/FormulaTool.h"
+#include "tools/MoleculeTool.h"
 #include "tools/WritingTools.h" // Enthält PenTool, PencilTool, HighlighterTool
 // -------------------------------------
 
@@ -2394,6 +2397,8 @@ void MainWindow::setupTools() {
     m_toolManager->registerTool(new TextTool()); // <--- TextTool Registrierung
     m_toolManager->registerTool(new StickyNoteTool());
     m_toolManager->registerTool(new HandTool());
+    m_toolManager->registerTool(new FormulaTool());
+    m_toolManager->registerTool(new MoleculeTool());
 
     m_toolManager->selectTool(ToolMode::Pen);
   }
@@ -6762,6 +6767,31 @@ void MainWindow::setupUi() {
     m_floatingTools = topToolbar;
   }
   m_floatingTools->raise();
+
+#ifndef Q_OS_ANDROID
+  {
+    const bool envDebug = qEnvironmentVariableIsSet("BLOP_TOOLBAR_DEBUG");
+    QSettings dbg(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    const bool settingsDebug =
+        dbg.value(QStringLiteral("diag/toolbarDebug"), false).toBool();
+    if (envDebug || settingsDebug) {
+      if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+        const int saved =
+            dbg.value(QStringLiteral("ui/studio_toolbar_variant"), 0).toInt();
+        tb->setStudioToolbarVariant(
+            static_cast<ModernToolbar::StudioToolbarVariant>(saved), false);
+        m_toolbarDebugPalette =
+            new StudioToolbarDebugPalette(tb, m_editorCenterWidget);
+        m_toolbarDebugPalette->move(UiScale::dp(12), UiScale::dp(12));
+        m_toolbarDebugPalette->show();
+        m_toolbarDebugPalette->raise();
+        connect(m_toolbarDebugPalette,
+                &StudioToolbarDebugPalette::variantChosen, this,
+                [this](int) { positionDrawboardToolbar(); });
+      }
+    }
+  }
+#endif
 
 #ifndef Q_OS_ANDROID
   // Radial FAB is optional (Radial toolbar style only). Keep constructed but
@@ -14611,10 +14641,44 @@ void MainWindow::positionDrawboardToolbar() {
   auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
   if (!tb || !m_editorCenterWidget)
     return;
-  if (tb->currentStyle() != ModernToolbar::Normal)
-    return;
   if (tb->isDragging())
     return;
+
+#ifndef Q_OS_ANDROID
+  using V = ModernToolbar::StudioToolbarVariant;
+  const auto variant = tb->studioToolbarVariant();
+  if (variant == V::ComplexRadial ||
+      tb->currentStyle() == ModernToolbar::Radial) {
+    const int W = m_editorCenterWidget->width();
+    const int H = m_editorCenterWidget->height();
+    const int s = UiScale::dp(280);
+    tb->setMinimumSize(0, 0);
+    tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    tb->resize(s, s);
+    tb->move(qMax(UiScale::dp(12), W - s - UiScale::dp(24)),
+             qMax(UiScale::dp(12), H - s - UiScale::dp(24)));
+    tb->raise();
+    return;
+  }
+  if (variant == V::VerticalGrid) {
+    const int W = m_editorCenterWidget->width();
+    const int H = m_editorCenterWidget->height();
+    const int railW = UiScale::dp(96);
+    const int railH = qMin(UiScale::dp(440), H - UiScale::dp(48));
+    tb->setMinimumSize(0, 0);
+    tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    tb->setFixedWidth(railW);
+    tb->setGeometry(W - railW - UiScale::dp(12),
+                    noteHeaderHeight() + UiScale::dp(12), railW, railH);
+    tb->raise();
+    return;
+  }
+  if (tb->currentStyle() != ModernToolbar::Normal)
+    return;
+#else
+  if (tb->currentStyle() != ModernToolbar::Normal)
+    return;
+#endif
 
 #ifndef Q_OS_ANDROID
   // Heal inconsistent state: docked studio toolbar must be the K horizontal pill.

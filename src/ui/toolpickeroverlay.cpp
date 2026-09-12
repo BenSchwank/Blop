@@ -45,6 +45,8 @@ const ToolEntry kTools[] = {
     {ToolMode::Shape, "Sinus", "sine", 1, 3},
     {ToolMode::Shape, "Graph", "graph", 1, 4},
     {ToolMode::Ruler, "Messen", "measure", 3, -1},
+    {ToolMode::Formula, "Formel", "pi", 3, -1},
+    {ToolMode::Molecule, "Molekül", "molecule", 3, -1},
     {ToolMode::Text, "Text", "text", 2, -1},
     {ToolMode::Image, "Bild", "image", 4, -1},
     {ToolMode::StickyNote, "Notiz", "stickynote", 4, -1},
