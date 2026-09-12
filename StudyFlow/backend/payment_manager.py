@@ -45,14 +45,73 @@ def _stripe_enabled() -> bool:
 
 
 def _stripe_dict(value: Any) -> Dict[str, Any]:
+    """Normalize Stripe SDK objects and plain mappings to a plain dict.
+
+    stripe-python v15 removed dict inheritance and ``to_dict_recursive()``.
+    Prefer ``to_dict()`` (recursive by default), then legacy helpers, then a
+    shallow mapping copy. Never raise — callers treat ``{}`` as empty.
+    """
+    if value is None:
+        return {}
     if isinstance(value, dict):
         return value
-    if hasattr(value, "to_dict_recursive"):
-        return value.to_dict_recursive()
+
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        try:
+            converted = to_dict()
+            if isinstance(converted, dict):
+                return converted
+        except TypeError:
+            # Some stubs use to_dict(self, recursive=True) only — already default.
+            try:
+                converted = to_dict(recursive=True)
+                if isinstance(converted, dict):
+                    return converted
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    to_dict_recursive = getattr(value, "to_dict_recursive", None)
+    if callable(to_dict_recursive):
+        try:
+            converted = to_dict_recursive()
+            if isinstance(converted, dict):
+                return converted
+        except Exception:
+            pass
+
     try:
         return dict(value)
     except (TypeError, ValueError):
         return {}
+
+
+def _stripe_list_data(value: Any) -> list:
+    """Extract the ``data`` array from a Stripe list payload or ListObject."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    attr_data = getattr(value, "data", None)
+    if isinstance(attr_data, list):
+        return attr_data
+    as_dict = _stripe_dict(value)
+    data = as_dict.get("data", [])
+    if isinstance(data, list):
+        return data
+    nested = getattr(data, "data", None)
+    if isinstance(nested, list):
+        return nested
+    return []
+
+
+def _first_stripe_list_item(value: Any) -> Dict[str, Any]:
+    items = _stripe_list_data(value)
+    if not items:
+        return {}
+    return _stripe_dict(items[0])
 
 
 def _stripe_id(value: Any) -> Optional[str]:
@@ -182,11 +241,11 @@ def create_checkout_session(
         customer_id = existing.get("provider_customer_id") if existing.get("provider") == "stripe" else None
         customers_by_id: Dict[str, Dict[str, Any]] = {}
         if email:
-            for row in _stripe_dict(stripe.Customer.list(email=email, limit=100)).get("data", []) or []:
+            for row in _stripe_list_data(stripe.Customer.list(email=email, limit=100)):
                 customer = _stripe_dict(row)
                 if customer.get("id"):
                     customers_by_id[customer["id"]] = customer
-        for row in _stripe_dict(stripe.Customer.list(limit=100)).get("data", []) or []:
+        for row in _stripe_list_data(stripe.Customer.list(limit=100)):
             customer = _stripe_dict(row)
             if _stripe_dict(customer.get("metadata", {})).get("username") == username and customer.get("id"):
                 customers_by_id[customer["id"]] = customer
@@ -199,8 +258,7 @@ def create_checkout_session(
             candidate_customer_id = customer_row.get("id")
             if not candidate_customer_id:
                 continue
-            result = _stripe_dict(stripe.Subscription.list(customer=candidate_customer_id, status="all", limit=100))
-            for item in result.get("data") or []:
+            for item in _stripe_list_data(stripe.Subscription.list(customer=candidate_customer_id, status="all", limit=100)):
                 subscription = _stripe_dict(item)
                 if subscription.get("status") in ("active", "trialing", "past_due"):
                     active_subscriptions.append(subscription)
@@ -279,19 +337,18 @@ def reconcile_checkout_session(username: str, checkout_session_id: str) -> Dict[
         subscription = _stripe_dict(stripe.Subscription.retrieve(subscription_id)) if subscription_id else {}
         if not subscription:
             safe_username = username.replace("\\", "\\\\").replace("'", "\\'")
-            matching_customers = _stripe_dict(
+            matching_customers = _stripe_list_data(
                 stripe.Customer.search(query=f"metadata['username']:'{safe_username}'", limit=100)
-            ).get("data") or []
+            )
             candidates = []
             for matching_customer in matching_customers:
                 matching_customer = _stripe_dict(matching_customer)
                 matching_customer_id = matching_customer.get("id")
                 if not matching_customer_id:
                     continue
-                subscriptions = _stripe_dict(
+                for item in _stripe_list_data(
                     stripe.Subscription.list(customer=matching_customer_id, status="all", limit=100)
-                )
-                for item in subscriptions.get("data", []) or []:
+                ):
                     item = _stripe_dict(item)
                     if item.get("status") in ("active", "trialing", "past_due"):
                         candidates.append((item, matching_customer))
@@ -365,8 +422,7 @@ def _tier_from_stripe_subscription(subscription: Dict[str, Any]) -> str:
     tier = str(metadata.get("tier") or "").strip().lower()
     if tier in ("pro", "premium"):
         return tier
-    items = _stripe_dict(subscription.get("items", {})).get("data", []) or []
-    for item_value in items:
+    for item_value in _stripe_list_data(subscription.get("items")):
         item = _stripe_dict(item_value)
         legacy_price = _stripe_dict(item.get("price", {}))
         pricing = _stripe_dict(item.get("pricing", {}))
@@ -398,8 +454,7 @@ def _interval_from_stripe_subscription(subscription: Dict[str, Any]) -> str:
     metadata = _stripe_dict(subscription.get("metadata", {}))
     if metadata.get("interval") in ("month", "year"):
         return metadata["interval"]
-    items = _stripe_dict(subscription.get("items", {})).get("data", []) or []
-    for item_value in items:
+    for item_value in _stripe_list_data(subscription.get("items")):
         item = _stripe_dict(item_value)
         recurring = _stripe_dict(_stripe_dict(item.get("price", {})).get("recurring", {}))
         if not recurring:
@@ -416,15 +471,15 @@ def sync_stripe_subscription(username: str, email: str) -> Dict[str, Any]:
     try:
         customers_by_id: Dict[str, Dict[str, Any]] = {}
         if email:
-            for customer_value in _stripe_dict(stripe.Customer.list(email=email, limit=100)).get("data", []) or []:
+            for customer_value in _stripe_list_data(stripe.Customer.list(email=email, limit=100)):
                 customer = _stripe_dict(customer_value)
                 if customer.get("id"):
                     customers_by_id[customer["id"]] = customer
         safe_username = username.replace("\\", "\\\\").replace("'", "\\'")
         try:
-            username_customers = _stripe_dict(
+            username_customers = _stripe_list_data(
                 stripe.Customer.search(query=f"metadata['username']:'{safe_username}'", limit=100)
-            ).get("data", []) or []
+            )
         except Exception as exc:
             print(f"Stripe customer metadata search unavailable ({type(exc).__name__}): {exc!r}")
             username_customers = []
@@ -432,7 +487,7 @@ def sync_stripe_subscription(username: str, email: str) -> Dict[str, Any]:
             customer = _stripe_dict(customer_value)
             if customer.get("id"):
                 customers_by_id[customer["id"]] = customer
-        for customer_value in _stripe_dict(stripe.Customer.list(limit=100)).get("data", []) or []:
+        for customer_value in _stripe_list_data(stripe.Customer.list(limit=100)):
             customer = _stripe_dict(customer_value)
             metadata = _stripe_dict(customer.get("metadata", {}))
             if metadata.get("username") == username and customer.get("id"):
@@ -445,10 +500,9 @@ def sync_stripe_subscription(username: str, email: str) -> Dict[str, Any]:
             customer_username = _stripe_dict(customer.get("metadata", {})).get("username")
             if not customer_id or (customer_username != username and (not email or customer_email != email)):
                 continue
-            subscriptions = _stripe_dict(
+            for subscription_value in _stripe_list_data(
                 stripe.Subscription.list(customer=customer_id, status="all", limit=100)
-            ).get("data", []) or []
-            for subscription_value in subscriptions:
+            ):
                 subscription = _stripe_dict(subscription_value)
                 if subscription.get("status") in ("active", "trialing", "past_due"):
                     tier = _tier_from_stripe_subscription(subscription)
@@ -505,7 +559,10 @@ def admin_reconcile_stripe_subscriptions(apply: bool = False) -> Dict[str, Any]:
             users_by_email.setdefault(email, []).append(row["username"])
 
     subscription_page = stripe.Subscription.list(status="all", limit=100)
-    subscriptions = subscription_page.auto_paging_iter() if hasattr(subscription_page, "auto_paging_iter") else _stripe_dict(subscription_page).get("data", []) or []
+    if hasattr(subscription_page, "auto_paging_iter"):
+        subscriptions = subscription_page.auto_paging_iter()
+    else:
+        subscriptions = _stripe_list_data(subscription_page)
     results = []
     for value in subscriptions:
         subscription = _stripe_dict(value)
@@ -655,24 +712,53 @@ def create_portal_session(username: str, customer_id: str) -> Dict[str, Any]:
 # Webhooks
 # ---------------------------------------------------------------------------
 
-def _credit_tokens(username: str, tier: str, interval: str, grant_key: str) -> bool:
+def _credit_tokens(
+    username: str,
+    tier: str,
+    interval: str,
+    grant_key: str,
+    provider: str = "stripe",
+) -> bool:
     db = _subscription_db()
     credits = _subscription_credits_for_interval(tier, interval)
     if credits <= 0:
         return False
+
+    # Prefer atomic RPC so concurrent webhooks / sync retries cannot double-grant.
+    try:
+        rpc = db.rpc(
+            "grant_subscription_tokens",
+            {
+                "p_username": username,
+                "p_provider": provider,
+                "p_grant_key": grant_key,
+                "p_tier": tier,
+                "p_tokens": credits,
+            },
+        ).execute()
+        payload = rpc.data
+        if isinstance(payload, list) and payload:
+            payload = payload[0]
+        if isinstance(payload, dict):
+            granted = bool(payload.get("granted"))
+            if granted:
+                print(
+                    f"PaymentManager: credited {credits} tokens to {username} "
+                    f"(new balance {payload.get('new_balance')}) for {tier}/{interval}"
+                )
+            return granted
+    except Exception as exc:
+        print(f"PaymentManager: grant_subscription_tokens RPC unavailable, falling back ({type(exc).__name__}): {exc!r}")
+
     existing = (
         db.table("subscription_token_grants").select("provider_invoice_id")
-        .eq("provider", "stripe").eq("provider_invoice_id", grant_key).execute()
+        .eq("provider", provider).eq("provider_invoice_id", grant_key).execute()
     )
     if existing.data:
         return False
-    user_res = db.table("users").select("tokens").eq("username", username).execute()
-    current = int(user_res.data[0]["tokens"]) if user_res.data else 0
-    new_balance = current + credits
-    db.table("users").update({"tokens": new_balance}).eq("username", username).execute()
     try:
         db.table("subscription_token_grants").insert({
-            "provider": "stripe",
+            "provider": provider,
             "provider_invoice_id": grant_key,
             "username": username,
             "tier": tier,
@@ -681,10 +767,15 @@ def _credit_tokens(username: str, tier: str, interval: str, grant_key: str) -> b
     except Exception:
         existing = (
             db.table("subscription_token_grants").select("provider_invoice_id")
-            .eq("provider", "stripe").eq("provider_invoice_id", grant_key).execute()
+            .eq("provider", provider).eq("provider_invoice_id", grant_key).execute()
         )
-        if not existing.data:
-            raise
+        if existing.data:
+            return False
+        raise
+    user_res = db.table("users").select("tokens").eq("username", username).execute()
+    current = int(user_res.data[0]["tokens"] or 0) if user_res.data else 0
+    new_balance = current + credits
+    db.table("users").update({"tokens": new_balance}).eq("username", username).execute()
     print(f"PaymentManager: credited {credits} tokens to {username} (new balance {new_balance}) for {tier}/{interval}")
     return True
 
@@ -703,21 +794,19 @@ def _handle_subscription_created_or_updated(
     if not username or tier not in ("pro", "premium"):
         raise RuntimeError(f"Stripe subscription mapping incomplete: {subscription.get('id')}")
 
-    # Determine period end from the subscription object.
+    # Determine period end from the subscription object (Basil+: item-level fields).
     current_period_end_ts = subscription.get("current_period_end")
     current_period_start_ts = subscription.get("current_period_start")
-    items = _stripe_dict(subscription.get("items", {})).get("data", []) or []
-    if items and (not current_period_start_ts or not current_period_end_ts):
-        first_item = _stripe_dict(items[0])
+    if not current_period_start_ts or not current_period_end_ts:
+        first_item = _first_stripe_list_item(subscription.get("items"))
         current_period_start_ts = current_period_start_ts or first_item.get("current_period_start")
         current_period_end_ts = current_period_end_ts or first_item.get("current_period_end")
     period_end = None
     period_start = None
     if current_period_end_ts:
-        period_end = datetime.fromtimestamp(current_period_end_ts, tz=timezone.utc)
+        period_end = datetime.fromtimestamp(int(current_period_end_ts), tz=timezone.utc)
     if current_period_start_ts:
-        period_start = datetime.fromtimestamp(current_period_start_ts, tz=timezone.utc)
-
+        period_start = datetime.fromtimestamp(int(current_period_start_ts), tz=timezone.utc)
     previous = SubscriptionManager.get_user_subscription(username)
     is_new_subscription = previous.get("provider_subscription_id") != subscription.get("id")
 
@@ -825,11 +914,10 @@ def handle_stripe_webhook(payload: bytes, sig_header: str) -> Dict[str, str]:
             interval = (checkout or {}).get("billing_interval") or metadata.get("interval") or "month"
             subscription_id = _stripe_id(data.get("subscription"))
             if not subscription_id and data.get("customer"):
-                listed = _stripe_dict(
-                    stripe.Subscription.list(customer=_stripe_id(data.get("customer")), status="all", limit=100)
-                ).get("data", []) or []
                 matching = [
-                    _stripe_dict(value) for value in listed
+                    _stripe_dict(value) for value in _stripe_list_data(
+                        stripe.Subscription.list(customer=_stripe_id(data.get("customer")), status="all", limit=100)
+                    )
                     if _stripe_dict(value).get("status") in ("active", "trialing", "past_due")
                     and (not tier or _tier_from_stripe_subscription(_stripe_dict(value)) == tier)
                 ]
@@ -1045,12 +1133,10 @@ def capture_paypal_order(order_id: str, expected_username: str) -> Dict[str, Any
         current_period_end=period_end,
         reset_tokens=False,
     )
-    # Credit tokens for the full paid period.
+    # Credit tokens for the full paid period (additive + idempotent).
     credits = _subscription_credits_for_interval(tier, interval)
     if credits > 0:
-        db = SubscriptionManager._get_db()
-        if db:
-            db.table("users").update({"tokens": credits}).eq("username", username).execute()
+        _credit_tokens(username, tier, interval, f"paypal:{order_id}", provider="paypal")
     if is_new_subscription:
         _notify_subscription_started(username, tier, interval, "paypal")
 

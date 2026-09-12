@@ -19,6 +19,44 @@ function handleUnauthorized(response: Response): void {
     window.location.replace('/login?reason=session-expired');
 }
 
+function formatApiDetail(detail: unknown, fallback: string): string {
+    if (typeof detail === 'string' && detail.trim()) return detail;
+    if (Array.isArray(detail)) {
+        const parts = detail
+            .map((entry) => {
+                if (typeof entry === 'string') return entry;
+                if (entry && typeof entry === 'object' && 'msg' in entry) {
+                    return String((entry as { msg?: unknown }).msg || '');
+                }
+                try {
+                    return JSON.stringify(entry);
+                } catch {
+                    return '';
+                }
+            })
+            .filter(Boolean);
+        if (parts.length) return parts.join('; ');
+    }
+    if (detail && typeof detail === 'object') {
+        try {
+            return JSON.stringify(detail);
+        } catch {
+            return fallback;
+        }
+    }
+    return fallback;
+}
+
+async function readApiError(res: Response, fallback: string): Promise<string> {
+    const text = await res.text();
+    try {
+        const data = JSON.parse(text);
+        return formatApiDetail(data?.detail, fallback);
+    } catch {
+        return text?.trim() || `Serverfehler (${res.status})`;
+    }
+}
+
 export interface Tier {
     name: string;
     display_name: string;
@@ -83,15 +121,10 @@ export async function syncStripeSubscription(): Promise<{ status: string; found:
         headers: sessionHeaders(),
     });
     handleUnauthorized(res);
-    const text = await res.text();
-    let data: any;
-    try {
-        data = JSON.parse(text);
-    } catch {
-        data = { detail: text || `Serverfehler (${res.status})` };
+    if (!res.ok) {
+        throw new Error(await readApiError(res, 'Stripe-Abo konnte nicht synchronisiert werden.'));
     }
-    if (!res.ok) throw new Error(data.detail || 'Stripe-Abo konnte nicht synchronisiert werden.');
-    return data;
+    return res.json();
 }
 
 export async function cancelStripeSubscription(): Promise<{ status: string; cancel_at_period_end: boolean; current_period_end?: number }> {
@@ -101,15 +134,10 @@ export async function cancelStripeSubscription(): Promise<{ status: string; canc
         headers: sessionHeaders(),
     });
     handleUnauthorized(res);
-    const text = await res.text();
-    let data: any;
-    try {
-        data = JSON.parse(text);
-    } catch {
-        data = { detail: text || `Serverfehler (${res.status})` };
+    if (!res.ok) {
+        throw new Error(await readApiError(res, 'Abo konnte nicht gekündigt werden.'));
     }
-    if (!res.ok) throw new Error(data.detail || 'Abo konnte nicht gekündigt werden.');
-    return data;
+    return res.json();
 }
 
 export async function confirmStripeCheckout(checkoutSessionId: string): Promise<{ status: string; tier: string }> {
@@ -120,15 +148,10 @@ export async function confirmStripeCheckout(checkoutSessionId: string): Promise<
         body: JSON.stringify({ checkout_session_id: checkoutSessionId }),
     });
     handleUnauthorized(res);
-    const text = await res.text();
-    let data: any;
-    try {
-        data = JSON.parse(text);
-    } catch {
-        data = { detail: text || `Serverfehler (${res.status})` };
+    if (!res.ok) {
+        throw new Error(await readApiError(res, 'Stripe-Zahlung konnte nicht bestätigt werden.'));
     }
-    if (!res.ok) throw new Error(data.detail || 'Stripe-Zahlung konnte nicht bestätigt werden.');
-    return data;
+    return res.json();
 }
 
 export async function createStripePortal(): Promise<{ url: string }> {
