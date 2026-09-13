@@ -9,6 +9,7 @@
 #include <QAbstractButton>
 #include <QButtonGroup>
 #include <QFrame>
+#include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -38,57 +39,65 @@ void NewNoteDialog::setupUi()
     const QColor accC = BlopTheme::accentPrimary();
     const QString acc = accC.name(QColor::HexRgb);
     const QString accHover = BlopTheme::accentHover().name(QColor::HexRgb);
-    const QString accSubtle = QStringLiteral("rgba(%1,%2,%3,%4)")
-                                  .arg(accC.red())
-                                  .arg(accC.green())
-                                  .arg(accC.blue())
-                                  .arg(QString::number(0.16, 'f', 3));
+    const QString accSubtle = BlopStyle::paperPrimaryLight().name(QColor::HexRgb);
 
     const QString textHex = BlopStyle::paperInk().name(QColor::HexRgb);
     const QString mutedHex = BlopStyle::paperInkMuted().name(QColor::HexRgb);
+    const QString borderHex = BlopStyle::paperBorder().name(QColor::HexRgb);
+    const QString surfaceHex = BlopStyle::paperSurface().name(QColor::HexRgb);
+    const int radLg = UiScale::dp(BlopStyle::radiusLgDp());
+
     BlopStyle::paintPaperSurface(container, QStringLiteral("NewNoteCard"));
     container->setStyleSheet(QStringLiteral(
         "#NewNoteCard {"
         "  background: %1;"
-        "  border: 1px solid rgba(20,24,40,0.10);"
-        "  border-radius: 12px;"
+        "  border: 1px solid %2;"
+        "  border-radius: %3px;"
         "}"
-        "QLabel { color: %2; border: none; background: transparent; }")
-                                 .arg(BlopStyle::paperBg().name(QColor::HexRgb),
-                                      textHex));
+        "QLabel { color: %4; border: none; background: transparent; }")
+                                 .arg(surfaceHex, borderHex,
+                                      QString::number(radLg), textHex));
+    BlopStyle::applyModalShadow(container);
 
     auto *layout = new QVBoxLayout(container);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
+    // White header (Light Mode) — not Obsidian strip.
     auto *titleBar = new QWidget(container);
     titleBar->setObjectName(QStringLiteral("NewNoteTitleBar"));
     titleBar->setAttribute(Qt::WA_StyledBackground, true);
-    titleBar->setFixedHeight(UiScale::dp(44));
+    titleBar->setFixedHeight(UiScale::dp(48));
     titleBar->setStyleSheet(QStringLiteral(
         "QWidget#NewNoteTitleBar {"
         "  background: %1;"
-        "  border-top-left-radius: 12px;"
-        "  border-top-right-radius: 12px;"
-        "  border-bottom: 1px solid rgba(255,255,255,0.06);"
+        "  border-top-left-radius: %2px;"
+        "  border-top-right-radius: %2px;"
+        "  border-bottom: 1px solid %3;"
         "}")
-                                .arg(BlopStyle::obsidianBg().name(QColor::HexRgb)));
+                                .arg(surfaceHex, QString::number(radLg),
+                                     borderHex));
     auto *titleBarLay = new QHBoxLayout(titleBar);
-    titleBarLay->setContentsMargins(UiScale::dp(16), 0, UiScale::dp(16), 0);
+    titleBarLay->setContentsMargins(UiScale::dp(20), 0, UiScale::dp(20), 0);
     auto *lblTitle = new QLabel(QStringLiteral("Neue Notiz"), titleBar);
     lblTitle->setStyleSheet(QStringLiteral(
-        "font-size: 14px; font-weight: 600; color: %1;"
-        "letter-spacing: -0.1px; background: transparent;")
-                                .arg(BlopStyle::obsidianText().name(
-                                    QColor::HexRgb)));
+        "font-size: 15px; font-weight: 700; color: %1;"
+        "letter-spacing: -0.2px; background: transparent;")
+                                .arg(textHex));
     titleBarLay->addWidget(lblTitle);
     layout->addWidget(titleBar);
 
     auto *body = new QWidget(container);
-    BlopStyle::paintPaperSurface(body, QStringLiteral("NewNoteBody"));
+    body->setObjectName(QStringLiteral("NewNoteBody"));
+    body->setAttribute(Qt::WA_StyledBackground, true);
+    body->setStyleSheet(QStringLiteral(
+        "QWidget#NewNoteBody { background: %1; border-bottom-left-radius: %2px;"
+        "  border-bottom-right-radius: %2px; }")
+                            .arg(BlopStyle::paperBg().name(QColor::HexRgb),
+                                 QString::number(radLg)));
     auto *bodyLay = new QVBoxLayout(body);
-    bodyLay->setContentsMargins(UiScale::dp(20), UiScale::dp(14),
-                                UiScale::dp(20), UiScale::dp(14));
+    bodyLay->setContentsMargins(UiScale::dp(20), UiScale::dp(16),
+                                UiScale::dp(20), UiScale::dp(16));
     bodyLay->setSpacing(UiScale::dp(10));
 
     auto sectionLabel = [mutedHex](const QString &text, QWidget *parent) {
@@ -100,17 +109,17 @@ void NewNoteDialog::setupUi()
         return lbl;
     };
 
-    auto makeRowGroup = [](QWidget *parent) -> QFrame * {
+    auto makeRowGroup = [surfaceHex, borderHex, radLg](QWidget *parent) -> QFrame * {
         auto *g = new QFrame(parent);
         g->setObjectName(QStringLiteral("NewNoteRowGroup"));
         g->setAttribute(Qt::WA_StyledBackground, true);
         g->setStyleSheet(QStringLiteral(
             "QFrame#NewNoteRowGroup {"
             "  background: %1;"
-            "  border: 1px solid rgba(20,24,40,0.08);"
-            "  border-radius: 12px;"
+            "  border: 1px solid %2;"
+            "  border-radius: %3px;"
             "}")
-                             .arg(BlopStyle::paperRowBg().name(QColor::HexRgb)));
+                             .arg(surfaceHex, borderHex, QString::number(radLg)));
         auto *lay = new QVBoxLayout(g);
         lay->setContentsMargins(UiScale::dp(12), UiScale::dp(12),
                                 UiScale::dp(12), UiScale::dp(12));
@@ -204,11 +213,12 @@ void NewNoteDialog::setupUi()
     btnAddTag->setAutoDefault(false);
     btnAddTag->setFixedSize(UiScale::dp(36), UiScale::dp(36));
     btnAddTag->setCursor(Qt::PointingHandCursor);
+    const int radMd = UiScale::dp(BlopStyle::radiusMdDp());
     btnAddTag->setStyleSheet(QStringLiteral(
         "QPushButton { background: %1; color: white; border: none; "
-        "border-radius: 10px; font-weight: 700; font-size: 16px; }"
+        "border-radius: %3px; font-weight: 700; font-size: 16px; }"
         "QPushButton:hover { background: %2; }")
-            .arg(acc, accHover));
+            .arg(acc, accHover, QString::number(radMd)));
     tagRow->addWidget(m_tagInput, 1);
     tagRow->addWidget(btnAddTag);
     tagsLay->addLayout(tagRow);
@@ -222,11 +232,14 @@ void NewNoteDialog::setupUi()
     m_tagList->setStyleSheet(QStringLiteral(
         "QListWidget { background: transparent; color: %1; border: none; "
         "font-size: 13px; outline: none; }"
-        "QListWidget::item { padding: 6px 10px; border-radius: 8px;"
+        "QListWidget::item { padding: 6px 10px; border-radius: %4px;"
         "  min-height: %3px; }"
-        "QListWidget::item:selected { background: %2; color: %1; }"
-        "QListWidget::item:hover:!selected { background: rgba(20,24,40,0.04); }")
-        .arg(textHex, accSubtle, QString::number(UiScale::dp(28)))
+        "QListWidget::item:selected { background: %2; color: %5; }"
+        "QListWidget::item:hover:!selected { background: %6; }")
+        .arg(textHex, accSubtle,
+             QString::number(UiScale::dp(28)),
+             QString::number(radMd), acc,
+             BlopStyle::paperHover().name(QColor::HexRgb))
         + BlopStyle::paperScrollbarQss()
     );
     tagsLay->addWidget(m_tagList);

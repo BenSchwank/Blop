@@ -702,13 +702,12 @@ private:
   /// `m_pageSettingsOverlay` after dismissal so the next show finds it.
   class BlopModal *m_pageSettingsModal{nullptr};
   QLabel *m_lblActiveNote{nullptr};
-  /// v3.18.5: cached references for refreshPageSettingsTheme(). The
-  /// QTabWidget + the two tab pages are not Member-tracked by Qt's
-  /// child mechanism in a way that's easy to iterate, so we store
-  /// raw pointers here. Never own; the parent QWidget tree does.
-  class QTabWidget *m_pageSettingsTabs{nullptr};
+  /// Large Seite & Notiz modal: left nav + stacked content (not QTabWidget).
+  class QStackedWidget *m_pageSettingsTabs{nullptr};
   QWidget *m_pageSettingsTabOptions{nullptr};
   QWidget *m_pageSettingsTabTags{nullptr};
+  QPushButton *m_pageSettingsNavOptions{nullptr};
+  QPushButton *m_pageSettingsNavTags{nullptr};
 
   // Quick-Tags Sidebar
   QWidget     *m_tagsContainer{nullptr};

@@ -209,10 +209,9 @@ QColor BlopTheme::shadowColor() {
 }
 
 QColor BlopTheme::scrimColor() {
-  // Light mode: keep the veil soft so rounded cards don't read as black
-  // L-corners against the Hell library. Dark mode stays the 45% black veil.
+  // Light: --backdrop rgba(15,23,42,0.4). Dark: ~45% black veil.
   return instance().isDark() ? QColor(0, 0, 0, 115)
-                             : QColor(24, 22, 34, 72);
+                             : QColor(15, 23, 42, 102);
 }
 
 // =====================================================================

@@ -174,34 +174,32 @@ protected:
         const qreal rad = 14.0;
         painter->setRenderHint(QPainter::Antialiasing);
 
-        // v3.16.1: hover/pull-progress tint -> the card lights up as the user
-        // pulls past the page bottom, signalling "release to create".
+        // Light Mode: NoteChrome blue dashed affordance (not purple).
         const qreal pull = m_pullProgress;
+        const QColor accent = QColor(91, 157, 255); // NoteChrome::accent
         QColor border = pull > 0.0
-                            ? QColor::fromRgbF(0.49, 0.36, 0.99, 0.55 + 0.45 * pull)
-                            : QColor(QStringLiteral("#9A9AA8"));
-        QPen borderPen(border, 1.0 + pull * 1.4, Qt::DashLine);
+                            ? QColor(accent.red(), accent.green(), accent.blue(),
+                                     int(140 + 115 * pull))
+                            : QColor(91, 157, 255, 160);
+        QPen borderPen(border, 2.0, Qt::DashLine);
         borderPen.setCosmetic(true);
         painter->setPen(borderPen);
 
-        // Soft fill that fades in with the pull.
+        // Soft fill that fades in with the pull / hover.
         if (pull > 0.0) {
-            QColor fill = QColor::fromRgbF(0.49, 0.36, 0.99, 0.06 * pull);
+            QColor fill = QColor(239, 246, 255, int(180 * pull)); // primary-light
             painter->setBrush(fill);
         } else {
             painter->setBrush(Qt::NoBrush);
         }
-        painter->drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), rad, rad);
+        painter->drawRoundedRect(r.adjusted(1.0, 1.0, -1.0, -1.0), rad, rad);
 
-        // Centered "+" glyph + caption. Painted in scene units so it scales
-        // with the rest of the page. The caption changes once pull crosses
-        // the threshold (>= 0.7 ~ 80dp pull).
         const QString caption = (pull >= 0.7)
                                     ? QStringLiteral("Loslassen f\u00FCr neue Seite")
                                     : QStringLiteral("Neue Seite");
         const QColor txtColor = pull > 0.0
-                                    ? QColor::fromRgbF(0.49, 0.36, 0.99, 1.0)
-                                    : QColor(QStringLiteral("#7A7A88"));
+                                    ? accent
+                                    : QColor(100, 116, 139); // text-muted
         painter->setPen(txtColor);
         QFont plusFont = painter->font();
         plusFont.setPointSizeF(qMax(14.0, r.height() * 0.32));

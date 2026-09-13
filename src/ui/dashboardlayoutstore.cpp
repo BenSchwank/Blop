@@ -130,17 +130,17 @@ DashboardWidgetSpec DashboardLayoutStore::defaultFor(const QString &id) {
 }
 
 QVector<DashboardWidgetSpec> DashboardLayoutStore::defaults() {
-  // Notion-style home: two tall columns, then clock + recent, then shortcuts.
+  // Notion-style home: focus + capture/clock, tall columns, then recent/shortcuts.
   return {
       make(QStringLiteral("greeting"), 0, 0, 0, 12, 1),
       make(QStringLiteral("today"), 1, 0, 0, 8, 2),
       make(QStringLiteral("capture"), 2, 0, 8, 4, 1),
-      make(QStringLiteral("todos"), 3, 2, 0, 6, 3),
-      make(QStringLiteral("calendar"), 4, 2, 6, 6, 3, 8),
-      make(QStringLiteral("projects"), 5, 5, 0, 5, 2),
-      make(QStringLiteral("recent"), 6, 5, 5, 7, 2, 5),
-      make(QStringLiteral("shortcuts"), 7, 7, 0, 12, 2),
-      make(QStringLiteral("clock"), 8, 9, 0, 4, 2),
+      make(QStringLiteral("clock"), 3, 1, 8, 4, 1),
+      make(QStringLiteral("todos"), 4, 2, 0, 6, 3),
+      make(QStringLiteral("calendar"), 5, 2, 6, 6, 3, 8),
+      make(QStringLiteral("projects"), 6, 5, 0, 5, 2),
+      make(QStringLiteral("recent"), 7, 5, 5, 7, 2, 5),
+      make(QStringLiteral("shortcuts"), 8, 7, 0, 12, 2),
   };
 }
 

@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QPen>
 #include <QPixmap>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -127,7 +128,24 @@ void LibraryIconRail::setAvatarLetter(const QString &letter) {
 }
 
 void LibraryIconRail::paintEvent(QPaintEvent *event) {
-  QWidget::paintEvent(event);
+  Q_UNUSED(event);
+  QPainter p(this);
+  p.fillRect(rect(), QColor(0x16, 0x18, 0x1E));
+  // Charcoal hairlines (never white) — top under logo / bottom above footer.
+  p.setPen(QPen(QColor(255, 255, 255, 18), 1));
+  const int midY = height() / 2;
+  Q_UNUSED(midY);
+  // Soft divider above the stretch footer cluster (settings/help/account).
+  if (QToolButton *settings = m_btns.value(QStringLiteral("settings"))) {
+    const int y = settings->geometry().top() - UiScale::dp(6);
+    if (y > UiScale::dp(40) && y < height() - UiScale::dp(8))
+      p.drawLine(UiScale::dp(10), y, width() - UiScale::dp(10), y);
+  }
+  if (QToolButton *home = m_btns.value(QStringLiteral("home"))) {
+    const int y = home->geometry().top() - UiScale::dp(4);
+    if (y > UiScale::dp(8))
+      p.drawLine(UiScale::dp(10), y, width() - UiScale::dp(10), y);
+  }
 }
 
 void LibraryIconRail::refreshStyles() {

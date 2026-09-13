@@ -523,30 +523,42 @@ private:
 };
 
 QString blopWebMenuStyleSheet() {
-  // v3.17.0: theme-aware. Reads live tokens from BlopTheme so Light/Dark
-  // mode reskins menus without a separate codepath. Composing per-call is
-  // cheap (string formatting) and keeps the QMenu-vs-BlopInWindowMenu
-  // visual parity that v3.16.10 introduced.
+  // Light Mode: white surface, text-main, hover #F1F5F9, radius-md.
+  // Dark: elevated theme surface (legacy parity with BlopInWindowMenu).
   auto rgba = [](const QColor &c) {
     return QStringLiteral("rgba(%1,%2,%3,%4)")
         .arg(c.red()).arg(c.green()).arg(c.blue())
         .arg(QString::number(c.alphaF(), 'f', 3));
   };
-  const QString surface = BlopTheme::surfaceElevated().name(QColor::HexRgb);
-  const QString border = rgba(BlopTheme::borderSubtle());
-  const QString sepBg = rgba(BlopTheme::borderDefault());
-  const QString textCol = BlopTheme::textPrimary().name(QColor::HexRgb);
-  const QString accentSel = rgba(BlopTheme::accentSubtle());
-  const QString onAccent = BlopTheme::textOnAccent().name(QColor::HexRgb);
+  const bool dark = BlopTheme::instance().isDark();
+  const QString surface =
+      dark ? BlopTheme::surfaceElevated().name(QColor::HexRgb)
+           : BlopStyle::paperSurface().name(QColor::HexRgb);
+  const QString border =
+      dark ? rgba(BlopTheme::borderSubtle())
+           : BlopStyle::paperBorder().name(QColor::HexRgb);
+  const QString sepBg =
+      dark ? rgba(BlopTheme::borderDefault())
+           : BlopStyle::paperBorder().name(QColor::HexRgb);
+  const QString textCol =
+      dark ? BlopTheme::textPrimary().name(QColor::HexRgb)
+           : BlopStyle::paperInk().name(QColor::HexRgb);
+  const QString hoverBg =
+      dark ? rgba(BlopTheme::accentSubtle())
+           : BlopStyle::paperHover().name(QColor::HexRgb);
+  const QString selText =
+      dark ? BlopTheme::textOnAccent().name(QColor::HexRgb) : textCol;
+  const int rad = UiScale::dp(BlopStyle::radiusMdDp());
   return QStringLiteral(
              "QMenu { background-color: %1; border: 1px solid %2; "
-             "border-radius: 10px; padding: 6px; }"
+             "border-radius: %7px; padding: 6px; }"
              "QMenu::separator { height: 1px; background: %3; "
              "margin: 6px 12px; }"
-             "QMenu::item { color: %4; padding: 10px 22px; border-radius: 8px; "
+             "QMenu::item { color: %4; padding: 10px 22px; border-radius: %7px; "
              "font-size: 13px; font-weight: 500; }"
              "QMenu::item:selected { background-color: %5; color: %6; }")
-      .arg(surface, border, sepBg, textCol, accentSel, onAccent);
+      .arg(surface, border, sepBg, textCol, hoverBg, selText,
+           QString::number(rad));
 }
 
 #ifdef Q_OS_ANDROID
@@ -4392,17 +4404,33 @@ void MainWindow::openSettingsWorkspace() {
   }
   connect(dlg, &SettingsDialog::accentColorChanged, this,
           &MainWindow::updateTheme);
+  connect(dlg, &SettingsDialog::studioToolbarVariantChanged, this,
+          [this, toolbar](int variant) {
+#ifndef Q_OS_ANDROID
+            if (!toolbar)
+              return;
+            toolbar->setStudioToolbarVariant(
+                static_cast<ModernToolbar::StudioToolbarVariant>(variant),
+                true);
+            if (m_radialFab)
+              m_radialFab->setVisible(
+                  variant ==
+                  static_cast<int>(
+                      ModernToolbar::StudioToolbarVariant::ComplexRadial));
+            positionDrawboardToolbar();
+            positionNoteChrome();
+#else
+            Q_UNUSED(variant);
+            Q_UNUSED(toolbar);
+#endif
+          });
   connect(dlg, &SettingsDialog::toolbarStyleChanged,
           [this, toolbar](bool radial) {
 #ifndef Q_OS_ANDROID
             Q_UNUSED(radial);
-            if (toolbar) {
-              toolbar->setStyle(ModernToolbar::Normal);
-              toolbar->applyStudioSnappedPill();
-            }
-            if (m_radialFab)
-              m_radialFab->hide();
-            positionNoteChrome();
+            // Desktop layout owned by studioToolbarVariantChanged.
+            if (toolbar)
+              positionDrawboardToolbar();
 #else
             if (toolbar)
               toolbar->setStyle(radial ? ModernToolbar::Radial
@@ -6769,26 +6797,27 @@ void MainWindow::setupUi() {
   m_floatingTools->raise();
 
 #ifndef Q_OS_ANDROID
-  {
+  // Always apply persisted studio layout (default A). Debug palette stays opt-in.
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    tb->setStudioToolbarVariant(ModernToolbar::loadPersistedStudioVariant(),
+                                false);
+    connect(tb, &ModernToolbar::studioToolbarVariantChanged, this,
+            [this](ModernToolbar::StudioToolbarVariant) {
+              positionDrawboardToolbar();
+            });
     const bool envDebug = qEnvironmentVariableIsSet("BLOP_TOOLBAR_DEBUG");
     QSettings dbg(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
     const bool settingsDebug =
         dbg.value(QStringLiteral("diag/toolbarDebug"), false).toBool();
     if (envDebug || settingsDebug) {
-      if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
-        const int saved =
-            dbg.value(QStringLiteral("ui/studio_toolbar_variant"), 0).toInt();
-        tb->setStudioToolbarVariant(
-            static_cast<ModernToolbar::StudioToolbarVariant>(saved), false);
-        m_toolbarDebugPalette =
-            new StudioToolbarDebugPalette(tb, m_editorCenterWidget);
-        m_toolbarDebugPalette->move(UiScale::dp(12), UiScale::dp(12));
-        m_toolbarDebugPalette->show();
-        m_toolbarDebugPalette->raise();
-        connect(m_toolbarDebugPalette,
-                &StudioToolbarDebugPalette::variantChosen, this,
-                [this](int) { positionDrawboardToolbar(); });
-      }
+      m_toolbarDebugPalette =
+          new StudioToolbarDebugPalette(tb, m_editorCenterWidget);
+      m_toolbarDebugPalette->move(UiScale::dp(12), UiScale::dp(12));
+      m_toolbarDebugPalette->show();
+      m_toolbarDebugPalette->raise();
+      connect(m_toolbarDebugPalette,
+              &StudioToolbarDebugPalette::variantChosen, this,
+              [this](int) { positionDrawboardToolbar(); });
     }
   }
 #endif
@@ -8769,7 +8798,7 @@ void MainWindow::setupSidebar() {
 #else
   m_sidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
   m_sidebarContainer->setStyleSheet(
-      QStringLiteral("background-color: #16181E; border-right: 1px solid #111318;"));
+      QStringLiteral("background-color: #16181E; border-right: 1px solid #1C1F27;"));
   const bool useShellRail = true;
 #endif
 
@@ -9546,27 +9575,29 @@ void MainWindow::rebuildPageSettingsTags() {
     tag->setCursor(Qt::PointingHandCursor);
     tag->setCheckable(true);
     tag->setChecked(active);
-    tag->setStyleSheet(BlopTheme::themed(QStringLiteral(
+    const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
+    tag->setStyleSheet(QStringLiteral(
         "QPushButton {"
         "  background: %1;"
         "  border: 1px solid %2;"
-        "  border-radius: 10px;"
-        "  color: %3;"
+        "  border-radius: %3px;"
+        "  color: %4;"
         "  font-size: 11px;"
         "  font-weight: 600;"
         "  padding: 5px 12px;"
         "}"
         "QPushButton:checked {"
-        "  background: rgba(124,92,252,0.22);"
-        "  border: 1px solid rgba(124,92,252,0.55);"
-        "  color: #EDE9FF;"
+        "  background: %5;"
+        "  border: 1px solid %6;"
+        "  color: %6;"
         "}")
-                           .arg(active ? QStringLiteral("rgba(124,92,252,0.22)")
-                                       : QStringLiteral("rgba(255,255,255,0.05)"),
-                                active ? QStringLiteral("rgba(124,92,252,0.55)")
-                                       : QStringLiteral("rgba(255,255,255,0.14)"),
-                                active ? QStringLiteral("#EDE9FF")
-                                       : QStringLiteral("rgba(255,255,255,0.7)"))));
+                           .arg(active ? BlopStyle::paperPrimaryLight().name(QColor::HexRgb)
+                                       : BlopStyle::paperSurface().name(QColor::HexRgb),
+                                active ? acc : BlopStyle::paperBorder().name(QColor::HexRgb),
+                                QString::number(UiScale::dp(BlopStyle::radiusMdDp())),
+                                BlopStyle::paperInk().name(QColor::HexRgb),
+                                BlopStyle::paperPrimaryLight().name(QColor::HexRgb),
+                                acc));
     connect(tag, &QPushButton::toggled, this, [this, text](bool on) {
       const QString notePath = currentEditorNotePath();
       if (notePath.isEmpty())
@@ -10238,12 +10269,11 @@ void MainWindow::switchToEditorChrome() {
   if (m_documentTabBar)
     m_documentTabBar->setNoteChromeMode(true);
 #ifndef Q_OS_ANDROID
-  // Studio mix: editor always light chrome + K snapped bottom pill on open.
+  // Studio mix: light chrome + persisted toolbar layout (default A).
   NoteChrome::setMode(NoteChrome::Mode::Light);
   if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
-    tb->setStyle(ModernToolbar::Normal);
-    tb->setDockMode(true);
-    tb->applyStudioSnappedPill();
+    tb->setStudioToolbarVariant(ModernToolbar::loadPersistedStudioVariant(),
+                                false);
   }
 #endif
   applyNoteChromeTheme();
@@ -10813,38 +10843,41 @@ void MainWindow::setupRightSidebar() {
 
   m_pageSettingsCard = new QWidget(m_pageSettingsOverlay);
   m_pageSettingsCard->setObjectName(QStringLiteral("PageSettingsCard"));
-  m_pageSettingsCard->setFixedWidth(520);
-  m_pageSettingsCard->setMaximumHeight(800);
+  m_pageSettingsCard->setProperty("blopOwnsBackground", true);
+  m_pageSettingsCard->setMinimumWidth(UiScale::dp(640));
+  m_pageSettingsCard->setMinimumHeight(UiScale::dp(600));
+  const int radLg = UiScale::dp(BlopStyle::radiusLgDp());
   m_pageSettingsCard->setStyleSheet(
       QStringLiteral("QWidget#PageSettingsCard { background: %1; border: 1px solid %2; "
-                     "border-radius: 18px; }")
-          .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
-               BlopTheme::borderDefault().name(QColor::HexRgb)));
+                     "border-radius: %3px; }")
+          .arg(BlopStyle::paperSurface().name(QColor::HexRgb),
+               BlopStyle::paperBorder().name(QColor::HexRgb),
+               QString::number(radLg)));
 
   QVBoxLayout *mainLayout = new QVBoxLayout(m_pageSettingsCard);
   mainLayout->setContentsMargins(0, 0, 0, 0);
   mainLayout->setSpacing(0);
 
   // =========================================================================
-  // HEADER — Obsidian dark strip + high-contrast title (never low-contrast)
+  // HEADER — white Light surface
   // =========================================================================
   QWidget *headerWidget = new QWidget(m_pageSettingsCard);
   headerWidget->setObjectName(QStringLiteral("PageSettingsHeader"));
   headerWidget->setAttribute(Qt::WA_StyledBackground, true);
-  headerWidget->setFixedHeight(UiScale::dp(44));
+  headerWidget->setFixedHeight(UiScale::dp(52));
   QHBoxLayout *header = new QHBoxLayout(headerWidget);
-  header->setContentsMargins(UiScale::dp(16), 0, UiScale::dp(8), 0);
+  header->setContentsMargins(UiScale::dp(20), 0, UiScale::dp(8), 0);
   QLabel *sidebarTitle = new QLabel(QStringLiteral("Seite & Notiz"), headerWidget);
   sidebarTitle->setObjectName(QStringLiteral("PageSettingsTitle"));
   sidebarTitle->setStyleSheet(
-      QStringLiteral("color: %1; font-size: 14px; font-weight: 600;"
+      QStringLiteral("color: %1; font-size: 16px; font-weight: 700;"
                      "background: transparent; border: none;")
-          .arg(BlopStyle::obsidianText().name(QColor::HexRgb)));
+          .arg(BlopStyle::paperInk().name(QColor::HexRgb)));
   header->addWidget(sidebarTitle);
   header->addStretch();
   ModernButton *closeBtn = new ModernButton(headerWidget);
   closeBtn->setObjectName(QStringLiteral("PageSettingsClose"));
-  closeBtn->setIcon(createModernIcon("close", QColor(QStringLiteral("#D0D0D0"))));
+  closeBtn->setIcon(createModernIcon("close", BlopStyle::paperInkMuted()));
   closeBtn->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp()),
                          UiScale::dp(BlopStyle::touchTargetMinDp()));
   closeBtn->setStyleSheet(BlopStyle::quietIconButtonQss(8));
@@ -10854,27 +10887,72 @@ void MainWindow::setupRightSidebar() {
   header->addWidget(closeBtn);
   mainLayout->addWidget(headerWidget);
 
-  // =========================================================================
-  // NOTIZNAME
-  // =========================================================================
   m_lblActiveNote = new QLabel("", m_pageSettingsCard);
   m_lblActiveNote->setStyleSheet(QStringLiteral(
       "color: %1; font-size: 12px; font-weight: 600;"
-      "padding: 12px 16px 8px 16px; background: transparent;")
+      "padding: 4px 20px 10px 20px; background: transparent;")
                                      .arg(BlopStyle::paperInkMuted().name(
                                          QColor::HexRgb)));
   m_lblActiveNote->setWordWrap(true);
   mainLayout->addWidget(m_lblActiveNote);
 
   // =========================================================================
-  // TAB WIDGET (Optionen vs Tags)
+  // BODY — left tab nav + right content stack (~85%/900px modal)
   // =========================================================================
-  QTabWidget *settingsTabs = new QTabWidget(m_pageSettingsCard);
-  m_pageSettingsTabs = settingsTabs;
-  mainLayout->addWidget(settingsTabs, 1);
+  auto *body = new QWidget(m_pageSettingsCard);
+  body->setObjectName(QStringLiteral("PageSettingsBody"));
+  auto *bodyLay = new QHBoxLayout(body);
+  bodyLay->setContentsMargins(0, 0, 0, 0);
+  bodyLay->setSpacing(0);
+
+  auto *navRail = new QWidget(body);
+  navRail->setObjectName(QStringLiteral("PageSettingsNav"));
+  navRail->setFixedWidth(UiScale::dp(176));
+  navRail->setAttribute(Qt::WA_StyledBackground, true);
+  auto *navLay = new QVBoxLayout(navRail);
+  navLay->setContentsMargins(UiScale::dp(12), UiScale::dp(8), UiScale::dp(12),
+                             UiScale::dp(16));
+  navLay->setSpacing(UiScale::dp(4));
+
+  auto makeNav = [navRail](const QString &text) {
+    auto *b = new QPushButton(text, navRail);
+    b->setCheckable(true);
+    b->setCursor(Qt::PointingHandCursor);
+    b->setAutoDefault(false);
+    b->setStyleSheet(BlopStyle::paperSideNavQss());
+    return b;
+  };
+  m_pageSettingsNavOptions = makeNav(QStringLiteral("Optionen"));
+  m_pageSettingsNavTags = makeNav(QStringLiteral("Tags"));
+  m_pageSettingsNavOptions->setChecked(true);
+  auto *navGroup = new QButtonGroup(this);
+  navGroup->setExclusive(true);
+  navGroup->addButton(m_pageSettingsNavOptions, 0);
+  navGroup->addButton(m_pageSettingsNavTags, 1);
+  navLay->addWidget(m_pageSettingsNavOptions);
+  navLay->addWidget(m_pageSettingsNavTags);
+  navLay->addStretch(1);
+  bodyLay->addWidget(navRail);
+
+  auto *contentCol = new QWidget(body);
+  contentCol->setObjectName(QStringLiteral("PageSettingsContent"));
+  auto *contentLay = new QVBoxLayout(contentCol);
+  contentLay->setContentsMargins(0, 0, 0, 0);
+  contentLay->setSpacing(0);
+
+  auto *settingsStack = new QStackedWidget(contentCol);
+  m_pageSettingsTabs = settingsStack;
+  contentLay->addWidget(settingsStack, 1);
+  bodyLay->addWidget(contentCol, 1);
+  mainLayout->addWidget(body, 1);
+
+  connect(navGroup, &QButtonGroup::idClicked, this, [this](int id) {
+    if (m_pageSettingsTabs)
+      m_pageSettingsTabs->setCurrentIndex(id);
+  });
 
   // -------------------------------------------------------------------------
-  // TAB 1: OPTIONEN (Formatierung, Input, Profile)
+  // PAGE 0: OPTIONEN
   // -------------------------------------------------------------------------
   QWidget *tabOptions = new QWidget();
   m_pageSettingsTabOptions = tabOptions;
@@ -10884,14 +10962,15 @@ void MainWindow::setupRightSidebar() {
   QScrollArea *optScroll = new QScrollArea(tabOptions);
   optScroll->setWidgetResizable(true);
   optScroll->setFrameShape(QFrame::NoFrame);
-  optScroll->setStyleSheet("QScrollArea { background: transparent; }");
+  optScroll->setStyleSheet("QScrollArea { background: transparent; border: none; }");
   OverlayScrollIndicator::install(optScroll);
 
   QWidget *optContent = new QWidget();
   optContent->setStyleSheet("background: transparent;");
   QVBoxLayout *optLayout = new QVBoxLayout(optContent);
-  optLayout->setContentsMargins(16, 12, 16, 20);
-  optLayout->setSpacing(15);
+  optLayout->setContentsMargins(UiScale::dp(20), UiScale::dp(12),
+                                UiScale::dp(24), UiScale::dp(24));
+  optLayout->setSpacing(UiScale::dp(14));
 
   auto sectionLabel = [&](const QString &text, QWidget *sectionParent) -> QLabel * {
     QLabel *lbl = new QLabel(text, sectionParent);
@@ -10907,11 +10986,11 @@ void MainWindow::setupRightSidebar() {
 
   // Format (Infinite/A4) is fixed at note creation — hide the disabled
   // toggles that looked like unfinished controls.
-  m_btnFormatInfinite = new QPushButton("Infinite", optContent);
+  m_btnFormatInfinite = new QPushButton(QStringLiteral("Unendlich"), optContent);
   m_btnFormatInfinite->setCheckable(true);
   m_btnFormatInfinite->setEnabled(false);
   m_btnFormatInfinite->hide();
-  m_btnFormatA4 = new QPushButton("A4", optContent);
+  m_btnFormatA4 = new QPushButton(QStringLiteral("DIN A4"), optContent);
   m_btnFormatA4->setCheckable(true);
   m_btnFormatA4->setEnabled(false);
   m_btnFormatA4->hide();
@@ -10924,10 +11003,10 @@ void MainWindow::setupRightSidebar() {
   lblLayout->setObjectName(QStringLiteral("pageSettingsLayoutLabel"));
   lblLayout->hide(); // section SEITE is enough; chips speak for themselves
   optLayout->addWidget(lblLayout);
-  m_btnStyleBlank = new QPushButton("Blank");
-  m_btnStyleLined = new QPushButton("Lined");
-  m_btnStyleSquared = new QPushButton("Squared");
-  m_btnStyleDotted = new QPushButton("Dotted");
+  m_btnStyleBlank = new QPushButton(QStringLiteral("Leer"));
+  m_btnStyleLined = new QPushButton(QStringLiteral("Liniert"));
+  m_btnStyleSquared = new QPushButton(QStringLiteral("Kariert"));
+  m_btnStyleDotted = new QPushButton(QStringLiteral("Punktiert"));
   m_btnStyleBlank->setCheckable(true);
   m_btnStyleLined->setCheckable(true);
   m_btnStyleSquared->setCheckable(true);
@@ -10954,6 +11033,7 @@ void MainWindow::setupRightSidebar() {
   styleBtnsContainer->setObjectName(QStringLiteral("pageSettingsStyleRow"));
   QHBoxLayout *styleBtnsLayout = new QHBoxLayout(styleBtnsContainer);
   styleBtnsLayout->setContentsMargins(0, 0, 0, 0);
+  styleBtnsLayout->setSpacing(UiScale::dp(8));
   styleBtnsLayout->addWidget(m_btnStyleBlank);
   styleBtnsLayout->addWidget(m_btnStyleLined);
   styleBtnsLayout->addWidget(m_btnStyleSquared);
@@ -10969,9 +11049,11 @@ void MainWindow::setupRightSidebar() {
   cbLeftRail->setObjectName(QStringLiteral("pageSettingsLeftRailVisible"));
   cbLeftRail->setChecked(m_noteLeftRailPrefVisible);
   cbLeftRail->setStyleSheet(
-      QStringLiteral("QCheckBox { color: rgba(255,255,255,0.82); background: transparent; "
-                     "spacing: 8px; font-size: 12px; }"
-                     "QCheckBox::indicator { width: 16px; height: 16px; }"));
+      QStringLiteral("QCheckBox { color: %1; background: transparent; "
+                     "spacing: 8px; font-size: 12px; min-height: %2px; }"
+                     "QCheckBox::indicator { width: 16px; height: 16px; }")
+          .arg(BlopStyle::paperInk().name(QColor::HexRgb),
+               QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 8))));
   connect(cbLeftRail, &QCheckBox::toggled, this, [this](bool on) {
     m_noteLeftRailPrefVisible = on;
     persistPageChromePrefs();
@@ -10984,7 +11066,6 @@ void MainWindow::setupRightSidebar() {
   cbPages->setObjectName(QStringLiteral("pageSettingsPagesVisible"));
   cbPages->setChecked(m_pageThumbnailSidebar &&
                       !m_pageThumbnailSidebar->isCollapsed());
-  cbPages->setStyleSheet(cbLeftRail->styleSheet());
   connect(cbPages, &QCheckBox::toggled, this, [this](bool on) {
     if (!m_pageThumbnailSidebar)
       return;
@@ -11007,8 +11088,8 @@ void MainWindow::setupRightSidebar() {
   auto *lblEdge = new QLabel(QStringLiteral("Position:"), optContent);
   lblEdge->setObjectName(QStringLiteral("pageSettingsRailEdgeLabel"));
   lblEdge->setStyleSheet(
-      QStringLiteral("color: rgba(255,255,255,0.55); font-size: 11px; "
-                     "background: transparent;"));
+      QStringLiteral("color: %1; font-size: 11px; background: transparent;")
+          .arg(BlopStyle::paperInkMuted().name(QColor::HexRgb)));
   optLayout->addWidget(lblEdge);
   auto *edgeRow = new QWidget(optContent);
   auto *edgeLay = new QHBoxLayout(edgeRow);
@@ -11017,8 +11098,10 @@ void MainWindow::setupRightSidebar() {
   auto *rLeft = new QRadioButton(QStringLiteral("Links"), edgeRow);
   auto *rRight = new QRadioButton(QStringLiteral("Rechts"), edgeRow);
   const QString radioCss = QStringLiteral(
-      "QRadioButton { color: rgba(255,255,255,0.85); background: transparent; "
-      "font-size: 12px; spacing: 6px; }");
+      "QRadioButton { color: %1; background: transparent; "
+      "font-size: 12px; spacing: 6px; min-height: %2px; }")
+      .arg(BlopStyle::paperInk().name(QColor::HexRgb),
+           QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 8)));
   rLeft->setStyleSheet(radioCss);
   rRight->setStyleSheet(radioCss);
   rLeft->setChecked(!m_pageRailOnRight);
@@ -11037,7 +11120,7 @@ void MainWindow::setupRightSidebar() {
   optLayout->addWidget(edgeRow);
 #endif
 
-  QLabel *lblGrid = new QLabel("Grid Spacing (px):", optContent);
+  QLabel *lblGrid = new QLabel(QStringLiteral("Rasterabstand (px):"), optContent);
   lblGrid->setObjectName(QStringLiteral("pageSettingsGridLabel"));
   optLayout->addWidget(lblGrid);
   m_sliderGridSpacing = new QSlider(Qt::Horizontal);
@@ -11049,30 +11132,32 @@ void MainWindow::setupRightSidebar() {
           &MainWindow::onPageGridSpacingSliderChanged);
   optLayout->addWidget(m_sliderGridSpacing);
 
-  QLabel *lblPageColor = new QLabel(QStringLiteral("THEME"), optContent);
+  QLabel *lblPageColor = new QLabel(QStringLiteral("THEMA"), optContent);
   lblPageColor->setObjectName(QStringLiteral("pageSettingsColorLabel"));
-  lblPageColor->setStyleSheet(BlopTheme::themed(
-      "color: rgba(255,255,255,0.40); font-size: 10px; font-weight: 700;"
-      "letter-spacing: 0.5px; background: transparent;"));
+  lblPageColor->setStyleSheet(QStringLiteral(
+      "color: %1; font-size: 10px; font-weight: 700;"
+      "letter-spacing: 0.5px; background: transparent;")
+                                  .arg(BlopStyle::paperInkMuted().name(
+                                      QColor::HexRgb)));
   optLayout->addWidget(lblPageColor);
-  m_btnColorWhite = new QPushButton(QStringLiteral("Light"));
+  m_btnColorWhite = new QPushButton(QStringLiteral("Hell"));
   m_btnColorWhite->setCheckable(true);
   m_btnColorWhite->setChecked(NoteChrome::isDark() == false);
   m_btnColorWhite->setCursor(Qt::PointingHandCursor);
   m_btnColorWhite->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  m_btnColorWhite->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+  m_btnColorWhite->setMinimumHeight(UiScale::dp(88));
   connect(m_btnColorWhite, &QPushButton::clicked, this, [this]() {
     NoteChrome::setMode(NoteChrome::Mode::Light);
     setPageColor(false);
     refreshPageSettingsTheme();
     applyThemeRefresh();
   });
-  m_btnColorDark = new QPushButton(QStringLiteral("Dark"));
+  m_btnColorDark = new QPushButton(QStringLiteral("Dunkel"));
   m_btnColorDark->setCheckable(true);
   m_btnColorDark->setChecked(NoteChrome::isDark());
   m_btnColorDark->setCursor(Qt::PointingHandCursor);
   m_btnColorDark->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  m_btnColorDark->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+  m_btnColorDark->setMinimumHeight(UiScale::dp(88));
   connect(m_btnColorDark, &QPushButton::clicked, this, [this]() {
     NoteChrome::setMode(NoteChrome::Mode::Dark);
     setPageColor(true);
@@ -11087,13 +11172,13 @@ void MainWindow::setupRightSidebar() {
   themeRow->setObjectName(QStringLiteral("pageSettingsThemeRow"));
   auto *themeLay = new QHBoxLayout(themeRow);
   themeLay->setContentsMargins(0, 0, 0, 0);
-  themeLay->setSpacing(UiScale::dp(8));
+  themeLay->setSpacing(UiScale::dp(12));
   themeLay->addWidget(m_btnColorWhite);
   themeLay->addWidget(m_btnColorDark);
   optLayout->addWidget(themeRow);
 
   optLayout->addWidget(sectionLabel(QStringLiteral("EINGABE"), optContent));
-  m_btnInputPen = new QPushButton(QStringLiteral("Pen Only\n(1 Finger scrolls)"));
+  m_btnInputPen = new QPushButton(QStringLiteral("Nur Stift\n(1 Finger scrollt)"));
   m_btnInputPen->setCheckable(true);
   m_btnInputPen->setChecked(true);
   m_btnInputPen->setCursor(Qt::PointingHandCursor);
@@ -11101,7 +11186,7 @@ void MainWindow::setupRightSidebar() {
   m_btnInputPen->setMinimumHeight(UiScale::dp(48));
   connect(m_btnInputPen, &QPushButton::clicked,
           [this]() { updateInputMode(true); });
-  m_btnInputTouch = new QPushButton(QStringLiteral("Touch & Pen\n(2 Fingers scroll)"));
+  m_btnInputTouch = new QPushButton(QStringLiteral("Touch & Stift\n(2 Finger scrollen)"));
   m_btnInputTouch->setCheckable(true);
   m_btnInputTouch->setCursor(Qt::PointingHandCursor);
   m_btnInputTouch->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -11121,62 +11206,105 @@ void MainWindow::setupRightSidebar() {
   inputLay->addWidget(m_btnInputTouch);
   optLayout->addWidget(inputRow);
 
-  // Toolbar-Style + Scale only apply to ModernToolbar (Radial/Normal switch
-  // and continuous scaling). On Android phones we ship AndroidPhoneToolbar,
-  // which is a fixed bottom-pill with no style or scale knobs - so we still
-  // create the controls (preserving layout indices) but disable them.
+  // Studio toolbar layout (A–D) + scale. Phone bottom-pill hides both.
   const bool phoneToolbarActive =
       qobject_cast<AndroidPhoneToolbar *>(m_floatingTools) != nullptr;
-  QLabel *lblToolbarStyle = new QLabel("Toolbar Style:", optContent);
+  QLabel *lblToolbarStyle =
+      new QLabel(QStringLiteral("Werkzeugleisten-Layout:"), optContent);
+  lblToolbarStyle->setObjectName(QStringLiteral("pageSettingsToolbarLabel"));
   optLayout->addWidget(lblToolbarStyle);
+
+  // Keep combo for Android profile parity / refreshPageSettingsTheme styling,
+  // but hide it on desktop in favor of the segment picker.
   m_comboToolbarStyle = new QComboBox();
-  m_comboToolbarStyle->addItems({"Vertical", "Radial (Full)", "Radial (Half)"});
+  m_comboToolbarStyle->addItems(
+      {QStringLiteral("Klassisch"), QStringLiteral("A Labels"),
+       QStringLiteral("B Flach"), QStringLiteral("C Radial"),
+       QStringLiteral("D Vertikal")});
   m_comboToolbarStyle->setCursor(Qt::PointingHandCursor);
-  connect(m_comboToolbarStyle,
-          &QComboBox::currentIndexChanged,
+  m_comboToolbarStyle->hide();
+
+#ifndef Q_OS_ANDROID
+  auto *variantRow = new QWidget(optContent);
+  variantRow->setObjectName(QStringLiteral("pageSettingsStudioVariantRow"));
+  auto *variantLay = new QHBoxLayout(variantRow);
+  variantLay->setContentsMargins(0, 0, 0, 0);
+  variantLay->setSpacing(UiScale::dp(6));
+  auto *bgVariant = new QButtonGroup(this);
+  bgVariant->setExclusive(true);
+  const int savedVariant =
+      static_cast<int>(ModernToolbar::loadPersistedStudioVariant());
+  const QList<QPair<int, QString>> opts = {
+      {0, QStringLiteral("Klassisch")},
+      {1, QStringLiteral("A")},
+      {2, QStringLiteral("B")},
+      {3, QStringLiteral("C")},
+      {4, QStringLiteral("D")},
+  };
+  for (const auto &o : opts) {
+    auto *b = new QPushButton(o.second, variantRow);
+    b->setCheckable(true);
+    b->setCursor(Qt::PointingHandCursor);
+    b->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
+    b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    b->setStyleSheet(BlopStyle::paperSegmentQss());
+    bgVariant->addButton(b, o.first);
+    if (o.first == savedVariant)
+      b->setChecked(true);
+    variantLay->addWidget(b);
+  }
+  connect(bgVariant, &QButtonGroup::idClicked, this, [this](int id) {
+    if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+      tb->setStudioToolbarVariant(
+          static_cast<ModernToolbar::StudioToolbarVariant>(id), true);
+      if (m_radialFab)
+        m_radialFab->setVisible(
+            id == static_cast<int>(
+                      ModernToolbar::StudioToolbarVariant::ComplexRadial));
+      positionDrawboardToolbar();
+      positionNoteChrome();
+    }
+    if (m_comboToolbarStyle) {
+      QSignalBlocker block(m_comboToolbarStyle);
+      m_comboToolbarStyle->setCurrentIndex(id);
+    }
+  });
+  optLayout->addWidget(variantRow);
+#else
+  connect(m_comboToolbarStyle, &QComboBox::currentIndexChanged,
           [this](int index) {
             ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
-            if (tb) {
-              if (index == 0) {
-                tb->setStyle(ModernToolbar::Normal);
-                tb->applyStudioSnappedPill();
-                if (m_radialFab)
-                  m_radialFab->hide();
-                positionNoteChrome();
-              } else if (index == 1) {
-                tb->setStyle(ModernToolbar::Radial);
-                tb->setRadialType(ModernToolbar::FullCircle);
-                if (m_radialFab)
-                  m_radialFab->setVisible(true);
-                positionNoteChrome();
-              } else {
-                tb->setStyle(ModernToolbar::Radial);
-                tb->setRadialType(ModernToolbar::HalfEdge);
-                if (m_radialFab)
-                  m_radialFab->setVisible(true);
-                positionNoteChrome();
-              }
+            if (!tb)
+              return;
+            if (index <= 0) {
+              tb->setStyle(ModernToolbar::Normal);
+              if (m_radialFab)
+                m_radialFab->hide();
+            } else {
+              tb->setStyle(ModernToolbar::Radial);
+              tb->setRadialType(index == 1 ? ModernToolbar::FullCircle
+                                           : ModernToolbar::HalfEdge);
+              if (m_radialFab)
+                m_radialFab->setVisible(true);
             }
+            positionNoteChrome();
           });
+  optLayout->addWidget(m_comboToolbarStyle);
+#endif
   if (phoneToolbarActive) {
     lblToolbarStyle->hide();
-    m_comboToolbarStyle->hide();
-    m_comboToolbarStyle->setToolTip(
-        "Toolbar-Style ist auf Android Phones fest (Bottom-Pille).");
-  }
 #ifndef Q_OS_ANDROID
-  // Desktop Drawboard locks the vertical Favorites rail — Radial/FAB are secondary.
-  lblToolbarStyle->setEnabled(false);
-  m_comboToolbarStyle->setEnabled(false);
-  m_comboToolbarStyle->setCurrentIndex(0);
-  m_comboToolbarStyle->setToolTip(
-      QStringLiteral("Desktop nutzt die Drawboard-Favorites-Leiste (vertikal)."));
+    if (auto *row = optContent->findChild<QWidget *>(
+            QStringLiteral("pageSettingsStudioVariantRow")))
+      row->hide();
 #endif
-  optLayout->addWidget(m_comboToolbarStyle);
+    if (m_comboToolbarStyle)
+      m_comboToolbarStyle->hide();
+  }
 
-  optLayout->addWidget(new QLabel("UI Profile:", optContent));
+  optLayout->addWidget(
+      new QLabel(QStringLiteral("UI-Profil:"), optContent));
   m_comboProfiles = new QComboBox();
-  m_comboProfiles->setStyleSheet(m_comboToolbarStyle->styleSheet());
   m_comboProfiles->setCursor(Qt::PointingHandCursor);
   for (const auto &p : m_profileManager->profiles()) {
     m_comboProfiles->addItem(p.name, p.id);
@@ -11200,7 +11328,7 @@ void MainWindow::setupRightSidebar() {
   });
   optLayout->addWidget(m_comboProfiles);
 
-  QLabel *lblToolbarSize = new QLabel("Toolbar Size:", optContent);
+  QLabel *lblToolbarSize = new QLabel(QStringLiteral("Toolbar-Größe:"), optContent);
   optLayout->addWidget(lblToolbarSize);
   m_sliderToolbarScale = new QSlider(Qt::Horizontal);
   m_sliderToolbarScale->setRange(50, 150);
@@ -11225,17 +11353,18 @@ void MainWindow::setupRightSidebar() {
   optLayoutMain->addWidget(optScroll);
   BlopScroll::enableFingerScroll(optScroll);
 
-  settingsTabs->addTab(tabOptions, "Optionen");
+  settingsStack->addWidget(tabOptions);
 
 
   // -------------------------------------------------------------------------
-  // TAB 2: TAGS & META
+  // PAGE 1: TAGS & META
   // -------------------------------------------------------------------------
   QWidget *tabTags = new QWidget();
   m_pageSettingsTabTags = tabTags;
   QVBoxLayout *tagsLayoutMain = new QVBoxLayout(tabTags);
-  tagsLayoutMain->setContentsMargins(16, 16, 16, 20);
-  tagsLayoutMain->setSpacing(16);
+  tagsLayoutMain->setContentsMargins(UiScale::dp(20), UiScale::dp(16),
+                                     UiScale::dp(24), UiScale::dp(24));
+  tagsLayoutMain->setSpacing(UiScale::dp(14));
 
   // Tags Section — wired to LibraryTagStore (same catalog as library shelf).
   tagsLayoutMain->addWidget(sectionLabel(QStringLiteral("TAGS"), tabTags));
@@ -11248,22 +11377,11 @@ void MainWindow::setupRightSidebar() {
   m_tagsFlowLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
   tagsLayoutMain->addWidget(m_tagsContainer);
 
-  QPushButton *btnAddTag = new QPushButton("+ Neuer Tag", tabTags);
-  btnAddTag->setFixedHeight(32);
+  QPushButton *btnAddTag = new QPushButton(QStringLiteral("+ Neuer Tag"), tabTags);
+  btnAddTag->setObjectName(QStringLiteral("pageSettingsAddTag"));
+  btnAddTag->setFixedHeight(UiScale::dp(36));
   btnAddTag->setCursor(Qt::PointingHandCursor);
-  btnAddTag->setStyleSheet(
-      "QPushButton {"
-      "  background: rgba(255,255,255,0.05);"
-      "  border: 1px dashed rgba(255,255,255,0.15);"
-      "  border-radius: 6px;"
-      "  color: rgba(255,255,255,0.5);"
-      "  font-size: 11px; font-weight: 500;"
-      "}"
-      "QPushButton:hover {"
-      "  background: rgba(255,255,255,0.08);"
-      "  border-color: rgba(255,255,255,0.25);"
-      "  color: rgba(255,255,255,0.8);"
-      "}");
+  btnAddTag->setStyleSheet(BlopStyle::paperOutlineChipQss());
   connect(btnAddTag, &QPushButton::clicked, this, [this]() {
     const QString raw = BlopDialogs::promptText(
         this, QStringLiteral("Neuer Tag"), QStringLiteral("Tag-Name:"));
@@ -11317,11 +11435,11 @@ void MainWindow::setupRightSidebar() {
     tagsLayoutMain->addWidget(row);
     return val;
   };
-  m_lblMetaCreated  = makeMetaRow("Erstellt:", "—");
-  m_lblMetaModified = makeMetaRow("Geändert:", "—");
+  m_lblMetaCreated  = makeMetaRow(QStringLiteral("Erstellt:"), QStringLiteral("—"));
+  m_lblMetaModified = makeMetaRow(QStringLiteral("Geändert:"), QStringLiteral("—"));
 
   tagsLayoutMain->addStretch();
-  settingsTabs->addTab(tabTags, "Tags");
+  settingsStack->addWidget(tabTags);
 
   midRow->addWidget(m_pageSettingsCard, 0, Qt::AlignHCenter | Qt::AlignVCenter);
   midRow->addStretch(1);
@@ -11335,87 +11453,107 @@ void MainWindow::setupRightSidebar() {
 }
 
 void MainWindow::refreshPageSettingsTheme() {
-  // Obsidian dark header + Notion paper body (Desktop K). Chips use fixed
-  // paperSegmentQss so Dark BlopTheme never paints light text onto paper.
+  // Light Mode large modal: white surface, left nav, primary-light tiles.
   if (!m_pageSettingsCard)
     return;
-  const QString surfaceBg = BlopStyle::paperBg().name(QColor::HexRgb);
+  const QString surfaceBg = BlopStyle::paperSurface().name(QColor::HexRgb);
+  const QString appBg = BlopStyle::paperBg().name(QColor::HexRgb);
   const QString surfaceMuted = BlopStyle::paperChipBg().name(QColor::HexRgb);
   const QString textPrimary = BlopStyle::paperInk().name(QColor::HexRgb);
   const QString textSecondary = BlopStyle::paperInkMuted().name(QColor::HexRgb);
-  const QString border = QStringLiteral("rgba(20,24,40,0.12)");
+  const QString border = BlopStyle::paperBorder().name(QColor::HexRgb);
   const QString accent = BlopTheme::accentPrimary().name(QColor::HexRgb);
-  const QString divider = QStringLiteral("rgba(20,24,40,0.08)");
-  const QString subtleDivider = QStringLiteral("rgba(20,24,40,0.06)");
-  const QString tabInactive = QStringLiteral("rgba(28,30,36,0.55)");
-  const QString tabHover = QStringLiteral("rgba(28,30,36,0.85)");
+  const int radLg = UiScale::dp(BlopStyle::radiusLgDp());
 
   m_pageSettingsCard->setAttribute(Qt::WA_StyledBackground, true);
+  m_pageSettingsCard->setProperty("blopOwnsBackground", true);
   m_pageSettingsCard->setStyleSheet(QStringLiteral(
       "QWidget#PageSettingsCard { background: %1; border: 1px solid %2;"
-      "  border-radius: 18px; }")
-      .arg(surfaceBg, border));
+      "  border-radius: %3px; }")
+      .arg(surfaceBg, border, QString::number(radLg)));
 
-  // Obsidian header: always dark + high-contrast light text.
   if (auto *hdr = m_pageSettingsCard->findChild<QWidget *>(
           QStringLiteral("PageSettingsHeader"))) {
     hdr->setStyleSheet(QStringLiteral(
         "QWidget#PageSettingsHeader {"
         "  background: %1;"
-        "  border-top-left-radius: 18px;"
-        "  border-top-right-radius: 18px;"
-        "  border-bottom: 1px solid rgba(255,255,255,0.08);"
+        "  border-top-left-radius: %2px;"
+        "  border-top-right-radius: %2px;"
+        "  border-bottom: 1px solid %3;"
         "}")
-                           .arg(BlopStyle::obsidianBg().name(QColor::HexRgb)));
+                           .arg(surfaceBg, QString::number(radLg), border));
   }
   if (auto *title = m_pageSettingsCard->findChild<QLabel *>(
           QStringLiteral("PageSettingsTitle"))) {
     title->setStyleSheet(QStringLiteral(
-        "color: %1; font-size: 14px; font-weight: 600;"
+        "color: %1; font-size: 16px; font-weight: 700;"
         "background: transparent; border: none;")
-                             .arg(BlopStyle::obsidianText().name(
-                                 QColor::HexRgb)));
+                             .arg(textPrimary));
+  }
+  if (auto *nav = m_pageSettingsCard->findChild<QWidget *>(
+          QStringLiteral("PageSettingsNav"))) {
+    nav->setStyleSheet(QStringLiteral(
+        "QWidget#PageSettingsNav {"
+        "  background: %1;"
+        "  border-right: 1px solid %2;"
+        "  border-bottom-left-radius: %3px;"
+        "}")
+                           .arg(appBg, border, QString::number(radLg)));
+  }
+  if (auto *content = m_pageSettingsCard->findChild<QWidget *>(
+          QStringLiteral("PageSettingsContent"))) {
+    content->setStyleSheet(QStringLiteral(
+        "QWidget#PageSettingsContent { background: %1;"
+        "  border-bottom-right-radius: %2px; }")
+                               .arg(surfaceBg, QString::number(radLg)));
   }
 
-  if (m_pageSettingsTabs) {
-    const int tabMinH = UiScale::dp(BlopStyle::touchTargetMinDp());
-    m_pageSettingsTabs->setStyleSheet(QStringLiteral(
-        "QTabWidget::pane { border: none; border-top: 1px solid %1; background: %2; }"
-        "QTabWidget > QWidget { background: %2; }"
-        "QTabBar::tab { background: transparent; color: %3;"
-        "  padding: 10px 18px; min-height: %7px; font-size: 12px;"
-        "  font-weight: 600; border: none; }"
-        "QTabBar::tab:selected { color: %4; border-bottom: 2px solid %5; }"
-        "QTabBar::tab:hover:!selected { color: %6; }")
-        .arg(subtleDivider, surfaceBg, tabInactive, textPrimary, accent, tabHover,
-             QString::number(tabMinH)));
-  }
+  const QString navQss = BlopStyle::paperSideNavQss();
+  if (m_pageSettingsNavOptions)
+    m_pageSettingsNavOptions->setStyleSheet(navQss);
+  if (m_pageSettingsNavTags)
+    m_pageSettingsNavTags->setStyleSheet(navQss);
+
   if (m_pageSettingsTabOptions)
-    m_pageSettingsTabOptions->setStyleSheet(QStringLiteral("background: %1;").arg(surfaceBg));
+    m_pageSettingsTabOptions->setStyleSheet(
+        QStringLiteral("background: %1;").arg(surfaceBg));
   if (m_pageSettingsTabTags)
-    m_pageSettingsTabTags->setStyleSheet(QStringLiteral("background: %1;").arg(surfaceBg));
+    m_pageSettingsTabTags->setStyleSheet(
+        QStringLiteral("background: %1;").arg(surfaceBg));
 
   if (m_lblActiveNote) {
     m_lblActiveNote->setStyleSheet(QStringLiteral(
         "color: %1; font-size: 12px; font-weight: 600;"
-        "padding: 10px 16px 6px 16px; background: transparent;")
+        "padding: 4px 20px 10px 20px; background: transparent;")
         .arg(textSecondary));
   }
 
-  // Segment chips: fixed paper language on this sheet.
   const QString segmentBtnQss = BlopStyle::paperSegmentQss();
   for (QPushButton *b : {m_btnFormatInfinite, m_btnFormatA4, m_btnStyleBlank,
-                          m_btnStyleLined, m_btnStyleSquared, m_btnStyleDotted,
-                          m_btnColorWhite, m_btnColorDark}) {
+                          m_btnStyleLined, m_btnStyleSquared, m_btnStyleDotted}) {
     if (b) {
       b->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
       b->setStyleSheet(segmentBtnQss);
     }
   }
+  const QString themeTileQss = BlopStyle::paperThemeTileQss();
+  if (m_btnColorWhite) {
+    m_btnColorWhite->setMinimumHeight(UiScale::dp(88));
+    m_btnColorWhite->setStyleSheet(themeTileQss);
+  }
+  if (m_btnColorDark) {
+    m_btnColorDark->setMinimumHeight(UiScale::dp(88));
+    m_btnColorDark->setStyleSheet(themeTileQss);
+  }
   const QString inputBtnQss =
       segmentBtnQss + QStringLiteral("QPushButton { text-align: left; }");
   if (m_btnInputPen) m_btnInputPen->setStyleSheet(inputBtnQss);
   if (m_btnInputTouch) m_btnInputTouch->setStyleSheet(inputBtnQss);
+  if (auto *variantRow = m_pageSettingsCard->findChild<QWidget *>(
+          QStringLiteral("pageSettingsStudioVariantRow"))) {
+    for (auto *b : variantRow->findChildren<QPushButton *>())
+      b->setStyleSheet(segmentBtnQss);
+  }
 
   if (m_btnColorWhite && m_btnColorDark) {
     QSignalBlocker b1(m_btnColorWhite);
@@ -11426,12 +11564,14 @@ void MainWindow::refreshPageSettingsTheme() {
 
   const QString comboQss = QStringLiteral(
       "QComboBox { background: %1; color: %2; border: 1px solid %3;"
-      "  padding: 8px 10px; border-radius: 8px; font-size: 12px;"
-      "  min-height: %5px; }"
+      "  padding: 8px 10px; border-radius: %5px; font-size: 12px;"
+      "  min-height: %6px; }"
       "QComboBox::drop-down { border: 0px; }"
       "QComboBox QAbstractItemView { background: %1; color: %2;"
-      "  selection-background-color: %4; }")
-      .arg(surfaceMuted, textPrimary, border, accent,
+      "  selection-background-color: %4; selection-color: %2; }")
+      .arg(surfaceBg, textPrimary, border,
+           BlopStyle::paperPrimaryLight().name(QColor::HexRgb),
+           QString::number(UiScale::dp(BlopStyle::radiusMdDp())),
            QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 8)));
   if (m_comboToolbarStyle) m_comboToolbarStyle->setStyleSheet(comboQss);
   if (m_comboProfiles) m_comboProfiles->setStyleSheet(comboQss);
@@ -11452,7 +11592,7 @@ void MainWindow::refreshPageSettingsTheme() {
       "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px;"
       "  border: 1px solid %2; background: %3; }"
       "QCheckBox::indicator:checked { background: %4; border: 1px solid %4; }")
-      .arg(textPrimary, border, surfaceMuted, accent,
+      .arg(textPrimary, border, surfaceBg, accent,
            QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 4)));
   const QString radioQss = QStringLiteral(
       "QRadioButton { color: %1; background: transparent; font-size: 13px;"
@@ -11460,12 +11600,16 @@ void MainWindow::refreshPageSettingsTheme() {
       "QRadioButton::indicator { width: 16px; height: 16px; border-radius: 8px;"
       "  border: 1px solid %2; background: %3; }"
       "QRadioButton::indicator:checked { background: %4; border: 1px solid %4; }")
-      .arg(textPrimary, border, surfaceMuted, accent,
+      .arg(textPrimary, border, surfaceBg, accent,
            QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 4)));
   for (QCheckBox *cb : m_pageSettingsCard->findChildren<QCheckBox *>())
     cb->setStyleSheet(checkQss);
   for (QRadioButton *rb : m_pageSettingsCard->findChildren<QRadioButton *>())
     rb->setStyleSheet(radioQss);
+
+  if (auto *addTag = m_pageSettingsCard->findChild<QPushButton *>(
+          QStringLiteral("pageSettingsAddTag")))
+    addTag->setStyleSheet(BlopStyle::paperOutlineChipQss());
 
   for (QLabel *lbl : m_pageSettingsCard->findChildren<QLabel *>()) {
     if (lbl == m_lblActiveNote)
@@ -11486,7 +11630,6 @@ void MainWindow::refreshPageSettingsTheme() {
     }
   }
 
-  Q_UNUSED(divider);
   if (style()) {
     style()->unpolish(m_pageSettingsCard);
     style()->polish(m_pageSettingsCard);
@@ -12254,17 +12397,20 @@ void MainWindow::setPageSettingsOverlayVisible(bool show) {
     m_pageSettingsCard->setMinimumWidth(0);
     m_pageSettingsCard->setMaximumWidth(QWIDGETSIZE_MAX);
     m_pageSettingsCard->setMaximumHeight(QWIDGETSIZE_MAX);
-    // Strip the legacy outer card stylesheet -- BlopModal hosts the card
-    // inside a themed surface, so a second border would look chunky.
-    m_pageSettingsCard->setStyleSheet(
-        QStringLiteral("QWidget#PageSettingsCard { background: transparent; }"));
+    m_pageSettingsCard->setMinimumHeight(UiScale::dp(600));
+    m_pageSettingsCard->setProperty("blopOwnsBackground", true);
+    // Keep Light paper surface — BlopModal host matches via blopOwnsBackground.
+    refreshPageSettingsTheme();
     m_pageSettingsCard->show();
 #ifndef Q_OS_ANDROID
-    // Desktop: centered card window (no side panel).
+    // Desktop: large centered modal (~85% width, max ~900px).
     m_pageSettingsModal = BlopModal::present(this, m_pageSettingsCard,
                                              BlopModal::Mode::Card);
     if (m_pageSettingsModal) {
-      m_pageSettingsModal->setPreferredCardWidth(UiScale::dp(520));
+      const int targetW = qMin(UiScale::dp(900),
+                               qMax(UiScale::dp(640), int(width() * 0.85)));
+      m_pageSettingsCard->setMinimumHeight(UiScale::dp(600));
+      m_pageSettingsModal->setPreferredCardWidth(targetW);
 #else
     m_pageSettingsModal = BlopModal::present(this, m_pageSettingsCard,
                                              BlopModal::Mode::Auto);
@@ -14211,17 +14357,32 @@ void MainWindow::onOpenSettings() {
   }
   connect(&dlg, &SettingsDialog::accentColorChanged, this,
           &MainWindow::updateTheme);
+  connect(&dlg, &SettingsDialog::studioToolbarVariantChanged, this,
+          [this, toolbar](int variant) {
+#ifndef Q_OS_ANDROID
+            if (!toolbar)
+              return;
+            toolbar->setStudioToolbarVariant(
+                static_cast<ModernToolbar::StudioToolbarVariant>(variant),
+                true);
+            if (m_radialFab)
+              m_radialFab->setVisible(
+                  variant ==
+                  static_cast<int>(
+                      ModernToolbar::StudioToolbarVariant::ComplexRadial));
+            positionDrawboardToolbar();
+            positionNoteChrome();
+#else
+            Q_UNUSED(variant);
+            Q_UNUSED(toolbar);
+#endif
+          });
   connect(&dlg, &SettingsDialog::toolbarStyleChanged,
           [this, toolbar](bool radial) {
 #ifndef Q_OS_ANDROID
             Q_UNUSED(radial);
-            if (toolbar) {
-              toolbar->setStyle(ModernToolbar::Normal);
-              toolbar->applyStudioSnappedPill();
-            }
-            if (m_radialFab)
-              m_radialFab->hide();
-            positionNoteChrome();
+            if (toolbar)
+              positionDrawboardToolbar();
 #else
             if (toolbar)
               toolbar->setStyle(radial ? ModernToolbar::Radial

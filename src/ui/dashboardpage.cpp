@@ -178,12 +178,48 @@ QString softBlockQss(bool editing, const QString &blockId = QString()) {
   }
   if (blockId == QLatin1String("today")) {
     QColor glow = BlopTheme::accentPrimary();
-    glow.setAlpha(22);
+    glow.setAlpha(28);
     return QStringLiteral(
                "QFrame#DashBlock { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 %1, stop:1 %2);"
-               " border: 1px solid %3; border-left: 3px solid %4; border-radius: 12px; }"
+               " border: 1px solid %3; border-left: 4px solid %4; border-radius: 14px; }"
                "QFrame#DashBlock:hover { border-color: %4; }")
         .arg(hex(glow), hex(t.cardBg), hex(t.border), accent());
+  }
+  if (blockId == QLatin1String("clock")) {
+    QColor lift = t.cardBg.lighter(112);
+    return QStringLiteral(
+               "QFrame#DashBlock {"
+               "  background: %1;"
+               "  border: 1px solid %2;"
+               "  border-radius: 16px;"
+               "}"
+               "QFrame#DashBlock:hover { border-color: %3; }")
+        .arg(hex(lift), hex(t.border), hex(t.borderHover));
+  }
+  if (blockId == QLatin1String("todos") ||
+      blockId == QLatin1String("calendar")) {
+    return QStringLiteral(
+               "QFrame#DashBlock {"
+               "  background: %1;"
+               "  border: 1px solid %2;"
+               "  border-radius: 12px;"
+               "}"
+               "QFrame#DashBlock:hover { border-color: %3; background: %4; }"
+               "QFrame#DashBlock QLabel#DashDragGrip { color: transparent; }"
+               "QFrame#DashBlock:hover QLabel#DashDragGrip { color: %5; }")
+        .arg(hex(t.cardBg), hex(t.border), hex(t.borderHover),
+             hex(t.cardBg.lighter(106)), hex(t.muted));
+  }
+  if (blockId == QLatin1String("recent") ||
+      blockId == QLatin1String("shortcuts")) {
+    return QStringLiteral(
+               "QFrame#DashBlock {"
+               "  background: %1;"
+               "  border: 1px solid %2;"
+               "  border-radius: 12px;"
+               "}"
+               "QFrame#DashBlock:hover { border-color: %3; }")
+        .arg(hex(t.cardBg.darker(104)), hex(t.border), hex(t.borderHover));
   }
   return QStringLiteral(
              "QFrame#DashBlock {"
@@ -355,15 +391,20 @@ QString gripQss(bool alwaysVisible) {
 QString scrollBarQss() {
   return QStringLiteral(
              "QScrollArea#DashBlockScroll { background: transparent; border: none; }"
-             "QScrollBar:vertical { width: 6px; background: transparent; margin: 2px; }"
-             "QScrollBar::handle:vertical {"
-             "  background: %1; border-radius: 3px; min-height: 20px;"
+             "QScrollBar:vertical {"
+             "  width: 4px; background: transparent; margin: 4px 1px;"
+             "  border: none;"
              "}"
+             "QScrollBar::handle:vertical {"
+             "  background: %1; border-radius: 2px; min-height: 24px;"
+             "}"
+             "QScrollBar::handle:vertical:hover { background: %2; }"
              "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
-             "  height: 0; border: none; }"
+             "  height: 0; border: none; background: transparent; }"
              "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
              "  background: transparent; }")
-      .arg(hex(dash().scrollHandle));
+      .arg(hex(dash().scrollHandle),
+           hex(BlopTheme::accentPrimary()));
 }
 
 QString shortcutCardQss() {
@@ -1039,22 +1080,43 @@ void DashboardPage::resolveOverlaps(QVector<DashboardWidgetSpec> &specs,
         // Primary grew right → neighbor loses its left side.
         other.col = qMin(11, pRight);
         other.colSpan = qBound(1, oRight - other.col, 12 - other.col);
+        if (other.col + other.colSpan > 12 || other.colSpan < 1 ||
+            overlaps(*primary, other)) {
+          other.col = 0;
+          other.row = pBottom;
+          other.colSpan = qBound(1, other.colSpan, 12);
+        }
         break;
       case PushDir::West:
         // Primary grew left → neighbor loses its right side.
         other.colSpan = qMax(1, primary->col - other.col);
+        if (other.colSpan < 1 || overlaps(*primary, other)) {
+          other.col = 0;
+          other.row = pBottom;
+          other.colSpan = qBound(1, other.colSpan, 12);
+        }
         break;
       case PushDir::South:
-        // Primary grew down → neighbor is pushed/shrunk from the top.
+        // Primary grew down → neighbor is pushed fully below (no float-over).
         other.row = pBottom;
-        other.rowSpan = qBound(1, oBottom - other.row, 4);
+        other.rowSpan = qBound(1, other.rowSpan, 4);
         break;
       case PushDir::North:
-        // Primary grew up → neighbor loses its bottom.
+        // Primary grew up → neighbor loses its bottom; if stuck, push south.
         other.rowSpan = qMax(1, primary->row - other.row);
+        if (other.rowSpan < 1 || overlaps(*primary, other)) {
+          other.row = pBottom;
+          other.rowSpan = qBound(1, other.rowSpan, 4);
+        }
         break;
       case PushDir::Auto:
         break;
+      }
+      // Final guard: never leave a card overlapping the primary.
+      if (overlaps(*primary, other)) {
+        other.row = pBottom;
+        other.col = qBound(0, other.col, 11);
+        other.colSpan = qBound(1, other.colSpan, 12 - other.col);
       }
       changed = true;
     }
@@ -1138,8 +1200,8 @@ QWidget *DashboardPage::buildEditChrome(const QString &id) {
   }
 
   auto *lay = new QHBoxLayout(bar);
-  lay->setContentsMargins(0, 0, 0, UiScale::dp(6));
-  lay->setSpacing(UiScale::dp(4));
+  lay->setContentsMargins(0, 0, 0, UiScale::dp(2));
+  lay->setSpacing(UiScale::dp(3));
 
   auto *grip = new QLabel(QStringLiteral("⋮⋮"), bar);
   grip->setObjectName(QStringLiteral("DashDragGrip"));

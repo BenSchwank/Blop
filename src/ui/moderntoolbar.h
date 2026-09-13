@@ -233,6 +233,11 @@ public:
     void setStudioToolbarVariant(StudioToolbarVariant v, bool persist = true);
     StudioToolbarVariant studioToolbarVariant() const { return m_studioVariant; }
     void applyStudioToolbarVariant();
+    /// Load `ui/studio_toolbar_variant` (default A) without requiring debug mode.
+    static StudioToolbarVariant loadPersistedStudioVariant();
+    static int defaultStudioVariantInt() {
+      return static_cast<int>(StudioToolbarVariant::HorizontalLabeled);
+    }
     bool isStudioChrome() const;
     bool isMarkupToolbar() const { return m_markupBarMode != MarkupOff; }
     bool isDrawboardVerticalRail() const;
@@ -311,6 +316,8 @@ signals:
     void propertiesPanelToggleRequested();
     /// Favorites rail snapped to another edge (MainWindow should re-layout).
     void railDockEdgeChanged(RailDockEdge edge);
+    /// Studio A–D / Klassisch layout changed (MainWindow should reposition).
+    void studioToolbarVariantChanged(StudioToolbarVariant v);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -349,7 +356,9 @@ private:
     bool m_draggable{true};
     bool m_isPreview{false};
     bool m_isDockedMode{false};
-    StudioToolbarVariant m_studioVariant{StudioToolbarVariant::Legacy};
+    /// Default A (HorizontalLabeled) — mockup product path; Klassisch optional.
+    StudioToolbarVariant m_studioVariant{
+        StudioToolbarVariant::HorizontalLabeled};
 
     bool m_isScrolling{false};
     bool m_hasScrolled{false};

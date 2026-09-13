@@ -5689,9 +5689,27 @@ void ModernToolbar::setStudioToolbarVariant(StudioToolbarVariant v,
                static_cast<int>(v));
   }
   applyStudioToolbarVariant();
+  emit studioToolbarVariantChanged(v);
 #else
   Q_UNUSED(v);
   Q_UNUSED(persist);
+#endif
+}
+
+ModernToolbar::StudioToolbarVariant
+ModernToolbar::loadPersistedStudioVariant() {
+#ifndef Q_OS_ANDROID
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const int raw =
+      s.value(QStringLiteral("ui/studio_toolbar_variant"),
+              defaultStudioVariantInt())
+          .toInt();
+  if (raw < static_cast<int>(StudioToolbarVariant::Legacy) ||
+      raw > static_cast<int>(StudioToolbarVariant::VerticalGrid))
+    return StudioToolbarVariant::HorizontalLabeled;
+  return static_cast<StudioToolbarVariant>(raw);
+#else
+  return StudioToolbarVariant::Legacy;
 #endif
 }
 

@@ -266,11 +266,12 @@ void BlopModal::applyTheme() {
       m_card->setStyleSheet(
           QStringLiteral("QFrame#BlopModalCard {"
                          "  background: %1;"
-                         "  border: 1px solid rgba(20,24,40,0.12);"
-                         "  border-radius: %2px;"
+                         "  border: 1px solid %2;"
+                         "  border-radius: %3px;"
                          "}")
-              .arg(BlopStyle::paperBg().name(QColor::HexRgb),
-                   QString::number(UiScale::dp(12))));
+              .arg(BlopStyle::paperSurface().name(QColor::HexRgb),
+                   BlopStyle::paperBorder().name(QColor::HexRgb),
+                   QString::number(UiScale::dp(BlopStyle::radiusLgDp()))));
     } else {
       m_card->setStyleSheet(
           BlopStyle::surfaceStyle(QStringLiteral("BlopModalCard")));

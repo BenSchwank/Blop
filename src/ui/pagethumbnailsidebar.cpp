@@ -6,6 +6,7 @@
 #include "moderntoolbar.h"
 #include "multipagenoteview.h"
 #include "notechrome.h"
+#include "blopstyle.h"
 #include "uiscale.h"
 
 #include <QAbstractItemModel>
@@ -543,14 +544,19 @@ void PageThumbnailSidebar::applyCollapsedState() {
 void PageThumbnailSidebar::refreshListStyle() {
   const QColor accent = NoteChrome::accent();
   const QString bg =
-      m_horizontalStrip ? QStringLiteral("#FFFFFF")
-                        : NoteChrome::toolbarFill().name();
-  const QString edge = m_horizontalStrip
-                           ? QStringLiteral("border-bottom: 1px solid #DDE1E8;")
-                           : QStringLiteral("border-right: 1px solid %1;")
-                                 .arg(NoteChrome::borderSoft().name());
-  const QColor toggleFg =
-      m_horizontalStrip ? QColor(0x5A, 0x60, 0x70) : NoteChrome::textSecondary();
+      m_horizontalStrip
+          ? (NoteChrome::isDark() ? NoteChrome::toolbarFill().name()
+                                  : BlopStyle::paperBg().name(QColor::HexRgb))
+          : NoteChrome::toolbarFill().name();
+  const QString edge =
+      m_horizontalStrip
+          ? QStringLiteral("border-bottom: 1px solid %1;")
+                .arg(NoteChrome::isDark()
+                         ? NoteChrome::borderSoft().name()
+                         : QStringLiteral("rgba(20,24,40,0.10)"))
+          : QStringLiteral("border-right: 1px solid %1;")
+                .arg(NoteChrome::borderSoft().name());
+  const QColor toggleFg = NoteChrome::textSecondary();
   setStyleSheet(QStringLiteral(
       "QWidget#PageThumbnailSidebar {"
       "  background: %1; border: none; %2"
@@ -574,13 +580,10 @@ void PageThumbnailSidebar::refreshListStyle() {
       "  font-size: 18px; font-weight: 700;"
       "}")
                     .arg(bg, edge, toggleFg.name(),
-                         m_horizontalStrip ? QStringLiteral("#F8F9FB")
-                                           : NoteChrome::panelElevated().name(),
-                         m_horizontalStrip ? QStringLiteral("#E4E7EE")
-                                           : NoteChrome::borderSoft().name(),
+                         NoteChrome::panelElevated().name(),
+                         NoteChrome::borderSoft().name(),
                          accent.name(),
-                         m_horizontalStrip ? QStringLiteral("#1C1E24")
-                                           : NoteChrome::textPrimary().name()));
+                         NoteChrome::textPrimary().name()));
 
   if (m_btnAddPage) {
     m_btnAddPage->setIcon(
@@ -597,14 +600,10 @@ void PageThumbnailSidebar::refreshListStyle() {
   }
 
   if (m_list) {
-    const QString itemBg =
-        m_horizontalStrip ? QStringLiteral("#FFFFFF") : NoteChrome::panelElevated().name();
-    const QString itemFg =
-        m_horizontalStrip ? QStringLiteral("#6B7280") : NoteChrome::textSecondary().name();
-    const QString itemBorder =
-        m_horizontalStrip ? QStringLiteral("#E4E7EE") : NoteChrome::borderSoft().name();
-    const QString hover = m_horizontalStrip ? QStringLiteral("rgba(91,157,255,0.08)")
-                                            : QStringLiteral("rgba(91,157,255,0.12)");
+    const QString itemBg = NoteChrome::panelElevated().name();
+    const QString itemFg = NoteChrome::textSecondary().name();
+    const QString itemBorder = NoteChrome::borderSoft().name();
+    const QString hover = QStringLiteral("rgba(91,157,255,0.12)");
     m_list->setStyleSheet(
         QStringLiteral(
             "QListWidget { background: transparent; border: none; outline: 0; color: %1;"
@@ -617,8 +616,8 @@ void PageThumbnailSidebar::refreshListStyle() {
             "QListWidget::item:selected,"
             "QListWidget::item:selected:active,"
             "QListWidget::item:selected:!active {"
-            "  border: 2px solid %4; background: #FFFFFF;"
-            "  color: #1C1E24;"
+            "  border: 2px solid %4; background: %3;"
+            "  color: %1;"
             "}"
             "QListWidget::item:hover:!selected { background: %5; }")
             .arg(itemFg, itemBorder, itemBg, accent.name(), hover));
@@ -632,8 +631,8 @@ void PageThumbnailSidebar::refreshListStyle() {
     }
     QPalette pal = m_list->palette();
     pal.setColor(QPalette::Base, Qt::transparent);
-    pal.setColor(QPalette::Highlight, QColor(255, 255, 255));
-    pal.setColor(QPalette::HighlightedText, QColor(0x1C, 0x1E, 0x24));
+    pal.setColor(QPalette::Highlight, NoteChrome::panelElevated());
+    pal.setColor(QPalette::HighlightedText, NoteChrome::textPrimary());
     m_list->setPalette(pal);
   }
   updateHorizontalScrollAffordance();

@@ -190,13 +190,22 @@ QString propertyRowShellQss(bool last) {
     const QString rule = useSettingsPaper()
                              ? QStringLiteral("1px solid rgba(20,24,40,0.06)")
                              : QStringLiteral("1px solid rgba(255,255,255,0.08)");
+    const QString hover = useSettingsPaper()
+                              ? QStringLiteral("rgba(55,53,47,0.05)")
+                              : QStringLiteral("rgba(255,255,255,0.06)");
+    const QString press = useSettingsPaper()
+                              ? QStringLiteral("rgba(55,53,47,0.09)")
+                              : QStringLiteral("rgba(255,255,255,0.10)");
     return QStringLiteral(
                "QWidget#SettingsPropRow {"
                "  background: transparent;"
                "  border: none;"
                "  border-bottom: %1;"
-               "}")
-        .arg(last ? QStringLiteral("none") : rule);
+               "  border-radius: 8px;"
+               "}"
+               "QWidget#SettingsPropRow:hover { background: %2; }"
+               "QWidget#SettingsPropRow:pressed { background: %3; }")
+        .arg(last ? QStringLiteral("none") : rule, hover, press);
 }
 
 QString propertyActionQss(bool destructive = false) {
@@ -204,28 +213,35 @@ QString propertyActionQss(bool destructive = false) {
         return QStringLiteral(
             "QPushButton {"
             "  background: transparent; color: #C0392B; border: none;"
-            "  text-align: right; font-size: 13px; font-weight: 500;"
-            "  padding: 4px 2px;"
+            "  text-align: right; font-size: 13px; font-weight: 600;"
+            "  padding: 8px 10px; min-height: %1px; border-radius: 8px;"
             "}"
-            "QPushButton:hover { color: #A93226; }");
+            "QPushButton:hover { color: #A93226; background: rgba(192,57,43,0.08); }"
+            "QPushButton:pressed { background: rgba(192,57,43,0.14); }")
+            .arg(UiScale::dp(BlopStyle::touchTargetMinDp() - 8));
     }
     return QStringLiteral(
                "QPushButton {"
                "  background: transparent; color: %1; border: none;"
-               "  text-align: right; font-size: 13px; font-weight: 500;"
-               "  padding: 4px 2px;"
+               "  text-align: right; font-size: 13px; font-weight: 600;"
+               "  padding: 8px 10px; min-height: %3px; border-radius: 8px;"
                "}"
-               "QPushButton:hover { color: %2; }")
+               "QPushButton:hover { color: %2; background: rgba(91,157,255,0.10); }"
+               "QPushButton:pressed { background: rgba(91,157,255,0.16); }")
         .arg(settingsInkMuted(),
-             BlopTheme::accentPrimary().name(QColor::HexRgb));
+             BlopTheme::accentPrimary().name(QColor::HexRgb),
+             QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 8)));
 }
 
 QWidget *makePropertyRow(QWidget *parent, const QString &label,
                          QWidget *action, bool last = false) {
     auto *row = new QWidget(parent);
     row->setObjectName(QStringLiteral("SettingsPropRow"));
-    row->setMinimumHeight(UiScale::dp(44));
+    row->setAttribute(Qt::WA_StyledBackground, true);
+    row->setAttribute(Qt::WA_Hover, true);
+    row->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() + 4));
     row->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    row->setCursor(Qt::PointingHandCursor);
     row->setStyleSheet(propertyRowShellQss(last));
     const bool phoneStack = UiScale::isAndroidPhoneUi(parent);
     auto *lbl = new QLabel(label, row);
@@ -246,6 +262,7 @@ QWidget *makePropertyRow(QWidget *parent, const QString &label,
             if (auto *btn = qobject_cast<QPushButton *>(action)) {
                 btn->setCursor(Qt::PointingHandCursor);
                 btn->setFlat(true);
+                BlopRipple::attachPressFeedback(btn, 0.96);
             }
             lay->addWidget(action);
         }
@@ -260,6 +277,7 @@ QWidget *makePropertyRow(QWidget *parent, const QString &label,
             if (auto *btn = qobject_cast<QPushButton *>(action)) {
                 btn->setCursor(Qt::PointingHandCursor);
                 btn->setFlat(true);
+                BlopRipple::attachPressFeedback(btn, 0.96);
             }
             lay->addWidget(action, 0, Qt::AlignVCenter);
         }
@@ -1280,23 +1298,19 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         cardTheme->addBodyWidget(burgerHint);
     }
 
-    // ----- Card: Erscheinungsbild ---------------------------------------
-    // v3.17.1/B4: the standalone "Akzentfarbe" row is removed -- the
-    // Darstellung card above now owns the accent picker (persistent +
-    // BlopTheme-backed). Toolbar mode stays here.
-    // Desktop Drawboard: Favorites rail is locked; Radial stays Android-only.
+    // ----- Card: Werkzeuge ----------------------------------------------
     auto *cardLook = new BlopSettingsCard(
         QStringLiteral("Werkzeuge"),
-        QStringLiteral("Favorites-Leiste und Toolbar"),
+#ifdef Q_OS_ANDROID
+        QStringLiteral("Toolbar und Favorites"),
+#else
+        QStringLiteral("Studio-Werkzeugleiste (Layout A–D)"),
+#endif
         contentWidget);
     {
-        auto *rNorm = new QRadioButton(
 #ifdef Q_OS_ANDROID
-            QStringLiteral("Vertikal / Adaptiv"),
-#else
-            QStringLiteral("Favorites-Leiste (Drawboard)"),
-#endif
-            cardLook);
+        auto *rNorm = new QRadioButton(QStringLiteral("Vertikal / Adaptiv"),
+                                       cardLook);
         rNorm->setObjectName(QStringLiteral("radioVert"));
         auto *rFull = new QRadioButton(QStringLiteral("Radial"), cardLook);
         rFull->setObjectName(QStringLiteral("radioRadial"));
@@ -1307,23 +1321,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         setThemedQss(rNorm, radioStyle);
         setThemedQss(rFull, radioStyle);
         cardLook->addBodyWidget(rNorm);
-#ifdef Q_OS_ANDROID
         cardLook->addBodyWidget(rFull);
-#else
-        rFull->hide();
-        rFull->setEnabled(false);
-        auto *hint = new QLabel(
-            QStringLiteral("Radial-Toolbar und FAB bleiben auf Desktop "
-                           "deaktiviert. Stift-Presets erscheinen unten rechts "
-                           "bei Stift/Bleistift/Textmarker."),
-            cardLook);
-        hint->setWordWrap(true);
-        setLiteralQss(hint, QStringLiteral(
-            "color: %1; font-size: 11px;"
-            "background: transparent; padding: 2px 0 4px 0;")
-            .arg(settingsInkMuted()));
-        cardLook->addBodyWidget(hint);
-#endif
 
         auto *bgToolbar = new QButtonGroup(this);
         bgToolbar->addButton(rNorm, 0);
@@ -1340,6 +1338,90 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     m_profileManager->updateProfile(profile, true);
                     emit toolbarStyleChanged(id > 0);
                 });
+#else
+        // Keep radio ids for setToolbarConfig / profiles; hide from UI.
+        auto *rNorm = new QRadioButton(cardLook);
+        rNorm->setObjectName(QStringLiteral("radioVert"));
+        rNorm->hide();
+        auto *rFull = new QRadioButton(cardLook);
+        rFull->setObjectName(QStringLiteral("radioRadial"));
+        rFull->hide();
+        rFull->setEnabled(false);
+        rNorm->setChecked(true);
+
+        auto *lblLayout =
+            new QLabel(QStringLiteral("Werkzeugleisten-Layout"), cardLook);
+        setThemedQss(lblLayout, QStringLiteral(
+            "color: %1; font-size: 12px; font-weight: 600;"
+            "background: transparent;")
+            .arg(settingsInk()));
+        cardLook->addBodyWidget(lblLayout);
+
+        auto *variantRow = new QWidget(cardLook);
+        auto *variantLay = new QHBoxLayout(variantRow);
+        variantLay->setContentsMargins(0, 0, 0, 0);
+        variantLay->setSpacing(UiScale::dp(6));
+        const QString segStyle = segmentedControlQss();
+        auto *bgVariant = new QButtonGroup(this);
+        bgVariant->setExclusive(true);
+        struct VariantOpt {
+          int id;
+          const char *label;
+          const char *tip;
+        };
+        const VariantOpt opts[] = {
+            {0, "Klassisch", "Legacy-Pill (Stift / Bleistift / …)"},
+            {1, "A Labels", "Horizontal mit Beschriftungen"},
+            {2, "B Flach", "Kompakte horizontale Pill"},
+            {3, "C Radial", "Radial-Toolbar unten rechts"},
+            {4, "D Vertikal", "Zweispaltige Werkzeug-Grid"},
+        };
+        QSettings vs(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+        // Default A (1) when unset — matches ModernToolbar::defaultStudioVariantInt.
+        int saved = vs.value(QStringLiteral("ui/studio_toolbar_variant"), 1)
+                        .toInt();
+        if (saved < 0 || saved > 4)
+          saved = 1;
+        for (const VariantOpt &o : opts) {
+          auto *b = new QPushButton(QString::fromUtf8(o.label), variantRow);
+          b->setCheckable(true);
+          b->setCursor(Qt::PointingHandCursor);
+          b->setToolTip(QString::fromUtf8(o.tip));
+          b->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+          b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+          setThemedQss(b, segStyle);
+          bgVariant->addButton(b, o.id);
+          if (o.id == saved)
+            b->setChecked(true);
+          BlopRipple::attachPressFeedback(b, 0.94);
+          variantLay->addWidget(b);
+        }
+        connect(bgVariant, &QButtonGroup::idClicked, this, [this](int id) {
+          QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+          s.setValue(QStringLiteral("ui/studio_toolbar_variant"), id);
+          emit studioToolbarVariantChanged(id);
+          // C Radial also mirrors profile toolbarStyle for Android parity.
+          if (m_profileManager) {
+            auto profile = m_profileManager->currentProfile();
+            profile.toolbarStyle = (id == 3) ? 1 : 0;
+            m_profileManager->updateProfile(profile, true);
+          }
+          emit toolbarStyleChanged(id == 3);
+        });
+        cardLook->addBodyWidget(variantRow);
+
+        auto *hint = new QLabel(
+            QStringLiteral(
+                "A ist Standard. C aktiviert die Radial-Leiste. "
+                "Formel/Molekül sind vorerst Platzhalter-Tools."),
+            cardLook);
+        hint->setWordWrap(true);
+        setLiteralQss(hint, QStringLiteral(
+            "color: %1; font-size: 11px;"
+            "background: transparent; padding: 2px 0 4px 0;")
+            .arg(settingsInkMuted()));
+        cardLook->addBodyWidget(hint);
+#endif
     }
 
     // ----- Card: Verhalten (Profile list) -------------------------------
@@ -1946,8 +2028,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                      BlopTheme::accentPrimary().name(QColor::HexRgb)));
         auto *tbHint = new QLabel(
             QStringLiteral(
-                "Zeigt die Varianten-Palette (A–D) in der Notiz. "
-                "Neustart nötig. Oder BLOP_TOOLBAR_DEBUG=1."),
+                "Zusätzliche Glyph-Palette in der Notiz (Entwickler). "
+                "Layouts A–D wählst du unter Werkzeuge. Oder BLOP_TOOLBAR_DEBUG=1."),
             cardAdv);
         tbHint->setWordWrap(true);
         setLiteralQss(tbHint, QStringLiteral(
@@ -2032,8 +2114,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "  color: %1; font-size: 13px; font-weight: 500;"
             "}"
             "QListWidget#SettingsNavList::item {"
-            "  padding: 8px 10px; margin: 1px 0;"
-            "  border: none; border-radius: 6px; min-height: %2px;"
+            "  padding: 10px 10px; margin: 1px 0;"
+            "  border: none; border-radius: 8px; min-height: %2px;"
             "}"
             "QListWidget#SettingsNavList::item:selected {"
             "  background: rgba(55,53,47,0.08);"
@@ -2041,10 +2123,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "  font-weight: 600;"
             "}"
             "QListWidget#SettingsNavList::item:hover:!selected {"
-            "  background: rgba(55,53,47,0.04);"
+            "  background: rgba(55,53,47,0.06);"
             "}")
             .arg(BlopStyle::paperInkMuted().name(QColor::HexRgb),
-                 QString::number(UiScale::dp(30)),
+                 QString::number(UiScale::dp(BlopStyle::touchTargetMinDp())),
                  BlopStyle::paperInk().name(QColor::HexRgb)));
         BlopScroll::enableFingerScroll(nav);
         navLay->addWidget(nav, 1);

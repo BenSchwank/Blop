@@ -268,36 +268,56 @@ bool isHudSelectableItem(QGraphicsItem *item) {
 void stylePagesBarCard(QFrame *card) {
   if (!card)
     return;
+  // Inline document-flow CTA: dashed primary border, hover primary-light,
+  // outlined secondary chips (Vorlagen / Importieren / Mehr).
   const QString accent = NoteChrome::accent().name(QColor::HexRgb);
-  const QString fill = NoteChrome::panelElevated().name(QColor::HexRgb);
-  const QString hover = NoteChrome::toolbarFill().name(QColor::HexRgb);
-  const QString border = NoteChrome::border().name(QColor::HexRgb);
-  const QString text = NoteChrome::textPrimary().name(QColor::HexRgb);
+  const QString primaryLight = BlopStyle::paperPrimaryLight().name(QColor::HexRgb);
+  const QString text = BlopStyle::paperInk().name(QColor::HexRgb);
+  const QString muted = BlopStyle::paperInkMuted().name(QColor::HexRgb);
+  const QString border = BlopStyle::paperBorder().name(QColor::HexRgb);
+  const int radLg = UiScale::dp(BlopStyle::radiusLgDp());
+  const int radMd = UiScale::dp(BlopStyle::radiusMdDp());
   card->setStyleSheet(QStringLiteral(
+      "#PagesBarStrip {"
+      "  background: transparent; border: none;"
+      "}"
       "#PagesBarStrip QPushButton#PagesBarPrimary {"
-      "  background-color: %1; border: 1px solid %2; border-radius: 22px;"
-      "  padding: 18px 16px; min-height: 148px; max-height: 196px; text-align: center;"
+      "  background-color: transparent;"
+      "  border: 2px dashed %1;"
+      "  border-radius: %2px;"
+      "  padding: 20px 16px; min-height: 120px; max-height: 160px;"
+      "  text-align: center;"
       "}"
       "#PagesBarStrip QPushButton#PagesBarPrimary:hover {"
-      "  background-color: %3; border-color: %4;"
+      "  background-color: %3;"
+      "  border-color: %1;"
       "}"
       "#PagesBarStrip QLabel#PagesBarPrimaryIcon,"
       "#PagesBarStrip QLabel#PagesBarPrimaryCaption {"
-      "  color: %4; background: transparent;"
+      "  color: %1; background: transparent;"
       "}"
-      "#PagesBarStrip QLabel#PagesBarPrimaryIcon { font-size: 40px; font-weight: 500; }"
+      "#PagesBarStrip QLabel#PagesBarPrimaryIcon {"
+      "  font-size: 36px; font-weight: 600;"
+      "}"
       "#PagesBarStrip QLabel#PagesBarPrimaryCaption {"
       "  font-size: 15px; font-weight: 600; letter-spacing: 0.15px;"
+      "  color: %4;"
       "}"
+      "#PagesBarStrip QPushButton#PagesBarPrimary:hover"
+      " QLabel#PagesBarPrimaryCaption { color: %1; }"
       "#PagesBarStrip QPushButton, #PagesBarStrip QToolButton {"
-      "  background-color: %1; border: 1px solid %2; border-radius: 16px;"
-      "  color: %5; font-size: 12px; font-weight: 600;"
-      "  padding: 10px 8px; min-height: 48px; max-height: 56px;"
+      "  background-color: transparent;"
+      "  border: 1px solid %5;"
+      "  border-radius: %6px;"
+      "  color: %4; font-size: 12px; font-weight: 600;"
+      "  padding: 10px 8px; min-height: 40px; max-height: 48px;"
       "}"
       "#PagesBarStrip QPushButton:hover, #PagesBarStrip QToolButton:hover {"
-      "  background-color: %3; border-color: %4;"
+      "  background-color: %3; border-color: %1; color: %1;"
       "}")
-      .arg(fill, border, hover, accent, text));
+      .arg(accent, QString::number(radLg), primaryLight, text, border,
+           QString::number(radMd)));
+  Q_UNUSED(muted);
 }
 } // namespace
 
@@ -1317,7 +1337,8 @@ static int kPagesBarStripHeight() {
   // Phone: compact strip so it does not fight the phone toolbar.
   if (UiScale::isAndroidPhoneUi())
     return UiScale::dp(140);
-  return UiScale::dp(380);
+  // Inline dashed CTA + chip row (document flow, not floating card).
+  return UiScale::dp(260);
 }
 /// Anteil der A4-Breite (Rest links/rechts frei = optisch zentriert zur Seite)
 static constexpr qreal kPagesBarStripWidthRatio = 0.86;
@@ -1342,13 +1363,13 @@ static int kBottomSheetViewportSideInset() { return UiScale::dp(10); }
 static int kBottomSheetPreferredHeight() {
   if (UiScale::isAndroidPhoneUi())
     return UiScale::dp(132);
-  return UiScale::dp(300);
+  return UiScale::dp(220);
 }
 /// Unter dieser Höhe zwischen letzter Seite und unterem Rand lieber ausblenden
 static int kBottomSheetMinVisibleHeight() {
   if (UiScale::isAndroidPhoneUi())
     return UiScale::dp(96);
-  return UiScale::dp(208);
+  return UiScale::dp(160);
 }
 
 #ifdef Q_OS_ANDROID
@@ -1811,8 +1832,8 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   primaryBtn->setAutoDefault(false);
   primaryBtn->setDefault(false);
   primaryBtn->setFocusPolicy(Qt::NoFocus);
-  primaryBtn->setMinimumHeight(148);
-  primaryBtn->setMaximumHeight(196);
+  primaryBtn->setMinimumHeight(120);
+  primaryBtn->setMaximumHeight(160);
   primaryBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
   auto *primaryLay = new QVBoxLayout(primaryBtn);
   primaryLay->setContentsMargins(0, 0, 0, 0);

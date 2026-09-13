@@ -157,19 +157,24 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
   auto *frame = new QFrame(backdrop);
   frame->setObjectName(QStringLiteral("BlopInWindowMenuFrame"));
   frame->setAttribute(Qt::WA_StyledBackground, true);
-  // Obsidian overflow sheet — never light paper / purple glass.
-  frame->setStyleSheet(QStringLiteral(
-      "#BlopInWindowMenuFrame {"
-      "  background-color: %1;"
-      "  border: 1px solid rgba(255,255,255,0.10);"
-      "  border-radius: 12px;"
-      "}")
-                          .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb)));
+  // Light Mode: white paper menu. Dark: Obsidian overflow sheet.
+  if (!BlopTheme::instance().isDark()) {
+    frame->setStyleSheet(BlopStyle::paperMenuFrameQss());
+  } else {
+    frame->setStyleSheet(QStringLiteral(
+        "#BlopInWindowMenuFrame {"
+        "  background-color: %1;"
+        "  border: 1px solid rgba(255,255,255,0.10);"
+        "  border-radius: 12px;"
+        "}")
+                            .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb)));
+  }
   if (!qobject_cast<QGraphicsDropShadowEffect *>(frame->graphicsEffect())) {
     auto *shadow = new QGraphicsDropShadowEffect(frame);
     shadow->setBlurRadius(UiScale::dp(20));
     shadow->setOffset(0, UiScale::dp(8));
-    shadow->setColor(QColor(0, 0, 0, 110));
+    shadow->setColor(BlopTheme::instance().isDark() ? QColor(0, 0, 0, 110)
+                                                    : QColor(15, 23, 42, 40));
     frame->setGraphicsEffect(shadow);
   }
 
@@ -198,7 +203,9 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
     if (it.separator) {
       auto *sep = new QFrame(frame);
       sep->setFrameShape(QFrame::HLine);
-      sep->setStyleSheet(BlopStyle::obsidianSeparatorQss());
+      sep->setStyleSheet(BlopTheme::instance().isDark()
+                             ? BlopStyle::obsidianSeparatorQss()
+                             : BlopStyle::paperMenuSeparatorQss());
       vlay->addWidget(sep);
       totalContentHeight += separatorH;
       continue;
