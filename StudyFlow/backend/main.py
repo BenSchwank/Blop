@@ -1666,9 +1666,34 @@ class UserModelPreferenceRequest(BaseModel):
 def get_user_info(http_request: Request, username: str, session_id: str = ""):
     """Returns user profile info including tokens and subscription tier."""
     user_from_session = require_session_user(http_request, session_id=session_id or None, username=username or None)
-    user = AuthManager.get_user(user_from_session)
+    try:
+        user = AuthManager.get_user(user_from_session)
+    except Exception as exc:
+        print(f"get_user_info failed for {user_from_session}: {exc!r}")
+        raise HTTPException(status_code=503, detail="Benutzerprofil vorübergehend nicht erreichbar.")
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        # Distinguish "DB blip / query failure" (None after error) from missing row.
+        # A second lightweight probe avoids turning transient DB issues into 404/logout loops.
+        try:
+            probe = AuthManager._get_db()
+            if probe:
+                exists = probe.table("users").select("username").eq("username", user_from_session).limit(1).execute()
+                if not exists.data:
+                    raise HTTPException(status_code=404, detail="User not found")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            print(f"get_user_info probe failed for {user_from_session}: {exc!r}")
+        raise HTTPException(status_code=503, detail="Benutzerprofil vorübergehend nicht erreichbar.")
+
+    # Prefer subscriptions table as source of truth when users.subscription_tier lags.
+    tier = user.get("subscription_tier", "free") or "free"
+    try:
+        sub = SubscriptionManager.get_user_subscription(user_from_session)
+        if sub.get("tier"):
+            tier = sub.get("tier")
+    except Exception:
+        pass
 
     # Standardize output, default to "free" and set admin tokens to infinity visually
     tokens = user.get("tokens", 0)
@@ -1679,7 +1704,7 @@ def get_user_info(http_request: Request, username: str, session_id: str = ""):
         "username": user.get("username"),
         "email": user.get("email", ""),
         "tokens": tokens,
-        "subscription_tier": user.get("subscription_tier", "free"),
+        "subscription_tier": tier,
         "preferred_model": user.get("preferred_model", ""),
         "xp": user.get("xp", 0),
         "is_admin": user.get("is_admin", False)

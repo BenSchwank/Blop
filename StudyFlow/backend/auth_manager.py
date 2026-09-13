@@ -397,12 +397,32 @@ class AuthManager:
         if not db:
             return None
         try:
-            res = db.table('users').select('*').eq('username', username).execute()
+            # Prefer an explicit column list so a single unknown/legacy column
+            # cannot 500 the whole profile endpoint (select('*')).
+            res = (
+                db.table('users')
+                .select('username, email, tokens, subscription_tier, preferred_model, is_admin, xp, auth_id, created_at')
+                .eq('username', username)
+                .execute()
+            )
             if len(res.data) > 0:
                 return res.data[0]
         except Exception as e:
+            missing = AuthManager._missing_column(str(e))
+            if missing:
+                try:
+                    res = db.table('users').select('username, tokens, is_admin').eq('username', username).execute()
+                    if res.data:
+                        row = dict(res.data[0])
+                        row.setdefault('email', '')
+                        row.setdefault('subscription_tier', 'free')
+                        row.setdefault('preferred_model', '')
+                        row.setdefault('xp', 0)
+                        return row
+                except Exception as fallback_exc:
+                    print(f"AuthManager.get_user fallback failed: {fallback_exc}")
             print(f"AuthManager.get_user failed: {e}")
-            raise
+            return None
         return None
 
     @staticmethod

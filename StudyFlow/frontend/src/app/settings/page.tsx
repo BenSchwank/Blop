@@ -61,13 +61,15 @@ export default function Settings() {
         try {
             const sid = localStorage.getItem("session_id") || "";
             const res = await fetch(`${API_BASE}/user/${user}?session_id=${encodeURIComponent(sid)}`);
-            if (res.ok) {
-                const data = await res.json();
-                setTokens(data.tokens);
-                setTier(data.subscription_tier);
-                setPreferredModel(data.preferred_model || "");
-                if (typeof data.email === "string") setAccountEmail(data.email);
+            if (!res.ok) {
+                console.warn("User info unavailable:", res.status);
+                return;
             }
+            const data = await res.json();
+            setTokens(data.tokens);
+            setTier(data.subscription_tier);
+            setPreferredModel(data.preferred_model || "");
+            if (typeof data.email === "string") setAccountEmail(data.email);
         } catch (error) {
             console.error("Error fetching user info:", error);
         }

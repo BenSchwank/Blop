@@ -13,6 +13,18 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_BACKEND_ORIGIN: backendUrl,
   },
+  async redirects() {
+    // Keep auth localStorage on one origin. Stripe return URLs use BLOP_APP_PUBLIC_URL
+    // (typically www); apex ↔ www mismatches look like random logouts.
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "blop-study.com" }],
+        destination: "https://www.blop-study.com/:path*",
+        permanent: false,
+      },
+    ];
+  },
   async headers() {
     const nativeNoStoreHeaders = [
       { key: "Cache-Control", value: "no-store, no-cache, must-revalidate, max-age=0" },

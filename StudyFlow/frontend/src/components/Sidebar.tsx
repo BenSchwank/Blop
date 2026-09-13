@@ -28,6 +28,11 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         try {
             const sid = localStorage.getItem('session_id') || '';
             const res = await fetch(`/api/user/${user}?session_id=${encodeURIComponent(sid)}`);
+            if (!res.ok) {
+                // Keep last known sidebar values on 5xx/401 — never crash-parse HTML/text 500 bodies.
+                console.warn('Sidebar user info unavailable:', res.status);
+                return;
+            }
             const data = await res.json();
             if (data && data.tokens !== undefined) setTokens(data.tokens);
             if (data && data.subscription_tier) setTier(data.subscription_tier);

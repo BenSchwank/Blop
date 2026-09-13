@@ -389,9 +389,24 @@ class SubscriptionManager:
                 print(f"SubscriptionManager: users.subscription_tier sync failed (column missing?): {exc}")
 
             # Optionally grant tokens based on the new tier.
+            # Never reduce an existing balance — repairs, sync and free downgrades
+            # must not wipe purchased/bonus tokens (e.g. 6150 → 50).
             if reset_tokens and tier_info.get("tokens_monthly", 0) > 0:
                 tokens = int(tier_info["tokens_monthly"])
-                db.table("users").update({"tokens": tokens}).eq("username", username).execute()
+                current = 0
+                try:
+                    token_res = db.table("users").select("tokens").eq("username", username).execute()
+                    if token_res.data:
+                        current = int(token_res.data[0].get("tokens") or 0)
+                except Exception as exc:
+                    print(f"SubscriptionManager: token read before reset failed: {exc}")
+                if tokens > current:
+                    db.table("users").update({"tokens": tokens}).eq("username", username).execute()
+                else:
+                    print(
+                        f"SubscriptionManager: skipped token reset for {username} "
+                        f"(keep {current} >= monthly {tokens})"
+                    )
 
             return {"status": "success", "username": username, "tier": tier}
         except HTTPException:

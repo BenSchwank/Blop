@@ -1,22 +1,9 @@
+import { getSessionId, getStoredUsername, handleUnauthorized, sessionHeaders } from '@/lib/session';
+
 const API_BASE = '/api';
 
-function sessionHeaders(): Record<string, string> {
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '').trim() : '';
-    const headers: Record<string, string> = {};
-    if (sid) headers['X-Session-Id'] = sid;
-    return headers;
-}
-
 function getUsername(): string {
-    if (typeof window === 'undefined') return '';
-    return localStorage.getItem('username') || '';
-}
-
-function handleUnauthorized(response: Response): void {
-    if (response.status !== 401 || typeof window === 'undefined') return;
-    localStorage.removeItem('session_id');
-    localStorage.removeItem('username');
-    window.location.replace('/login?reason=session-expired');
+    return getStoredUsername();
 }
 
 function formatApiDetail(detail: unknown, fallback: string): string {
@@ -92,18 +79,18 @@ export async function fetchTiers(): Promise<Tier[]> {
 
 export async function fetchSubscriptionStatus(): Promise<SubscriptionStatus> {
     const username = getUsername();
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/subscription/status?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`,
         { headers: sessionHeaders() }
     );
-    handleUnauthorized(res);
+    handleUnauthorized(res, { redirect: false });
     if (!res.ok) throw new Error('Abo-Status konnte nicht geladen werden.');
     return res.json();
 }
 
 export async function createStripeCheckout(tier: string, interval: 'month' | 'year'): Promise<{ url: string; session_id: string }> {
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(`${API_BASE}/subscription/checkout?session_id=${encodeURIComponent(sid)}`, {
         method: 'POST',
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
@@ -115,12 +102,12 @@ export async function createStripeCheckout(tier: string, interval: 'month' | 'ye
 }
 
 export async function syncStripeSubscription(): Promise<{ status: string; found: boolean; tier: string; cancel_at_period_end?: boolean }> {
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(`${API_BASE}/subscription/sync?session_id=${encodeURIComponent(sid)}`, {
         method: 'POST',
         headers: sessionHeaders(),
     });
-    handleUnauthorized(res);
+    handleUnauthorized(res, { redirect: false });
     if (!res.ok) {
         throw new Error(await readApiError(res, 'Stripe-Abo konnte nicht synchronisiert werden.'));
     }
@@ -128,12 +115,12 @@ export async function syncStripeSubscription(): Promise<{ status: string; found:
 }
 
 export async function cancelStripeSubscription(): Promise<{ status: string; cancel_at_period_end: boolean; current_period_end?: number }> {
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(`${API_BASE}/subscription/cancel?session_id=${encodeURIComponent(sid)}`, {
         method: 'POST',
         headers: sessionHeaders(),
     });
-    handleUnauthorized(res);
+    handleUnauthorized(res, { redirect: false });
     if (!res.ok) {
         throw new Error(await readApiError(res, 'Abo konnte nicht gekündigt werden.'));
     }
@@ -141,13 +128,13 @@ export async function cancelStripeSubscription(): Promise<{ status: string; canc
 }
 
 export async function confirmStripeCheckout(checkoutSessionId: string): Promise<{ status: string; tier: string }> {
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(`${API_BASE}/subscription/confirm-checkout?session_id=${encodeURIComponent(sid)}`, {
         method: 'POST',
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ checkout_session_id: checkoutSessionId }),
     });
-    handleUnauthorized(res);
+    handleUnauthorized(res, { redirect: false });
     if (!res.ok) {
         throw new Error(await readApiError(res, 'Stripe-Zahlung konnte nicht bestätigt werden.'));
     }
@@ -156,7 +143,7 @@ export async function confirmStripeCheckout(checkoutSessionId: string): Promise<
 
 export async function createStripePortal(): Promise<{ url: string }> {
     const username = getUsername();
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/subscription/portal?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`,
         {
@@ -170,7 +157,7 @@ export async function createStripePortal(): Promise<{ url: string }> {
 }
 
 export async function createPayPalOrder(tier: string, interval: 'month' | 'year'): Promise<{ order_id: string; approval_url: string }> {
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(`${API_BASE}/subscription/paypal/create?session_id=${encodeURIComponent(sid)}`, {
         method: 'POST',
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
@@ -182,7 +169,7 @@ export async function createPayPalOrder(tier: string, interval: 'month' | 'year'
 }
 
 export async function capturePayPalOrder(orderId: string): Promise<{ status: string; tier: string }> {
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(`${API_BASE}/subscription/paypal/capture?session_id=${encodeURIComponent(sid)}`, {
         method: 'POST',
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
@@ -210,7 +197,7 @@ export interface AdminSubscription {
 }
 
 export async function adminListTiers(adminUsername: string): Promise<Tier[]> {
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/admin/tiers?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
         { headers: sessionHeaders() }
@@ -232,7 +219,7 @@ export interface StripeReconcileResult {
 
 export async function adminReconcileStripe(apply: boolean): Promise<{ status: string; apply: boolean; results: StripeReconcileResult[] }> {
     const adminUsername = getUsername();
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/admin/subscriptions/reconcile?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
         {
@@ -241,7 +228,7 @@ export async function adminReconcileStripe(apply: boolean): Promise<{ status: st
             body: JSON.stringify({ apply }),
         }
     );
-    handleUnauthorized(res);
+    handleUnauthorized(res, { redirect: false });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Stripe-Reconcile fehlgeschlagen.');
     return data;
@@ -249,7 +236,7 @@ export async function adminReconcileStripe(apply: boolean): Promise<{ status: st
 
 export async function adminRepairStripe(username: string, subscriptionId: string): Promise<{ status: string; username: string; tier: string }> {
     const adminUsername = getUsername();
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/admin/subscriptions/repair?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
         {
@@ -258,14 +245,14 @@ export async function adminRepairStripe(username: string, subscriptionId: string
             body: JSON.stringify({ username, subscription_id: subscriptionId }),
         }
     );
-    handleUnauthorized(res);
+    handleUnauthorized(res, { redirect: false });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Stripe-Abo konnte nicht repariert werden.');
     return data;
 }
 
 export async function adminListSubscriptions(adminUsername: string): Promise<AdminSubscription[]> {
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/admin/subscriptions?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
         { headers: sessionHeaders() }
@@ -283,7 +270,7 @@ export async function adminSetSubscription(
     provider = 'admin'
 ): Promise<{ status: string; username: string; tier: string }> {
     const adminUsername = getUsername();
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/admin/subscriptions/${encodeURIComponent(username)}?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
         {
@@ -304,7 +291,7 @@ export async function adminGrantCustom(
     status = 'active'
 ): Promise<{ status: string; username: string; tier: string }> {
     const adminUsername = getUsername();
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/admin/subscriptions/${encodeURIComponent(username)}/custom?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
         {
@@ -332,7 +319,7 @@ export async function adminUpsertTier(
     tier: TierInput
 ): Promise<{ status: string; tier: string }> {
     const adminUsername = getUsername();
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/admin/tiers/${encodeURIComponent(name)}?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
         {
@@ -352,7 +339,7 @@ export async function adminSetFeature(
     allowed: boolean
 ): Promise<{ status: string; tier: string; feature: string; allowed: boolean }> {
     const adminUsername = getUsername();
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/admin/features/${encodeURIComponent(tierName)}/${encodeURIComponent(featureKey)}?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
         {
@@ -368,7 +355,7 @@ export async function adminSetFeature(
 
 export async function adminDeleteTier(name: string): Promise<{ status: string; deleted: string }> {
     const adminUsername = getUsername();
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(
         `${API_BASE}/admin/tiers/${encodeURIComponent(name)}?admin_username=${encodeURIComponent(adminUsername)}&session_id=${encodeURIComponent(sid)}`,
         {
@@ -382,7 +369,7 @@ export async function adminDeleteTier(name: string): Promise<{ status: string; d
 }
 
 export async function fetchUserInfo(username: string): Promise<{ is_admin: boolean; username: string; email: string; tokens: number; subscription_tier: string }> {
-    const sid = typeof window !== 'undefined' ? (localStorage.getItem('session_id') || '') : '';
+    const sid = getSessionId();
     const res = await fetch(`${API_BASE}/user/${encodeURIComponent(username)}?session_id=${encodeURIComponent(sid)}`, {
         headers: sessionHeaders(),
     });

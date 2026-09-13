@@ -141,15 +141,19 @@ export default function Dashboard() {
       const sid = localStorage.getItem("session_id") || "";
       if (!username) return;
 
-      const res = await fetch(`${API_BASE}/folders?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`);
+      const { fetchWithSessionRetry, clearSessionAndRedirect } = await import("@/lib/session");
+      const res = await fetchWithSessionRetry(
+        `${API_BASE}/folders?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`
+      );
       if (res.ok) {
         const data = await res.json();
         setFolders(data);
         setError("");
       } else if (res.status === 401) {
-        localStorage.removeItem("session_id");
-        localStorage.removeItem("username");
-        window.location.replace("/login?reason=session-expired");
+        // Confirmed after retry — only then treat as expired session.
+        clearSessionAndRedirect("session-expired");
+      } else if (res.status >= 500) {
+        setError("Server vorübergehend nicht erreichbar. Bitte gleich erneut versuchen.");
       } else {
         setError("Server antwortet nicht (Fehler " + res.status + ")");
       }
