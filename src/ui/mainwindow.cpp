@@ -12066,12 +12066,10 @@ void MainWindow::updateSidebarState() {
   }
   if (m_documentTabBar) {
     m_documentTabBar->setVisible(inEditorWithTabs && !m_authNavigationLocked);
-    if (inEditorWithTabs) {
-      m_documentTabBar->setHomeVisible(false);
+    // Always show Home while notes are open — that's the exit back to Übersicht.
+    m_documentTabBar->setHomeVisible(true);
+    if (inEditorWithTabs)
       m_documentTabBar->setHomeActive(false);
-    } else {
-      m_documentTabBar->setHomeVisible(true);
-    }
   }
   // Login/auth: keep B + "Blop" as a quiet left brand; hide orphan-B-only.
   // Normal: brand with notes overview when sidebar is closed.
