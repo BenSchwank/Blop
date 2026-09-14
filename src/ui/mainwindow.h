@@ -771,6 +771,8 @@ private:
   QTimer *m_a4SaveDebounce{nullptr};
   Note *m_pendingA4SaveNote{nullptr};
   QString m_pendingA4SavePath;
+  /// When opening an A4 note from a Struktur embed, scroll to this page.
+  int m_pendingOpenPageIndex{-1};
 
   CanvasView::ToolType m_activeToolType;
 

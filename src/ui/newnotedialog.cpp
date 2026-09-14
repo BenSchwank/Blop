@@ -159,17 +159,24 @@ void NewNoteDialog::setupUi()
     };
     m_btnFormatInfinite = makeSeg(QStringLiteral("Unendlich"));
     m_btnFormatA4 = makeSeg(QStringLiteral("DIN A4"));
+    m_btnFormatStruktur = makeSeg(QStringLiteral("Struktur"));
     m_btnFormatInfinite->setChecked(true);
     m_groupFormat = new QButtonGroup(this);
     m_groupFormat->addButton(m_btnFormatInfinite, 0);
     m_groupFormat->addButton(m_btnFormatA4, 1);
+    m_groupFormat->addButton(m_btnFormatStruktur, 2);
     m_groupFormat->setExclusive(true);
     formatRow->addWidget(m_btnFormatInfinite);
     formatRow->addWidget(m_btnFormatA4);
+    formatRow->addWidget(m_btnFormatStruktur);
     optsLay->addLayout(formatRow);
 
     auto *layoutCap = sectionLabel(QStringLiteral("LAYOUT"), optsGroup);
-    optsLay->addWidget(layoutCap);
+    m_layoutSection = new QWidget(optsGroup);
+    auto *layoutSectionLay = new QVBoxLayout(m_layoutSection);
+    layoutSectionLay->setContentsMargins(0, 0, 0, 0);
+    layoutSectionLay->setSpacing(UiScale::dp(8));
+    layoutSectionLay->addWidget(layoutCap);
     m_groupLayout = new QButtonGroup(this);
     m_groupLayout->setExclusive(true);
     auto *layoutRow = new QHBoxLayout();
@@ -180,7 +187,7 @@ void NewNoteDialog::setupUi()
         {3, "Punktiert"}, {4, "Legal"},
     };
     for (const auto &opt : opts) {
-        auto *btn = new QPushButton(QString::fromUtf8(opt.name), optsGroup);
+        auto *btn = new QPushButton(QString::fromUtf8(opt.name), m_layoutSection);
         btn->setCheckable(true);
         btn->setAutoDefault(false);
         btn->setCursor(Qt::PointingHandCursor);
@@ -197,7 +204,12 @@ void NewNoteDialog::setupUi()
     }
     connect(m_groupLayout, &QButtonGroup::idClicked, this,
             [this](int id) { m_backgroundType = id; });
-    optsLay->addLayout(layoutRow);
+    layoutSectionLay->addLayout(layoutRow);
+    optsLay->addWidget(m_layoutSection);
+    connect(m_groupFormat, &QButtonGroup::idClicked, this, [this](int id) {
+        if (m_layoutSection)
+            m_layoutSection->setVisible(id != 2);
+    });
     bodyLay->addWidget(optsGroup);
 
     bodyLay->addWidget(sectionLabel(QStringLiteral("TAGS"), body));
@@ -316,7 +328,19 @@ QString NewNoteDialog::getNoteName() const {
 }
 
 bool NewNoteDialog::isInfiniteFormat() const {
-    return m_btnFormatInfinite && m_btnFormatInfinite->isChecked();
+    return createFormat() == 0;
+}
+
+int NewNoteDialog::createFormat() const {
+    if (m_btnFormatStruktur && m_btnFormatStruktur->isChecked())
+        return 2;
+    if (m_btnFormatA4 && m_btnFormatA4->isChecked())
+        return 1;
+    return 0;
+}
+
+bool NewNoteDialog::isStrukturFormat() const {
+    return createFormat() == 2;
 }
 
 QStringList NewNoteDialog::selectedTags() const {

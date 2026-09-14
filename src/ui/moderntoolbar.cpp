@@ -48,6 +48,8 @@
 #include <QPushButton>
 #include <QRegion>
 #include <QSlider>
+#include <QToolTip>
+#include <QTimer>
 #include <QTimer>
 #include <QUuid>
 #include <QVBoxLayout>
@@ -2903,6 +2905,19 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   loadRailTools();
 
   auto handleToolClick = [this](ToolMode m) {
+    if (m == ToolMode::Formula || m == ToolMode::Molecule) {
+      ToolbarBtn *btn = getButtonForMode(m);
+      const QPoint tipPos =
+          btn ? btn->mapToGlobal(QPoint(btn->width() / 2, 0))
+              : QCursor::pos();
+      QToolTip::showText(
+          tipPos,
+          m == ToolMode::Formula
+              ? QStringLiteral("Formel — demnächst verfügbar")
+              : QStringLiteral("Molekül — demnächst verfügbar"),
+          this);
+      // Still select so UI highlights honestly; canvas stubs do nothing.
+    }
     if (mode_ == m) {
 #ifndef Q_OS_ANDROID
       // Desktop: flyout for family tools, otherwise properties panel — never MorphTray.

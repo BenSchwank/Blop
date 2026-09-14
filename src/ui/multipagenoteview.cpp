@@ -16,6 +16,7 @@
 #include "UIStyles.h"
 #include "overlayscrollindicator.h"
 #include "uiscale.h"
+#include "notepagerenderer.h"
 #include "tools/AbstractTool.h"
 #include "tools/AbstractStrokeTool.h"
 #include "tools/RulerTool.h" // NEU: Lineal-Werkzeug
@@ -3657,103 +3658,13 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
 }
 
 namespace {
-// Full page raster for thumbnails + PDF export. Includes paper, PDF
-// background images, ruled patterns, strokes and sticky notes so imported
-// PDFs no longer export as blank white pages.
 QImage renderFullPageImage(const NotePage &page, int pageW, int pageH) {
-  QImage img(pageW, pageH, QImage::Format_ARGB32_Premultiplied);
-  const QColor paper =
-      page.paperColor.isValid() ? page.paperColor : QColor(Qt::white);
-  img.fill(paper);
-  QPainter p(&img);
-  p.setRenderHint(QPainter::Antialiasing);
-  p.setRenderHint(QPainter::SmoothPixmapTransform);
-
-  if (!page.backgroundImage.isNull()) {
-    p.drawImage(QRectF(0, 0, pageW, pageH), page.backgroundImage);
-  } else {
-    const int L = paper.lightness();
-    const QColor lineCol =
-        L < 130 ? QColor(255, 255, 255, 50) : QColor(190, 190, 210, 110);
-    const auto type = static_cast<PageBackgroundType>(page.backgroundType);
-    switch (type) {
-    case PageBackgroundType::Blank:
-      break;
-    case PageBackgroundType::Lined:
-    case PageBackgroundType::Legal: {
-      p.setPen(QPen(lineCol, 1));
-      for (int y = 40; y < pageH; y += 40)
-        p.drawLine(0, y, pageW, y);
-      if (type == PageBackgroundType::Legal) {
-        p.setPen(QPen(L < 130 ? QColor(255, 120, 120) : QColor(220, 80, 80), 2));
-        p.drawLine(72, 0, 72, pageH);
-      }
-      break;
-    }
-    case PageBackgroundType::Grid: {
-      p.setPen(QPen(lineCol, 1));
-      for (int x = 40; x < pageW; x += 40)
-        p.drawLine(x, 0, x, pageH);
-      for (int y = 40; y < pageH; y += 40)
-        p.drawLine(0, y, pageW, y);
-      break;
-    }
-    case PageBackgroundType::Dotted: {
-      p.setPen(Qt::NoPen);
-      p.setBrush(lineCol);
-      for (int y = 40; y < pageH; y += 40)
-        for (int x = 40; x < pageW; x += 40)
-          p.drawEllipse(QPointF(x, y), 1.4, 1.4);
-      break;
-    }
-    }
-  }
-
-  for (const auto &s : page.strokes) {
-    QColor c = s.color;
-    if (s.isHighlighter)
-      c.setAlpha(80);
-    else if (!s.isEraser)
-      c.setAlpha(255);
-    QPen pen;
-    if (s.isEraser)
-      pen = QPen(paper, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    else
-      pen = QPen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    p.setPen(pen);
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(s.path);
-  }
-
-  for (const auto &sn : page.stickies) {
-    const QRectF r(sn.pos, QSizeF(sn.width, sn.height));
-    p.setPen(QPen(QColor(0, 0, 0, 40), 1));
-    p.setBrush(sn.color.isValid() ? sn.color : QColor(255, 236, 120));
-    p.drawRoundedRect(r, 6, 6);
-    p.setPen(QColor(40, 40, 40));
-    QFont f = p.font();
-    f.setPointSizeF(qMax(8.0, sn.fontPointSize > 0 ? sn.fontPointSize : 14.0));
-    p.setFont(f);
-    p.drawText(r.adjusted(8, 8, -8, -8), Qt::TextWordWrap | Qt::AlignTop,
-               sn.text);
-  }
-
-  for (const auto &g : page.graphs) {
-    p.setPen(QPen(QColor(90, 90, 110), 1.2));
-    p.setBrush(QColor(255, 255, 255, 210));
-    p.drawRect(g.rect);
-    p.setPen(QColor(120, 120, 140));
-    p.drawText(g.rect.adjusted(6, 4, -6, -4), Qt::AlignLeft | Qt::AlignTop,
-               QStringLiteral("Graph"));
-  }
-
-  p.end();
-  return img;
+  return NotePageRenderer::renderFullPage(page, pageW, pageH);
 }
 
 QImage renderThumbnailImage(const NotePage &page, int pageW, int pageH,
                             const QSize &size) {
-  return renderFullPageImage(page, pageW, pageH)
+  return NotePageRenderer::renderFullPage(page, pageW, pageH)
       .scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 }
 } // namespace

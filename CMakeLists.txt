@@ -137,6 +137,8 @@ qt_add_executable(Blop
     src/ui/profileeditordialog.cpp
     src/ui/markdowneditor.cpp
     src/ui/markdowneditor.h
+    src/ui/strukturnoteeditor.cpp
+    src/ui/strukturnoteeditor.h
     src/ui/moderntoolbar.cpp
     src/ui/moderntoolbar.h
     src/ui/studiotoolbardebugpalette.cpp
@@ -219,6 +221,10 @@ qt_add_executable(Blop
     # Core (note model, page management, profiles, helper headers)
     src/core/notemanager.cpp
     src/core/notemanager.h
+    src/core/strukturdocument.cpp
+    src/core/strukturdocument.h
+    src/core/notepagerenderer.cpp
+    src/core/notepagerenderer.h
     src/core/noteeditor.cpp
     src/core/noteeditor.h
     src/core/pagemanager.h

@@ -371,7 +371,17 @@ void ToolPropertiesPanel::setAccentColor(const QColor &c) {
 
 void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
   m_mode = mode;
-  const bool writing = (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
+  const bool stub =
+      (mode == ToolMode::Formula || mode == ToolMode::Molecule);
+  if (m_title) {
+    if (mode == ToolMode::Formula)
+      m_title->setText(QStringLiteral("Formel — demnächst"));
+    else if (mode == ToolMode::Molecule)
+      m_title->setText(QStringLiteral("Molekül — demnächst"));
+    else
+      m_title->setText(QStringLiteral("Eigenschaften"));
+  }
+  const bool writing = !stub && (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
                         mode == ToolMode::Highlighter ||
                         mode == ToolMode::Eraser || mode == ToolMode::Shape ||
                         mode == ToolMode::Text || mode == ToolMode::Ruler ||
@@ -386,11 +396,11 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     m_widthSlider->setRange(1, 50);
     m_widthLbl->setText(QStringLiteral("Dicke  %1").arg(m_config.penWidth));
   }
-  const bool colorful = (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
+  const bool colorful = !stub && (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
                          mode == ToolMode::Highlighter ||
                          mode == ToolMode::Shape || mode == ToolMode::Text ||
                          mode == ToolMode::StickyNote);
-  const bool opacityful = colorful || mode == ToolMode::Image;
+  const bool opacityful = !stub && (colorful || mode == ToolMode::Image);
   m_opacitySlider->setVisible(opacityful);
   m_opacityLbl->setVisible(opacityful);
   if (m_colorLbl)

@@ -39,6 +39,8 @@
 #include "Note.h"
 #include "ToolMode.h"
 #include "markdowneditor.h"
+#include "strukturnoteeditor.h"
+#include "strukturdocument.h"
 #include "multipagenoteview.h"
 #include "noteeditor.h"
 #include "notemanager.h"
@@ -1465,7 +1467,10 @@ void ModernItemDelegate::paint(QPainter *painter,
 
   const bool isBnote = fileName.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive);
   const bool isBlop = fileName.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive);
-  if (!isFolder && !isBnote && !isBlop && !fileName.contains(QLatin1Char('.')))
+  const bool isStruct =
+      fileName.endsWith(QLatin1String(".struct"), Qt::CaseInsensitive);
+  if (!isFolder && !isBnote && !isBlop && !isStruct &&
+      !fileName.contains(QLatin1Char('.')))
     isFolder = true;
 
   // Clean caption: strip Blop extensions so tiles read as product names.
@@ -1474,6 +1479,8 @@ void ModernItemDelegate::paint(QPainter *painter,
     text.chop(6);
   else if (isBlop)
     text.chop(5);
+  else if (isStruct)
+    text.chop(7);
 
   bool isWideList = rect.width() > (rect.height() * 1.5);
 #ifdef Q_OS_ANDROID
@@ -3785,7 +3792,17 @@ void MainWindow::setupTitleBar() {
             QWidget *w = m_editorTabs->widget(index);
             if (editorTabIsWorkspace(w))
               switchToWorkspaceChrome();
-            else
+            else if (qobject_cast<StrukturNoteEditor *>(w)) {
+              switchToApp(true);
+              if (m_documentTabBar)
+                m_documentTabBar->setNoteChromeMode(false);
+              if (m_floatingTools)
+                m_floatingTools->hide();
+              if (m_radialFab)
+                m_radialFab->hide();
+              if (auto *se = qobject_cast<StrukturNoteEditor *>(w))
+                se->refreshAllEmbeds();
+            } else
               switchToEditorChrome();
           });
   connect(m_documentTabBar, &DocumentTabBar::tabCloseRequested, this,
@@ -4290,6 +4307,8 @@ void MainWindow::closeEditorTabAt(int index) {
       ed->view()->persistViewState(
           ed->view()->property("viewStateKey").toString());
   }
+  if (auto *struktur = qobject_cast<StrukturNoteEditor *>(w))
+    struktur->saveNow();
   m_editorTabs->removeTab(index);
   if (m_documentTabBar)
     m_documentTabBar->removeTab(index);
@@ -9678,7 +9697,8 @@ void MainWindow::refreshSidebarNotesList() {
   if (paths.isEmpty() && !m_rootPath.isEmpty()) {
     QDir dir(m_rootPath);
     const QFileInfoList files = dir.entryInfoList(
-        QStringList{QStringLiteral("*.bnote"), QStringLiteral("*.blop")},
+        QStringList{QStringLiteral("*.bnote"), QStringLiteral("*.blop"),
+                    QStringLiteral("*.struct")},
         QDir::Files, QDir::Time);
     for (const QFileInfo &fi : files) {
       paths.append(fi.absoluteFilePath());
@@ -10316,15 +10336,18 @@ void MainWindow::openLoadedA4Note(const QString &path, const QString &fileName,
   if (editor->view()) {
     editor->view()->setPenOnlyMode(m_penOnlyMode);
     editor->view()->setProperty("viewStateKey", path);
-    QTimer::singleShot(0, editor->view(), [v = editor->view(), path]() {
+    const int pendingPage = m_pendingOpenPageIndex;
+    m_pendingOpenPageIndex = -1;
+    QTimer::singleShot(0, editor->view(), [v = editor->view(), path, pendingPage]() {
       if (!v)
         return;
       v->restoreViewState(path);
 #ifndef Q_OS_ANDROID
-      // Studio J: keep A4 framed on #F5F5F5 even if restore kept a bleed zoom.
       if (!NoteChrome::isDark())
         v->fitPage();
 #endif
+      if (pendingPage >= 0)
+        v->scrollToPage(pendingPage, false);
     });
   }
   editor->onSaveRequested = [this, path, editor](Note *n) {
@@ -10406,11 +10429,35 @@ void MainWindow::onNewPage() {
             "Google Drive, Nextcloud oder einen anderen Ordner."));
     return;
   }
-  auto createNote = [this](const QString &name, bool isInfinite,
+  auto createNote = [this](const QString &name, int format,
                            const A4LayoutDialogResult &layoutResult,
                            const QStringList &tags = QStringList()) {
     QString safeName = name;
     safeName.replace("/", "_").replace("\\", "_");
+    const bool isInfinite = (format == 0);
+    const bool isStruktur = (format == 2);
+
+    if (isStruktur) {
+      QString path = noteWriteDirectory() + "/" + safeName + ".struct";
+      int n = 1;
+      while (QFileInfo::exists(path)) {
+        path = noteWriteDirectory() + "/" + safeName + " (" +
+               QString::number(n++) + ").struct";
+      }
+      StrukturDocument doc = StrukturDocument::createEmpty(name);
+      if (!StrukturDocument::save(doc, path)) {
+        BlopDialogs::notify(
+            this, QStringLiteral("Notiz erstellen"),
+            QStringLiteral("Struktur-Dokument konnte nicht angelegt werden:\n%1")
+                .arg(path));
+        return;
+      }
+      mirrorNoteIfNeeded(path);
+      if (!tags.isEmpty())
+        LibraryTagStore::setTagsForPath(QFileInfo(path).absoluteFilePath(), tags);
+      openNotePath(QFileInfo(path).absoluteFilePath());
+      return;
+    }
 
     if (isInfinite) {
       // Legacy unendliche Leinwand (.blop -> CanvasView)
@@ -10623,7 +10670,7 @@ void MainWindow::onNewPage() {
             if (layoutResult.backgroundType < 0)
               layoutResult.backgroundType = 2;
             layoutResult.paperColor = UIStyles::PageBackground;
-            createNote(name, btnInfinite->isChecked(), layoutResult);
+            createNote(name, btnInfinite->isChecked() ? 0 : 1, layoutResult);
             if (overlay)
               overlay->close();
           });
@@ -10642,7 +10689,7 @@ void MainWindow::onNewPage() {
   layoutResult.paperColor = dlg.paperColor().isValid()
                                 ? dlg.paperColor()
                                 : UIStyles::PageBackground;
-  createNote(dlg.getNoteName(), dlg.isInfiniteFormat(), layoutResult,
+  createNote(dlg.getNoteName(), dlg.createFormat(), layoutResult,
              dlg.selectedTags());
 #endif
 }
@@ -12051,16 +12098,25 @@ void MainWindow::updateSidebarState() {
   }
 #endif
 
-  // Lock Drawboard vertical Favorites rail whenever the note editor is active.
+  // Keep studio layout: do not force Normal when variant C (Radial) is active.
   if (isEditor) {
     if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
 #ifndef Q_OS_ANDROID
-      // Desktop: always Favorites rail — never Radial/FAB.
-      if (tb->currentStyle() != ModernToolbar::Normal)
-        tb->setStyle(ModernToolbar::Normal);
-#endif
+      using V = ModernToolbar::StudioToolbarVariant;
+      if (tb->studioToolbarVariant() == V::ComplexRadial) {
+        if (tb->currentStyle() != ModernToolbar::Radial)
+          tb->applyStudioToolbarVariant();
+        positionDrawboardToolbar();
+      } else {
+        if (tb->currentStyle() != ModernToolbar::Normal)
+          tb->setStyle(ModernToolbar::Normal);
+        if (tb->currentStyle() == ModernToolbar::Normal)
+          positionDrawboardToolbar();
+      }
+#else
       if (tb->currentStyle() == ModernToolbar::Normal)
         positionDrawboardToolbar();
+#endif
     }
     if (m_toolPropertiesPanel)
       m_toolPropertiesPanel->setVisible(m_toolPropertiesVisible);
@@ -12068,7 +12124,7 @@ void MainWindow::updateSidebarState() {
     m_toolPropertiesPanel->hide();
   }
 
-  // FAB only for Radial toolbar style (Android / legacy).
+  // FAB: desktop uses ModernToolbar radial for variant C — hide duplicate FAB.
   if (m_radialFab) {
     bool showFab = false;
 #ifndef Q_OS_ANDROID
@@ -12753,6 +12809,45 @@ void MainWindow::openNotePath(const QString &absolutePath) {
     qWarning() << "openNotePath: missing file" << absolutePath;
     return;
   }
+  const QString abs = QFileInfo(absolutePath).absoluteFilePath();
+  // Focus an already-open editor tab (Struktur embeds / re-open).
+  if (m_editorTabs) {
+    for (int i = 0; i < m_editorTabs->count(); ++i) {
+      QWidget *w = m_editorTabs->widget(i);
+      if (!w)
+        continue;
+      QString tabPath = w->property("filePath").toString();
+      if (tabPath.isEmpty()) {
+        if (auto *cv = w->findChild<CanvasView *>())
+          tabPath = cv->property("filePath").toString();
+      }
+      if (QFileInfo(tabPath).absoluteFilePath() != abs)
+        continue;
+      m_editorTabs->setCurrentIndex(i);
+      if (m_documentTabBar)
+        m_documentTabBar->setCurrentIndex(i);
+      if (auto *se = qobject_cast<StrukturNoteEditor *>(w))
+        se->refreshAllEmbeds();
+      else if (auto *ne = qobject_cast<NoteEditor *>(w)) {
+        if (ne->view() && m_pendingOpenPageIndex >= 0) {
+          const int page = m_pendingOpenPageIndex;
+          m_pendingOpenPageIndex = -1;
+          QTimer::singleShot(0, ne->view(), [v = ne->view(), page]() {
+            if (v)
+              v->scrollToPage(page, true);
+          });
+        }
+        switchToEditorChrome();
+      }
+      switchToApp(true);
+      if (m_rightStack) {
+        const int editorIdx = m_rightStack->indexOf(m_editorContainer);
+        if (editorIdx >= 0)
+          m_rightStack->setCurrentIndex(editorIdx);
+      }
+      return;
+    }
+  }
   if (!m_fileModel) {
     qWarning() << "openNotePath: file model not ready";
     return;
@@ -13138,7 +13233,96 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
       addNoteTab(QFileInfo(fileName).baseName());
     } else {
       QFileInfo fi(path);
-      if (fi.suffix().toLower() == "md" || fi.suffix().toLower() == "txt") {
+      if (fi.suffix().toLower() == "struct") {
+        // Reuse an already-open Struktur tab instead of duplicating.
+        for (int i = 0; i < m_editorTabs->count(); ++i) {
+          QWidget *w = m_editorTabs->widget(i);
+          if (w && w->property("filePath").toString() ==
+                       QFileInfo(path).absoluteFilePath()) {
+            m_editorTabs->setCurrentIndex(i);
+            if (m_documentTabBar)
+              m_documentTabBar->setCurrentIndex(i);
+            if (auto *se = qobject_cast<StrukturNoteEditor *>(w))
+              se->refreshAllEmbeds();
+            switchToApp(true);
+            if (m_rightStack) {
+              const int editorIdx = m_rightStack->indexOf(m_editorContainer);
+              if (editorIdx >= 0)
+                m_rightStack->setCurrentIndex(editorIdx);
+            }
+            if (m_documentTabBar)
+              m_documentTabBar->setNoteChromeMode(false);
+            if (m_floatingTools)
+              m_floatingTools->hide();
+            if (m_radialFab)
+              m_radialFab->hide();
+            return;
+          }
+        }
+        auto *editor = new StrukturNoteEditor(this);
+        editor->setProperty("filePath", QFileInfo(path).absoluteFilePath());
+        editor->loadDocument(QFileInfo(path).absoluteFilePath());
+        editor->onOpenEmbed = [this](const QString &notePath, int pageIndex) {
+          m_pendingOpenPageIndex = pageIndex;
+          openNotePath(notePath);
+        };
+        editor->onCreateLinkedNote = [this, path](const QString &title) -> QString {
+          QString safe = title;
+          safe.replace(QLatin1Char('/'), QLatin1Char('_'))
+              .replace(QLatin1Char('\\'), QLatin1Char('_'));
+          if (safe.isEmpty())
+            safe = QStringLiteral("Eingebettete Notiz");
+          const QString dir = QFileInfo(path).absolutePath();
+          QString outPath = dir + QLatin1Char('/') + safe + QStringLiteral(".bnote");
+          int n = 1;
+          while (QFileInfo::exists(outPath)) {
+            outPath = dir + QLatin1Char('/') + safe + QStringLiteral(" (") +
+                      QString::number(n++) + QStringLiteral(").bnote");
+          }
+          Note note;
+          note.id = QUuid::createUuid().toString();
+          note.title = title;
+          NotePage p;
+          p.paperColor = UIStyles::PageBackground;
+          p.backgroundType = 1; // lined
+          note.pages.append(p);
+          if (!NoteManager::saveNote(note, outPath))
+            return QString();
+          mirrorNoteIfNeeded(outPath);
+          return QFileInfo(outPath).absoluteFilePath();
+        };
+        editor->onAppendPage = [this](const QString &notePath) -> int {
+          Note note;
+          if (!NoteManager::loadNote(notePath, note))
+            return -1;
+          NotePage p;
+          p.paperColor = UIStyles::PageBackground;
+          p.backgroundType = note.pages.isEmpty() ? 1 : note.pages.last().backgroundType;
+          if (!note.pages.isEmpty() && note.pages.last().paperColor.isValid())
+            p.paperColor = note.pages.last().paperColor;
+          note.pages.append(p);
+          if (!NoteManager::saveNote(note, notePath))
+            return -1;
+          mirrorNoteIfNeeded(notePath);
+          return note.pages.size() - 1;
+        };
+        m_editorTabs->addTab(editor, fileName);
+        m_editorTabs->setCurrentWidget(editor);
+        addNoteTab(QFileInfo(fileName).baseName());
+        switchToApp(true);
+        if (m_rightStack) {
+          const int editorIdx = m_rightStack->indexOf(m_editorContainer);
+          if (editorIdx >= 0)
+            m_rightStack->setCurrentIndex(editorIdx);
+        }
+        if (m_documentTabBar)
+          m_documentTabBar->setNoteChromeMode(false);
+        if (m_floatingTools)
+          m_floatingTools->hide();
+        if (m_radialFab)
+          m_radialFab->hide();
+        return;
+      } else if (fi.suffix().toLower() == "md" || fi.suffix().toLower() == "txt") {
         MarkdownEditor *mdEditor = new MarkdownEditor(this);
         QFile f(path);
         if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -14855,7 +15039,7 @@ void MainWindow::positionDrawboardToolbar() {
   if (tb->isDockedMode()) {
     const int barH = qMax(tb->height(), UiScale::dp(64));
     const int minStudioPillW =
-        UiScale::dp(56) * 8 + UiScale::dp(2) * 7 + UiScale::dp(24);
+        UiScale::dp(56) * 10 + UiScale::dp(2) * 9 + UiScale::dp(24);
     const int barW = qMin(
         qMax(qMax(tb->calculateMinLength(), minStudioPillW), UiScale::dp(500)),
         W - edgePad * 2);
@@ -16179,6 +16363,17 @@ void MainWindow::onTabChanged(int index) {
   NoteEditor *editor = qobject_cast<NoteEditor *>(current);
   if (editorTabIsWorkspace(current)) {
     switchToWorkspaceChrome();
+  } else if (auto *struktur = qobject_cast<StrukturNoteEditor *>(current)) {
+    switchToApp(true);
+    if (m_documentTabBar)
+      m_documentTabBar->setNoteChromeMode(false);
+    if (m_floatingTools)
+      m_floatingTools->hide();
+    if (m_radialFab)
+      m_radialFab->hide();
+    if (m_toolPropertiesPanel)
+      m_toolPropertiesPanel->hide();
+    struktur->refreshAllEmbeds();
   } else if (index >= 0 && current && m_rightStack &&
              m_rightStack->currentWidget() == m_editorContainer) {
     switchToEditorChrome();

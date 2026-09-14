@@ -21,7 +21,10 @@ public:
     explicit NewNoteDialog(QWidget *parent = nullptr);
 
     QString getNoteName() const;
+    /// 0 = Unendlich, 1 = DIN A4, 2 = Struktur
+    int createFormat() const;
     bool isInfiniteFormat() const;
+    bool isStrukturFormat() const;
     int backgroundType() const { return m_backgroundType; }
     QColor paperColor() const { return m_paperColor; }
     QStringList selectedTags() const;
@@ -41,6 +44,8 @@ private:
 
     QPushButton *m_btnFormatInfinite{nullptr};
     QPushButton *m_btnFormatA4{nullptr};
+    QPushButton *m_btnFormatStruktur{nullptr};
+    QWidget *m_layoutSection{nullptr};
     QButtonGroup *m_groupFormat{nullptr};
     QButtonGroup *m_groupLayout{nullptr};
     QListWidget *m_tagList{nullptr};

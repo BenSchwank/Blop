@@ -10,7 +10,7 @@ class QPainter;
 /// Library-tile miniatures: A4 vs infinite, lined/grid/dots, and folders.
 namespace NotePreviewIcon {
 
-enum class Kind { Folder, A4, Infinite };
+enum class Kind { Folder, A4, Infinite, Struktur };
 
 struct Spec {
   Kind kind{Kind::A4};

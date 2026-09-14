@@ -301,6 +301,11 @@ Spec specForPath(const QString &path, bool isDirectory) {
     s.kind = Kind::Folder;
     return s;
   }
+  if (path.endsWith(QLatin1String(".struct"), Qt::CaseInsensitive)) {
+    s.kind = Kind::Struktur;
+    s.backgroundType = 1; // lined paper look
+    return s;
+  }
   if (path.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive)) {
     s.kind = Kind::A4;
     peekBnote(path, &s);
@@ -329,6 +334,9 @@ QPixmap pixmap(const Spec &spec, int px) {
     break;
   case Kind::Infinite:
     paintInfinite(&p, full, spec);
+    break;
+  case Kind::Struktur:
+    paintA4(&p, full, spec);
     break;
   case Kind::A4:
   default:
@@ -367,7 +375,7 @@ void paintHero(QPainter *p, const QRect &r, const Spec &spec) {
   const QColor paper = readablePaper(spec.paper);
   const int rad = qMax(8, r.width() / 16);
   QRect sheet = r.adjusted(1, 1, -1, -1);
-  if (spec.kind == Kind::A4) {
+  if (spec.kind == Kind::A4 || spec.kind == Kind::Struktur) {
     const int w = int(sheet.height() * 0.78);
     if (w > 0 && w < sheet.width())
       sheet = QRect(sheet.center().x() - w / 2, sheet.top(), w, sheet.height());
