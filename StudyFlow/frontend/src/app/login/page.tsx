@@ -32,15 +32,25 @@ export default function LoginPage() {
 
     // Setup Auth Context
     React.useEffect(() => {
-        // Clear stale session on login page load
-        localStorage.removeItem('session_id');
-        localStorage.removeItem('username');
         const loginParams = new URLSearchParams(window.location.search);
-        if (loginParams.get('reason') === 'session-expired') {
+        const reason = loginParams.get('reason');
+        const hasSession =
+            Boolean(localStorage.getItem('session_id')) &&
+            Boolean(localStorage.getItem('username'));
+
+        // Never wipe a live session just because /login rendered (e.g. pricing
+        // "Anmelden" CTA or a soft redirect). Only clear on confirmed expiry.
+        if (reason === 'session-expired') {
+            localStorage.removeItem('session_id');
+            localStorage.removeItem('username');
+            localStorage.removeItem('is_admin');
             setError('Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.');
+        } else if (hasSession && !loginParams.get('native')) {
+            // Already signed in — bounce back to the app instead of destroying the session.
+            router.replace('/');
+            return;
         }
 
-        const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
         const nativeQuery =
             typeof window !== 'undefined' &&
             new URLSearchParams(window.location.search).get('native') === '1';
@@ -84,6 +94,9 @@ export default function LoginPage() {
                 if (res.ok) {
                     localStorage.setItem('session_id', data.session_id);
                     localStorage.setItem('username', data.username);
+                    if (typeof data.is_admin === 'boolean') {
+                        localStorage.setItem('is_admin', String(data.is_admin));
+                    }
                     router.push('/');
                 } else {
                     setError('Google Login fehlgeschlagen: ' + (data.detail || 'Unbekannter Fehler'));
@@ -461,22 +474,23 @@ export default function LoginPage() {
                                 {isLogin ? 'Über Google anmelden' : 'Über Google registrieren'}
                             </button>
                         ) : (
-                            <div className="w-full flex flex-col items-center">
+                            <div className="w-full flex flex-col items-center min-h-[44px]">
                                 <Script src="https://accounts.google.com/gsi/client" async defer strategy="lazyOnload" />
                                 <div id="g_id_onload"
-                                     data-client_id={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "BITTE_WEB_CLIENT_ID_IN_VERCEL_HINTERLEGEN.apps.googleusercontent.com"}
+                                     data-client_id={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com"}
                                      data-context={isLogin ? 'signin' : 'signup'}
                                      data-ux_mode="popup"
                                      data-callback="handleGoogleLoginSuccess"
                                      data-auto_prompt="false">
                                 </div>
 
-                                <div className="g_id_signin w-full"
+                                <div className="g_id_signin w-full flex justify-center"
                                      data-type="standard"
                                      data-shape="rectangular"
                                      data-theme="outline"
                                      data-text={isLogin ? 'signin_with' : 'signup_with'}
                                      data-size="large"
+                                     data-width="382"
                                      data-logo_alignment="center">
                                 </div>
                             </div>

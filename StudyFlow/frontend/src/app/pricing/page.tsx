@@ -74,14 +74,24 @@ export default function PricingPage() {
         const sid = localStorage.getItem('session_id');
         const hasSession = Boolean(username && sid);
         setIsAuthenticated(hasSession);
+        setSessionExpired(false);
         if (hasSession) {
             try {
                 const statusData = await fetchSubscriptionStatus();
                 setStatus(statusData);
-            } catch {
-                // If status fails, treat it as a stale session but still show public pricing.
+            } catch (err: any) {
+                // Keep the local session. A flaky /subscription/status must not
+                // force "Anmelden" → /login (which previously wiped localStorage).
                 setStatus(null);
-                setSessionExpired(true);
+                const message = String(err?.message || '');
+                const looksUnauthorized =
+                    /ungültig|abgelaufen|unauthorized|401/i.test(message);
+                if (looksUnauthorized) {
+                    setSessionExpired(true);
+                    setError('Abo-Status konnte nicht geladen werden. Bitte Seite neu laden oder erneut anmelden.');
+                } else {
+                    setError(message || 'Abo-Status vorübergehend nicht erreichbar.');
+                }
             }
         }
         setLoading(false);
@@ -261,13 +271,21 @@ export default function PricingPage() {
                                     >
                                         Aktuelles Abo
                                     </button>
-                                ) : !isAuthenticated || sessionExpired ? (
+                                ) : !isAuthenticated ? (
                                     <button
                                         onClick={() => router.push('/login')}
                                         className="w-full py-3 rounded-xl bg-[#2A2A40] hover:bg-[#333] text-white font-semibold transition-colors flex items-center justify-center gap-2"
                                     >
                                         <LogIn size={18} />
                                         Anmelden zum Buchen
+                                    </button>
+                                ) : sessionExpired ? (
+                                    <button
+                                        onClick={() => loadData()}
+                                        className="w-full py-3 rounded-xl bg-[#2A2A40] hover:bg-[#333] text-white font-semibold transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <LogIn size={18} />
+                                        Status neu laden
                                     </button>
                                 ) : tier.name === 'free' ? (
                                     <button

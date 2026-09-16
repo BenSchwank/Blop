@@ -27,6 +27,7 @@ export default function AdminSubscriptionsPage() {
     const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [bootError, setBootError] = useState('');
     const [activeTab, setActiveTab] = useState<'subscriptions' | 'tiers' | 'features'>('subscriptions');
 
     const [tiers, setTiers] = useState<Tier[]>([]);
@@ -53,13 +54,22 @@ export default function AdminSubscriptionsPage() {
         fetchUserInfo(username)
             .then((info) => {
                 if (!info.is_admin) {
-                    router.replace('/');
+                    router.replace('/pricing');
                     return;
                 }
                 setIsAdmin(true);
+                setBootError('');
                 loadData();
             })
-            .catch(() => router.replace('/login'));
+            .catch((err: any) => {
+                // Only send to login on confirmed auth failure — 5xx must not wipe the session.
+                if (err?.status === 401 || err?.status === 403) {
+                    router.replace('/login?reason=session-expired');
+                    return;
+                }
+                setBootError(err?.message || 'Admin-Daten vorübergehend nicht erreichbar.');
+                setLoading(false);
+            });
     }, [refresh, router]);
 
     async function loadData() {
@@ -81,6 +91,19 @@ export default function AdminSubscriptionsPage() {
     }
 
     if (isAdmin === null) {
+        if (bootError) {
+            return (
+                <div className="min-h-screen bg-[#0B0B1A] flex flex-col items-center justify-center gap-4 p-6 text-center">
+                    <p className="text-red-400 text-sm max-w-md">{bootError}</p>
+                    <button
+                        onClick={() => setRefresh((value) => value + 1)}
+                        className="px-4 py-2 rounded-lg bg-[#5E5CE6] text-white text-sm"
+                    >
+                        Erneut versuchen
+                    </button>
+                </div>
+            );
+        }
         return (
             <div className="min-h-screen bg-[#0B0B1A] flex items-center justify-center">
                 <Loader2 className="animate-spin text-[#5E5CE6]" size={32} />

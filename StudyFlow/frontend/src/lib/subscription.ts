@@ -373,8 +373,18 @@ export async function fetchUserInfo(username: string): Promise<{ is_admin: boole
     const res = await fetch(`${API_BASE}/user/${encodeURIComponent(username)}?session_id=${encodeURIComponent(sid)}`, {
         headers: sessionHeaders(),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'User konnte nicht geladen werden.');
+    const text = await res.text();
+    let data: any = {};
+    try {
+        data = text ? JSON.parse(text) : {};
+    } catch {
+        data = { detail: text || `Serverfehler (${res.status})` };
+    }
+    if (!res.ok) {
+        const err = new Error(formatApiDetail(data?.detail, 'User konnte nicht geladen werden.')) as Error & { status?: number };
+        err.status = res.status;
+        throw err;
+    }
     return data;
 }
 

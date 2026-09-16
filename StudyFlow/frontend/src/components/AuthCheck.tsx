@@ -12,6 +12,7 @@ export default function AuthCheck({ children }: { children: React.ReactNode }) {
         // Skip auth check for public pages
         if (
             pathname === '/login' ||
+            pathname === '/pricing' ||
             pathname === '/datenschutz' ||
             pathname === '/auth/reset-password' ||
             pathname === '/marketing' ||

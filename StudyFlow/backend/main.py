@@ -1392,7 +1392,13 @@ def verify_google_oauth(req: GoogleVerifyRequest):
             session_id = AuthManager.create_session(username)
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc))
-        return {"session_id": session_id, "username": username}
+        user_row = AuthManager.get_user(username) or {}
+        return {
+            "session_id": session_id,
+            "username": username,
+            "is_admin": bool(user_row.get("is_admin")),
+            "email": user_row.get("email") or email,
+        }
 
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=f"Ungültiges Google Auth Token: {str(ve)}")
