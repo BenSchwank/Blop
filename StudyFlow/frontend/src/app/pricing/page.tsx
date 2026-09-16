@@ -165,14 +165,20 @@ export default function PricingPage() {
 
                 {sessionExpired && (
                     <div className="max-w-xl mx-auto mb-8 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-center text-sm">
-                        Deine Sitzung ist abgelaufen. Melde dich neu an, um ein Abo zu buchen.
-                        <div className="mt-3">
+                        Abo-Status konnte nicht geladen werden. Session bleibt erhalten — bitte neu laden oder später erneut anmelden.
+                        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                             <button
-                                onClick={() => router.push('/login')}
+                                onClick={() => loadData()}
                                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#5E5CE6] text-white text-sm font-medium hover:bg-[#4d4ac9]"
                             >
+                                Status neu laden
+                            </button>
+                            <button
+                                onClick={() => router.push('/login?reason=session-expired')}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2A2A40] text-white text-sm font-medium hover:bg-[#333]"
+                            >
                                 <LogIn size={16} />
-                                Anmelden
+                                Neu anmelden
                             </button>
                         </div>
                     </div>
