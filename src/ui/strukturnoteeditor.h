@@ -9,6 +9,7 @@ class QScrollArea;
 class QVBoxLayout;
 class QTimer;
 class QLabel;
+class QPlainTextEdit;
 
 /// Text-first Struktur document with A4 note-page embeds.
 class StrukturNoteEditor : public QWidget {
@@ -40,9 +41,13 @@ private:
   void rebuildUiFromDoc();
   void scheduleSave();
   void harvestIntoDoc();
-  void insertParagraphAfter(int blockIndex);
+  void insertParagraphAfter(int blockIndex, const QString &initialText = QString());
   void insertEmbed(const StrukturEmbedBlock &embed, int afterIndex = -1);
   void showInsertMenu();
+  void showInsertMenuAt(int afterBlockIndex, const QPoint &globalPos);
+  int blockIndexOfWidget(QWidget *w) const;
+  QWidget *makeParagraphRow(const QString &text);
+  void wireParagraphRow(QWidget *row, QPlainTextEdit *edit);
 
   QString m_path;
   StrukturDocument m_doc;

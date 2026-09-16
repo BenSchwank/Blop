@@ -9,18 +9,23 @@
 #include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFocusEvent>
 #include <QFrame>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QShowEvent>
+#include <QTextCursor>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -44,7 +49,7 @@ static QString notionMenuQss() {
            BlopStyle::paperInk().name(QColor::HexRgb));
 }
 
-/// Notion-like text block: clean white, no ruled lines, soft placeholder.
+/// Notion-like text block: Enter creates/splits blocks; height follows lines.
 class NotionTextEdit : public QPlainTextEdit {
   Q_OBJECT
 public:
@@ -55,7 +60,7 @@ public:
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
-    setPlaceholderText(QStringLiteral("Schreib etwas, oder füge eine Notiz ein…"));
+    setPlaceholderText(QStringLiteral("Schreib etwas…  (/ für Befehle)"));
     document()->setDocumentMargin(UiScale::dp(2));
     QFont f = font();
     f.setPixelSize(UiScale::dp(16));
@@ -72,9 +77,53 @@ public:
   }
 
   void updateHeight() {
-    const int h = qMax(UiScale::dp(40),
-                       int(document()->size().height()) + UiScale::dp(18));
-    setFixedHeight(h);
+    // Without an explicit text width, document()->size() stays one-line tall
+    // and Enter looks like the text vanished.
+    const int tw = qMax(40, viewport()->width());
+    document()->setTextWidth(tw);
+    QFontMetrics fm(font());
+    const QString text = toPlainText();
+    const int lineCount = qMax(1, text.count(QLatin1Char('\n')) + 1);
+    const int byLines = lineCount * fm.lineSpacing() + UiScale::dp(20) +
+                        int(document()->documentMargin() * 2);
+    const int byDoc = int(document()->size().height()) + UiScale::dp(16);
+    setFixedHeight(qMax(UiScale::dp(40), qMax(byLines, byDoc)));
+  }
+
+signals:
+  void enterPressed(int cursorPos);
+  void slashCommandRequested();
+  void focusedChanged(bool on);
+
+protected:
+  void resizeEvent(QResizeEvent *e) override {
+    QPlainTextEdit::resizeEvent(e);
+    updateHeight();
+  }
+
+  void focusInEvent(QFocusEvent *e) override {
+    QPlainTextEdit::focusInEvent(e);
+    emit focusedChanged(true);
+  }
+
+  void focusOutEvent(QFocusEvent *e) override {
+    QPlainTextEdit::focusOutEvent(e);
+    emit focusedChanged(false);
+  }
+
+  void keyPressEvent(QKeyEvent *e) override {
+    if ((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) &&
+        !(e->modifiers() & Qt::ShiftModifier)) {
+      emit enterPressed(textCursor().position());
+      e->accept();
+      return;
+    }
+    if (e->key() == Qt::Key_Slash && toPlainText().trimmed().isEmpty()) {
+      emit slashCommandRequested();
+      e->accept();
+      return;
+    }
+    QPlainTextEdit::keyPressEvent(e);
   }
 };
 
@@ -446,13 +495,7 @@ StrukturNoteEditor::StrukturNoteEditor(QWidget *parent) : QWidget(parent) {
       "font-size: 15px; font-weight: 700; color: %1; background: transparent;")
                                   .arg(BlopStyle::paperInk().name(QColor::HexRgb)));
   topLay->addWidget(m_titleLabel, 1);
-  auto *btnInsert = new QPushButton(QStringLiteral("+ Notiz einfügen"), top);
-  btnInsert->setCursor(Qt::PointingHandCursor);
-  btnInsert->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 8));
-  btnInsert->setStyleSheet(BlopStyle::paperPrimaryButtonQss());
-  connect(btnInsert, &QPushButton::clicked, this,
-          &StrukturNoteEditor::showInsertMenu);
-  topLay->addWidget(btnInsert);
+  // Insert actions live on each line (+ / slash), not a permanent top CTA.
   root->addWidget(top);
 
   m_scroll = new QScrollArea(this);
@@ -485,7 +528,7 @@ StrukturNoteEditor::StrukturNoteEditor(QWidget *parent) : QWidget(parent) {
   m_blocksLay = new QVBoxLayout(m_host);
   m_blocksLay->setContentsMargins(UiScale::dp(8), UiScale::dp(8),
                                   UiScale::dp(8), UiScale::dp(24));
-  m_blocksLay->setSpacing(UiScale::dp(4));
+  m_blocksLay->setSpacing(UiScale::dp(2));
   m_blocksLay->addStretch(1);
   wrapLay->addWidget(m_host, 6);
   wrapLay->addStretch(1);
@@ -541,15 +584,21 @@ void StrukturNoteEditor::harvestIntoDoc() {
     if (!it || !it->widget())
       continue;
     QWidget *w = it->widget();
-    if (auto *edit = qobject_cast<NotionTextEdit *>(w)) {
-      StrukturBlock b;
-      b.type = StrukturBlock::Type::Paragraph;
-      b.paragraph.text = edit->toPlainText();
-      blocks.append(b);
-    } else if (auto *emb = qobject_cast<StrukturEmbedWidget *>(w)) {
+    if (auto *emb = qobject_cast<StrukturEmbedWidget *>(w)) {
       StrukturBlock b;
       b.type = StrukturBlock::Type::Embed;
       b.embed = emb->embed();
+      blocks.append(b);
+      continue;
+    }
+    NotionTextEdit *edit = w->findChild<NotionTextEdit *>(
+        QStringLiteral("StrukturParagraph"), Qt::FindDirectChildrenOnly);
+    if (!edit)
+      edit = qobject_cast<NotionTextEdit *>(w);
+    if (edit) {
+      StrukturBlock b;
+      b.type = StrukturBlock::Type::Paragraph;
+      b.paragraph.text = edit->toPlainText();
       blocks.append(b);
     }
   }
@@ -566,6 +615,82 @@ void StrukturNoteEditor::saveNow() {
     return;
   harvestIntoDoc();
   StrukturDocument::save(m_doc, m_path);
+}
+
+int StrukturNoteEditor::blockIndexOfWidget(QWidget *w) const {
+  if (!w || !m_blocksLay)
+    return -1;
+  for (int i = 0; i < m_blocksLay->count(); ++i) {
+    QLayoutItem *it = m_blocksLay->itemAt(i);
+    if (it && it->widget() == w)
+      return i;
+  }
+  return -1;
+}
+
+void StrukturNoteEditor::wireParagraphRow(QWidget *row, QPlainTextEdit *plain) {
+  auto *edit = static_cast<NotionTextEdit *>(plain);
+  connect(edit, &QPlainTextEdit::textChanged, this, [this, edit]() {
+    edit->updateHeight();
+    scheduleSave();
+  });
+  connect(edit, &NotionTextEdit::enterPressed, this,
+          [this, row, edit](int cursorPos) {
+            const QString full = edit->toPlainText();
+            const int pos = qBound(0, cursorPos, full.size());
+            const QString before = full.left(pos);
+            const QString after = full.mid(pos);
+            edit->setPlainText(before);
+            edit->updateHeight();
+            const int idx = blockIndexOfWidget(row);
+            insertParagraphAfter(idx, after);
+          });
+  connect(edit, &NotionTextEdit::slashCommandRequested, this, [this, row]() {
+    showInsertMenuAt(blockIndexOfWidget(row), QCursor::pos());
+  });
+  if (auto *btn =
+          row->findChild<QPushButton *>(QStringLiteral("StrukturLinePlus"))) {
+    connect(btn, &QPushButton::clicked, this, [this, row, btn]() {
+      showInsertMenuAt(blockIndexOfWidget(row),
+                       btn->mapToGlobal(QPoint(0, btn->height())));
+    });
+    connect(edit, &NotionTextEdit::focusedChanged, btn,
+            [btn](bool on) { btn->setVisible(on); });
+    btn->setVisible(edit->hasFocus());
+  }
+}
+
+QWidget *StrukturNoteEditor::makeParagraphRow(const QString &text) {
+  auto *row = new QWidget(m_host);
+  row->setObjectName(QStringLiteral("StrukturParagraphRow"));
+  auto *lay = new QHBoxLayout(row);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(4));
+
+  auto *btnPlus = new QPushButton(QStringLiteral("+"), row);
+  btnPlus->setObjectName(QStringLiteral("StrukturLinePlus"));
+  btnPlus->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  btnPlus->setCursor(Qt::PointingHandCursor);
+  btnPlus->setToolTip(QStringLiteral("Befehle: Notiz einfügen…"));
+  btnPlus->setStyleSheet(QStringLiteral(
+      "QPushButton#StrukturLinePlus {"
+      "  background: transparent; border: none; border-radius: 6px;"
+      "  color: %1; font-size: 18px; font-weight: 600;"
+      "}"
+      "QPushButton#StrukturLinePlus:hover { background: %2; color: %3; }")
+                             .arg(BlopStyle::paperInkMuted().name(QColor::HexRgb),
+                                  BlopStyle::paperHover().name(QColor::HexRgb),
+                                  BlopStyle::paperInk().name(QColor::HexRgb)));
+  btnPlus->hide();
+  lay->addWidget(btnPlus, 0, Qt::AlignTop);
+
+  auto *edit = new NotionTextEdit(row);
+  edit->setPlainText(text);
+  QTimer::singleShot(0, edit, [edit]() { edit->updateHeight(); });
+  lay->addWidget(edit, 1);
+
+  wireParagraphRow(row, edit);
+  return row;
 }
 
 void StrukturNoteEditor::rebuildUiFromDoc() {
@@ -591,43 +716,79 @@ void StrukturNoteEditor::rebuildUiFromDoc() {
               [this](const StrukturEmbedBlock &) { scheduleSave(); });
       m_blocksLay->addWidget(emb);
     } else {
-      auto *edit = new NotionTextEdit(m_host);
-      edit->setPlainText(b.paragraph.text);
-      edit->updateHeight();
-      connect(edit, &QPlainTextEdit::textChanged, this, [this, edit]() {
-        edit->updateHeight();
-        scheduleSave();
-      });
-      m_blocksLay->addWidget(edit);
+      m_blocksLay->addWidget(makeParagraphRow(b.paragraph.text));
     }
   }
   m_blocksLay->addStretch(1);
 }
 
-void StrukturNoteEditor::insertEmbed(const StrukturEmbedBlock &embed,
-                                     int /*afterIndex*/) {
+void StrukturNoteEditor::insertParagraphAfter(int blockIndex,
+                                              const QString &initialText) {
   harvestIntoDoc();
+  int insertAt = blockIndex + 1;
+  if (insertAt < 0)
+    insertAt = m_doc.blocks.size();
+  if (insertAt > m_doc.blocks.size())
+    insertAt = m_doc.blocks.size();
+  StrukturBlock para;
+  para.type = StrukturBlock::Type::Paragraph;
+  para.paragraph.text = initialText;
+  m_doc.blocks.insert(insertAt, para);
+  rebuildUiFromDoc();
+  scheduleSave();
+  // Focus the new paragraph.
+  if (insertAt >= 0 && insertAt < m_blocksLay->count()) {
+    if (QLayoutItem *it = m_blocksLay->itemAt(insertAt)) {
+      if (QWidget *row = it->widget()) {
+        if (auto *edit = row->findChild<NotionTextEdit *>()) {
+          edit->setFocus(Qt::OtherFocusReason);
+          QTextCursor c = edit->textCursor();
+          c.movePosition(QTextCursor::Start);
+          edit->setTextCursor(c);
+        }
+      }
+    }
+  }
+}
+
+void StrukturNoteEditor::insertEmbed(const StrukturEmbedBlock &embed,
+                                     int afterIndex) {
+  harvestIntoDoc();
+  int insertAt = afterIndex >= 0 ? afterIndex + 1 : m_doc.blocks.size();
+  if (insertAt > m_doc.blocks.size())
+    insertAt = m_doc.blocks.size();
   StrukturBlock b;
   b.type = StrukturBlock::Type::Embed;
   b.embed = embed;
-  m_doc.blocks.append(b);
+  m_doc.blocks.insert(insertAt, b);
   StrukturBlock para;
   para.type = StrukturBlock::Type::Paragraph;
-  m_doc.blocks.append(para);
+  m_doc.blocks.insert(insertAt + 1, para);
   rebuildUiFromDoc();
   scheduleSave();
 }
 
 void StrukturNoteEditor::showInsertMenu() {
+  showInsertMenuAt(-1, QCursor::pos());
+}
+
+void StrukturNoteEditor::showInsertMenuAt(int afterBlockIndex,
+                                          const QPoint &globalPos) {
   QMenu menu(this);
   menu.setStyleSheet(notionMenuQss());
   QAction *aNew = menu.addAction(QStringLiteral("Neue A4-Notiz anlegen"));
   QAction *aExist = menu.addAction(QStringLiteral("Bestehende Notiz wählen…"));
   QAction *aPage =
       menu.addAction(QStringLiteral("Neue Seite in bestehender Notiz…"));
-  QAction *chosen = menu.exec(QCursor::pos());
+  QAction *aPara = menu.addAction(QStringLiteral("Leerer Textblock"));
+  QAction *chosen = menu.exec(globalPos);
   if (!chosen)
     return;
+
+  if (chosen == aPara) {
+    insertParagraphAfter(afterBlockIndex);
+    return;
+  }
 
   if (chosen == aNew) {
     bool ok = false;
@@ -644,7 +805,7 @@ void StrukturNoteEditor::showInsertMenu() {
     StrukturEmbedBlock emb;
     emb.notePath = StrukturDocument::storeNotePath(m_path, path);
     emb.pageIndex = 0;
-    insertEmbed(emb);
+    insertEmbed(emb, afterBlockIndex);
     return;
   }
 
@@ -666,7 +827,7 @@ void StrukturNoteEditor::showInsertMenu() {
     StrukturEmbedBlock emb;
     emb.notePath = StrukturDocument::storeNotePath(m_path, path);
     emb.pageIndex = pageIndex;
-    insertEmbed(emb);
+    insertEmbed(emb, afterBlockIndex);
   }
 }
 

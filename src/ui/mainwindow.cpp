@@ -4670,10 +4670,10 @@ void MainWindow::syncWindowsDwmChrome() {
   if (m_authNavigationLocked) {
     titleBg = BlopStyle::obsidianNav();
   } else if (noteChrome) {
-    titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianBg()
+    titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianNav()
                                              : NoteChrome::toolbarFill();
   } else if (notesMode || onDashboard) {
-    titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianBg()
+    titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianNav()
                                              : BlopStyle::paperBgLibrary();
   }
 
@@ -15606,7 +15606,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   // Library / Dashboard title bar: light paper in Light mode, elevated dark
   // gray in Dark mode (still contrasts with the page, never pure white).
   const QColor libraryBarBg =
-      darkShell ? QColor(0x25, 0x25, 0x25) : BlopStyle::paperBgLibrary();
+      darkShell ? BlopStyle::obsidianNav() : BlopStyle::paperBgLibrary();
   const QColor libraryInk =
       darkShell ? BlopTheme::textPrimary() : BlopStyle::paperInk();
   const QColor libraryMuted =
@@ -15627,7 +15627,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                  : (libraryShellChrome
                         ? libraryBarBg
                         : (noteChrome
-                               ? (darkShell ? BlopStyle::obsidianBg()
+                               ? (darkShell ? BlopStyle::obsidianNav()
                                             : NoteChrome::toolbarFill())
                                : BlopTheme::surfaceBackground()));
   // Icon contrast follows the painted title-bar luminance.
