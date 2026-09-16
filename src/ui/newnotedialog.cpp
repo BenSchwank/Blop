@@ -9,7 +9,6 @@
 #include <QAbstractButton>
 #include <QButtonGroup>
 #include <QFrame>
-#include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -24,6 +23,8 @@ NewNoteDialog::NewNoteDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
     setAttribute(Qt::WA_TranslucentBackground, false);
+    // Keep paper fill when embedded in BlopModal (avoids transparent wipe).
+    setProperty("blopOwnsBackground", true);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setupUi();
 }
@@ -57,7 +58,8 @@ void NewNoteDialog::setupUi()
         "QLabel { color: %4; border: none; background: transparent; }")
                                  .arg(surfaceHex, borderHex,
                                       QString::number(radLg), textHex));
-    BlopStyle::applyModalShadow(container);
+    // Shadow comes from BlopModal's card — nested DropShadowEffects on the
+    // inner container break hit-testing on Windows software rasterizer.
 
     auto *layout = new QVBoxLayout(container);
     layout->setContentsMargins(0, 0, 0, 0);

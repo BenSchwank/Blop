@@ -7,11 +7,8 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QParallelAnimationGroup>
-#include <QPointer>
 #include <QPropertyAnimation>
 #include <QScreen>
-#include <QSequentialAnimationGroup>
-#include <QVariantAnimation>
 #include <QWidget>
 
 void BlopRipple::setRipScale(qreal s) {
@@ -106,66 +103,13 @@ void BlopRipple::spawn(QWidget *host, const QPoint &globalPos,
 }
 
 void BlopRipple::animatePress(QWidget *target, qreal pressedScale) {
-  if (!target)
-    return;
-#ifdef Q_OS_ANDROID
-  // v3.18.5: Android press feedback is now expressed through Qt's
-  // native QStyle :pressed pseudo-state — handled per-widget by the
-  // existing stylesheets. The previous windowOpacity property
-  // animation forced a full compositor repaint on every frame and was
-  // a measurable contributor to drawing/scrolling lag on weaker
-  // devices. Skip the explicit animation entirely on Android.
+  // Never mutate geometry on press. Shrinking the widget moves the hit
+  // rect out from under the cursor, so QAbstractButton::mouseReleaseEvent
+  // misses hitButton() and never emits clicked / never toggles checked —
+  // which made Neue Notiz + Einstellungen look "dead" (cursor changes,
+  // clicks do nothing). Visual press feedback belongs in QSS :pressed.
   Q_UNUSED(target);
   Q_UNUSED(pressedScale);
-  return;
-#else
-  // Anchored on the widget's current geometry. We animate the geometry
-  // toward a shrunk-around-center rectangle and back, giving the user a
-  // light bounce. Cheap (one QVariantAnimation), safe on any platform,
-  // and doesn't fight QGraphicsEffect (which can hit Android GL paths).
-  const QRect base = target->geometry();
-  if (base.isEmpty())
-    return;
-  const qreal s = qBound(0.5, pressedScale, 1.0);
-  const int shrinkW = int(base.width() * (1.0 - s) * 0.5);
-  const int shrinkH = int(base.height() * (1.0 - s) * 0.5);
-  const QRect pressed =
-      base.adjusted(shrinkW, shrinkH, -shrinkW, -shrinkH);
-
-  QPointer<QWidget> safe(target);
-
-  auto *down = new QVariantAnimation(target);
-  down->setDuration(90);
-  down->setEasingCurve(QEasingCurve::OutCubic);
-  down->setStartValue(base);
-  down->setEndValue(pressed);
-  QObject::connect(down, &QVariantAnimation::valueChanged, target,
-                   [safe](const QVariant &v) {
-                     if (safe)
-                       safe->setGeometry(v.toRect());
-                   });
-
-  auto *up = new QVariantAnimation(target);
-  up->setDuration(220);
-  up->setEasingCurve(QEasingCurve::OutBack);
-  up->setStartValue(pressed);
-  up->setEndValue(base);
-  QObject::connect(up, &QVariantAnimation::valueChanged, target,
-                   [safe](const QVariant &v) {
-                     if (safe)
-                       safe->setGeometry(v.toRect());
-                   });
-
-  auto *seq = new QSequentialAnimationGroup(target);
-  seq->addAnimation(down);
-  seq->addAnimation(up);
-  QObject::connect(seq, &QSequentialAnimationGroup::finished, target,
-                   [safe, base]() {
-                     if (safe)
-                       safe->setGeometry(base);
-                   });
-  seq->start(QAbstractAnimation::DeleteWhenStopped);
-#endif
 }
 
 void BlopRipple::attachPressFeedback(QAbstractButton *btn, qreal pressedScale) {
