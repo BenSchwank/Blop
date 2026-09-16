@@ -60,12 +60,13 @@ int radiusMdDp() { return 8; }
 
 int touchTargetMinDp() { return 40; }
 
-QColor paperBg() { return QColor(0xF8, 0xFA, 0xFC); }
+QColor paperBg() { return QColor(0xFF, 0xFF, 0xFF); }
 QColor paperBgLibrary() { return QColor(0xF5, 0xF5, 0xF5); }
 QColor paperInk() { return QColor(0x1E, 0x29, 0x3B); }
 QColor paperInkMuted() { return QColor(0x64, 0x74, 0x8B); }
 QColor paperChipBg() { return QColor(0xF1, 0xF5, 0xF9); }
-QColor paperRowBg() { return QColor(0xF7, 0xF7, 0xF5); }
+// Cool pure white — warm cream (#F7F7F5) read as "vergilbt".
+QColor paperRowBg() { return QColor(0xFF, 0xFF, 0xFF); }
 QColor paperSurface() { return paperRowBg(); }
 QColor paperBorder() { return QColor(0xE2, 0xE8, 0xF0); }
 QColor paperPrimaryLight() { return QColor(0xEF, 0xF6, 0xFF); }
@@ -390,15 +391,10 @@ void paintPaperSurface(QWidget *w, const QString &objectName) {
 }
 
 void applyModalShadow(QWidget *card) {
-  if (!card)
-    return;
-  if (qobject_cast<QGraphicsDropShadowEffect *>(card->graphicsEffect()))
-    return;
-  auto *shadow = new QGraphicsDropShadowEffect(card);
-  shadow->setBlurRadius(UiScale::dp(32));
-  shadow->setOffset(0, UiScale::dp(12));
-  shadow->setColor(QColor(15, 23, 42, 48));
-  card->setGraphicsEffect(shadow);
+  // Intentionally no QGraphicsDropShadowEffect — nested/modal shadows
+  // corrupt hit-testing on Windows (see BlopModal Card path).
+  if (card)
+    card->setGraphicsEffect(nullptr);
 }
 
 QString quietIconButtonQss(int radiusPx) {

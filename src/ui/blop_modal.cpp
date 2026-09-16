@@ -11,7 +11,6 @@
 #include <QEvent>
 #include <QEventLoop>
 #include <QFrame>
-#include <QGraphicsDropShadowEffect>
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -255,7 +254,7 @@ void BlopModal::applyTheme() {
                            QString::number(BlopTheme::r24));
     m_card->setStyleSheet(qss);
     m_card->setGraphicsEffect(nullptr);
-  } else {
+    } else {
     // Centered card + scrim (Notion-style). Settings owns paper fill —
     // match the card chrome so dark surfaceStyle doesn't peek at corners.
     m_card->setObjectName(QStringLiteral("BlopModalCard"));
@@ -276,13 +275,11 @@ void BlopModal::applyTheme() {
       m_card->setStyleSheet(
           BlopStyle::surfaceStyle(QStringLiteral("BlopModalCard")));
     }
-    if (!qobject_cast<QGraphicsDropShadowEffect *>(m_card->graphicsEffect())) {
-      auto *shadow = new QGraphicsDropShadowEffect(m_card);
-      shadow->setBlurRadius(UiScale::dp(ownsBg ? 28 : 20));
-      shadow->setOffset(0, UiScale::dp(ownsBg ? 12 : 8));
-      shadow->setColor(BlopStyle::surfaceShadow());
-      m_card->setGraphicsEffect(shadow);
-    }
+    // Never use QGraphicsDropShadowEffect here. On Windows/MinGW it races
+    // the software rasterizer (QWidgetEffectSourcePrivate::pixmap /
+    // "Painter not active") and leaves dialogs visually ghosted + dead to
+    // clicks (Neue Notiz / Einstellungen). Border + scrim is enough depth.
+    m_card->setGraphicsEffect(nullptr);
   }
 }
 

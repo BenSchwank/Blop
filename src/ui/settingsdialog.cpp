@@ -816,7 +816,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 #ifndef Q_OS_ANDROID
     setThemedQss(hero, QStringLiteral(
         "#SettingsHero {"
-        "  background-color: #F7F7F5;"
+        "  background-color: #FFFFFF;"
         "  border-bottom: 1px solid rgba(20,24,40,0.10);"
         "}"));
 #else

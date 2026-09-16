@@ -10,7 +10,6 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
-#include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QKeyEvent>
@@ -256,15 +255,11 @@ public:
         "QFrame#StrukturEmbedCard {"
         "  background: %1; border: 1px solid %2; border-radius: %3px;"
         "}")
-                            .arg(BlopStyle::paperSurface().name(QColor::HexRgb),
+                            .arg(QStringLiteral("#FFFFFF"),
                                  BlopStyle::paperBorder().name(QColor::HexRgb),
                                  QString::number(
-                                     UiScale::dp(BlopStyle::radiusLgDp()))));
-    auto *shadow = new QGraphicsDropShadowEffect(card);
-    shadow->setBlurRadius(18);
-    shadow->setOffset(0, 4);
-    shadow->setColor(QColor(15, 23, 42, 28));
-    card->setGraphicsEffect(shadow);
+                                     UiScale::dp(BlopStyle::radiusMdDp()))));
+    // No DropShadowEffect — breaks clicks + paints ghost artifacts on Win.
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, UiScale::dp(6), 0, UiScale::dp(6));
@@ -440,9 +435,8 @@ StrukturNoteEditor::StrukturNoteEditor(QWidget *parent) : QWidget(parent) {
   top->setObjectName(QStringLiteral("StrukturTopBar"));
   top->setAttribute(Qt::WA_StyledBackground, true);
   top->setStyleSheet(QStringLiteral(
-      "QWidget#StrukturTopBar { background: %1; border-bottom: 1px solid %2; }")
-                         .arg(BlopStyle::paperSurface().name(QColor::HexRgb),
-                              BlopStyle::paperBorder().name(QColor::HexRgb)));
+      "QWidget#StrukturTopBar { background: #FFFFFF; border-bottom: 1px solid %1; }")
+                         .arg(BlopStyle::paperBorder().name(QColor::HexRgb)));
   auto *topLay = new QHBoxLayout(top);
   topLay->setContentsMargins(UiScale::dp(20), UiScale::dp(10), UiScale::dp(16),
                              UiScale::dp(10));
@@ -465,35 +459,32 @@ StrukturNoteEditor::StrukturNoteEditor(QWidget *parent) : QWidget(parent) {
   m_scroll->setWidgetResizable(true);
   m_scroll->setFrameShape(QFrame::NoFrame);
   m_scroll->setStyleSheet(QStringLiteral(
-      "QScrollArea { background: %1; border: none; }")
-                              .arg(BlopStyle::paperBg().name(QColor::HexRgb)));
+      "QScrollArea { background: #FFFFFF; border: none; }"
+      "QScrollArea > QWidget > QWidget { background: #FFFFFF; }"));
 
-  // Notion-style centered page column.
+  // Seamless Notion column: same pure white as the canvas — no card chrome.
   auto *pageWrap = new QWidget;
   pageWrap->setObjectName(QStringLiteral("StrukturPageWrap"));
+  pageWrap->setAttribute(Qt::WA_StyledBackground, true);
   pageWrap->setStyleSheet(QStringLiteral(
-      "QWidget#StrukturPageWrap { background: %1; }")
-                              .arg(BlopStyle::paperBg().name(QColor::HexRgb)));
+      "QWidget#StrukturPageWrap { background: #FFFFFF; }"));
   auto *wrapLay = new QHBoxLayout(pageWrap);
-  wrapLay->setContentsMargins(UiScale::dp(16), UiScale::dp(28), UiScale::dp(16),
+  wrapLay->setContentsMargins(UiScale::dp(16), UiScale::dp(20), UiScale::dp(16),
                               UiScale::dp(64));
   wrapLay->addStretch(1);
 
   m_host = new QWidget(pageWrap);
   m_host->setObjectName(QStringLiteral("StrukturHost"));
+  m_host->setAttribute(Qt::WA_StyledBackground, true);
   m_host->setMaximumWidth(UiScale::dp(720));
   m_host->setMinimumWidth(UiScale::dp(320));
   m_host->setStyleSheet(QStringLiteral(
       "QWidget#StrukturHost {"
-      "  background: %1; border: 1px solid %2; border-radius: %3px;"
-      "}")
-                            .arg(BlopStyle::paperSurface().name(QColor::HexRgb),
-                                 BlopStyle::paperBorder().name(QColor::HexRgb),
-                                 QString::number(
-                                     UiScale::dp(BlopStyle::radiusLgDp()))));
+      "  background: #FFFFFF; border: none; border-radius: 0;"
+      "}"));
   m_blocksLay = new QVBoxLayout(m_host);
-  m_blocksLay->setContentsMargins(UiScale::dp(36), UiScale::dp(28),
-                                  UiScale::dp(36), UiScale::dp(40));
+  m_blocksLay->setContentsMargins(UiScale::dp(8), UiScale::dp(8),
+                                  UiScale::dp(8), UiScale::dp(24));
   m_blocksLay->setSpacing(UiScale::dp(4));
   m_blocksLay->addStretch(1);
   wrapLay->addWidget(m_host, 6);
