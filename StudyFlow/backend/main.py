@@ -910,21 +910,20 @@ def google_desktop_bridge(
 
     want_calendar = bool(calendar)
     safe_client = html.escape(client_id, quote=True)
-    js_state = json.dumps(state)
-    js_client = json.dumps(client_id)
-    js_want_cal = "true" if want_calendar else "false"
-    complete_url = json.dumps("/api/auth/google/desktop/complete")
+    # Full-page redirect (no GIS popup — the popup often looks like a blank/CMD window on Windows).
+    # Must be listed under the Web client's Authorized redirect URIs in Google Cloud Console:
+    #   https://www.blop-study.com/api/auth/google/desktop/gis-login
+    login_uri = html.escape(
+        f"https://www.blop-study.com/api/auth/google/desktop/gis-login?state={state}",
+        quote=True,
+    )
     title = "Google Calendar verbinden" if want_calendar else "Mit Google anmelden"
     hint = (
         "Melde dich an und erlaube den Kalender-Zugriff. Danach übernimmt Blop "
         "automatisch — dieses Fenster kannst du schließen."
         if want_calendar
-        else "Melde dich für Blop an. Danach kehrst du zur App zurück — dieses Fenster kannst du schließen."
-    )
-    ok_msg = (
-        "Kalender-Zugriff an Blop übermittelt."
-        if want_calendar
-        else "Anmeldung an Blop übermittelt."
+        else "Melde dich für Blop an. Der Login läuft im selben Browser-Tab "
+             "(kein Extra-Fenster). Danach kehrst du zur App zurück."
     )
 
     page = f"""<!DOCTYPE html>
@@ -950,8 +949,6 @@ def google_desktop_bridge(
     h1 {{ margin: 0 0 8px; font-size: 22px; letter-spacing: -0.02em; }}
     p {{ margin: 0 0 20px; color: #a8aec2; font-size: 14px; line-height: 1.45; }}
     #g_id_signin {{ display: flex; justify-content: center; }}
-    .err {{ display:none; margin-top: 14px; color: #ff8f8f; font-size: 13px; }}
-    .ok {{ display:none; margin-top: 14px; color: #9dffc9; font-size: 14px; }}
   </style>
 </head>
 <body>
@@ -961,8 +958,8 @@ def google_desktop_bridge(
     <div id="g_id_onload"
          data-client_id="{safe_client}"
          data-context="signin"
-         data-ux_mode="popup"
-         data-callback="blopDesktopGoogleCb"
+         data-ux_mode="redirect"
+         data-login_uri="{login_uri}"
          data-auto_prompt="false">
     </div>
     <div class="g_id_signin" id="g_id_signin"
@@ -973,103 +970,79 @@ def google_desktop_bridge(
          data-size="large"
          data-logo_alignment="center">
     </div>
-    <div class="err" id="err"></div>
-    <div class="ok" id="ok">{html.escape(ok_msg)}</div>
-    <a id="back" href="#"
-       style="display:none;margin-top:18px;padding:12px 18px;border-radius:12px;
-              background:#5B9DFF;color:#0b1020;font-weight:700;text-decoration:none;">
-      Zurück zu Blop öffnen
-    </a>
+  </div>
+</body>
+</html>"""
+    return HTMLResponse(content=page)
+
+
+@app.post("/api/auth/google/desktop/gis-login")
+async def google_desktop_gis_login(
+    state: str = Query(..., min_length=8, max_length=128),
+    credential: Optional[str] = Form(None),
+    g_csrf_token: Optional[str] = Form(None),
+):
+    """
+    GIS redirect-mode login_uri. Google POSTs the id_token here (no popup).
+    Qt keeps polling /claim with the same state.
+    """
+    import html as html_mod
+
+    _ = g_csrf_token  # present on GIS form posts; not required for our pending store
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", state or ""):
+        raise HTTPException(status_code=400, detail="Ungültiger state-Parameter")
+    cred = (credential or "").strip()
+    if not cred or cred.count(".") < 2:
+        raise HTTPException(status_code=400, detail="Ungültiges Google-Token")
+
+    now = time.time()
+    with _DESKTOP_GOOGLE_PENDING_LOCK:
+        _desktop_google_pending_purge(now)
+        _DESKTOP_GOOGLE_PENDING[state] = {"credential": cred, "ts": now}
+
+    blop_url = html_mod.escape(
+        f"blop://oauth/done?state={state}", quote=True
+    )
+    page = f"""<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Blop — Angemeldet</title>
+  <style>
+    body {{
+      margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+      font-family:Segoe UI,system-ui,sans-serif;
+      background:#0f1115; color:#e8e4ff;
+    }}
+    .card {{
+      width:min(420px,92vw); padding:28px 24px; border-radius:18px;
+      background:rgba(28,30,40,.92); border:1px solid rgba(255,255,255,.08);
+      text-align:center;
+    }}
+    a {{
+      display:inline-block; margin-top:18px; padding:12px 18px; border-radius:12px;
+      background:#5B9DFF; color:#0b1020; font-weight:700; text-decoration:none;
+    }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Anmeldung übermittelt</h1>
+    <p>Blop übernimmt automatisch. Falls nicht:</p>
+    <a href="{blop_url}">Zurück zu Blop öffnen</a>
   </div>
   <script>
-    const STATE = {js_state};
-    const CLIENT_ID = {js_client};
-    const WANT_CALENDAR = {js_want_cal};
-    const COMPLETE_URL = {complete_url};
-    const BLOP_URL = "blop://oauth/done?state=" + encodeURIComponent(STATE);
-    const CAL_SCOPES =
-      "https://www.googleapis.com/auth/calendar.readonly " +
-      "https://www.googleapis.com/auth/calendar.events";
-
-    function requestCalendarAccessToken() {{
-      return new Promise(function(resolve, reject) {{
-        if (!(window.google && google.accounts && google.accounts.oauth2)) {{
-          reject(new Error("Google OAuth-Skript noch nicht geladen — Seite neu laden"));
-          return;
-        }}
-        try {{
-          const client = google.accounts.oauth2.initTokenClient({{
-            client_id: CLIENT_ID,
-            scope: CAL_SCOPES,
-            callback: function(tokenResponse) {{
-              if (!tokenResponse) {{
-                reject(new Error("Kein Kalender-Token erhalten"));
-                return;
-              }}
-              if (tokenResponse.error) {{
-                reject(new Error(String(tokenResponse.error_description || tokenResponse.error)));
-                return;
-              }}
-              const tok = tokenResponse.access_token ? String(tokenResponse.access_token) : "";
-              if (!tok) {{
-                reject(new Error("Kalender-Zugriff abgelehnt oder leer"));
-                return;
-              }}
-              resolve(tok);
-            }},
-            error_callback: function(err) {{
-              const msg = (err && (err.message || err.type)) ? String(err.message || err.type)
-                          : "Kalender-Freigabe abgebrochen";
-              reject(new Error(msg));
-            }}
-          }});
-          client.requestAccessToken({{ prompt: "consent" }});
-        }} catch (e) {{
-          reject(e);
-        }}
-      }});
-    }}
-
-    async function blopDesktopGoogleCb(response) {{
-      try {{
-        const cred = (response && response.credential) ? String(response.credential) : "";
-        if (!cred) throw new Error("Kein Google-Token erhalten");
-        let accessToken = "";
-        if (WANT_CALENDAR) {{
-          const hint = document.getElementById("hint");
-          if (hint) hint.textContent = "Kalender-Berechtigung wird angefragt…";
-          accessToken = await requestCalendarAccessToken();
-        }}
-        const payload = {{ state: STATE, credential: cred }};
-        if (accessToken) payload.access_token = accessToken;
-        const res = await fetch(COMPLETE_URL, {{
-          method: "POST",
-          headers: {{ "Content-Type": "application/json" }},
-          body: JSON.stringify(payload)
-        }});
-        const data = await res.json().catch(() => ({{}}));
-        if (!res.ok) {{
-          throw new Error((data && data.detail) ? String(data.detail) : ("HTTP " + res.status));
-        }}
-        const btn = document.getElementById("g_id_signin");
-        if (btn) btn.style.display = "none";
-        const hint = document.getElementById("hint");
-        if (hint) hint.textContent = "Fertig — Blop übernimmt automatisch. Optional: Zurück zu Blop.";
-        document.getElementById("ok").style.display = "block";
-        document.getElementById("err").style.display = "none";
-        const back = document.getElementById("back");
-        if (back) {{
-          back.setAttribute("href", BLOP_URL);
-          back.style.display = "inline-block";
-        }}
-        // Do NOT auto-fire blop:// — the desktop app polls /claim every second.
-      }} catch (e) {{
-        const el = document.getElementById("err");
-        el.style.display = "block";
-        el.textContent = (e && e.message) ? e.message : "Google-Anmeldung fehlgeschlagen";
-      }}
-    }}
-    window.blopDesktopGoogleCb = blopDesktopGoogleCb;
+    try {{
+      setTimeout(function() {{
+        var a = document.createElement('a');
+        a.href = {json.dumps(f"blop://oauth/done?state={state}")};
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }}, 400);
+    }} catch (e) {{}}
   </script>
 </body>
 </html>"""

@@ -1,21 +1,18 @@
 "use client";
 
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import Script from "next/script";
 
 /**
  * Desktop Qt bridge: system browser opens this page (authorized GIS origin).
- * Credential is POSTed to the backend; then blop://oauth/done brings the app
- * back (Chrome blocks https→127.0.0.1 redirects).
+ * Uses GIS redirect (same tab) — popup mode looked like a blank/CMD window on Windows.
+ * Credential is POSTed to /api/auth/google/desktop/gis-login; Qt polls /claim.
  */
 function DesktopBridgeInner() {
   const params = useSearchParams();
   const state = params.get("state") || "";
   const wantCalendar = params.get("calendar") === "1";
-  const [error, setError] = useState("");
-  const [done, setDone] = useState(false);
-  const [hint, setHint] = useState("");
 
   const clientId =
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
@@ -23,92 +20,9 @@ function DesktopBridgeInner() {
 
   const valid = useMemo(() => /^[A-Za-z0-9_-]{8,128}$/.test(state), [state]);
 
-  const blopUrl = `blop://oauth/done?state=${encodeURIComponent(state)}`;
-
-  const openBlop = () => {
-    try {
-      const a = document.createElement("a");
-      a.href = blopUrl;
-      a.rel = "noopener";
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch {
-      /* ignore */
-    }
-  };
-
-  useEffect(() => {
-    if (!valid) {
-      setError("Ungültige Bridge-Parameter (state). Bitte in Blop erneut anmelden.");
-      return;
-    }
-    (window as any).blopDesktopGoogleCb = async (response: any) => {
-      try {
-        const cred = response?.credential ? String(response.credential) : "";
-        if (!cred) throw new Error("Kein Google-Token erhalten");
-        let accessToken = "";
-        if (wantCalendar) {
-          setHint("Kalender-Berechtigung wird angefragt…");
-          accessToken = await new Promise<string>((resolve, reject) => {
-            const g = (window as any).google;
-            if (!g?.accounts?.oauth2) {
-              reject(new Error("Google OAuth-Skript noch nicht geladen"));
-              return;
-            }
-            const client = g.accounts.oauth2.initTokenClient({
-              client_id: clientId,
-              scope:
-                "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
-              callback: (tokenResponse: any) => {
-                if (tokenResponse?.error) {
-                  reject(
-                    new Error(
-                      String(
-                        tokenResponse.error_description || tokenResponse.error
-                      )
-                    )
-                  );
-                  return;
-                }
-                const tok = tokenResponse?.access_token
-                  ? String(tokenResponse.access_token)
-                  : "";
-                if (!tok) reject(new Error("Kalender-Zugriff abgelehnt oder leer"));
-                else resolve(tok);
-              },
-              error_callback: (err: any) => {
-                reject(
-                  new Error(
-                    String(err?.message || err?.type || "Kalender-Freigabe abgebrochen")
-                  )
-                );
-              },
-            });
-            client.requestAccessToken({ prompt: "consent" });
-          });
-        }
-        const payload: Record<string, string> = { state, credential: cred };
-        if (accessToken) payload.access_token = accessToken;
-        const res = await fetch("/api/auth/google/desktop/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json().catch(() => ({} as any));
-        if (!res.ok) {
-          throw new Error(data?.detail ? String(data.detail) : `HTTP ${res.status}`);
-        }
-        setDone(true);
-        setError("");
-        setHint("");
-        // App polls /claim — optional focus only (no auto multi-fire).
-      } catch (e: any) {
-        setError(e?.message || "Google-Anmeldung fehlgeschlagen");
-      }
-    };
-  }, [valid, state, wantCalendar, clientId]);
+  const loginUri = `https://www.blop-study.com/api/auth/google/desktop/gis-login?state=${encodeURIComponent(
+    state
+  )}`;
 
   return (
     <div
@@ -138,23 +52,32 @@ function DesktopBridgeInner() {
         <h1 style={{ margin: "0 0 8px", fontSize: 22 }}>
           {wantCalendar ? "Google Calendar verbinden" : "Mit Google anmelden"}
         </h1>
-        <p style={{ margin: "0 0 20px", color: "#a8aec2", fontSize: 14, lineHeight: 1.45 }}>
-          {done
-            ? "Fertig — Blop übernimmt automatisch. Falls nicht, nutze den Button unten."
-            : hint ||
-              (wantCalendar
-                ? "Melde dich an und erlaube den Kalender-Zugriff."
-                : "Melde dich für Blop an. Danach springst du zurück in die App.")}
+        <p
+          style={{
+            margin: "0 0 20px",
+            color: "#a8aec2",
+            fontSize: 14,
+            lineHeight: 1.45,
+          }}
+        >
+          {!valid
+            ? "Ungültige Bridge-Parameter (state). Bitte in Blop erneut anmelden."
+            : wantCalendar
+              ? "Melde dich an und erlaube den Kalender-Zugriff."
+              : "Melde dich für Blop an. Der Login läuft im selben Browser-Tab (kein Extra-Fenster)."}
         </p>
-        {valid && !done ? (
+        {valid ? (
           <>
-            <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
+            <Script
+              src="https://accounts.google.com/gsi/client"
+              strategy="afterInteractive"
+            />
             <div
               id="g_id_onload"
               data-client_id={clientId}
               data-context="signin"
-              data-ux_mode="popup"
-              data-callback="blopDesktopGoogleCb"
+              data-ux_mode="redirect"
+              data-login_uri={loginUri}
               data-auto_prompt="false"
             />
             <div
@@ -169,32 +92,6 @@ function DesktopBridgeInner() {
             />
           </>
         ) : null}
-        {error ? (
-          <p style={{ marginTop: 14, color: "#ff8f8f", fontSize: 13 }}>{error}</p>
-        ) : null}
-        {done ? (
-          <a
-            href={blopUrl}
-            onClick={(e) => {
-              e.preventDefault();
-              openBlop();
-            }}
-            style={{
-              display: "inline-block",
-              marginTop: 14,
-              padding: "12px 18px",
-              borderRadius: 12,
-              border: "none",
-              background: "#5B9DFF",
-              color: "#0b1020",
-              fontWeight: 700,
-              textDecoration: "none",
-              cursor: "pointer",
-            }}
-          >
-            Zurück zu Blop öffnen
-          </a>
-        ) : null}
       </div>
     </div>
   );
@@ -204,7 +101,14 @@ export default function DesktopBridgePage() {
   return (
     <Suspense
       fallback={
-        <div style={{ minHeight: "100vh", background: "#0f1115", color: "#e8e4ff", padding: 40 }}>
+        <div
+          style={{
+            minHeight: "100vh",
+            background: "#0f1115",
+            color: "#e8e4ff",
+            padding: 40,
+          }}
+        >
           Lade…
         </div>
       }
