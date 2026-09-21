@@ -15,6 +15,7 @@ export default function AuthCheck({ children }: { children: React.ReactNode }) {
             pathname === '/pricing' ||
             pathname === '/datenschutz' ||
             pathname === '/auth/reset-password' ||
+            pathname === '/auth/desktop-bridge' ||
             pathname === '/marketing' ||
             pathname.startsWith('/marketing/')
         )

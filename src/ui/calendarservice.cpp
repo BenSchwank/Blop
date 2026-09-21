@@ -302,7 +302,15 @@ void CalendarService::refreshGoogle() {
     reply->deleteLater();
     nam->deleteLater();
     if (reply->error() != QNetworkReply::NoError) {
-      emit googleSyncFailed(reply->errorString());
+      const int status =
+          reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+      if (status == 401) {
+        GoogleAuthManager::instance().clearCalendarAccess();
+        emit googleSyncFailed(
+            QStringLiteral("Google-Token abgelaufen — bitte erneut verbinden"));
+      } else {
+        emit googleSyncFailed(reply->errorString());
+      }
       return;
     }
     const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());

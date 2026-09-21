@@ -174,7 +174,7 @@ export default function PricingPage() {
                                 Status neu laden
                             </button>
                             <button
-                                onClick={() => router.push('/login?reason=session-expired')}
+                                onClick={() => router.push('/login?reason=reauth')}
                                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2A2A40] text-white text-sm font-medium hover:bg-[#333]"
                             >
                                 <LogIn size={16} />

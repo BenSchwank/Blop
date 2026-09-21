@@ -315,12 +315,10 @@ void GoogleAuthManager::login() {
 #ifdef Q_OS_ANDROID
   startPkceLogin();
 #else
-  // Calendar needs a real OAuth access_token; GIS bridge on production only
-  // returns an id_token until the calendar=1 deploy is live.
-  if (m_wantCalendar)
-    startDesktopCalendarPkceLogin();
-  else
-    startDesktopBridgeLogin();
+  // Desktop sign-in uses the Desktop OAuth client + loopback PKCE (same path as
+  // Calendar). GIS redirect on the Web client needs a Console redirect URI that
+  // was repeatedly mismatching; loopback is the supported desktop flow.
+  startDesktopPkceLogin();
 #endif
 }
 
@@ -337,6 +335,7 @@ QString GoogleAuthManager::accessToken() const { return m_accessToken; }
 
 void GoogleAuthManager::clearCalendarAccess() {
   persistAccessToken(QString());
+  persistRefreshToken(QString());
 }
 
 void GoogleAuthManager::persistAccessToken(const QString &token) {
@@ -347,6 +346,19 @@ void GoogleAuthManager::persistAccessToken(const QString &token) {
   else
     st.setValue(QStringLiteral("google/access_token"), token);
   emit calendarTokenUpdated();
+}
+
+void GoogleAuthManager::persistRefreshToken(const QString &token) {
+  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  if (token.isEmpty())
+    st.remove(QStringLiteral("google/refresh_token"));
+  else
+    st.setValue(QStringLiteral("google/refresh_token"), token);
+}
+
+QString GoogleAuthManager::refreshToken() const {
+  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  return st.value(QStringLiteral("google/refresh_token")).toString();
 }
 
 void GoogleAuthManager::loadPersistedAccessToken() {
@@ -706,7 +718,7 @@ void GoogleAuthManager::stopDesktopBridgeTimers() {
     m_bridgePoll->stop();
 }
 
-void GoogleAuthManager::startDesktopCalendarPkceLogin() {
+void GoogleAuthManager::startDesktopPkceLogin() {
   const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
   if (m_loginInProgress) {
     const qint64 ageMs = nowMs - m_loginInProgressSinceMs;
@@ -727,6 +739,7 @@ void GoogleAuthManager::startDesktopCalendarPkceLogin() {
 
   m_loopbackServer = new QTcpServer(this);
   // Fixed registered loopback port only — Google rejects ephemeral ports.
+  // Desktop OAuth client must list: http://127.0.0.1:27183/
   if (!m_loopbackServer->listen(QHostAddress(QStringLiteral("127.0.0.1")),
                                 kDesktopCalendarLoopbackPort)) {
     qWarning() << "GoogleAuthManager: loopback listen failed on"
@@ -753,35 +766,39 @@ void GoogleAuthManager::startDesktopCalendarPkceLogin() {
   if (m_bridgeTimeout)
     m_bridgeTimeout->start(10 * 60 * 1000); // allow slow Google consent / 2FA
 
-  // Avoid duplicate slots if login is retried without a full process restart.
   disconnect(m_loopbackServer, &QTcpServer::newConnection, this,
              &GoogleAuthManager::onDesktopLoopbackConnection);
   connect(m_loopbackServer, &QTcpServer::newConnection, this,
           &GoogleAuthManager::onDesktopLoopbackConnection);
+
+  QString scopes = QStringLiteral("openid email profile");
+  if (m_wantCalendar) {
+    scopes += QStringLiteral(
+        " https://www.googleapis.com/auth/calendar.readonly"
+        " https://www.googleapis.com/auth/calendar.events");
+  }
 
   QUrl authUrl(QString::fromLatin1(kGoogleAuthEndpoint));
   QUrlQuery q;
   q.addQueryItem(QStringLiteral("response_type"), QStringLiteral("code"));
   q.addQueryItem(QStringLiteral("client_id"), m_clientId);
   q.addQueryItem(QStringLiteral("redirect_uri"), m_redirectUri);
-  q.addQueryItem(
-      QStringLiteral("scope"),
-      QStringLiteral(
-          "openid email profile "
-          "https://www.googleapis.com/auth/calendar.readonly "
-          "https://www.googleapis.com/auth/calendar.events"));
-  q.addQueryItem(QStringLiteral("access_type"), QStringLiteral("offline"));
-  q.addQueryItem(QStringLiteral("prompt"), QStringLiteral("consent"));
+  q.addQueryItem(QStringLiteral("scope"), scopes);
+  if (m_wantCalendar) {
+    q.addQueryItem(QStringLiteral("access_type"), QStringLiteral("offline"));
+    q.addQueryItem(QStringLiteral("prompt"), QStringLiteral("consent"));
+  } else {
+    q.addQueryItem(QStringLiteral("prompt"), QStringLiteral("select_account"));
+  }
   q.addQueryItem(QStringLiteral("code_challenge"), codeChallenge);
   q.addQueryItem(QStringLiteral("code_challenge_method"), QStringLiteral("S256"));
   q.addQueryItem(QStringLiteral("state"), m_pkceState);
   authUrl.setQuery(q);
 
-  qInfo() << "GoogleAuthManager: opening desktop Calendar PKCE"
+  qInfo() << "GoogleAuthManager: opening desktop PKCE"
+          << "calendar=" << m_wantCalendar
           << "listening=" << m_loopbackServer->isListening()
-          << "redirect=" << m_redirectUri
-          << "(Chrome must open this exact host:port — keep Blop running,"
-             " prefer Run without debugger)";
+          << "redirect=" << m_redirectUri;
   emit requireBrowser(authUrl);
 }
 
@@ -888,7 +905,9 @@ void GoogleAuthManager::exchangeDesktopAuthorizationCode(const QString &code) {
   const QString redirect = m_redirectUri;
   const QString clientId = m_clientId;
 
-  auto finishOk = [this](const QString &accessToken, const QString &idToken) {
+  auto finishOk = [this](const QString &accessToken, const QString &idToken,
+                         const QString &refreshTok) {
+    const bool forCalendar = m_wantCalendar;
     stopDesktopBridgeTimers();
     m_desktopPkceActive = false;
     m_loginInProgress = false;
@@ -897,20 +916,29 @@ void GoogleAuthManager::exchangeDesktopAuthorizationCode(const QString &code) {
     m_pkceVerifier.clear();
     m_pkceState.clear();
 
-    if (accessToken.isEmpty()) {
-      emit authenticationFailed(QStringLiteral("token_exchange_no_access_token"));
-      return;
-    }
-    persistAccessToken(accessToken);
-    qInfo() << "GoogleAuthManager: desktop Calendar OAuth got access_token";
+    if (!refreshTok.isEmpty())
+      persistRefreshToken(refreshTok);
+    if (!accessToken.isEmpty())
+      persistAccessToken(accessToken);
+
     if (!idToken.isEmpty()) {
+      qInfo() << "GoogleAuthManager: desktop PKCE got id_token"
+              << "calendarAccess=" << !accessToken.isEmpty();
       parseUserInfoFromIdToken(idToken);
       m_authenticated = true;
       emit idTokenReceived(idToken);
       emit authenticated();
-    } else {
-      emit calendarTokenUpdated();
+      return;
     }
+    if (forCalendar && !accessToken.isEmpty()) {
+      qInfo() << "GoogleAuthManager: desktop Calendar OAuth got access_token"
+                 " (no id_token)";
+      emit calendarTokenUpdated();
+      return;
+    }
+    emit authenticationFailed(accessToken.isEmpty()
+                                  ? QStringLiteral("token_exchange_no_access_token")
+                                  : QStringLiteral("token_exchange_no_id_token"));
   };
 
   auto finishFail = [this](const QString &reason, const QByteArray &raw) {
@@ -956,7 +984,8 @@ void GoogleAuthManager::exchangeDesktopAuthorizationCode(const QString &code) {
                 const QJsonObject obj =
                     QJsonDocument::fromJson(raw).object();
                 finishOk(obj.value(QStringLiteral("access_token")).toString(),
-                         obj.value(QStringLiteral("id_token")).toString());
+                         obj.value(QStringLiteral("id_token")).toString(),
+                         obj.value(QStringLiteral("refresh_token")).toString());
                 return;
               }
 
@@ -1010,7 +1039,8 @@ void GoogleAuthManager::exchangeDesktopAuthorizationCode(const QString &code) {
                             QJsonDocument::fromJson(traw).object();
                         finishOk(
                             obj.value(QStringLiteral("access_token")).toString(),
-                            obj.value(QStringLiteral("id_token")).toString());
+                            obj.value(QStringLiteral("id_token")).toString(),
+                            obj.value(QStringLiteral("refresh_token")).toString());
                       });
             });
   }

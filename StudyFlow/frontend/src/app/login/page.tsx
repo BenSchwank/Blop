@@ -45,6 +45,9 @@ export default function LoginPage() {
             localStorage.removeItem('username');
             localStorage.removeItem('is_admin');
             setError('Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.');
+        } else if (reason === 'reauth') {
+            // Soft reauth from pricing: keep session until user completes login.
+            setError('Bitte melde dich erneut an, um den Abo-Status zu aktualisieren.');
         } else if (hasSession && !loginParams.get('native')) {
             // Already signed in — bounce back to the app instead of destroying the session.
             router.replace('/');

@@ -73,6 +73,8 @@ private:
 
     void parseUserInfoFromIdToken(const QString &idToken);
     void persistAccessToken(const QString &token);
+    void persistRefreshToken(const QString &token);
+    QString refreshToken() const;
     void loadPersistedAccessToken();
 
 #ifdef Q_OS_ANDROID
@@ -96,10 +98,10 @@ private:
     /// Serial for resume-grace timers so a late deep link wins over abandon.
     int m_authResumeGeneration{0};
 #else
-    /// Sign-in only: GIS bridge on www.blop-study.com (id_token via /claim).
+    /// Desktop OAuth client + fixed loopback PKCE (sign-in and/or Calendar).
+    void startDesktopPkceLogin();
+    /// Legacy GIS bridge (kept for deep-link resume of older in-flight logins).
     void startDesktopBridgeLogin();
-    /// Calendar: Desktop OAuth client + fixed loopback PKCE → access_token.
-    void startDesktopCalendarPkceLogin();
     void stopDesktopLoopbackServer();
     void onDesktopLoopbackConnection();
     void exchangeDesktopAuthorizationCode(const QString &code);
