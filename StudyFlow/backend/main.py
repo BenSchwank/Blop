@@ -897,7 +897,8 @@ def google_desktop_bridge(
     """
     import html
 
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", state or ""):
+    # Qt generateRandomString uses RFC 7636 unreserved (incl. . and ~).
+    if not re.fullmatch(r"[A-Za-z0-9\-._~]+", state or ""):
         raise HTTPException(status_code=400, detail="Ungültiger state-Parameter")
 
     client_id = (
@@ -989,7 +990,7 @@ async def google_desktop_gis_login(
     import html as html_mod
 
     _ = g_csrf_token  # present on GIS form posts; not required for our pending store
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", state or ""):
+    if not re.fullmatch(r"[A-Za-z0-9\-._~]+", state or ""):
         raise HTTPException(status_code=400, detail="Ungültiger state-Parameter")
     cred = (credential or "").strip()
     if not cred or cred.count(".") < 2:
@@ -1055,7 +1056,7 @@ def google_desktop_complete(req: GoogleDesktopCompleteRequest):
     state = (req.state or "").strip()
     credential = (req.credential or "").strip()
     access_token = (req.access_token or "").strip()
-    if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", state):
+    if not re.fullmatch(r"[A-Za-z0-9\-._~]{8,128}", state):
         raise HTTPException(status_code=400, detail="Ungültiger state")
     if not credential or credential.count(".") < 2:
         raise HTTPException(status_code=400, detail="Ungültiges Google-Token")
@@ -1074,7 +1075,7 @@ def google_desktop_complete(req: GoogleDesktopCompleteRequest):
 @app.get("/api/auth/google/desktop/claim")
 def google_desktop_claim(state: str = Query(..., min_length=8, max_length=128)):
     """Desktop app polls until the browser has posted a credential for state."""
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", state or ""):
+    if not re.fullmatch(r"[A-Za-z0-9\-._~]+", state or ""):
         raise HTTPException(status_code=400, detail="Ungültiger state")
     now = time.time()
     with _DESKTOP_GOOGLE_PENDING_LOCK:

@@ -18,7 +18,8 @@ function DesktopBridgeInner() {
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
     "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com";
 
-  const valid = useMemo(() => /^[A-Za-z0-9_-]{8,128}$/.test(state), [state]);
+  // Match Qt generateRandomString (RFC 7636 unreserved: A-Za-z0-9-._~).
+  const valid = useMemo(() => /^[A-Za-z0-9\-._~]{8,128}$/.test(state), [state]);
 
   const loginUri = `https://www.blop-study.com/api/auth/google/desktop/gis-login?state=${encodeURIComponent(
     state
