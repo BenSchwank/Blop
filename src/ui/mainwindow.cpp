@@ -261,7 +261,7 @@ static const int FONT_SIZE_HEADER = 18;
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
 /// Embedded Blop Study base URL (Android QML appends "/?native=1" for embedded entry).
-static const QString kBlopStudyUrl(QStringLiteral("https://blop-study.com"));
+static const QString kBlopStudyUrl(QStringLiteral("https://www.blop-study.com"));
 
 /// Display name the Study SPA uses for anonymous shells. Must not unlock Notes.
 static bool isPlaceholderStudyUser(const QString &username) {
@@ -3200,7 +3200,7 @@ void MainWindow::ensureAndroidNativeLoginGate() {
       "QPushButton:pressed { color: #5B9DFF; }")
                                                   .arg(mutedHex));
   connect(m_androidNativeLoginForgotBtn, &QPushButton::clicked, this, [this]() {
-    showAuthOverlay(QUrl(QStringLiteral("https://blop-study.com/login")));
+    showAuthOverlay(QUrl(QStringLiteral("https://www.blop-study.com/login")));
   });
   lay->addWidget(m_androidNativeLoginForgotBtn, 0, Qt::AlignHCenter);
 

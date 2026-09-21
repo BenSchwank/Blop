@@ -96,9 +96,9 @@ private:
     /// Serial for resume-grace timers so a late deep link wins over abandon.
     int m_authResumeGeneration{0};
 #else
-    /// Sign-in only: GIS bridge on blop-study.com (id_token via /claim).
+    /// Sign-in only: GIS bridge on www.blop-study.com (id_token via /claim).
     void startDesktopBridgeLogin();
-    /// Calendar: Desktop OAuth client + loopback PKCE → access_token.
+    /// Calendar: Desktop OAuth client + fixed loopback PKCE → access_token.
     void startDesktopCalendarPkceLogin();
     void stopDesktopLoopbackServer();
     void onDesktopLoopbackConnection();

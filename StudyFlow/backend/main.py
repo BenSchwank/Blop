@@ -2248,7 +2248,7 @@ def create_share_link(http_request: Request, body: CreateShareLinkRequest, sessi
             "status": "success",
             "share_link": created,
             "token": token,
-            "url": f"https://blop-study.com/share/{token}",
+            "url": f"https://www.blop-study.com/share/{token}",
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

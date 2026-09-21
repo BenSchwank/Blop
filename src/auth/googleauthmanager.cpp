@@ -134,7 +134,7 @@ Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthAbandoned(
   GoogleAuthManager::instance().handleExternalAuthAbandoned(s);
 }
 #else
-// Render-hosted GIS bridge on the authorized blop-study.com origin (sign-in).
+// Render-hosted GIS bridge on the authorized www.blop-study.com origin (sign-in).
 constexpr const char *kDesktopBridgeUrl =
     "https://www.blop-study.com/api/auth/google/desktop/bridge";
 constexpr const char *kDesktopClaimUrl =
@@ -146,6 +146,49 @@ constexpr const char *kDesktopExchangeUrl =
 // (or BLOP_GOOGLE_CLIENT_SECRET for local/dev).
 constexpr const char *kDesktopOAuthClientId =
     "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com";
+// Must match a registered Desktop OAuth redirect URI — never fall back to a
+// random ephemeral port (Google rejects unregistered loopback URIs).
+constexpr quint16 kDesktopCalendarLoopbackPort = 27183;
+constexpr const char *kBridgeOrg = "Blop";
+constexpr const char *kBridgeApp = "BlopApp";
+constexpr const char *kKeyBridgeState = "oauth/desktop_bridge_state";
+constexpr const char *kKeyBridgeStartedMs = "oauth/desktop_bridge_started_ms";
+
+void persistDesktopBridgeState(const QString &state) {
+  QSettings s(QString::fromLatin1(kBridgeOrg), QString::fromLatin1(kBridgeApp));
+  s.setValue(QString::fromLatin1(kKeyBridgeState), state);
+  s.setValue(QString::fromLatin1(kKeyBridgeStartedMs),
+             QDateTime::currentMSecsSinceEpoch());
+  s.sync();
+}
+
+void clearPersistedDesktopBridgeState() {
+  QSettings s(QString::fromLatin1(kBridgeOrg), QString::fromLatin1(kBridgeApp));
+  s.remove(QString::fromLatin1(kKeyBridgeState));
+  s.remove(QString::fromLatin1(kKeyBridgeStartedMs));
+  s.sync();
+}
+
+bool restorePersistedDesktopBridgeState(QString *state, qint64 *startedMs) {
+  if (!state)
+    return false;
+  QSettings s(QString::fromLatin1(kBridgeOrg), QString::fromLatin1(kBridgeApp));
+  const QString st = s.value(QString::fromLatin1(kKeyBridgeState)).toString();
+  const qint64 started =
+      s.value(QString::fromLatin1(kKeyBridgeStartedMs), 0).toLongLong();
+  if (st.isEmpty() || started <= 0)
+    return false;
+  // Align with bridge poll timeout (5 min) + small grace for cold start.
+  if (QDateTime::currentMSecsSinceEpoch() - started > 8 * 60 * 1000) {
+    clearPersistedDesktopBridgeState();
+    return false;
+  }
+  *state = st;
+  if (startedMs)
+    *startedMs = started;
+  return true;
+}
+
 constexpr const char *kGoogleAuthEndpoint =
     "https://accounts.google.com/o/oauth2/v2/auth";
 constexpr const char *kGoogleTokenEndpoint =
@@ -248,6 +291,22 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
   m_bridgePoll->setInterval(1000);
   connect(m_bridgePoll, &QTimer::timeout, this,
           &GoogleAuthManager::pollDesktopClaim);
+
+  // Resume an in-flight GIS bridge after process death (deep link / claim poll).
+  QString restoredState;
+  qint64 restoredStarted = 0;
+  if (restorePersistedDesktopBridgeState(&restoredState, &restoredStarted)) {
+    m_bridgeState = restoredState;
+    m_loginInProgress = true;
+    m_loginInProgressSinceMs = restoredStarted;
+    m_desktopPkceActive = false;
+    m_bridgeTimeout->start(
+        qMax(qint64(30 * 1000),
+             5 * 60 * 1000 -
+                 (QDateTime::currentMSecsSinceEpoch() - restoredStarted)));
+    m_bridgePoll->start();
+    qInfo() << "GoogleAuthManager: restored desktop bridge state after restart";
+  }
 #endif
   loadPersistedAccessToken();
 }
@@ -631,6 +690,7 @@ void GoogleAuthManager::cancelPendingLogin() {
   m_loginInProgress = false;
   m_loginInProgressSinceMs = 0;
   m_bridgeState.clear();
+  clearPersistedDesktopBridgeState();
   m_claimInFlight = false;
   m_desktopPkceActive = false;
   m_pkceVerifier.clear();
@@ -663,15 +723,14 @@ void GoogleAuthManager::startDesktopCalendarPkceLogin() {
   stopDesktopLoopbackServer();
   m_claimInFlight = false;
   m_bridgeState.clear();
+  clearPersistedDesktopBridgeState();
 
   m_loopbackServer = new QTcpServer(this);
-  // Prefer a stable loopback port (easier to match Chrome's address bar / firewall).
-  // Fall back to an ephemeral port if busy.
-  constexpr quint16 kPreferredPort = 27183;
+  // Fixed registered loopback port only — Google rejects ephemeral ports.
   if (!m_loopbackServer->listen(QHostAddress(QStringLiteral("127.0.0.1")),
-                                kPreferredPort) &&
-      !m_loopbackServer->listen(QHostAddress(QStringLiteral("127.0.0.1")), 0)) {
-    qWarning() << "GoogleAuthManager: loopback listen failed"
+                                kDesktopCalendarLoopbackPort)) {
+    qWarning() << "GoogleAuthManager: loopback listen failed on"
+               << kDesktopCalendarLoopbackPort
                << m_loopbackServer->errorString();
     stopDesktopLoopbackServer();
     m_wantCalendar = false;
@@ -973,6 +1032,7 @@ void GoogleAuthManager::startDesktopBridgeLogin() {
   stopDesktopLoopbackServer();
   m_desktopPkceActive = false;
   m_bridgeState = generateRandomString(32);
+  persistDesktopBridgeState(m_bridgeState);
   stopDesktopBridgeTimers();
   m_claimInFlight = false;
   m_loginInProgress = true;
@@ -1033,9 +1093,24 @@ void GoogleAuthManager::handleDesktopOAuthDeepLink(const QUrl &url) {
 
   qInfo() << "GoogleAuthManager: desktop OAuth deep link state=" << state;
 
-  if (!m_loginInProgress) {
-    qInfo() << "GoogleAuthManager: deep link ignored (no login in progress)";
-    return;
+  // Cold start / process death: restore persisted bridge state and resume.
+  if (!m_loginInProgress || m_bridgeState.isEmpty()) {
+    QString restored;
+    qint64 restoredStarted = 0;
+    if (restorePersistedDesktopBridgeState(&restored, &restoredStarted) &&
+        restored == state) {
+      m_bridgeState = restored;
+      m_loginInProgress = true;
+      m_loginInProgressSinceMs = restoredStarted;
+      m_desktopPkceActive = false;
+      if (m_bridgeTimeout && !m_bridgeTimeout->isActive())
+        m_bridgeTimeout->start(2 * 60 * 1000);
+      qInfo() << "GoogleAuthManager: resumed desktop bridge from deep link"
+                 " after restore";
+    } else if (!m_loginInProgress) {
+      qInfo() << "GoogleAuthManager: deep link ignored (no login in progress)";
+      return;
+    }
   }
   if (!m_bridgeState.isEmpty() && m_bridgeState != state) {
     qWarning() << "GoogleAuthManager: deep-link state mismatch with in-flight — ignoring";
@@ -1131,6 +1206,7 @@ void GoogleAuthManager::finishDesktopBridge(const QString &idToken,
   m_loginInProgress = false;
   m_loginInProgressSinceMs = 0;
   m_bridgeState.clear();
+  clearPersistedDesktopBridgeState();
   m_claimInFlight = false;
   m_wantCalendar = false;
 
