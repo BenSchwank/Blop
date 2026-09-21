@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useMemo } from "react";
+import React, { Suspense, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import Script from "next/script";
 
@@ -8,6 +8,9 @@ import Script from "next/script";
  * Desktop Qt bridge: system browser opens this page (authorized GIS origin).
  * Uses GIS redirect (same tab) — popup mode looked like a blank/CMD window on Windows.
  * Credential is POSTed to /api/auth/google/desktop/gis-login; Qt polls /claim.
+ *
+ * login_uri must be an exact Authorized redirect URI (no query). Handoff id is
+ * stored in cookie blop_desktop_bridge (SameSite=None for Google's cross-site POST).
  */
 function DesktopBridgeInner() {
   const params = useSearchParams();
@@ -21,10 +24,20 @@ function DesktopBridgeInner() {
   // Match Qt generateRandomString (RFC 7636 unreserved: A-Za-z0-9-._~).
   const valid = useMemo(() => /^[A-Za-z0-9\-._~]{8,128}$/.test(state), [state]);
 
-  // Google forbids reserved OAuth names (state, code, …) on GIS login_uri.
-  const loginUri = `https://www.blop-study.com/api/auth/google/desktop/gis-login?bridge=${encodeURIComponent(
-    state
-  )}`;
+  const loginUri =
+    "https://www.blop-study.com/api/auth/google/desktop/gis-login";
+
+  useEffect(() => {
+    if (!valid) return;
+    try {
+      document.cookie =
+        "blop_desktop_bridge=" +
+        encodeURIComponent(state) +
+        "; Max-Age=600; Path=/api/auth/google/desktop; Secure; SameSite=None";
+    } catch {
+      /* ignore */
+    }
+  }, [valid, state]);
 
   return (
     <div
@@ -106,12 +119,15 @@ export default function DesktopBridgePage() {
         <div
           style={{
             minHeight: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             background: "#0f1115",
-            color: "#e8e4ff",
-            padding: 40,
+            color: "#a8aec2",
+            fontFamily: "Segoe UI, system-ui, sans-serif",
           }}
         >
-          Lade…
+          Laden…
         </div>
       }
     >

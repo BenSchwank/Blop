@@ -912,14 +912,15 @@ def google_desktop_bridge(
     want_calendar = bool(calendar)
     safe_client = html.escape(client_id, quote=True)
     # Full-page redirect (no GIS popup — the popup often looks like a blank/CMD window on Windows).
-    # Must be listed under the Web client's Authorized redirect URIs in Google Cloud Console:
+    # Authorized redirect URI in Google Cloud Console must be EXACTLY (no query):
     #   https://www.blop-study.com/api/auth/google/desktop/gis-login
-    # Do NOT put OAuth reserved query names (state, code, scope, …) on login_uri —
-    # Google returns "Invalid redirect_uri contains reserved response param state".
+    # Dynamic ?bridge=… causes redirect_uri_mismatch; reserved ?state=… is rejected by Google.
+    # Handoff id rides in a SameSite=None cookie set by this page (and read by gis-login).
     login_uri = html.escape(
-        f"https://www.blop-study.com/api/auth/google/desktop/gis-login?bridge={state}",
+        "https://www.blop-study.com/api/auth/google/desktop/gis-login",
         quote=True,
     )
+    safe_state_js = json.dumps(state)
     title = "Google Calendar verbinden" if want_calendar else "Mit Google anmelden"
     hint = (
         "Melde dich an und erlaube den Kalender-Zugriff. Danach übernimmt Blop "
@@ -936,6 +937,13 @@ def google_desktop_bridge(
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Blop — {html.escape(title)}</title>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>
+    // Cross-site GIS POST from accounts.google.com needs SameSite=None.
+    try {{
+      document.cookie = "blop_desktop_bridge=" + encodeURIComponent({safe_state_js})
+        + "; Max-Age=600; Path=/api/auth/google/desktop; Secure; SameSite=None";
+    }} catch (e) {{}}
+  </script>
   <style>
     :root {{ color-scheme: dark; }}
     body {{
@@ -976,26 +984,40 @@ def google_desktop_bridge(
   </div>
 </body>
 </html>"""
-    return HTMLResponse(content=page)
+    resp = HTMLResponse(content=page)
+    resp.set_cookie(
+        key="blop_desktop_bridge",
+        value=state,
+        max_age=600,
+        httponly=False,  # JS also sets SameSite=None; keep readable for debugging
+        secure=True,
+        samesite="none",
+        path="/api/auth/google/desktop",
+    )
+    return resp
 
 
 @app.post("/api/auth/google/desktop/gis-login")
 async def google_desktop_gis_login(
-    bridge: str = Query(..., min_length=8, max_length=128, description="Desktop handoff id (not OAuth 'state')"),
+    request: Request,
     credential: Optional[str] = Form(None),
     g_csrf_token: Optional[str] = Form(None),
+    bridge: Optional[str] = Query(None, min_length=8, max_length=128),
 ):
     """
-    GIS redirect-mode login_uri. Google POSTs the id_token here (no popup).
-    Qt keeps polling /claim with the same bridge id (stored as pending state).
-    Query name is `bridge` because Google forbids reserved param `state` on login_uri.
+    GIS redirect-mode login_uri (no query params — exact Console match).
+    Bridge handoff id comes from cookie `blop_desktop_bridge` (set by /bridge).
+    Qt keeps polling /claim with the same id.
     """
     import html as html_mod
 
     _ = g_csrf_token  # present on GIS form posts; not required for our pending store
-    state = (bridge or "").strip()
+    state = (request.cookies.get("blop_desktop_bridge") or bridge or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9\-._~]+", state or ""):
-        raise HTTPException(status_code=400, detail="Ungültiger state-Parameter")
+        raise HTTPException(
+            status_code=400,
+            detail="Ungültiger oder fehlender Bridge-Cookie — bitte in Blop erneut anmelden",
+        )
     cred = (credential or "").strip()
     if not cred or cred.count(".") < 2:
         raise HTTPException(status_code=400, detail="Ungültiges Google-Token")
@@ -1039,6 +1061,7 @@ async def google_desktop_gis_login(
   </div>
   <script>
     try {{
+      document.cookie = "blop_desktop_bridge=; Max-Age=0; Path=/api/auth/google/desktop; Secure; SameSite=None";
       setTimeout(function() {{
         var a = document.createElement('a');
         a.href = {json.dumps(f"blop://oauth/done?state={state}")};
@@ -1051,7 +1074,14 @@ async def google_desktop_gis_login(
   </script>
 </body>
 </html>"""
-    return HTMLResponse(content=page)
+    resp = HTMLResponse(content=page)
+    resp.delete_cookie(
+        key="blop_desktop_bridge",
+        path="/api/auth/google/desktop",
+        secure=True,
+        samesite="none",
+    )
+    return resp
 
 
 @app.post("/api/auth/google/desktop/complete")
