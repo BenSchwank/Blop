@@ -914,8 +914,10 @@ def google_desktop_bridge(
     # Full-page redirect (no GIS popup — the popup often looks like a blank/CMD window on Windows).
     # Must be listed under the Web client's Authorized redirect URIs in Google Cloud Console:
     #   https://www.blop-study.com/api/auth/google/desktop/gis-login
+    # Do NOT put OAuth reserved query names (state, code, scope, …) on login_uri —
+    # Google returns "Invalid redirect_uri contains reserved response param state".
     login_uri = html.escape(
-        f"https://www.blop-study.com/api/auth/google/desktop/gis-login?state={state}",
+        f"https://www.blop-study.com/api/auth/google/desktop/gis-login?bridge={state}",
         quote=True,
     )
     title = "Google Calendar verbinden" if want_calendar else "Mit Google anmelden"
@@ -979,17 +981,19 @@ def google_desktop_bridge(
 
 @app.post("/api/auth/google/desktop/gis-login")
 async def google_desktop_gis_login(
-    state: str = Query(..., min_length=8, max_length=128),
+    bridge: str = Query(..., min_length=8, max_length=128, description="Desktop handoff id (not OAuth 'state')"),
     credential: Optional[str] = Form(None),
     g_csrf_token: Optional[str] = Form(None),
 ):
     """
     GIS redirect-mode login_uri. Google POSTs the id_token here (no popup).
-    Qt keeps polling /claim with the same state.
+    Qt keeps polling /claim with the same bridge id (stored as pending state).
+    Query name is `bridge` because Google forbids reserved param `state` on login_uri.
     """
     import html as html_mod
 
     _ = g_csrf_token  # present on GIS form posts; not required for our pending store
+    state = (bridge or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9\-._~]+", state or ""):
         raise HTTPException(status_code=400, detail="Ungültiger state-Parameter")
     cred = (credential or "").strip()

@@ -21,7 +21,8 @@ function DesktopBridgeInner() {
   // Match Qt generateRandomString (RFC 7636 unreserved: A-Za-z0-9-._~).
   const valid = useMemo(() => /^[A-Za-z0-9\-._~]{8,128}$/.test(state), [state]);
 
-  const loginUri = `https://www.blop-study.com/api/auth/google/desktop/gis-login?state=${encodeURIComponent(
+  // Google forbids reserved OAuth names (state, code, …) on GIS login_uri.
+  const loginUri = `https://www.blop-study.com/api/auth/google/desktop/gis-login?bridge=${encodeURIComponent(
     state
   )}`;
 
