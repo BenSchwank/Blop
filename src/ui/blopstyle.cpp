@@ -72,8 +72,9 @@ QColor paperBorder() { return QColor(0xE2, 0xE8, 0xF0); }
 QColor paperPrimaryLight() { return QColor(0xEF, 0xF6, 0xFF); }
 QColor paperHover() { return QColor(0xF1, 0xF5, 0xF9); }
 QColor lightModalBackdrop() { return QColor(15, 23, 42, 102); } // 0.4 alpha
-// Dark shell anchored on library sidebar (obsidianNav). Desk matches nav so
-// title bar / workspace are not a black hole under the chrome; sheets lift up.
+// Dark shell: sidebar (obsidianNav) stays the darkest anchor. Desktop library
+// content uses Notion paper (paperBgLibrary) for contrast; elevated sheets use
+// obsidianSheet.
 QColor obsidianBg() { return QColor(0x1A, 0x1D, 0x24); }
 QColor obsidianDesk() { return QColor(0x16, 0x18, 0x1E); }
 QColor obsidianNav() { return QColor(0x16, 0x18, 0x1E); }

@@ -362,9 +362,14 @@ static QColor libraryNavTint(const QString &iconKey) {
 }
 
 static QColor libraryPageBackground() {
-  // Notion paper (Light) / Obsidian desk (Dark) — same language on desktop + Android.
+  // Desktop K: Notion paper content pane vs Obsidian sidebar (always contrast).
+  // Android Dark keeps charcoal desk so the phone shell stays one surface.
+#ifndef Q_OS_ANDROID
+  return BlopStyle::paperBgLibrary();
+#else
   return BlopTheme::instance().isDark() ? BlopStyle::obsidianDesk()
                                         : BlopStyle::paperBgLibrary();
+#endif
 }
 
 namespace {
@@ -2211,7 +2216,8 @@ void MainWindow::applyThemeRefresh() {
         m_authNavigationLocked ? androidAuthSurfaceColor()
                                : libraryPageBackground();
 #else
-        BlopTheme::surfaceBackground();
+        // Desktop library/dashboard paper; editor overrides via NoteChrome paths.
+        libraryPageBackground();
 #endif
     m_centralContainer->setStyleSheet(
         QStringLiteral("QWidget#CentralContainer { background-color: %1; }")
@@ -4673,8 +4679,8 @@ void MainWindow::syncWindowsDwmChrome() {
     titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianNav()
                                              : NoteChrome::toolbarFill();
   } else if (notesMode || onDashboard) {
-    titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianNav()
-                                             : BlopStyle::paperBgLibrary();
+    // Match the library / dashboard content pane (Notion paper on desktop).
+    titleBg = libraryPageBackground();
   }
 
   BOOL dark = titleBg.lightness() < 148 ? TRUE : FALSE;
@@ -4986,13 +4992,19 @@ void MainWindow::applyTheme() {
   if (m_sidebarContainer)
     m_sidebarContainer->setStyleSheet(
         QStringLiteral(
-            "background-color: %1; border-right: 1px solid rgba(255,255,255,0.08);")
+            "QWidget#SidebarContainer {"
+            "  background-color: %1;"
+            "  border: none;"
+            // Single hairline only — a second border (strip / hard #1C1F27)
+            // produced the double-line seam against the content pane.
+            "  border-right: 1px solid rgba(255,255,255,0.10);"
+            "}")
             .arg(BlopStyle::obsidianNav().name(QColor::HexRgb)));
   if (m_sidebarStrip)
     m_sidebarStrip->setStyleSheet(
         QStringLiteral(
-            "background-color: %1; border-right: 1px solid rgba(255,255,255,0.08);")
-            .arg(BlopStyle::obsidianDesk().name(QColor::HexRgb)));
+            "background-color: %1; border: none;")
+            .arg(BlopStyle::obsidianNav().name(QColor::HexRgb)));
   if (m_navSidebar)
     m_navSidebar->setStyleSheet(
 #ifdef Q_OS_ANDROID
@@ -8816,8 +8828,14 @@ void MainWindow::setupSidebar() {
   const bool useShellRail = !UiScale::isAndroidPhoneUi(this);
 #else
   m_sidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
-  m_sidebarContainer->setStyleSheet(
-      QStringLiteral("background-color: #16181E; border-right: 1px solid #1C1F27;"));
+  m_sidebarContainer->setObjectName(QStringLiteral("SidebarContainer"));
+  m_sidebarContainer->setStyleSheet(QStringLiteral(
+      "QWidget#SidebarContainer {"
+      "  background-color: %1;"
+      "  border: none;"
+      "  border-right: 1px solid rgba(255,255,255,0.10);"
+      "}")
+          .arg(BlopStyle::obsidianNav().name(QColor::HexRgb)));
   const bool useShellRail = true;
 #endif
 
@@ -15603,10 +15621,10 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
       !authChrome && !noteChrome && (notesMode || onDashboard);
   const bool darkShell = BlopTheme::instance().isDark();
 
-  // Library / Dashboard title bar: light paper in Light mode, elevated dark
-  // gray in Dark mode (still contrasts with the page, never pure white).
-  const QColor libraryBarBg =
-      darkShell ? BlopStyle::obsidianNav() : BlopStyle::paperBgLibrary();
+  // Library / Dashboard title bar: same surface as the content pane.
+  // Desktop K = Notion paper (contrasts Obsidian sidebar). Android follows theme.
+#ifdef Q_OS_ANDROID
+  const QColor libraryBarBg = libraryPageBackground();
   const QColor libraryInk =
       darkShell ? BlopTheme::textPrimary() : BlopStyle::paperInk();
   const QColor libraryMuted =
@@ -15621,6 +15639,15 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   const QString librarySep =
       darkShell ? QStringLiteral("rgba(255,255,255,0.12)")
                 : QStringLiteral("rgba(55,53,47,0.14)");
+#else
+  const QColor libraryBarBg = libraryPageBackground();
+  const QColor libraryInk = BlopStyle::paperInk();
+  const QColor libraryMuted = BlopStyle::paperInkMuted();
+  const QColor libraryChip = BlopStyle::paperChipBg();
+  const QColor libraryChipHover = QColor(0xEB, 0xEA, 0xE6);
+  const QString libraryBorder = QStringLiteral("rgba(55,53,47,0.10)");
+  const QString librarySep = QStringLiteral("rgba(55,53,47,0.14)");
+#endif
 
   const QColor titleBg =
       authChrome ? BlopStyle::obsidianNav()

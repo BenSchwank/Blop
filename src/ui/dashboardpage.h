@@ -46,6 +46,12 @@ private:
   bool usePhoneDashboard() const;
   void applyDashboardDensity();
   void rebuildWidgets();
+  /// Reposition existing blocks from specs without destroying content (fast path).
+  void applyLayoutFromSpecs(const QVector<DashboardWidgetSpec> &specs,
+                            bool forceRebuildContent = false);
+  void ensureSpecsLoaded();
+  QVector<DashboardWidgetSpec> &specsMutable();
+  QVector<DashboardWidgetSpec> specsSnapshot() const;
   void rebuildEditBar();
   void rebuildPhoneEditFooter();
   void ensurePersistentHeader();
@@ -54,11 +60,14 @@ private:
   void toggleEditMode();
   void persistSpecs();
   void updateSpec(const QString &id,
-                  const std::function<void(DashboardWidgetSpec &)> &mutator);
+                  const std::function<void(DashboardWidgetSpec &)> &mutator,
+                  bool forceRebuildContent = false);
   enum class PushDir { Auto, East, West, South, North };
   void resolveOverlaps(QVector<DashboardWidgetSpec> &specs,
                        const QString &primaryId, PushDir dir) const;
-  void commitSpecs(QVector<DashboardWidgetSpec> specs);
+  void commitSpecs(QVector<DashboardWidgetSpec> specs,
+                   bool forceRebuildContent = false);
+  void cacheGestureGridEdges();
   int snapGridLineX(int hostX) const;
   int snapGridLineY(int hostY) const;
   void showBlocksMenu(QPushButton *anchor);
@@ -69,6 +78,7 @@ private:
   void gridRowEdges(QVector<int> &out) const;
   int gridRowUnit() const;
   int cellHeightForSpan(int rowSpan) const;
+  int cellWidthForSpan(int col, int colSpan) const;
   static int minRowSpanForBlock(const QString &id);
   void applyBlockCellSize(QWidget *block, int rowSpan) const;
   int snapRowFromY(int hostY) const;
@@ -116,6 +126,7 @@ private:
   QPushButton *m_btnBlocks{nullptr};
   bool m_headerBuilt{false};
   QTimer *m_clockTimer{nullptr};
+  QTimer *m_refreshDebounce{nullptr};
   QWidget *m_host{nullptr};
   QScrollArea *m_scroll{nullptr};
   QGridLayout *m_gridLay{nullptr};
@@ -139,6 +150,7 @@ private:
   int m_previewCol{0};
   int m_previewColSpan{6};
   int m_previewRowSpan{1};
+  int m_lastOverlayKey{-1};
   QPoint m_dragOffset;
   QPoint m_pressHostPos;
   QPoint m_dragOriginHost;
@@ -147,5 +159,9 @@ private:
   bool m_appFilterInstalled{false};
   int m_frozenScrollY{0};
   QMetaObject::Connection m_scrollFreezeConn;
+  QVector<DashboardWidgetSpec> m_specs;
+  bool m_specsLoaded{false};
+  QVector<int> m_gestureColEdges;
+  QVector<int> m_gestureRowEdges;
   class QDialog *m_calMaxDlg{nullptr};
 };

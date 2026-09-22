@@ -43,8 +43,10 @@
 #include <QTimer>
 #include <QtMath>
 #include <QApplication>
+#include <QHash>
 #include <QMetaObject>
 #include <QScrollBar>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 #include <QMap>
@@ -577,9 +579,6 @@ QPoint globalPosFromEvent(const QEvent *event) {
   }
 }
 
-QVector<DashboardWidgetSpec> currentSpecs() {
-  return DashboardLayoutStore::load();
-}
 } // namespace
 
 class DashSnapOverlay : public QWidget {
@@ -587,14 +586,19 @@ public:
   explicit DashSnapOverlay(QWidget *host) : QWidget(host) {
     setAttribute(Qt::WA_TransparentForMouseEvents, true);
     setAttribute(Qt::WA_TranslucentBackground, true);
+    setAttribute(Qt::WA_OpaquePaintEvent, false);
     hide();
   }
   void setGridLines(const QVector<int> &colX, const QVector<int> &rowY) {
+    if (m_colX == colX && m_rowY == rowY)
+      return;
     m_colX = colX;
     m_rowY = rowY;
     update();
   }
   void setHighlight(const QRect &r) {
+    if (m_highlight == r && isVisible())
+      return;
     m_highlight = r;
     show();
     raise();
@@ -609,8 +613,8 @@ protected:
   }
   void paintEvent(QPaintEvent *) override {
     QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(QPen(QColor(91, 157, 255, 35), 1));
+    p.setRenderHint(QPainter::Antialiasing, false);
+    p.setPen(QPen(QColor(91, 157, 255, 40), 1));
     for (int x : m_colX)
       p.drawLine(x, m_rowY.isEmpty() ? 0 : m_rowY.first(),
                  x, m_rowY.isEmpty() ? height() : m_rowY.last());
@@ -619,9 +623,11 @@ protected:
                  m_colX.isEmpty() ? width() : m_colX.last(), y);
     if (!m_highlight.isValid())
       return;
-    p.setPen(QPen(QColor(91, 157, 255, 120), 2));
-    p.setBrush(QColor(91, 157, 255, 28));
-    p.drawRoundedRect(m_highlight, UiScale::dp(14), UiScale::dp(14));
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(QPen(QColor(91, 157, 255, 160), 2));
+    p.setBrush(QColor(91, 157, 255, 36));
+    p.drawRoundedRect(m_highlight.adjusted(1, 1, -1, -1), UiScale::dp(12),
+                      UiScale::dp(12));
   }
 
 private:
@@ -705,6 +711,14 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this, [this]() {
     applyChromeStyles();
     refresh();
+  });
+
+  m_refreshDebounce = new QTimer(this);
+  m_refreshDebounce->setSingleShot(true);
+  connect(m_refreshDebounce, &QTimer::timeout, this, [this]() {
+    if (m_dragging)
+      return;
+    rebuildWidgets();
   });
 
   applyChromeStyles();
@@ -870,6 +884,7 @@ void DashboardPage::rebuildEditBar() {
   btnReset->setStyleSheet(BlopStyle::paperSecondaryButtonQss());
   connect(btnReset, &QPushButton::clicked, this, [this]() {
     DashboardLayoutStore::reset();
+    m_specsLoaded = false;
     refresh();
   });
   m_editBarLay->addWidget(btnReset, 0);
@@ -902,6 +917,7 @@ void DashboardPage::rebuildPhoneEditFooter() {
   btnReset->setStyleSheet(BlopStyle::paperSecondaryButtonQss());
   connect(btnReset, &QPushButton::clicked, this, [this]() {
     DashboardLayoutStore::reset();
+    m_specsLoaded = false;
     refresh();
   });
   rowLay->addWidget(btnReset, 0);
@@ -924,7 +940,7 @@ void DashboardPage::showBlocksMenu(QPushButton *anchor) {
     if (!isGridBlock(id))
       continue;
     bool visible = true;
-    for (const auto &s : currentSpecs()) {
+    for (const auto &s : specsSnapshot()) {
       if (s.id == id) {
         visible = s.visible;
         break;
@@ -935,9 +951,12 @@ void DashboardPage::showBlocksMenu(QPushButton *anchor) {
             .arg(visible ? QStringLiteral("✓") : QStringLiteral("＋"))
             .arg(DashboardLayoutStore::displayName(id));
     items.push_back({label, QIcon(), [this, id, visible]() {
-                       updateSpec(id, [visible](DashboardWidgetSpec &s) {
-                         s.visible = !visible;
-                       });
+                       updateSpec(
+                           id,
+                           [visible](DashboardWidgetSpec &s) {
+                             s.visible = !visible;
+                           },
+                           true);
                      }});
   }
   BlopInWindowMenu::show(this, anchor->mapToGlobal(QPoint(0, anchor->height())),
@@ -981,24 +1000,51 @@ void DashboardPage::setEditMode(bool on) {
     rebuildEditBar();
   updatePersistentHeader();
   emit customizeToggled(m_editMode);
+  if (m_refreshDebounce)
+    m_refreshDebounce->stop();
   rebuildWidgets();
 }
 
 void DashboardPage::toggleEditMode() { setEditMode(!m_editMode); }
 
+void DashboardPage::ensureSpecsLoaded() {
+  if (m_specsLoaded)
+    return;
+  m_specs = DashboardLayoutStore::load();
+  m_specsLoaded = true;
+}
+
+QVector<DashboardWidgetSpec> &DashboardPage::specsMutable() {
+  ensureSpecsLoaded();
+  return m_specs;
+}
+
+QVector<DashboardWidgetSpec> DashboardPage::specsSnapshot() const {
+  if (!m_specsLoaded)
+    const_cast<DashboardPage *>(this)->ensureSpecsLoaded();
+  return m_specs;
+}
+
 void DashboardPage::refresh() {
   updatePersistentHeader();
-  rebuildWidgets();
+  if (m_dragging)
+    return;
+  if (m_refreshDebounce)
+    m_refreshDebounce->start(60);
+  else
+    rebuildWidgets();
 }
 
 void DashboardPage::persistSpecs() {
-  DashboardLayoutStore::save(currentSpecs());
+  ensureSpecsLoaded();
+  DashboardLayoutStore::save(m_specs);
 }
 
 void DashboardPage::updateSpec(
     const QString &id,
-    const std::function<void(DashboardWidgetSpec &)> &mutator) {
-  auto specs = currentSpecs();
+    const std::function<void(DashboardWidgetSpec &)> &mutator,
+    bool forceRebuildContent) {
+  auto specs = specsSnapshot();
   for (auto &s : specs) {
     if (s.id == id) {
       mutator(s);
@@ -1006,12 +1052,15 @@ void DashboardPage::updateSpec(
     }
   }
   resolveOverlaps(specs, id, PushDir::Auto);
-  commitSpecs(std::move(specs));
+  commitSpecs(std::move(specs), forceRebuildContent);
 }
 
-void DashboardPage::commitSpecs(QVector<DashboardWidgetSpec> specs) {
-  DashboardLayoutStore::save(specs);
-  refresh();
+void DashboardPage::commitSpecs(QVector<DashboardWidgetSpec> specs,
+                                bool forceRebuildContent) {
+  m_specs = std::move(specs);
+  m_specsLoaded = true;
+  DashboardLayoutStore::save(m_specs);
+  applyLayoutFromSpecs(m_specs, forceRebuildContent);
 }
 
 void DashboardPage::resolveOverlaps(QVector<DashboardWidgetSpec> &specs,
@@ -1158,13 +1207,13 @@ QWidget *DashboardPage::buildEditChrome(const QString &id) {
     hideBtn->setStyleSheet(editChipQss());
     hideBtn->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
     connect(hideBtn, &QPushButton::clicked, this, [this, id]() {
-      updateSpec(id, [](DashboardWidgetSpec &s) { s.visible = false; });
+      updateSpec(id, [](DashboardWidgetSpec &s) { s.visible = false; }, true);
     });
     lay->addWidget(hideBtn, 0);
     outer->addWidget(top);
 
     int currentSpan = 2;
-    for (const auto &s : currentSpecs()) {
+    for (const auto &s : specsSnapshot()) {
       if (s.id == id) {
         currentSpan = qBound(1, s.rowSpan, 3);
         break;
@@ -1249,7 +1298,7 @@ QWidget *DashboardPage::buildEditChrome(const QString &id) {
   size->addItem(QStringLiteral("Halb"), 6);
   size->addItem(QStringLiteral("Breit"), 8);
   size->addItem(QStringLiteral("Voll"), 12);
-  for (const auto &s : currentSpecs()) {
+  for (const auto &s : specsSnapshot()) {
     if (s.id == id) {
       const int idx = size->findData(s.colSpan);
       if (idx >= 0)
@@ -1273,7 +1322,7 @@ QWidget *DashboardPage::buildEditChrome(const QString &id) {
   height->addItem(QStringLiteral("Kompakt"), 1);
   height->addItem(QStringLiteral("Normal"), 2);
   height->addItem(QStringLiteral("Hoch"), 3);
-  for (const auto &s : currentSpecs()) {
+  for (const auto &s : specsSnapshot()) {
     if (s.id == id) {
       const int idx = height->findData(s.rowSpan);
       if (idx >= 0)
@@ -1305,7 +1354,7 @@ QWidget *DashboardPage::buildEditChrome(const QString &id) {
       limit->addItem(QStringLiteral("6 Notizen"), 6);
       limit->addItem(QStringLiteral("8 Notizen"), 8);
     }
-    for (const auto &s : currentSpecs()) {
+    for (const auto &s : specsSnapshot()) {
       if (s.id == id) {
         const int lim = s.itemLimit > 0 ? s.itemLimit : limit->itemData(1).toInt();
         const int idx = limit->findData(lim);
@@ -1317,7 +1366,8 @@ QWidget *DashboardPage::buildEditChrome(const QString &id) {
     connect(limit, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             [this, id, limit](int) {
               const int n = limit->currentData().toInt();
-              updateSpec(id, [n](DashboardWidgetSpec &s) { s.itemLimit = n; });
+              updateSpec(id, [n](DashboardWidgetSpec &s) { s.itemLimit = n; },
+                         true);
             });
     lay->addWidget(limit, 0);
   }
@@ -1340,7 +1390,7 @@ QWidget *DashboardPage::buildEditChrome(const QString &id) {
   hideBtn->setCursor(Qt::PointingHandCursor);
   hideBtn->setStyleSheet(editChipQss());
   connect(hideBtn, &QPushButton::clicked, this, [this, id]() {
-    updateSpec(id, [](DashboardWidgetSpec &s) { s.visible = false; });
+    updateSpec(id, [](DashboardWidgetSpec &s) { s.visible = false; }, true);
   });
   lay->addWidget(hideBtn, 0);
   return bar;
@@ -1629,6 +1679,16 @@ int DashboardPage::cellHeightForSpan(int rowSpan) const {
   return span * gridRowUnit() + (span - 1) * vsp;
 }
 
+int DashboardPage::cellWidthForSpan(int col, int colSpan) const {
+  QVector<int> colX;
+  gridColumnEdges(colX);
+  if (colX.size() < 2)
+    return UiScale::dp(120);
+  const int c0 = qBound(0, col, colX.size() - 2);
+  const int c1 = qBound(c0 + 1, col + qMax(1, colSpan), colX.size() - 1);
+  return qMax(1, colX[c1] - colX[c0]);
+}
+
 int DashboardPage::minRowSpanForBlock(const QString &id) {
   if (id == QLatin1String("shortcuts"))
     return 2;
@@ -1651,12 +1711,55 @@ void DashboardPage::applyBlockCellSize(QWidget *block, int rowSpan) const {
   block->setFixedHeight(h);
 }
 
+void DashboardPage::cacheGestureGridEdges() {
+  m_gestureColEdges.clear();
+  m_gestureRowEdges.clear();
+  // Fill via the public helpers while the cache is empty so they measure fresh.
+  gridColumnEdges(m_gestureColEdges);
+  gridRowEdges(m_gestureRowEdges);
+}
+
 void DashboardPage::gridColumnEdges(QVector<int> &out) const {
+  if (m_dragging && !m_gestureColEdges.isEmpty()) {
+    out = m_gestureColEdges;
+    return;
+  }
   out.resize(13);
   if (!m_gridLay || !m_host) {
     out.fill(0);
     return;
   }
+
+  // Prefer live QGridLayout cell rects so snap matches what the user sees.
+  bool measured = false;
+  for (int c = 0; c < 12; ++c) {
+    const QRect cell = m_gridLay->cellRect(0, c);
+    if (cell.isValid() && cell.width() > 0) {
+      out[c] = cell.left();
+      measured = true;
+    }
+  }
+  if (measured) {
+    const QRect last = m_gridLay->cellRect(0, 11);
+    if (last.isValid() && last.width() > 0)
+      out[12] = last.right() + 1;
+    else {
+      const int pitch = out[1] > out[0] ? out[1] - out[0] : 1;
+      out[12] = out[11] + pitch;
+    }
+    // Fill any gaps from empty leading columns.
+    for (int c = 1; c < 12; ++c) {
+      if (out[c] <= out[c - 1]) {
+        const QRect cell = m_gridLay->cellRect(0, c);
+        if (cell.isValid() && cell.width() > 0)
+          out[c] = cell.left();
+        else
+          out[c] = out[c - 1] + qMax(1, (out[12] - out[0]) / 12);
+      }
+    }
+    return;
+  }
+
   const QMargins mg = m_gridLay->contentsMargins();
   const int hsp = m_gridLay->horizontalSpacing();
   const int availW = qMax(12, m_host->width() - mg.left() - mg.right());
@@ -1667,17 +1770,53 @@ void DashboardPage::gridColumnEdges(QVector<int> &out) const {
 }
 
 void DashboardPage::gridRowEdges(QVector<int> &out) const {
+  if (m_dragging && !m_gestureRowEdges.isEmpty()) {
+    out = m_gestureRowEdges;
+    return;
+  }
   if (!m_gridLay || !m_host) {
     out.clear();
     return;
   }
+
   const QMargins mg = m_gridLay->contentsMargins();
   const int vsp = m_gridLay->verticalSpacing();
-  const int rowPitch = gridRowUnit() + vsp;
-  // Enough rows for current layout + a few empty slots below.
   const int rows = qBound(4, maxSnapRow() + 4, 28);
   out.resize(rows + 1);
+
+  bool measured = false;
+  for (int r = 0; r < rows; ++r) {
+    const QRect cell = m_gridLay->cellRect(r, 0);
+    if (cell.isValid() && cell.height() > 0) {
+      out[r] = cell.top();
+      measured = true;
+    }
+  }
+  if (measured) {
+    const QRect last = m_gridLay->cellRect(rows - 1, 0);
+    if (last.isValid() && last.height() > 0)
+      out[rows] = last.bottom() + 1;
+    else
+      out[rows] = out[rows - 1] + gridRowUnit() + vsp;
+    // Fill gaps with uniform pitch from first valid delta.
+    int pitch = gridRowUnit() + vsp;
+    for (int r = 1; r < rows; ++r) {
+      if (out[r] > out[r - 1]) {
+        pitch = out[r] - out[r - 1];
+        break;
+      }
+    }
+    if (out[0] == 0 && !m_gridLay->cellRect(0, 0).isValid())
+      out[0] = mg.top();
+    for (int r = 1; r <= rows; ++r) {
+      if (out[r] <= out[r - 1])
+        out[r] = out[r - 1] + pitch;
+    }
+    return;
+  }
+
   out[0] = mg.top();
+  const int rowPitch = gridRowUnit() + vsp;
   for (int r = 0; r < rows; ++r)
     out[r + 1] = out[r] + rowPitch;
 }
@@ -1744,7 +1883,7 @@ void DashboardPage::setScrollLocked(bool locked) {
 void DashboardPage::beginGesture(QFrame *frame, const QString &blockId,
                                  DashGesture gesture) {
   DashboardWidgetSpec spec;
-  for (const auto &s : currentSpecs()) {
+  for (const auto &s : specsSnapshot()) {
     if (s.id == blockId) {
       spec = s;
       break;
@@ -1766,15 +1905,24 @@ void DashboardPage::beginGesture(QFrame *frame, const QString &blockId,
   m_previewColSpan = spec.colSpan;
   m_previewRowSpan = spec.rowSpan;
   m_floatActive = false;
+  m_lastOverlayKey = -1;
 
-  setScrollLocked(false);
+  // Freeze scroll so the grid under the cursor stays stable for precise snaps.
+  setScrollLocked(true);
+  if (m_scroll) {
+    m_scroll->setProperty(BlopScroll::kNoFingerScrollProperty, true);
+    m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  }
+
+  cacheGestureGridEdges();
+
   if (!m_appFilterInstalled) {
     qApp->installEventFilter(this);
     m_appFilterInstalled = true;
   }
 
-  // Lift the block out of the grid so it follows the pointer 1:1.
-  if (gesture == DashGesture::Move && frame && m_gridLay && m_host) {
+  // Lift the block out of the grid so move AND resize follow the pointer 1:1.
+  if (gesture != DashGesture::None && frame && m_gridLay && m_host) {
     const QRect geom = frame->geometry();
     m_dragOriginHost = geom.topLeft();
     if (!m_havePressHostPos)
@@ -1783,8 +1931,7 @@ void DashboardPage::beginGesture(QFrame *frame, const QString &blockId,
     applyBlockCellSize(frame, m_dragRowSpan);
     m_gridLay->removeWidget(frame);
     frame->setParent(m_host);
-    frame->setGeometry(QRect(geom.topLeft(),
-                             QSize(geom.width(), cellHeightForSpan(m_dragRowSpan))));
+    frame->setGeometry(geom);
     frame->show();
     frame->raise();
     m_floatActive = true;
@@ -1833,7 +1980,7 @@ void DashboardPage::handleGestureRelease() {
     const int row = qBound(0, m_previewRow, 24);
     const int col = qBound(0, m_previewCol, 12 - m_dragColSpan);
     finishGesture([this, id, row, col, dir]() {
-      auto specs = currentSpecs();
+      auto specs = specsSnapshot();
       for (auto &s : specs) {
         if (s.id == id) {
           s.row = row;
@@ -1854,7 +2001,7 @@ void DashboardPage::handleGestureRelease() {
   const int pcs = qBound(1, m_previewColSpan, 12);
   const int prs = qBound(1, m_previewRowSpan, 4);
   finishGesture([this, id, pr, pc, pcs, prs, dir]() {
-    auto specs = currentSpecs();
+    auto specs = specsSnapshot();
     for (auto &s : specs) {
       if (s.id == id) {
         s.row = pr;
@@ -1888,13 +2035,21 @@ void DashboardPage::finishGesture(const std::function<void()> &commit) {
   m_dragging = false;
   m_gesture = DashGesture::None;
   m_dragBlockId.clear();
-  m_dragFrame = nullptr;
+  // Keep m_dragFrame floating until applyLayoutFromSpecs repositions it.
   m_floatActive = false;
   m_havePressHostPos = false;
   m_pressHostPos = QPoint();
   m_dragOriginHost = QPoint();
+  m_gestureColEdges.clear();
+  m_gestureRowEdges.clear();
+  m_lastOverlayKey = -1;
   setScrollLocked(false);
+  if (m_scroll && m_editMode) {
+    m_scroll->setProperty(BlopScroll::kNoFingerScrollProperty, false);
+    m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  }
 
+  m_dragFrame = nullptr;
   QTimer::singleShot(0, this, commit);
 }
 
@@ -2428,6 +2583,108 @@ QWidget *DashboardPage::buildContentFor(const QString &id, bool maximizedChrome)
   return nullptr;
 }
 
+void DashboardPage::applyLayoutFromSpecs(const QVector<DashboardWidgetSpec> &specs,
+                                         bool forceRebuildContent) {
+  if (!m_gridLay || !m_host || forceRebuildContent || usePhoneDashboard()) {
+    rebuildWidgets();
+    return;
+  }
+
+  QHash<QString, QWidget *> byId;
+  const auto consider = [&byId](QWidget *w) {
+    if (!w)
+      return;
+    const QString id = w->property("dashBlockId").toString();
+    if (!id.isEmpty())
+      byId.insert(id, w);
+  };
+  for (QObject *child : m_host->children())
+    consider(qobject_cast<QWidget *>(child));
+  for (int i = 0; i < m_gridLay->count(); ++i) {
+    if (QLayoutItem *it = m_gridLay->itemAt(i))
+      consider(it->widget());
+  }
+
+  QSet<QString> want;
+  for (const auto &s : specs) {
+    if (s.visible && isGridBlock(s.id))
+      want.insert(s.id);
+  }
+  if (want.isEmpty() || byId.size() != want.size()) {
+    rebuildWidgets();
+    return;
+  }
+  for (const QString &id : want) {
+    if (!byId.contains(id)) {
+      rebuildWidgets();
+      return;
+    }
+  }
+
+  // Detach all blocks from the grid without destroying content.
+  for (auto it = byId.begin(); it != byId.end(); ++it) {
+    QWidget *w = it.value();
+    if (m_gridLay->indexOf(w) >= 0)
+      m_gridLay->removeWidget(w);
+    w->setParent(m_host);
+  }
+
+  // Drop edit tail pad / empty-state widgets that are not blocks.
+  for (int i = m_gridLay->count() - 1; i >= 0; --i) {
+    QLayoutItem *it = m_gridLay->takeAt(i);
+    if (!it)
+      continue;
+    if (QWidget *w = it->widget()) {
+      if (w->property("dashBlockId").toString().isEmpty())
+        delete w;
+    }
+    delete it;
+  }
+
+  for (int r = 0; r < 48; ++r) {
+    m_gridLay->setRowMinimumHeight(r, 0);
+    m_gridLay->setRowStretch(r, 0);
+  }
+
+  int maxRow = 0;
+  for (const auto &s : specs) {
+    if (!s.visible || !isGridBlock(s.id))
+      continue;
+    QWidget *w = byId.value(s.id);
+    if (!w)
+      continue;
+    const int rowSpan = qMax(s.rowSpan, minRowSpanForBlock(s.id));
+    applyBlockCellSize(w, rowSpan);
+    w->setMaximumWidth(QWIDGETSIZE_MAX);
+    w->setMinimumWidth(0);
+    m_gridLay->addWidget(w, s.row, s.col, rowSpan, s.colSpan);
+    maxRow = qMax(maxRow, s.row + rowSpan);
+    if (m_editMode)
+      layoutResizeHandles(qobject_cast<QFrame *>(w));
+  }
+
+  for (int r = 0; r < maxRow; ++r) {
+    m_gridLay->setRowMinimumHeight(r, gridRowUnit());
+    m_gridLay->setRowStretch(r, 0);
+  }
+  if (m_editMode) {
+    auto *pad = new QWidget(m_host);
+    pad->setObjectName(QStringLiteral("DashEditTailPad"));
+    pad->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    pad->setFixedHeight(gridRowUnit() * 2 + m_gridLay->verticalSpacing());
+    pad->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    pad->setStyleSheet(QStringLiteral("background: transparent;"));
+    m_gridLay->addWidget(pad, maxRow, 0, 1, 12);
+    ++maxRow;
+  }
+  m_gridLay->setRowStretch(maxRow, 1);
+  m_host->updateGeometry();
+  if (m_snapOverlay) {
+    m_snapOverlay->setGeometry(m_host->rect());
+    m_snapOverlay->raise();
+  }
+}
+
 void DashboardPage::rebuildWidgets() {
   if (!m_gridLay)
     return;
@@ -2449,7 +2706,7 @@ void DashboardPage::rebuildWidgets() {
   // Always stack on phone — desktop multi-column specs overflow ~360dp screens.
   const bool stackPhone = phone;
 
-  const auto specs = currentSpecs();
+  const auto specs = specsSnapshot();
   int maxRow = 0;
   int visibleBlocks = 0;
   int phoneRow = 0;
@@ -2514,7 +2771,7 @@ void DashboardPage::snapGridFromPos(const QPoint &hostPos, int colSpan, int rowS
 
 int DashboardPage::maxSnapRow() const {
   int maxRow = 0;
-  for (const auto &s : currentSpecs()) {
+  for (const auto &s : specsSnapshot()) {
     if (!s.visible || !isGridBlock(s.id))
       continue;
     maxRow = qMax(maxRow, s.row + s.rowSpan);
@@ -2569,6 +2826,12 @@ QRect DashboardPage::snapHighlightRect(int row, int col, int colSpan,
 void DashboardPage::updateSnapOverlay(int row, int col, int colSpan, int rowSpan) {
   if (!m_snapOverlay || !m_host)
     return;
+  const int key =
+      (row & 0xFF) | ((col & 0xFF) << 8) | ((colSpan & 0xFF) << 16) |
+      ((rowSpan & 0xFF) << 24);
+  if (key == m_lastOverlayKey && m_snapOverlay->isVisible())
+    return;
+  m_lastOverlayKey = key;
   m_snapOverlay->setGeometry(m_host->rect());
   QVector<int> colX;
   QVector<int> rowY;
@@ -2580,6 +2843,7 @@ void DashboardPage::updateSnapOverlay(int row, int col, int colSpan, int rowSpan
 }
 
 void DashboardPage::clearSnapOverlay() {
+  m_lastOverlayKey = -1;
   if (m_snapOverlay)
     m_snapOverlay->clearHighlight();
 }
@@ -2646,8 +2910,8 @@ void DashboardPage::applyResizePreview(const QPoint &hostPos) {
     m_previewColSpan = qBound(1, right - m_previewCol, 12 - m_previewCol);
   }
 
-  if (!m_snapOverlay)
-    return;
+  m_previewRowSpan =
+      qMax(m_previewRowSpan, minRowSpanForBlock(m_dragBlockId));
 
   QVector<int> colX;
   QVector<int> rowY;
@@ -2655,7 +2919,10 @@ void DashboardPage::applyResizePreview(const QPoint &hostPos) {
   gridRowEdges(rowY);
   const int vsp = m_gridLay ? m_gridLay->verticalSpacing() : UiScale::dp(16);
   while (rowY.size() <= m_previewRow + m_previewRowSpan)
-    rowY.push_back(rowY.last() + gridRowUnit() + vsp);
+    rowY.push_back(rowY.isEmpty() ? 0 : rowY.last() + gridRowUnit() + vsp);
+
+  if (colX.size() < 2 || rowY.size() < 2)
+    return;
 
   const int c0 = qBound(0, m_previewCol, colX.size() - 2);
   const int c1 = qBound(c0 + 1, m_previewCol + m_previewColSpan, colX.size() - 1);
@@ -2664,55 +2931,31 @@ void DashboardPage::applyResizePreview(const QPoint &hostPos) {
   const QRect target(colX[c0], rowY[r0], colX[c1] - colX[c0],
                      rowY[r1] - rowY[r0]);
 
-  QRect rect = target;
-  if (m_dragFrame) {
-    const QRect frame = m_dragFrame->geometry();
-    switch (m_gesture) {
-    case DashGesture::ResizeE:
-      rect = QRect(frame.left(), frame.top(),
-                   qMax(frame.width(), target.right() - frame.left() + 1),
-                   frame.height());
-      break;
-    case DashGesture::ResizeS:
-      rect = QRect(frame.left(), frame.top(), frame.width(),
-                   qMax(frame.height(), target.bottom() - frame.top() + 1));
-      break;
-    case DashGesture::ResizeN:
-      rect = QRect(frame.left(), target.top(), frame.width(),
-                   frame.bottom() - target.top() + 1);
-      break;
-    case DashGesture::ResizeW:
-      rect = QRect(target.left(), frame.top(),
-                   frame.right() - target.left() + 1, frame.height());
-      break;
-    default:
-      break;
-    }
+  // Live-resize the floating block so the user sees exact final geometry.
+  if (m_dragFrame && m_floatActive) {
+    m_dragFrame->setMinimumSize(0, 0);
+    m_dragFrame->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    m_dragFrame->setGeometry(target);
+    layoutResizeHandles(m_dragFrame);
+    m_dragFrame->raise();
   }
 
-  m_snapOverlay->setGridLines(colX, rowY);
-  m_snapOverlay->setHighlight(rect);
+  const int key =
+      (m_previewRow & 0xFF) | ((m_previewCol & 0xFF) << 8) |
+      ((m_previewColSpan & 0xFF) << 16) | ((m_previewRowSpan & 0xFF) << 24);
+  if (m_snapOverlay && key != m_lastOverlayKey) {
+    m_lastOverlayKey = key;
+    m_snapOverlay->setGridLines(colX, rowY);
+    m_snapOverlay->setHighlight(target);
+    if (m_dragFrame)
+      m_snapOverlay->stackUnder(m_dragFrame);
+  }
 }
 
 void DashboardPage::applyMovePreview(const QPoint &hostPos) {
   if (!m_dragFrame)
     return;
-  if (m_scroll && m_scroll->viewport()) {
-    const QPoint viewportPos =
-        m_scroll->viewport()->mapFromGlobal(QCursor::pos());
-    const int edge = UiScale::dp(56);
-    int delta = 0;
-    if (viewportPos.y() < edge)
-      delta = -UiScale::dp(18);
-    else if (viewportPos.y() > m_scroll->viewport()->height() - edge)
-      delta = UiScale::dp(18);
-    if (delta != 0) {
-      auto *bar = m_scroll->verticalScrollBar();
-      bar->setValue(qBound(bar->minimum(), bar->value() + delta,
-                           bar->maximum()));
-    }
-  }
-  // Keep the grabbed point under the cursor (delta from press).
+  // Scroll stays locked during drag for precise placement (no edge auto-scroll).
   const QPoint topLeft = m_dragOriginHost + (hostPos - m_pressHostPos);
   if (m_floatActive)
     m_dragFrame->move(topLeft);
