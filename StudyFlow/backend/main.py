@@ -1772,6 +1772,28 @@ def ensure_minimum_tokens(username: str, reserve: int = 1):
         raise HTTPException(status_code=402, detail=f"Nicht genügend Tokens. Du hast {tokens}, mindestens {reserve} werden benötigt.")
     return tokens
 
+
+def raise_for_ai_provider_error(exc: Exception, prefix: str = "KI-Fehler") -> None:
+    """Map Gemini/provider quota failures to a clear 503 instead of a raw 500."""
+    msg = str(exc or "")
+    low = msg.lower()
+    if (
+        "429" in msg
+        or "resource_exhausted" in low
+        or "credits are depleted" in low
+        or "prepayment" in low
+        or "quota" in low
+        or "billing" in low
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Google-Gemini-Kontingent ist aufgebraucht. "
+                "Bitte in AI Studio Guthaben aufladen oder den API-Key prüfen."
+            ),
+        )
+    raise HTTPException(status_code=500, detail=f"{prefix}: {msg}")
+
 def resolve_model_preference(username: str, request_model: Optional[str]) -> Optional[str]:
     requested = (request_model or "").strip()
     if requested:
@@ -2691,7 +2713,7 @@ def create_smart_learning(request: SmartLearningRequest, background_tasks: Backg
         raise
     except Exception as e:
         print(f"Smart Learning generation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Smart-Learning-Fehler: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Smart-Learning-Fehler")
 
 
 @app.patch("/api/ai/smart-learning/progress")

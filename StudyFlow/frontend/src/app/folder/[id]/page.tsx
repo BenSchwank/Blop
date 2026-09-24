@@ -2415,9 +2415,12 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/smart-learning`, {
+            const sid = getSessionId();
+            const res = await fetch(
+                `${API_BASE}/ai/smart-learning?session_id=${encodeURIComponent(sid)}`,
+                {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,

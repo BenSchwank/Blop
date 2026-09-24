@@ -70,9 +70,15 @@ export default function SmartLearningPage() {
         setGenerating(true);
         setError("");
         try {
-            const res = await fetch("/api/ai/smart-learning", {
+            const sid = sessionId || localStorage.getItem("session_id") || "";
+            const res = await fetch(
+                `/api/ai/smart-learning?session_id=${encodeURIComponent(sid)}`,
+                {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(sid ? { "X-Session-Id": sid } : {}),
+                },
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
