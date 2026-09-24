@@ -71,6 +71,11 @@ class AuthManager:
 
     @staticmethod
     def _session_signing_key():
+        # Prefer a stable dedicated secret so rotating Supabase keys does not
+        # invalidate every live browser session.
+        dedicated = (os.environ.get("SESSION_HMAC_SECRET") or "").strip()
+        if dedicated:
+            return dedicated.encode("utf-8")
         key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
         if key.startswith("sb_secret_"):
             return key.encode("utf-8")
@@ -86,18 +91,22 @@ class AuthManager:
 
     @staticmethod
     def _create_signed_session_id(username):
-        key = AuthManager._session_signing_key()
-        if not key:
-            return str(uuid.uuid4())
-        payload = json.dumps({
-            "username": username,
-            "issued_at": int(datetime.now(timezone.utc).timestamp()),
-            "nonce": secrets.token_urlsafe(16),
-        }, separators=(",", ":")).encode("utf-8")
-        encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-        signature = hmac.new(key, encoded.encode("ascii"), hashlib.sha256).digest()
-        signed = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
-        return f"v1.{encoded}.{signed}"
+        """Opaque UUID session ids — PostgREST filters break on dotted v1.* tokens."""
+        _ = username  # username is stored in the sessions row, not in the id
+        return str(uuid.uuid4())
+
+    @staticmethod
+    def _peek_v1_username(session_id):
+        """Read username from a legacy v1.* token without verifying the HMAC."""
+        if not session_id.startswith("v1."):
+            return None
+        try:
+            _, encoded, _supplied = session_id.split(".", 2)
+            payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+            username = (payload.get("username") or "").strip()
+            return username or None
+        except Exception:
+            return None
 
     @staticmethod
     def _decode_signed_session_id(session_id):
@@ -126,13 +135,74 @@ class AuthManager:
             return True
         try:
             if isinstance(last_active, str):
-                last_active = datetime.fromisoformat(last_active)
+                # Supabase sometimes returns "+00" instead of "+00:00"
+                cleaned = last_active.strip().replace("Z", "+00:00")
+                if cleaned.endswith("+00"):
+                    cleaned = cleaned + ":00"
+                elif cleaned.endswith("-00"):
+                    cleaned = cleaned + ":00"
+                last_active = datetime.fromisoformat(cleaned)
             # Legacy local sessions were written without timezone; treat them as UTC.
             if last_active.tzinfo is None:
                 last_active = last_active.replace(tzinfo=timezone.utc)
             return (datetime.now(timezone.utc) - last_active).total_seconds() > 60 * 60 * 24 * 30
         except Exception:
             return True
+
+    @staticmethod
+    def _fetch_session_row(db, session_id):
+        """Load a sessions row; fall back when PostgREST chokes on dotted v1 ids."""
+        if not db or not session_id:
+            return None
+        try:
+            res = db.table("sessions").select("*").eq("id", session_id).execute()
+            if res.data:
+                return res.data[0]
+        except Exception as exc:
+            print(f"AuthManager: session eq lookup failed: {exc}")
+
+        # Legacy v1.* ids contain '.' which some PostgREST filters mishandle.
+        # Scan by embedded username and match the full id in Python.
+        username = AuthManager._peek_v1_username(session_id)
+        if not username:
+            return None
+        try:
+            res = (
+                db.table("sessions")
+                .select("*")
+                .eq("username", username)
+                .order("created_at", desc=True)
+                .limit(100)
+                .execute()
+            )
+            for row in (res.data or []):
+                if row.get("id") == session_id:
+                    return row
+        except Exception as exc:
+            print(f"AuthManager: session username scan failed: {exc}")
+        return None
+
+    @staticmethod
+    def _touch_session_row(db, session_id, username=None):
+        if not db or not session_id:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            db.table("sessions").update({"last_active": now}).eq("id", session_id).execute()
+            return
+        except Exception as exc:
+            print(f"AuthManager: session touch by id failed: {exc}")
+        # Fallback for dotted ids: update via username + match is not expressible
+        # in one filter; upsert the known primary key instead.
+        if username:
+            try:
+                db.table("sessions").upsert({
+                    "id": session_id,
+                    "username": username,
+                    "last_active": now,
+                }).execute()
+            except Exception as exc:
+                print(f"AuthManager: session touch upsert failed: {exc}")
 
     @staticmethod
     def create_session(username):
@@ -173,24 +243,21 @@ class AuthManager:
         if not session_id:
             return None
 
-        # 1. Try Supabase first
         db = AuthManager._get_db()
-        if db:
-            try:
-                res = db.table("sessions").select("*").eq("id", session_id).execute()
-                if res.data:
-                    session = res.data[0]
-                    if AuthManager._is_expired(session.get("last_active")):
-                        if not session_id.startswith("v1."):
+        row = AuthManager._fetch_session_row(db, session_id) if db else None
+        if row is not None:
+            if AuthManager._is_expired(row.get("last_active")):
+                if not session_id.startswith("v1."):
+                    try:
+                        if db:
                             db.table("sessions").delete().eq("id", session_id).execute()
-                            AuthManager._delete_local_session(session_id)
-                        return None
-
-                    # Touch last_active
-                    db.table("sessions").update({"last_active": datetime.now(timezone.utc).isoformat()}).eq("id", session_id).execute()
-                    return session["username"]
-            except Exception as exc:
-                print(f"AuthManager: validate_session DB read failed: {exc}")
+                    except Exception as exc:
+                        print(f"AuthManager: expired session delete failed: {exc}")
+                    AuthManager._delete_local_session(session_id)
+                return None
+            # Never let a failed touch invalidate an otherwise valid session.
+            AuthManager._touch_session_row(db, session_id, username=row.get("username"))
+            return row.get("username")
 
         signed = AuthManager._decode_signed_session_id(session_id)
         if signed:
@@ -208,7 +275,7 @@ class AuthManager:
                     print(f"AuthManager: signed session repair failed: {exc}")
             return username
 
-        # 2. Fallback to local file (legacy sessions, DB unreachable, etc.)
+        # Fallback to local file (legacy sessions, DB unreachable, etc.)
         sessions = AuthManager._load_sessions()
         if session_id not in sessions:
             return None
@@ -219,7 +286,6 @@ class AuthManager:
             AuthManager._save_sessions(sessions)
             return None
 
-        # Migrate to DB if available
         if db:
             AuthManager._migrate_local_session_to_db(session_id, session)
 
@@ -237,7 +303,19 @@ class AuthManager:
         if db:
             try:
                 if session_id.startswith("v1."):
-                    db.table("sessions").update({"last_active": "1970-01-01T00:00:00+00:00"}).eq("id", session_id).execute()
+                    # Invalidate rather than delete so dotted-id filters can still find it.
+                    expired = "1970-01-01T00:00:00+00:00"
+                    try:
+                        db.table("sessions").update({"last_active": expired}).eq("id", session_id).execute()
+                    except Exception:
+                        pass
+                    username = AuthManager._peek_v1_username(session_id)
+                    if username:
+                        db.table("sessions").upsert({
+                            "id": session_id,
+                            "username": username,
+                            "last_active": expired,
+                        }).execute()
                 else:
                     db.table("sessions").delete().eq("id", session_id).execute()
             except Exception as exc:
