@@ -11,6 +11,7 @@ import 'katex/dist/katex.min.css';
 import RichTextEditor from "@/components/RichTextEditor";
 import SmartLearningView, { normalizeSmartLearningContent } from "@/components/SmartLearningView";
 import { registerAiJobAbort, unregisterAiJobAbort, isAbortError } from "@/lib/aiJobAbortRegistry";
+import { getSessionId, sessionHeaders } from "@/lib/session";
 import { OVERLAY_FOLDER_KI_PANEL } from "@/constants/overlayLayout";
 import FloatingChat from "@/components/FloatingChat";
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1248,6 +1249,7 @@ export default function FolderPage() {
     const processNativeFileUpload = async (file: File) => {
         const isAudio = file.type.startsWith('audio/') || file.name.match(/\.(mp3|wav|m4a|webm)$/i);
         const username = localStorage.getItem("username");
+        const sid = getSessionId();
         const formData = new FormData();
         formData.append("file", file);
 
@@ -1255,12 +1257,14 @@ export default function FolderPage() {
         setUploadDropMessage(isAudio ? "Verarbeite Audio..." : "Lade Datei hoch...");
 
         try {
+            const authQs = `username=${encodeURIComponent(username || "")}&folder_id=${encodeURIComponent(folderId)}&session_id=${encodeURIComponent(sid)}`;
             const endpoint = isAudio
-                ? `${API_BASE}/files/audio?username=${username}&folder_id=${folderId}`
-                : `${API_BASE}/files/upload?username=${username}&folder_id=${folderId}`;
+                ? `${API_BASE}/files/audio?${authQs}`
+                : `${API_BASE}/files/upload?${authQs}`;
 
             const res = await fetch(endpoint, {
                 method: "POST",
+                headers: sessionHeaders(),
                 body: formData
             });
 
@@ -1304,9 +1308,12 @@ export default function FolderPage() {
         setIsProcessing(true);
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/files/youtube?username=${username}&folder_id=${folderId}`, {
+            const sid = getSessionId();
+            const res = await fetch(
+                `${API_BASE}/files/youtube?username=${encodeURIComponent(username || "")}&folder_id=${encodeURIComponent(folderId)}&session_id=${encodeURIComponent(sid)}`,
+                {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({ url: youtubeUrl })
             });
 
@@ -1338,13 +1345,17 @@ export default function FolderPage() {
         setIsProcessing(true);
         try {
             const username = localStorage.getItem("username");
+            const sid = getSessionId();
             
             await Promise.all(filesToUpload.map(async (file) => {
                 const formData = new FormData();
                 formData.append("file", file);
 
-                const res = await fetch(`${API_BASE}/files/image?username=${username}&folder_id=${folderId}`, {
+                const res = await fetch(
+                    `${API_BASE}/files/image?username=${encodeURIComponent(username || "")}&folder_id=${encodeURIComponent(folderId)}&session_id=${encodeURIComponent(sid)}`,
+                    {
                     method: "POST",
+                    headers: sessionHeaders(),
                     body: formData
                 });
 
@@ -1378,9 +1389,12 @@ export default function FolderPage() {
         setIsProcessing(true);
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/files/document?username=${username}&folder_id=${folderId}`, {
+            const sid = getSessionId();
+            const res = await fetch(
+                `${API_BASE}/files/document?username=${encodeURIComponent(username || "")}&folder_id=${encodeURIComponent(folderId)}&session_id=${encodeURIComponent(sid)}`,
+                {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({ title: title, content: "<h1>" + title + "</h1>\n<p>Start typing...</p>" })
             });
 
@@ -1458,11 +1472,15 @@ export default function FolderPage() {
         setIsProcessing(true);
         try {
             const username = localStorage.getItem("username");
+            const sid = getSessionId();
             const formData = new FormData();
             formData.append("file", audioBlob, `audio_${Date.now()}.webm`);
 
-            const res = await fetch(`${API_BASE}/files/audio?username=${username}&folder_id=${folderId}`, {
+            const res = await fetch(
+                `${API_BASE}/files/audio?username=${encodeURIComponent(username || "")}&folder_id=${encodeURIComponent(folderId)}&session_id=${encodeURIComponent(sid)}`,
+                {
                 method: "POST",
+                headers: sessionHeaders(),
                 body: formData
             });
 
