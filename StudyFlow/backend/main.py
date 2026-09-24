@@ -236,13 +236,11 @@ def _elaboration_job_worker(
             },
         )
     except HTTPException as e:
-        detail = e.detail
-        if not isinstance(detail, str):
-            detail = str(detail)
+        detail = ai_detail_to_string(e.detail, username=username)
         _elaboration_job_fail(job_id, detail)
     except Exception as e:
         print(f"Elaboration job error: {e}")
-        _elaboration_job_fail(job_id, sanitize_ai_provider_detail(e))
+        _elaboration_job_fail(job_id, sanitize_ai_provider_detail(e, username=username))
 
 
 def _podcast_job_worker(
@@ -309,15 +307,13 @@ def _podcast_job_worker(
             },
         )
     except HTTPException as e:
-        detail = e.detail
-        if not isinstance(detail, str):
-            detail = str(detail)
+        detail = ai_detail_to_string(e.detail, username=username)
         _podcast_job_fail(job_id, detail)
     except RuntimeError as e:
-        _podcast_job_fail(job_id, sanitize_ai_provider_detail(e))
+        _podcast_job_fail(job_id, sanitize_ai_provider_detail(e, username=username))
     except Exception as e:
         print(f"Podcast job error: {e}")
-        _podcast_job_fail(job_id, sanitize_ai_provider_detail(e))
+        _podcast_job_fail(job_id, sanitize_ai_provider_detail(e, username=username))
 
 
 def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
@@ -540,15 +536,13 @@ def _learning_video_job_worker(
             },
         )
     except HTTPException as e:
-        detail = e.detail
-        if not isinstance(detail, str):
-            detail = str(detail)
+        detail = ai_detail_to_string(e.detail, username=username)
         _learning_video_job_fail(job_id, detail)
     except RuntimeError as e:
-        _learning_video_job_fail(job_id, sanitize_ai_provider_detail(e))
+        _learning_video_job_fail(job_id, sanitize_ai_provider_detail(e, username=username))
     except Exception as e:
         print(f"Learning video error: {e}")
-        _learning_video_job_fail(job_id, sanitize_ai_provider_detail(e))
+        _learning_video_job_fail(job_id, sanitize_ai_provider_detail(e, username=username))
     finally:
         if slide_root:
             shutil.rmtree(slide_root, ignore_errors=True)
@@ -1772,33 +1766,133 @@ AI_USER_UNAVAILABLE_MSG = (
     "Die KI ist gerade nicht verfügbar. Bitte versuche es später erneut."
 )
 
+# Known upstream failures → admin fix links (never shown to normal users).
+_AI_FIX_GEMINI = {
+    "url": "https://aistudio.google.com/app/apikey",
+    "label": "Google AI Studio öffnen (API-Key / Credits)",
+}
+_AI_FIX_GEMINI_BILLING = {
+    "url": "https://ai.studio/projects",
+    "label": "AI Studio Projects / Billing öffnen",
+}
+_AI_FIX_OPENAI = {
+    "url": "https://platform.openai.com/settings/organization/billing",
+    "label": "OpenAI Billing öffnen",
+}
 
-def sanitize_ai_provider_detail(exc=None) -> str:
-    """Return a user-safe message; never leak provider billing / quota text."""
+
+def _user_is_admin(username: Optional[str] = None) -> bool:
+    if not username:
+        return False
+    uname = str(username).strip()
+    if uname == "admin_":
+        return True
+    try:
+        row = AuthManager.get_user(uname)
+        return bool(row and row.get("is_admin"))
+    except Exception as exc:
+        print(f"_user_is_admin failed for {uname!r}: {exc!r}")
+        return False
+
+
+def _classify_ai_provider_error(exc=None) -> Dict[str, Any]:
     msg = str(exc or "")
     low = msg.lower()
+    kind = "generic"
+    fix = None
     if (
-        "429" in msg
-        or "resource_exhausted" in low
-        or "credits are depleted" in low
+        "credits are depleted" in low
         or "prepayment" in low
+        or ("429" in msg and ("gemini" in low or "google" in low or "generativelanguage" in low))
+        or ("billing" in low and ("gemini" in low or "google" in low or "ai studio" in low))
+    ):
+        kind = "gemini_billing"
+        fix = _AI_FIX_GEMINI_BILLING
+    elif (
+        "resource_exhausted" in low
         or "quota" in low
-        or "billing" in low
         or "rate limit" in low
         or "exceeded your current quota" in low
-        or "api_key" in low
+        or "429" in msg
+    ):
+        kind = "provider_quota"
+        if "openai" in low:
+            fix = _AI_FIX_OPENAI
+        else:
+            fix = _AI_FIX_GEMINI_BILLING
+    elif "openai" in low and ("insufficient" in low or "billing" in low):
+        kind = "openai_billing"
+        fix = _AI_FIX_OPENAI
+    elif (
+        "api_key" in low
         or "api key" in low
         or "no_api_key" in low
-        or ("openai" in low and ("429" in msg or "insufficient" in low))
+        or "invalid api key" in low
+        or "api key not valid" in low
     ):
+        kind = "api_key"
+        fix = _AI_FIX_OPENAI if "openai" in low else _AI_FIX_GEMINI
+    return {
+        "kind": kind,
+        "raw": msg[:2500],
+        "fix_url": (fix or {}).get("url"),
+        "fix_label": (fix or {}).get("label"),
+    }
+
+
+def format_ai_provider_detail(exc=None, username: Optional[str] = None):
+    """
+    Normal users: neutral string.
+    Admins: structured dict with raw debug text + optional fix link.
+    """
+    info = _classify_ai_provider_error(exc)
+    if not _user_is_admin(username):
         return AI_USER_UNAVAILABLE_MSG
-    return AI_USER_UNAVAILABLE_MSG
+    return {
+        "message": AI_USER_UNAVAILABLE_MSG,
+        "admin_debug": True,
+        "kind": info["kind"],
+        "debug": info["raw"] or AI_USER_UNAVAILABLE_MSG,
+        "fix_url": info.get("fix_url"),
+        "fix_label": info.get("fix_label"),
+    }
 
 
-def raise_for_ai_provider_error(exc: Exception, prefix: str = "KI-Fehler") -> None:
-    """Map Gemini/provider failures to a neutral 503 — no billing/API-key leaks."""
+def sanitize_ai_provider_detail(exc=None, username: Optional[str] = None) -> str:
+    """String form for job workers / SSE (admins get debug + fix URL inline)."""
+    detail = format_ai_provider_detail(exc, username=username)
+    if isinstance(detail, str):
+        return detail
+    parts = [str(detail.get("debug") or detail.get("message") or AI_USER_UNAVAILABLE_MSG)]
+    if detail.get("fix_url"):
+        parts.append(f"{detail.get('fix_label') or 'Fix'}: {detail['fix_url']}")
+    return "\n".join(parts)
+
+
+
+def ai_detail_to_string(detail, username: Optional[str] = None) -> str:
+    """Flatten HTTPException detail (str or admin dict) for job storage / toasts."""
+    if isinstance(detail, dict) and detail.get("admin_debug"):
+        parts = [str(detail.get("debug") or detail.get("message") or AI_USER_UNAVAILABLE_MSG)]
+        if detail.get("fix_url"):
+            parts.append(f"{detail.get('fix_label') or 'Fix'}: {detail['fix_url']}")
+        return "\n".join(parts)
+    if isinstance(detail, str):
+        return detail
+    return sanitize_ai_provider_detail(detail, username=username)
+
+
+def raise_for_ai_provider_error(
+    exc: Exception,
+    prefix: str = "KI-Fehler",
+    username: Optional[str] = None,
+) -> None:
+    """Map Gemini/provider failures to 503; admins see raw debug + fix links."""
     print(f"{prefix}: {exc!r}")
-    raise HTTPException(status_code=503, detail=sanitize_ai_provider_detail(exc))
+    raise HTTPException(
+        status_code=503,
+        detail=format_ai_provider_detail(exc, username=username),
+    )
 
 def resolve_model_preference(username: str, request_model: Optional[str]) -> Optional[str]:
     requested = (request_model or "").strip()
@@ -2007,7 +2101,7 @@ async def upload_audio(
         raise
     except Exception as e:
         print(f"Audio Upload Error: {e}")
-        raise_for_ai_provider_error(e, prefix="Audio-Verarbeitung")
+        raise_for_ai_provider_error(e, prefix="Audio-Verarbeitung", username=username)
 
 @app.post("/api/files/image")
 async def upload_image(
@@ -2068,7 +2162,7 @@ async def upload_image(
                  
     except Exception as e:
         print(f"Image Upload Error: {e}")
-        raise_for_ai_provider_error(e, prefix="Bildverarbeitung")
+        raise_for_ai_provider_error(e, prefix="Bildverarbeitung", username=username)
 
 @app.get("/api/files/signed-media-url")
 def signed_media_url(
@@ -2627,7 +2721,7 @@ def create_study_plan(request: PlanRequest, background_tasks: BackgroundTasks):
         raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
         print(f"Plan generation error: {e}")
-        raise_for_ai_provider_error(e, prefix="Lernplan-Fehler")
+        raise_for_ai_provider_error(e, prefix="Lernplan-Fehler", username=getattr(request, "username", None))
 
 
 @app.post("/api/ai/smart-learning")
@@ -2725,7 +2819,7 @@ def create_smart_learning(request: SmartLearningRequest, background_tasks: Backg
         raise
     except Exception as e:
         print(f"Smart Learning generation error: {e}")
-        raise_for_ai_provider_error(e, prefix="Smart-Learning-Fehler")
+        raise_for_ai_provider_error(e, prefix="Smart-Learning-Fehler", username=getattr(request, "username", None))
 
 
 @app.patch("/api/ai/smart-learning/progress")
@@ -2972,7 +3066,7 @@ def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
         raise
     except Exception as e:
         print(f"Quiz error: {e}")
-        raise_for_ai_provider_error(e, prefix="Quiz-Fehler")
+        raise_for_ai_provider_error(e, prefix="Quiz-Fehler", username=getattr(request, "username", None))
 
 @app.post("/api/ai/flashcards")
 def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
@@ -3022,7 +3116,7 @@ def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
         raise
     except Exception as e:
         print(f"Flashcards error: {e}")
-        raise_for_ai_provider_error(e, prefix="Karteikarten-Fehler")
+        raise_for_ai_provider_error(e, prefix="Karteikarten-Fehler", username=getattr(request, "username", None))
 
 @app.post("/api/ai/summary")
 def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
@@ -3061,7 +3155,7 @@ def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
         raise
     except Exception as e:
         print(f"Summary error: {e}")
-        raise_for_ai_provider_error(e, prefix="Zusammenfassung-Fehler")
+        raise_for_ai_provider_error(e, prefix="Zusammenfassung-Fehler", username=getattr(request, "username", None))
 
 @app.post("/api/ai/elaboration")
 def create_elaboration(request: ElaborationRequest):
@@ -3305,7 +3399,7 @@ def refine_elaboration(request: ElaborationRefineRequest):
         raise
     except Exception as e:
         print(f"Elaboration refine error: {e}")
-        raise_for_ai_provider_error(e, prefix="Ausarbeitung-Anpassung")
+        raise_for_ai_provider_error(e, prefix="Ausarbeitung-Anpassung", username=getattr(request, "username", None))
 
 @app.post("/api/ai/repetition")
 def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTasks):
@@ -3355,7 +3449,7 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
         raise
     except Exception as e:
         print(f"Repetition error: {e}")
-        raise_for_ai_provider_error(e, prefix="Wiederholungs-Fehler")
+        raise_for_ai_provider_error(e, prefix="Wiederholungs-Fehler", username=getattr(request, "username", None))
 
 @app.post("/api/ai/task-help")
 def get_task_help(request: TaskHelpRequest):
@@ -3387,7 +3481,7 @@ def get_task_help(request: TaskHelpRequest):
         raise
     except Exception as e:
         print(f"Task Help error: {e}")
-        raise_for_ai_provider_error(e, prefix="Aufgabenhilfe-Fehler")
+        raise_for_ai_provider_error(e, prefix="Aufgabenhilfe-Fehler", username=getattr(request, "username", None))
 
 @app.post("/api/ai/chat/stream")
 def chat_endpoint_stream(request: ChatRequest):
@@ -3421,7 +3515,7 @@ def chat_endpoint_stream(request: ChatRequest):
                         )
                         yield f"data: {json.dumps({'done': True, 'used_model': event.get('used_model', ''), **charge})}\n\n"
             except Exception as e:
-                yield f"data: {json.dumps({'error': sanitize_ai_provider_detail(e)})}\n\n"
+                yield f"data: {json.dumps({'error': sanitize_ai_provider_detail(e, username=getattr(request, 'username', None))})}\n\n"
 
         return StreamingResponse(
             generate(),
@@ -3432,7 +3526,7 @@ def chat_endpoint_stream(request: ChatRequest):
         raise
     except Exception as e:
         print(f"Chat stream error: {e}")
-        raise_for_ai_provider_error(e, prefix="Chatbot-Fehler")
+        raise_for_ai_provider_error(e, prefix="Chatbot-Fehler", username=getattr(request, "username", None))
 
 
 @app.post("/api/ai/chat")
@@ -3476,7 +3570,7 @@ def chat_endpoint(request: ChatRequest):
         raise
     except Exception as e:
         print(f"Chat error: {e}")
-        raise_for_ai_provider_error(e, prefix="Chatbot-Fehler")
+        raise_for_ai_provider_error(e, prefix="Chatbot-Fehler", username=getattr(request, "username", None))
 
 @app.post("/api/ai/document-chat")
 def document_chat_patch(request: DocumentChatPatchRequest):
@@ -3518,7 +3612,7 @@ def document_chat_patch(request: DocumentChatPatchRequest):
         raise
     except Exception as e:
         print(f"Document chat error: {e}")
-        raise_for_ai_provider_error(e, prefix="Dokument-Chat-Fehler")
+        raise_for_ai_provider_error(e, prefix="Dokument-Chat-Fehler", username=getattr(request, "username", None))
 
 
 @app.post("/api/ai/edit-selection")
@@ -3559,7 +3653,7 @@ def edit_selection(request: SelectionEditRequest):
         raise
     except Exception as e:
         print(f"Selection edit error: {e}")
-        raise_for_ai_provider_error(e, prefix="Selektions-Bearbeitung")
+        raise_for_ai_provider_error(e, prefix="Selektions-Bearbeitung", username=getattr(request, "username", None))
 
 
 @app.post("/api/ai/tts-preview")
@@ -3580,7 +3674,7 @@ def tts_preview(request: TtsPreviewRequest):
         raise
     except Exception as e:
         print(f"TTS preview error: {e}")
-        raise_for_ai_provider_error(e, prefix="TTS-Vorschau")
+        raise_for_ai_provider_error(e, prefix="TTS-Vorschau", username=getattr(request, "username", None))
 
 
 @app.post("/api/ai/podcast")

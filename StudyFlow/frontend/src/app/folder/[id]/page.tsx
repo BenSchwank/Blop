@@ -107,18 +107,63 @@ interface DocumentPatch {
     new_text: string;
 }
 
-/** Normalizes FastAPI `detail` (string | object | array) for toasts and queue error text. */
+/** Normalizes FastAPI `detail` for toasts; admins get debug + optional fix link. */
 function formatFastApiDetail(detail: unknown): string {
-    if (detail == null) return '';
-    let text = '';
-    if (typeof detail === 'string') text = detail;
-    else if (typeof detail === 'object') text = JSON.stringify(detail);
-    else text = String(detail);
-    if (/429|quota|billing|credits are depleted|resource_exhausted|prepayment|AI Studio|platform\.openai|NO_API_KEY|api[_ ]?key/i.test(text)) {
-        return 'Die KI ist gerade nicht verfügbar. Bitte versuche es später erneut.';
-    }
-    return text;
+    const parsed = parseAiApiDetail(detail);
+    return parsed.text;
 }
+
+function parseAiApiDetail(detail: unknown): {
+    text: string;
+    linkUrl?: string;
+    linkLabel?: string;
+} {
+    const isAdmin =
+        typeof window !== 'undefined' &&
+        (localStorage.getItem('is_admin') === 'true' ||
+            localStorage.getItem('username') === 'admin_');
+
+    if (detail == null) return { text: '' };
+
+    if (typeof detail === 'object' && !Array.isArray(detail)) {
+        const d = detail as Record<string, unknown>;
+        if (d.admin_debug && isAdmin) {
+            const debug = String(d.debug || d.message || '');
+            return {
+                text: debug,
+                linkUrl: typeof d.fix_url === 'string' ? d.fix_url : undefined,
+                linkLabel: typeof d.fix_label === 'string' ? d.fix_label : undefined,
+            };
+        }
+        if (typeof d.message === 'string') {
+            return { text: d.message };
+        }
+        return { text: JSON.stringify(detail) };
+    }
+
+    const text = typeof detail === 'string' ? detail : String(detail);
+    if (
+        !isAdmin &&
+        /429|quota|billing|credits are depleted|resource_exhausted|prepayment|AI Studio|platform\.openai|NO_API_KEY|api[_ ]?key/i.test(
+            text
+        )
+    ) {
+        return { text: 'Die KI ist gerade nicht verfügbar. Bitte versuche es später erneut.' };
+    }
+    // Admin: pull trailing "Label: https://..." into a clickable link
+    if (isAdmin) {
+        const m = text.match(/\n([^\n]+):\s*(https?:\/\/\S+)\s*$/);
+        if (m) {
+            return {
+                text: text.slice(0, m.index).trim() || text,
+                linkLabel: m[1].trim(),
+                linkUrl: m[2].trim(),
+            };
+        }
+    }
+    return { text };
+}
+
 
 /** Keys used in isGenerating + API paths for quiz/flashcards/plan */
 const AI_JOB_LABELS: Record<string, string> = {
@@ -499,10 +544,26 @@ export default function FolderPage() {
     const [isEditingFile, setIsEditingFile] = useState(false);
 
     // Toast notification (replaces all showToast() calls)
-    const [toast, setToast] = useState<{ msg: string; type: 'error' | 'info' | 'success' } | null>(null);
-    const showToast = (msg: string, type: 'error' | 'info' | 'success' = 'error') => {
-        setToast({ msg, type });
-        setTimeout(() => setToast(null), 6000);
+    const [toast, setToast] = useState<{
+        msg: string;
+        type: 'error' | 'info' | 'success';
+        linkUrl?: string;
+        linkLabel?: string;
+    } | null>(null);
+    const showToast = (
+        msg: string,
+        type: 'error' | 'info' | 'success' = 'error',
+        extra?: { linkUrl?: string; linkLabel?: string }
+    ) => {
+        setToast({ msg, type, linkUrl: extra?.linkUrl, linkLabel: extra?.linkLabel });
+        setTimeout(() => setToast(null), extra?.linkUrl ? 20000 : 6000);
+    };
+    const showApiErrorToast = (detail: unknown, fallback = 'Ein Fehler ist aufgetreten.') => {
+        const parsed = parseAiApiDetail(detail);
+        showToast(parsed.text || fallback, 'error', {
+            linkUrl: parsed.linkUrl,
+            linkLabel: parsed.linkLabel,
+        });
     };
 
     const registerAiJobFinished = useCallback((jobKey: string, ok: boolean) => {
@@ -1596,8 +1657,11 @@ export default function FolderPage() {
                         showToast("Serverfehler: Der AI Key wurde vom Administrator nicht konfiguriert.");
                         return;
                     }
-                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
                     lastError = errorMsg;
+                    showToast(`Fehler: ${errorMsg}`, 'error', { linkUrl: parsed.linkUrl, linkLabel: parsed.linkLabel });
+                    return;
                 } catch {
                     // Response not JSON — use status code
                     lastError = errorMsg;
@@ -1698,15 +1762,20 @@ export default function FolderPage() {
                 void bumpSmartLearningPracticeSession();
             } else {
                 let errorMsg = `HTTP ${res.status}`;
+                let linkUrl: string | undefined;
+                let linkLabel: string | undefined;
                 try {
                     const err = await res.json();
-                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
+                    linkUrl = parsed.linkUrl;
+                    linkLabel = parsed.linkLabel;
                     lastError = errorMsg;
                 } catch {
                     // ignore parse errors
                     lastError = errorMsg;
                 }
-                showToast(`Quiz-Fehler: ${errorMsg}`);
+                showToast(`Quiz-Fehler: ${errorMsg}`, 'error', { linkUrl, linkLabel });
             }
         } catch (error) {
             if (isAbortError(error)) {
@@ -1766,15 +1835,20 @@ export default function FolderPage() {
                 void bumpSmartLearningPracticeSession();
             } else {
                 let errorMsg = `HTTP ${res.status}`;
+                let linkUrl: string | undefined;
+                let linkLabel: string | undefined;
                 try {
                     const err = await res.json();
-                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
+                    linkUrl = parsed.linkUrl;
+                    linkLabel = parsed.linkLabel;
                     lastError = errorMsg;
                 } catch {
                     // ignore parse errors
                     lastError = errorMsg;
                 }
-                showToast(`Karteikarten-Fehler: ${errorMsg}`);
+                showToast(`Karteikarten-Fehler: ${errorMsg}`, 'error', { linkUrl, linkLabel });
             }
         } catch (error) {
             if (isAbortError(error)) {
@@ -1842,8 +1916,11 @@ export default function FolderPage() {
                         if (goToSettings) router.push("/settings");
                         return;
                     }
-                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
                     lastError = errorMsg;
+                    showToast(`Zusammenfassungs-Fehler: ${errorMsg}`, 'error', { linkUrl: parsed.linkUrl, linkLabel: parsed.linkLabel });
+                    return;
                 } catch { /* not JSON */ lastError = errorMsg; }
                 showToast(`Zusammenfassungs-Fehler: ${errorMsg}`);
             }
@@ -1977,8 +2054,11 @@ export default function FolderPage() {
                         if (goToSettings) router.push("/settings");
                         return;
                     }
-                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
                     lastError = errorMsg;
+                    showToast(`Ausarbeitungs-Fehler: ${errorMsg}`, 'error', { linkUrl: parsed.linkUrl, linkLabel: parsed.linkLabel });
+                    return;
                 } catch { /* ignore */ lastError = errorMsg; }
                 showToast(`Ausarbeitungs-Fehler: ${errorMsg}`);
             }
@@ -2045,8 +2125,11 @@ export default function FolderPage() {
                         if (goToSettings) router.push("/settings");
                         return;
                     }
-                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
                     lastError = errorMsg;
+                    showToast(`Fehler: ${errorMsg}`, 'error', { linkUrl: parsed.linkUrl, linkLabel: parsed.linkLabel });
+                    return;
                 } catch { /* ignore */ lastError = errorMsg; }
                 showToast(`Fehler: ${errorMsg}`);
             }
@@ -2178,12 +2261,19 @@ export default function FolderPage() {
                 try {
                     const err = await res.json();
                     if (res.status === 503 || (typeof err.detail === "string" && err.detail.includes("OPENAI"))) {
-                        lastError = formatFastApiDetail(err.detail) || errorMsg;
-                        showToast(err.detail || "OpenAI TTS nicht konfiguriert (OPENAI_API_KEY).");
+                        const parsed = parseAiApiDetail(err.detail);
+                        lastError = parsed.text || errorMsg;
+                        showToast(parsed.text || "OpenAI TTS nicht konfiguriert.", 'error', {
+                            linkUrl: parsed.linkUrl,
+                            linkLabel: parsed.linkLabel,
+                        });
                         return;
                     }
-                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
                     lastError = errorMsg;
+                    showToast(`Podcast: ${errorMsg}`, 'error', { linkUrl: parsed.linkUrl, linkLabel: parsed.linkLabel });
+                    return;
                 } catch {
                     lastError = errorMsg;
                 }
@@ -2328,12 +2418,19 @@ export default function FolderPage() {
                 try {
                     const err = await res.json();
                     if (res.status === 503 || (typeof err.detail === "string" && err.detail.includes("OPENAI"))) {
-                        lastError = formatFastApiDetail(err.detail) || errorMsg;
-                        showToast(err.detail || "OpenAI TTS nicht konfiguriert (OPENAI_API_KEY).");
+                        const parsed = parseAiApiDetail(err.detail);
+                        lastError = parsed.text || errorMsg;
+                        showToast(parsed.text || "OpenAI TTS nicht konfiguriert.", 'error', {
+                            linkUrl: parsed.linkUrl,
+                            linkLabel: parsed.linkLabel,
+                        });
                         return;
                     }
-                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
                     lastError = errorMsg;
+                    showToast(`Lernvideo: ${errorMsg}`, 'error', { linkUrl: parsed.linkUrl, linkLabel: parsed.linkLabel });
+                    return;
                 } catch {
                     lastError = errorMsg;
                 }
@@ -2410,12 +2507,17 @@ export default function FolderPage() {
                 fetchFiles();
             } else {
                 let errorMsg = `HTTP ${res.status}`;
+                let linkUrl: string | undefined;
+                let linkLabel: string | undefined;
                 try {
                     const err = await res.json();
-                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
+                    linkUrl = parsed.linkUrl;
+                    linkLabel = parsed.linkLabel;
                     lastError = errorMsg;
                 } catch { /* ignore */ lastError = errorMsg; }
-                showToast(`Lernplan-Fehler: ${errorMsg}`);
+                showToast(`Lernplan-Fehler: ${errorMsg}`, 'error', { linkUrl, linkLabel });
             }
         } catch (error) {
             if (isAbortError(error)) {
@@ -2486,12 +2588,17 @@ export default function FolderPage() {
                 fetchFiles();
             } else {
                 let errorMsg = `HTTP ${res.status}`;
+                let linkUrl: string | undefined;
+                let linkLabel: string | undefined;
                 try {
                     const err = await res.json();
-                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
+                    linkUrl = parsed.linkUrl;
+                    linkLabel = parsed.linkLabel;
                     lastError = errorMsg;
                 } catch { /* ignore */ lastError = errorMsg; }
-                showToast(`Smart-Learning-Fehler: ${errorMsg}`);
+                showToast(`Smart-Learning-Fehler: ${errorMsg}`, 'error', { linkUrl, linkLabel });
             }
         } catch (error) {
             if (isAbortError(error)) {
@@ -4115,13 +4222,26 @@ export default function FolderPage() {
         <div className="bg-[#0B0B1A] min-h-screen">
             {/* Global Toast */}
             {toast && (
-                <div className={`fixed top-4 right-4 z-[9999] p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 border ${toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
+                <div className={`fixed top-4 right-4 z-[9999] p-4 rounded-xl shadow-2xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2 border max-w-md ${toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
                     toast.type === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' :
                         'bg-blue-500/10 border-blue-500/20 text-blue-400'
                     }`}>
-                    {toast.type === 'error' ? <X size={20} /> : <HelpCircle size={20} />}
-                    <span className="font-medium whitespace-pre-wrap max-w-sm">{toast.msg}</span>
-                    <button onClick={() => setToast(null)} className="ml-2 hover:opacity-75">
+                    {toast.type === 'error' ? <X size={20} className="shrink-0 mt-0.5" /> : <HelpCircle size={20} className="shrink-0 mt-0.5" />}
+                    <div className="flex-1 min-w-0">
+                        <span className="font-medium whitespace-pre-wrap block">{toast.msg}</span>
+                        {toast.linkUrl ? (
+                            <a
+                                href={toast.linkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 inline-flex items-center gap-1 text-sm font-semibold underline underline-offset-2 text-[#8B89F0] hover:text-white"
+                            >
+                                {toast.linkLabel || 'Lösung öffnen'}
+                                <ExternalLink size={14} />
+                            </a>
+                        ) : null}
+                    </div>
+                    <button onClick={() => setToast(null)} className="ml-2 hover:opacity-75 shrink-0">
                         <X size={16} />
                     </button>
                 </div>

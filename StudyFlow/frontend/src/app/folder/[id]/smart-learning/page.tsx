@@ -22,6 +22,7 @@ export default function SmartLearningPage() {
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
     const [error, setError] = useState("");
+    const [errorLink, setErrorLink] = useState<{ url: string; label: string } | null>(null);
     const [file, setFile] = useState<FileRow | null>(null);
     const [username, setUsername] = useState("");
     const [sessionId, setSessionId] = useState("");
@@ -85,6 +86,7 @@ export default function SmartLearningPage() {
         if (!username || generating) return;
         setGenerating(true);
         setError("");
+        setErrorLink(null);
         try {
             const sid = sessionId || localStorage.getItem("session_id") || "";
             const res = await fetch(
@@ -104,13 +106,26 @@ export default function SmartLearningPage() {
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error(
-                    typeof data.detail === "string"
-                        ? data.detail
-                        : data.detail
-                          ? JSON.stringify(data.detail)
-                          : `HTTP ${res.status}`
-                );
+                const detail = data.detail;
+                const isAdmin =
+                    localStorage.getItem("is_admin") === "true" ||
+                    localStorage.getItem("username") === "admin_";
+                if (detail && typeof detail === "object" && detail.admin_debug && isAdmin) {
+                    setError(String(detail.debug || detail.message || `HTTP ${res.status}`));
+                    if (detail.fix_url) {
+                        setErrorLink({
+                            url: String(detail.fix_url),
+                            label: String(detail.fix_label || "Lösung öffnen"),
+                        });
+                    }
+                } else if (typeof detail === "string") {
+                    setError(detail);
+                } else if (detail) {
+                    setError(JSON.stringify(detail));
+                } else {
+                    setError(`HTTP ${res.status}`);
+                }
+                return;
             }
             const journey = normalizeSmartLearningContent(
                 data.smart_learning || data.file?.content,
@@ -211,8 +226,18 @@ export default function SmartLearningPage() {
                 )}
 
                 {error ? (
-                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 text-sm px-4 py-3">
-                        {error}
+                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 text-sm px-4 py-3 space-y-2">
+                        <p className="whitespace-pre-wrap">{error}</p>
+                        {errorLink ? (
+                            <a
+                                href={errorLink.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex text-[#8B89F0] underline underline-offset-2 hover:text-white"
+                            >
+                                {errorLink.label}
+                            </a>
+                        ) : null}
                     </div>
                 ) : null}
             </div>
