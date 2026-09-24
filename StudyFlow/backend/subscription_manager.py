@@ -26,6 +26,7 @@ class SubscriptionManager:
         "repetition",
         "task_help",
         "chat",
+        "smart_learning",
     }
 
     DEFAULT_TIERS: List[Dict[str, Any]] = [
@@ -82,6 +83,7 @@ class SubscriptionManager:
             "repetition": False,
             "task_help": False,
             "chat": False,
+            "smart_learning": True,
         },
         "pro": {
             "plan": True,
@@ -97,6 +99,7 @@ class SubscriptionManager:
             "repetition": True,
             "task_help": True,
             "chat": True,
+            "smart_learning": True,
         },
         "premium": {
             "plan": True,
@@ -112,6 +115,7 @@ class SubscriptionManager:
             "repetition": True,
             "task_help": True,
             "chat": True,
+            "smart_learning": True,
         },
     }
 

@@ -766,6 +766,119 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             raise Exception(f"Fehler beim Lernplan-Generieren: {str(e)}")
 
     @staticmethod
+    def generate_smart_learning(
+        content: List[Any],
+        focus: str = "",
+        exam_date: str = "",
+        model_preference: str = None,
+        return_meta: bool = False,
+    ) -> Any:
+        """Builds a Lumivara-style smart learning journey (chapters + readiness shell) from folder material."""
+        try:
+            model = genai.GenerativeModel(
+                get_best_model(model_preference),
+                generation_config={"response_mime_type": "application/json"},
+            )
+            focus_line = (focus or "").strip() or "Gesamtes Material prüfungsrelevant aufbereiten"
+            exam_line = (exam_date or "").strip()
+            exam_hint = f"- Geplante Prüfung / Zieltermin: {exam_line}\n" if exam_line else ""
+
+            prompt = f"""
+Du bist ein KI-Lerncoach. Erstelle aus dem Material eine SMART-LEARNING-LERNREISE
+(ähnlich einem Prüfungstrainer): klare Kapitel, kurze Zusammenfassungen, Kernpunkte.
+
+FOKUS: {focus_line}
+{exam_hint}
+{MATH_ACCURACY_INSTRUCTIONS}
+
+ANFORDERUNGEN:
+1. 4–8 Kapitel in sinnvoller Lernreihenfolge (vom Fundament zur Anwendung).
+2. Jedes Kapitel: prägnanter Titel, Zusammenfassung (4–8 Sätze), 3–6 key_points.
+3. Titel der gesamten Lernreise: prüfungsnah und konkret (kein generisches „Lernreise“).
+4. source_hint: ein Satz, woraus das Material besteht (z. B. „Skript + Transkript“).
+5. readiness immer 0 (Fortschritt kommt später vom Client).
+6. progress.completed_chapter_ids = [] und progress.practice_sessions = 0.
+7. Kapitel-IDs: kurze slugs wie "ch1", "ch2", …
+
+Ausgabe: EIN JSON-Objekt (kein Array) genau in dieser Form:
+{{
+  "title": "…",
+  "readiness": 0,
+  "source_hint": "…",
+  "chapters": [
+    {{
+      "id": "ch1",
+      "title": "…",
+      "summary": "…",
+      "key_points": ["…", "…"]
+    }}
+  ],
+  "progress": {{
+    "completed_chapter_ids": [],
+    "practice_sessions": 0
+  }}
+}}
+
+Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
+"""
+            input_parts: List[Any] = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
+
+            result = json.loads(response.text)
+            if not isinstance(result, dict):
+                raise Exception("Smart Learning Antwort muss ein JSON-Objekt sein.")
+            chapters = result.get("chapters")
+            if not isinstance(chapters, list) or len(chapters) == 0:
+                raise Exception("Smart Learning braucht mindestens ein Kapitel.")
+
+            # Normalize defaults
+            result["title"] = str(result.get("title") or "Smart Learning").strip()
+            result["readiness"] = 0
+            result["source_hint"] = str(result.get("source_hint") or "").strip()
+            result["progress"] = {
+                "completed_chapter_ids": [],
+                "practice_sessions": int((result.get("progress") or {}).get("practice_sessions") or 0),
+            }
+            normalized_chapters = []
+            for i, ch in enumerate(chapters):
+                if not isinstance(ch, dict):
+                    continue
+                cid = str(ch.get("id") or f"ch{i + 1}").strip() or f"ch{i + 1}"
+                title = str(ch.get("title") or f"Kapitel {i + 1}").strip()
+                summary = str(ch.get("summary") or "").strip()
+                kps = ch.get("key_points") or []
+                if not isinstance(kps, list):
+                    kps = [str(kps)]
+                key_points = [str(p).strip() for p in kps if str(p).strip()]
+                normalized_chapters.append({
+                    "id": cid,
+                    "title": title,
+                    "summary": summary,
+                    "key_points": key_points,
+                })
+            if not normalized_chapters:
+                raise Exception("Keine gültigen Kapitel erzeugt.")
+            result["chapters"] = normalized_chapters
+
+            if not return_meta:
+                return result
+            return {
+                "data": result,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
+        except Exception as e:
+            print(f"Smart Learning Error: {e}")
+            raise Exception(f"Fehler bei Smart Learning: {str(e)}")
+
+    @staticmethod
     def _validate_refined_quiz(obj: Any) -> None:
         if not isinstance(obj, list) or len(obj) == 0:
             raise ValueError("Quiz muss ein nicht-leeres JSON-Array sein.")

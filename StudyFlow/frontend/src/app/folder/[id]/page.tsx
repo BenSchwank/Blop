@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle, Mic, Video, Send, Link2, Inbox, Copy, ClipboardPaste, Trash2 } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle, Mic, Video, Send, Link2, Inbox, Copy, ClipboardPaste, Trash2, Sparkles } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import RichTextEditor from "@/components/RichTextEditor";
+import SmartLearningView, { normalizeSmartLearningContent } from "@/components/SmartLearningView";
 import { registerAiJobAbort, unregisterAiJobAbort, isAbortError } from "@/lib/aiJobAbortRegistry";
 import { OVERLAY_FOLDER_KI_PANEL } from "@/constants/overlayLayout";
 import FloatingChat from "@/components/FloatingChat";
@@ -123,6 +124,7 @@ const AI_JOB_LABELS: Record<string, string> = {
     repetition: 'Wiederholung',
     podcast: 'Podcast',
     'learning-video': 'Lernvideo',
+    'smart-learning': 'Smart Learning',
 };
 
 const LEARNING_VIDEO_SETTINGS_KEY = "blop_study_learning_video_settings_v1";
@@ -138,6 +140,7 @@ const AI_CONTEXT_FILE_TYPES = new Set([
     'quiz',
     'flashcards',
     'pdf',
+    'smart_learning',
 ]);
 
 function isAiContextSourceFile(f: Pick<FileData, 'type'>): boolean {
@@ -328,6 +331,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
         >
             <div className="flex items-center gap-4">
                 <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
+                    file.type === 'smart_learning' ? 'bg-indigo-500/10 text-indigo-300' :
                     file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
                         file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
                             file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
@@ -512,7 +516,7 @@ export default function FolderPage() {
                 next[byId] = file;
                 return next;
             }
-            if (file.type === 'quiz' || file.type === 'flashcards') {
+            if (file.type === 'quiz' || file.type === 'flashcards' || file.type === 'smart_learning') {
                 const byType = next.findIndex((f) => f.type === file.type);
                 if (byType >= 0) {
                     next[byType] = file;
@@ -614,6 +618,12 @@ export default function FolderPage() {
     const [planUseDate, setPlanUseDate] = useState(false);
     const [planActiveDays, setPlanActiveDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]); // 0=Mo, 6=Su
 
+    // Smart Learning Config Modal State
+    const [isSmartLearningConfigOpen, setIsSmartLearningConfigOpen] = useState(false);
+    const [smartLearningFocus, setSmartLearningFocus] = useState('');
+    const [smartLearningExamDate, setSmartLearningExamDate] = useState('');
+    const smartLearningPracticeBumpRef = useRef(false);
+
     // Handler for changing target grade and auto-calculating realistic study times
     const handleTargetGradeChange = (grade: number) => {
         setTargetGrade(grade);
@@ -672,6 +682,17 @@ export default function FolderPage() {
     const [isFlashcardsConfigOpen, setIsFlashcardsConfigOpen] = useState(false);
     const [flashcardsCount, setFlashcardsCount] = useState(20);
     const [flashcardsMaxText, setFlashcardsMaxText] = useState(320);
+
+    // Deep-link from /folder/[id]/smart-learning "Jetzt lernen"
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const practice = new URLSearchParams(window.location.search).get("practice");
+        if (practice !== "quiz" && practice !== "flashcards") return;
+        smartLearningPracticeBumpRef.current = true;
+        if (practice === "quiz") setIsQuizConfigOpen(true);
+        if (practice === "flashcards") setIsFlashcardsConfigOpen(true);
+        router.replace(`/folder/${folderId}`, { scroll: false });
+    }, [folderId, router]);
 
     const [isLearningVideoConfigOpen, setIsLearningVideoConfigOpen] = useState(false);
     const [lvTargetScenes, setLvTargetScenes] = useState(5);
@@ -1559,11 +1580,13 @@ export default function FolderPage() {
         }
 
         if (type === 'quiz') {
+            smartLearningPracticeBumpRef.current = false;
             setIsQuizConfigOpen(true);
             return;
         }
 
         if (type === 'flashcards') {
+            smartLearningPracticeBumpRef.current = false;
             setIsFlashcardsConfigOpen(true);
             return;
         }
@@ -1624,6 +1647,7 @@ export default function FolderPage() {
                 upsertGeneratedFile(generated);
                 setSelectedFile(generated);
                 fetchFiles();
+                void bumpSmartLearningPracticeSession();
             } else {
                 let errorMsg = `HTTP ${res.status}`;
                 try {
@@ -1691,6 +1715,7 @@ export default function FolderPage() {
                 upsertGeneratedFile(generated);
                 setSelectedFile(generated);
                 fetchFiles();
+                void bumpSmartLearningPracticeSession();
             } else {
                 let errorMsg = `HTTP ${res.status}`;
                 try {
@@ -2358,6 +2383,123 @@ export default function FolderPage() {
             setIsGenerating((prev) => prev.filter((t) => t !== 'plan'));
             registerAiJobFinished('plan', ok);
             queueFinish('plan', ok, ok ? undefined : lastError);
+        }
+    };
+
+    const handleSmartLearningGenerate = async () => {
+        setIsSmartLearningConfigOpen(false);
+        setIsGenerating((prev) => (prev.includes('smart-learning') ? prev : [...prev, 'smart-learning']));
+        queueStart('smart-learning');
+        const jobId = `${folderId}:smart-learning`;
+        const ac = new AbortController();
+        registerAiJobAbort(jobId, ac);
+        let ok = false;
+        let lastError: string | undefined;
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/ai/smart-learning`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    focus: smartLearningFocus.trim() || undefined,
+                    exam_date: smartLearningExamDate || undefined,
+                    model_preference: effectiveModelPreference,
+                }),
+                signal: ac.signal,
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                announceUsage(data);
+                const journey = normalizeSmartLearningContent(
+                    data.smart_learning || data.file?.content,
+                    data.file?.name || 'Smart Learning'
+                );
+                if (journey.chapters.length > 0 || journey.title) {
+                    ok = true;
+                    const generated: FileData = {
+                        id: data.file?.id || `smart_main_${folderId}`,
+                        name: data.file?.name || journey.title || 'Smart Learning',
+                        type: 'smart_learning',
+                        created_at: new Date().toISOString(),
+                        content: journey,
+                    };
+                    upsertGeneratedFile(generated);
+                    setSelectedFile(generated);
+                    showToast("Smart Learning bereit.", "success");
+                } else {
+                    showToast("Smart Learning wurde generiert, ist aber leer. Bitte prüfe ob Material im Ordner vorhanden ist.");
+                }
+                fetchFiles();
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    lastError = errorMsg;
+                } catch { /* ignore */ lastError = errorMsg; }
+                showToast(`Smart-Learning-Fehler: ${errorMsg}`);
+            }
+        } catch (error) {
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error("Smart Learning error:", error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast(`Netzwerk-Fehler: ${String(error)}`);
+            }
+        } finally {
+            unregisterAiJobAbort(jobId, ac);
+            setIsGenerating((prev) => prev.filter((t) => t !== 'smart-learning'));
+            registerAiJobFinished('smart-learning', ok);
+            queueFinish('smart-learning', ok, ok ? undefined : lastError);
+        }
+    };
+
+    const bumpSmartLearningPracticeSession = async () => {
+        if (!smartLearningPracticeBumpRef.current) return;
+        smartLearningPracticeBumpRef.current = false;
+        try {
+            const username = localStorage.getItem("username") || "";
+            const sid = localStorage.getItem("session_id") || "";
+            if (!username || !sid) return;
+            const existing = files.find((f) => f.type === "smart_learning" || f.id === `smart_main_${folderId}`);
+            const journey = normalizeSmartLearningContent(existing?.content, existing?.name || "Smart Learning");
+            const nextSessions = (journey.progress?.practice_sessions || 0) + 1;
+            const res = await fetch(
+                `${API_BASE}/ai/smart-learning/progress?session_id=${encodeURIComponent(sid)}`,
+                {
+                    method: "PATCH",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Session-Id": sid,
+                    },
+                    body: JSON.stringify({
+                        username,
+                        folder_id: folderId,
+                        completed_chapter_ids: journey.progress?.completed_chapter_ids || [],
+                        practice_sessions: nextSessions,
+                    }),
+                }
+            );
+            if (!res.ok) return;
+            const data = await res.json().catch(() => ({}));
+            const updated = normalizeSmartLearningContent(data.smart_learning || {
+                ...journey,
+                progress: { ...journey.progress, practice_sessions: nextSessions },
+            }, journey.title);
+            setFiles((prev) =>
+                prev.map((f) =>
+                    f.type === "smart_learning" || f.id === `smart_main_${folderId}`
+                        ? { ...f, content: updated, name: updated.title || f.name }
+                        : f
+                )
+            );
+        } catch {
+            /* non-blocking */
         }
     };
 
@@ -3374,6 +3516,70 @@ export default function FolderPage() {
             );
         }
 
+        if (selectedFile.type === 'smart_learning') {
+            const journey = normalizeSmartLearningContent(
+                selectedFile.content,
+                selectedFile.name || 'Smart Learning'
+            );
+            const username = typeof window !== 'undefined' ? localStorage.getItem("username") || "" : "";
+            const sessionId = typeof window !== 'undefined' ? localStorage.getItem("session_id") || "" : "";
+            const busyPractice = isGenerating.includes('quiz') || isGenerating.includes('flashcards');
+            return (
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                                <X size={20} />
+                            </button>
+                            <div className="h-6 w-px bg-[#1C1C33] mx-2"></div>
+                            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-300">
+                                <Sparkles size={20} />
+                            </div>
+                            <h3 className="text-lg font-semibold text-white">{selectedFile.name || 'Smart Learning'}</h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => router.push(`/folder/${folderId}/smart-learning`)}
+                                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-[#2A2A40]"
+                            >
+                                Vollbild
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsSmartLearningConfigOpen(true)}
+                                disabled={isGenerating.includes('smart-learning')}
+                                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-[#2A2A40] disabled:opacity-50"
+                            >
+                                Neu generieren
+                            </button>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-6">
+                        <SmartLearningView
+                            content={journey}
+                            folderId={folderId}
+                            username={username}
+                            sessionId={sessionId}
+                            busyPractice={busyPractice}
+                            onClose={() => setSelectedFile(null)}
+                            onContentUpdated={(next) => {
+                                const updated: FileData = { ...selectedFile, content: next, name: next.title || selectedFile.name };
+                                setSelectedFile(updated);
+                                setFiles((prev) => prev.map((f) => (f.id === selectedFile.id ? updated : f)));
+                            }}
+                            onStartPractice={(mode) => {
+                                smartLearningPracticeBumpRef.current = true;
+                                setSelectedFile(null);
+                                if (mode === "quiz") setIsQuizConfigOpen(true);
+                                else setIsFlashcardsConfigOpen(true);
+                            }}
+                        />
+                    </div>
+                </div>
+            );
+        }
+
         if (selectedFile.type === 'plan') {
             const plan = (Array.isArray(selectedFile.content) ? selectedFile.content : []) as PlanDayRow[];
             if (!Array.isArray(plan) || plan.length === 0) {
@@ -3829,6 +4035,7 @@ export default function FolderPage() {
     const getFileIcon = (type: string) => {
         switch (type) {
             case 'plan': return <BrainCircuit size={20} />;
+            case 'smart_learning': return <Sparkles size={20} />;
             case 'transcript': return <Youtube size={20} />;
             case 'quiz': return <HelpCircle size={20} />;
             case 'flashcards': return <Layers size={20} />;
@@ -3872,6 +4079,22 @@ export default function FolderPage() {
                         <div className="flex gap-2 mr-2 border-r border-[#2A2A40] pr-4">
                             <button onClick={() => handleGenerate('plan')} disabled={isGenerating.includes('plan')} className="p-2.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernplan erstellen">
                                 {isGenerating.includes('plan') ? <Loader2 size={20} className="animate-spin" /> : <BrainCircuit size={20} />}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const existing = files.find((f) => f.type === 'smart_learning');
+                                    if (existing) {
+                                        setSelectedFile(existing);
+                                        return;
+                                    }
+                                    setIsSmartLearningConfigOpen(true);
+                                }}
+                                disabled={isGenerating.includes('smart-learning')}
+                                className="p-2.5 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 rounded-xl transition-all disabled:opacity-50"
+                                title="Smart Learning"
+                            >
+                                {isGenerating.includes('smart-learning') ? <Loader2 size={20} className="animate-spin" /> : <Sparkles size={20} />}
                             </button>
                             <button onClick={() => handleGenerate('quiz')} disabled={isGenerating.includes('quiz')} className="p-2.5 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50" title="Quiz erstellen">
                                 {isGenerating.includes('quiz') ? <Loader2 size={20} className="animate-spin" /> : <HelpCircle size={20} />}
@@ -4109,6 +4332,7 @@ export default function FolderPage() {
                             {activeDragFile ? (
                                 <div className="bg-[#1C1C33] border border-[#5E5CE6] p-4 rounded-xl shadow-2xl flex items-center gap-4 opacity-90 scale-105 pointer-events-none">
                                     <div className={`p-3 rounded-lg ${activeDragFile.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
+                                        activeDragFile.type === 'smart_learning' ? 'bg-indigo-500/10 text-indigo-300' :
                                         activeDragFile.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
                                             activeDragFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
                                                 activeDragFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
@@ -4275,7 +4499,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Stelle Anzahl und Schwierigkeit ein</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsQuizConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsQuizConfigOpen(false); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -4327,7 +4551,7 @@ export default function FolderPage() {
                                 </div>
                             </div>
                             <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsQuizConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsQuizConfigOpen(false); }} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button onClick={handleQuizGenerate} className="flex-1 py-2.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
@@ -4353,7 +4577,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Passe Menge und Antwortlänge an</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsFlashcardsConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsFlashcardsConfigOpen(false); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -4406,7 +4630,7 @@ export default function FolderPage() {
                                 </div>
                             </div>
                             <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsFlashcardsConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsFlashcardsConfigOpen(false); }} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button onClick={handleFlashcardsGenerate} className="flex-1 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
@@ -4728,6 +4952,65 @@ export default function FolderPage() {
                                     className="flex-1 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
                                 >
                                     <Video size={16} />
+                                    Generieren
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Smart Learning Config Modal */}
+                {isSmartLearningConfigOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-300">
+                                        <Sparkles size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white">Smart Learning</h3>
+                                        <p className="text-xs text-gray-400">Lernreise mit Kapiteln aus deinem Material</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setIsSmartLearningConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Fokus (optional)</label>
+                                    <input
+                                        type="text"
+                                        value={smartLearningFocus}
+                                        onChange={(e) => setSmartLearningFocus(e.target.value)}
+                                        placeholder="z.B. Klausur Kapitel 3–5"
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Prüfungsdatum (optional)</label>
+                                    <input
+                                        type="date"
+                                        value={smartLearningExamDate}
+                                        onChange={(e) => setSmartLearningExamDate(e.target.value)}
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    />
+                                </div>
+                                <p className="text-xs text-gray-500">
+                                    Braucht PDF- oder YouTube-Material im Ordner. Erzeugt Kapitel + Bereitschaft; Übungen nutzen Quiz/Karteikarten.
+                                    Neu generieren behält deinen Kapitel-Fortschritt, soweit möglich.
+                                </p>
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsSmartLearningConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                    Abbrechen
+                                </button>
+                                <button
+                                    onClick={() => void handleSmartLearningGenerate()}
+                                    className="flex-1 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Sparkles size={16} />
                                     Generieren
                                 </button>
                             </div>

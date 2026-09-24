@@ -402,4 +402,5 @@ export const FEATURE_LABELS: Record<string, string> = {
     repetition: 'Wiederholungsbogen',
     task_help: 'Aufgabenhilfe',
     chat: 'KI-Chat',
+    smart_learning: 'Smart Learning',
 };

@@ -1763,6 +1763,7 @@ FEATURE_MULTIPLIER = {
     "image_to_text": 1.0,
     "podcast": 1.2,
     "learning_video": 1.4,
+    "smart_learning": 1.5,
 }
 
 def ensure_minimum_tokens(username: str, reserve: int = 1):
@@ -2360,6 +2361,20 @@ class PlanRequest(BaseModel):
     model_preference: str = None
     learning_mode: str = "normal"
 
+class SmartLearningRequest(BaseModel):
+    username: str
+    folder_id: str
+    focus: str = ""
+    exam_date: str = ""
+    model_preference: str = None
+
+class SmartLearningProgressRequest(BaseModel):
+    username: str
+    folder_id: str
+    completed_chapter_ids: Optional[List[str]] = None
+    practice_sessions: Optional[int] = None
+    readiness: Optional[int] = None
+
 class TaskHelpRequest(BaseModel):
     username: str
     folder_id: str
@@ -2577,6 +2592,175 @@ def create_study_plan(request: PlanRequest, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=f"Lernplan-Fehler: {str(e)}")
 
 
+@app.post("/api/ai/smart-learning")
+def create_smart_learning(request: SmartLearningRequest, background_tasks: BackgroundTasks):
+    """Generates a Smart Learning journey (chapters + readiness shell) from folder contents."""
+    from ai_service import AIService
+
+    try:
+        SubscriptionManager.ensure_feature(request.username, "smart_learning")
+        ensure_minimum_tokens(request.username, 2)
+        _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
+
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
+            print(error_msg)
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        result = AIService.generate_smart_learning(
+            context,
+            focus=request.focus or "",
+            exam_date=request.exam_date or "",
+            model_preference=model_pref,
+            return_meta=True,
+        )
+        journey = result["data"]
+        file_id = f"smart_main_{request.folder_id}"
+
+        # Preserve chapter/practice progress across re-generation (Lumivara-like continuity).
+        try:
+            existing_files = DataManager.list_files(request.username, request.folder_id)
+            existing = next(
+                (f for f in existing_files if f.get("id") == file_id and f.get("type") == "smart_learning"),
+                None,
+            )
+            old_content = (existing or {}).get("content") if existing else None
+            if isinstance(old_content, str):
+                try:
+                    old_content = json.loads(old_content)
+                except Exception:
+                    old_content = None
+            if isinstance(old_content, dict):
+                old_progress = old_content.get("progress") if isinstance(old_content.get("progress"), dict) else {}
+                old_completed = old_progress.get("completed_chapter_ids") or []
+                if not isinstance(old_completed, list):
+                    old_completed = []
+                new_ids = {
+                    str(ch.get("id"))
+                    for ch in (journey.get("chapters") or [])
+                    if isinstance(ch, dict) and ch.get("id")
+                }
+                kept = [str(x) for x in old_completed if str(x) in new_ids]
+                sessions = max(0, int(old_progress.get("practice_sessions") or 0))
+                chapter_count = len(journey.get("chapters") or []) if isinstance(journey.get("chapters"), list) else 0
+                readiness = 0
+                if chapter_count > 0:
+                    readiness = int(round(100.0 * len(set(kept)) / chapter_count))
+                    readiness = min(100, readiness + min(20, sessions * 5))
+                journey["progress"] = {
+                    "completed_chapter_ids": list(dict.fromkeys(kept)),
+                    "practice_sessions": sessions,
+                }
+                journey["readiness"] = readiness
+        except Exception as merge_err:
+            print(f"Smart Learning progress merge skipped: {merge_err}")
+
+        DataManager.save_file_metadata(
+            {
+                "id": file_id,
+                "name": journey.get("title") or "Smart Learning",
+                "type": "smart_learning",
+                "content": journey,
+            },
+            request.username,
+            request.folder_id,
+        )
+        background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Smart Learning")
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "smart_learning",
+            result.get("used_model", model_pref or ""),
+            result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "smart_learning": journey,
+            "file": {
+                "id": file_id,
+                "name": journey.get("title") or "Smart Learning",
+                "type": "smart_learning",
+                "content": journey,
+            },
+            "used_model": result.get("used_model", model_pref or ""),
+            "usage": result.get("usage", {}),
+            **charge,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Smart Learning generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Smart-Learning-Fehler: {str(e)}")
+
+
+@app.patch("/api/ai/smart-learning/progress")
+def update_smart_learning_progress(http_request: Request, body: SmartLearningProgressRequest, session_id: str = ""):
+    """Persists chapter/readiness progress without charging tokens."""
+    user = require_session_user(
+        http_request,
+        session_id=session_id or None,
+        username=body.username or None,
+    )
+    if user != body.username:
+        raise HTTPException(status_code=403, detail="Nicht berechtigt.")
+
+    SubscriptionManager.ensure_feature(body.username, "smart_learning")
+    file_id = f"smart_main_{body.folder_id}"
+    files = DataManager.list_files(body.username, body.folder_id)
+    existing = next((f for f in files if f.get("id") == file_id and f.get("type") == "smart_learning"), None)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Smart Learning nicht gefunden. Bitte zuerst generieren.")
+
+    content = existing.get("content")
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except Exception:
+            content = {}
+    if not isinstance(content, dict):
+        content = {}
+
+    progress = content.get("progress") if isinstance(content.get("progress"), dict) else {}
+    if body.completed_chapter_ids is not None:
+        progress["completed_chapter_ids"] = [str(x) for x in body.completed_chapter_ids]
+    if body.practice_sessions is not None:
+        progress["practice_sessions"] = max(0, int(body.practice_sessions))
+
+    chapter_count = len(content.get("chapters") or []) if isinstance(content.get("chapters"), list) else 0
+    completed = progress.get("completed_chapter_ids") or []
+    if not isinstance(completed, list):
+        completed = []
+
+    if body.readiness is not None:
+        readiness = max(0, min(100, int(body.readiness)))
+    elif chapter_count > 0:
+        readiness = int(round(100.0 * len(set(completed)) / chapter_count))
+        sessions = int(progress.get("practice_sessions") or 0)
+        readiness = min(100, readiness + min(20, sessions * 5))
+    else:
+        readiness = int(content.get("readiness") or 0)
+
+    content["progress"] = {
+        "completed_chapter_ids": list(dict.fromkeys(completed)),
+        "practice_sessions": int(progress.get("practice_sessions") or 0),
+    }
+    content["readiness"] = readiness
+
+    DataManager.save_file_metadata(
+        {
+            "id": file_id,
+            "name": content.get("title") or existing.get("name") or "Smart Learning",
+            "type": "smart_learning",
+            "content": content,
+            "created_at": existing.get("created_at"),
+        },
+        body.username,
+        body.folder_id,
+    )
+    return {"status": "success", "smart_learning": content}
+
+
 def _truncate_for_learning_video_context(parts: List[Any]) -> List[Any]:
     """Kürzt Text + begrenzt PDF-Anhänge, damit Gemini-Storyboard nicht bei großen Ordnern timeoutet."""
     MAX_TEXT_CHARS = 100_000
@@ -2652,7 +2836,7 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
                  debug_log.append(f"Transcript {f_name} has no content")
 
         # 1b. Text-based generated / stored documents (summary, plans, quiz JSON, etc.)
-        elif f_type in ("summary", "repetition", "elaboration", "plan", "quiz", "flashcards"):
+        elif f_type in ("summary", "repetition", "elaboration", "plan", "quiz", "flashcards", "smart_learning"):
             raw = f.get("content")
             if raw is None:
                 debug_log.append(f"{f_name} ({f_type}) has no content field")
