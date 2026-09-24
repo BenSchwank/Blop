@@ -2000,7 +2000,7 @@ export default function FolderPage() {
                         }
                         if (j.status === "error") {
                             lastError = j.detail || "Fehler bei der Erstellung.";
-                            showToast(`Ausarbeitung: ${lastError}`);
+                            showApiErrorToast(lastError, `Ausarbeitung: ${String(lastError)}`);
                             break;
                         }
                     }
@@ -2217,11 +2217,10 @@ export default function FolderPage() {
                         }
                         if (j.status === "error") {
                             lastError = j.detail || "Fehler bei der Erstellung.";
-                            if (lastError.includes("OPENAI")) {
-                                showToast(lastError);
-                            } else {
-                                showToast(`Podcast: ${lastError}`);
-                            }
+                            showApiErrorToast(
+                                lastError,
+                                lastError.includes("OPENAI") ? String(lastError) : `Podcast: ${String(lastError)}`
+                            );
                             break;
                         }
                     }
@@ -2375,11 +2374,10 @@ export default function FolderPage() {
                         }
                         if (j.status === "error") {
                             lastError = j.detail || "Fehler bei der Erstellung.";
-                            if (lastError.includes("OPENAI")) {
-                                showToast(lastError);
-                            } else {
-                                showToast(`Lernvideo: ${lastError}`);
-                            }
+                            showApiErrorToast(
+                                lastError,
+                                lastError.includes("OPENAI") ? String(lastError) : `Lernvideo: ${String(lastError)}`
+                            );
                             break;
                         }
                     }
