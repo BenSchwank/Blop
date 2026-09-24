@@ -1476,6 +1476,28 @@ def get_leaderboard(limit: int = 10):
     """Get top users by XP"""
     return AuthManager.get_leaderboard_data(limit)
 
+
+@app.get("/api/admin/debug/ai-keys")
+def admin_debug_ai_keys(
+    http_request: Request,
+    admin_username: str = "",
+    session_id: str = "",
+):
+    """
+    Admin-only: fingerprints of server AI keys (suffix only) for matching
+    against Google AI Studio / OpenAI dashboards.
+    """
+    user = require_session_user(
+        http_request,
+        session_id=session_id or None,
+        username=admin_username or None,
+    )
+    user_record = AuthManager.get_user(user)
+    if not user_record or not user_record.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    return admin_ai_keys_debug_payload()
+
+
 # --- FOLDER ENDPOINTS ---
 @app.get("/api/folders")
 def get_folders(http_request: Request, username: str = "", session_id: str = ""):
@@ -1781,6 +1803,48 @@ _AI_FIX_OPENAI = {
 }
 
 
+def _api_key_fingerprint(env_name: str) -> Dict[str, Any]:
+    """Safe fingerprint for admins: never returns the full secret."""
+    raw = (os.environ.get(env_name) or "").strip()
+    if not raw:
+        return {
+            "env": env_name,
+            "configured": False,
+            "suffix": None,
+            "length": 0,
+            "prefix": None,
+        }
+    suffix = raw[-4:] if len(raw) >= 4 else raw
+    prefix = raw[:4] if len(raw) >= 8 else None
+    return {
+        "env": env_name,
+        "configured": True,
+        "suffix": suffix,
+        "length": len(raw),
+        "prefix": prefix,
+        "display": f"…{suffix}",
+    }
+
+
+def admin_ai_keys_debug_payload() -> Dict[str, Any]:
+    """Admin-only summary of which AI provider keys the server is using."""
+    google = _api_key_fingerprint("GOOGLE_API_KEY")
+    openai = _api_key_fingerprint("OPENAI_API_KEY")
+    return {
+        "google_api_key": google,
+        "openai_api_key": openai,
+        "compare_hint": (
+            "In AI Studio die letzten 4 Zeichen der Keys mit "
+            f"GOOGLE_API_KEY={google.get('display') or 'nicht gesetzt'} vergleichen."
+        ),
+        "fix_urls": {
+            "ai_studio_keys": "https://aistudio.google.com/app/apikey",
+            "ai_studio_billing": "https://ai.studio/projects",
+            "openai_billing": "https://platform.openai.com/settings/organization/billing",
+        },
+    }
+
+
 def _user_is_admin(username: Optional[str] = None) -> bool:
     if not username:
         return False
@@ -1843,18 +1907,27 @@ def _classify_ai_provider_error(exc=None) -> Dict[str, Any]:
 def format_ai_provider_detail(exc=None, username: Optional[str] = None):
     """
     Normal users: neutral string.
-    Admins: structured dict with raw debug text + optional fix link.
+    Admins: structured dict with raw debug text + optional fix link + key suffix.
     """
     info = _classify_ai_provider_error(exc)
     if not _user_is_admin(username):
         return AI_USER_UNAVAILABLE_MSG
+    google_fp = _api_key_fingerprint("GOOGLE_API_KEY")
+    openai_fp = _api_key_fingerprint("OPENAI_API_KEY")
+    debug_text = info["raw"] or AI_USER_UNAVAILABLE_MSG
+    key_line = (
+        f"Server-Keys: GOOGLE_API_KEY={google_fp.get('display') or 'fehlt'}"
+        f" · OPENAI_API_KEY={openai_fp.get('display') or 'fehlt'}"
+    )
     return {
         "message": AI_USER_UNAVAILABLE_MSG,
         "admin_debug": True,
         "kind": info["kind"],
-        "debug": info["raw"] or AI_USER_UNAVAILABLE_MSG,
+        "debug": f"{debug_text}\n{key_line}",
         "fix_url": info.get("fix_url"),
         "fix_label": info.get("fix_label"),
+        "google_api_key_suffix": google_fp.get("suffix"),
+        "openai_api_key_suffix": openai_fp.get("suffix"),
     }
 
 

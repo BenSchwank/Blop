@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Users, TrendingUp, Award, Shield, RefreshCw, CreditCard, Wallet } from 'lucide-react';
+import { Users, TrendingUp, Award, Shield, RefreshCw, CreditCard, Wallet, KeyRound, ExternalLink } from 'lucide-react';
 
 interface User {
     username: string;
@@ -12,9 +12,31 @@ interface User {
     is_admin?: boolean;
 }
 
+interface AiKeyFingerprint {
+    env: string;
+    configured: boolean;
+    suffix: string | null;
+    length: number;
+    prefix: string | null;
+    display?: string;
+}
+
+interface AiKeysDebug {
+    google_api_key: AiKeyFingerprint;
+    openai_api_key: AiKeyFingerprint;
+    compare_hint: string;
+    fix_urls: {
+        ai_studio_keys: string;
+        ai_studio_billing: string;
+        openai_billing: string;
+    };
+}
+
 export default function AdminPanel() {
     const [users, setUsers] = useState<User[]>([]);
     const [leaderboard, setLeaderboard] = useState<User[]>([]);
+    const [aiKeys, setAiKeys] = useState<AiKeysDebug | null>(null);
+    const [aiKeysError, setAiKeysError] = useState('');
     const [loading, setLoading] = useState(true);
     const [isAdmin, setIsAdmin] = useState(false);
 
@@ -34,14 +56,17 @@ export default function AdminPanel() {
 
     const loadData = async () => {
         setLoading(true);
+        setAiKeysError('');
         try {
             const username = localStorage.getItem('username');
             const sid = localStorage.getItem('session_id') || '';
+            const authQs = `admin_username=${encodeURIComponent(username || '')}&session_id=${encodeURIComponent(sid)}`;
+            const authHeaders = { 'X-Session-Id': sid };
 
             // Fetch all users — send session_id for auth
             const usersRes = await fetch(
-                `${API_BASE}/admin/users?admin_username=${encodeURIComponent(username || '')}&session_id=${encodeURIComponent(sid)}`,
-                { headers: { 'X-Session-Id': sid } }
+                `${API_BASE}/admin/users?${authQs}`,
+                { headers: authHeaders }
             );
             if (usersRes.ok) {
                 const usersData = await usersRes.json();
@@ -54,8 +79,25 @@ export default function AdminPanel() {
                 const leaderboardData = await leaderboardRes.json();
                 setLeaderboard(leaderboardData);
             }
+
+            const keysRes = await fetch(
+                `${API_BASE}/admin/debug/ai-keys?${authQs}`,
+                { headers: authHeaders }
+            );
+            if (keysRes.ok) {
+                setAiKeys(await keysRes.json());
+            } else {
+                const err = await keysRes.json().catch(() => ({}));
+                setAiKeys(null);
+                setAiKeysError(
+                    typeof err.detail === 'string'
+                        ? err.detail
+                        : `Keys konnten nicht geladen werden (HTTP ${keysRes.status}).`
+                );
+            }
         } catch (err) {
             console.error('Failed to load admin data:', err);
+            setAiKeysError('Netzwerkfehler beim Laden der Key-Debug-Daten.');
         } finally {
             setLoading(false);
         }
@@ -65,6 +107,39 @@ export default function AdminPanel() {
 
     const totalXP = users.reduce((sum, u) => sum + u.xp, 0);
     const activeStreaks = users.filter(u => u.streak > 0).length;
+
+    const KeyCard = ({ title, fp, compareUrl }: { title: string; fp?: AiKeyFingerprint; compareUrl: string }) => (
+        <div className="rounded-xl border border-[#333] bg-[#252526] p-4 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-[#aaa]">{title}</p>
+                <span
+                    className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                        fp?.configured
+                            ? 'bg-green-500/15 text-green-400'
+                            : 'bg-red-500/15 text-red-400'
+                    }`}
+                >
+                    {fp?.configured ? 'gesetzt' : 'fehlt'}
+                </span>
+            </div>
+            <p className="font-mono text-2xl text-white tracking-wider">
+                {fp?.display || '—'}
+            </p>
+            <p className="text-xs text-[#666]">
+                {fp?.configured
+                    ? `Länge ${fp.length} · Env ${fp.env}`
+                    : `Env ${fp?.env || '—'} nicht gesetzt`}
+            </p>
+            <a
+                href={compareUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-[#8B89F0] hover:text-white underline underline-offset-2"
+            >
+                Vergleichen <ExternalLink size={12} />
+            </a>
+        </div>
+    );
 
     return (
         <div className="bg-[#1e1e1e] text-white min-h-screen px-8 sm:px-12 lg:px-16 xl:px-20 py-8 sm:py-10 lg:py-12">
@@ -89,6 +164,67 @@ export default function AdminPanel() {
                             Aktualisieren
                         </button>
                     </div>
+                </div>
+
+                {/* Admin KI-Debug: Key-Fingerprints */}
+                <div className="blop-card p-6 mb-8">
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-[#5E5CE6]/15 flex items-center justify-center">
+                                <KeyRound className="w-5 h-5 text-[#8B89F0]" />
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-semibold text-white">KI-Debug · Server-Keys</h2>
+                                <p className="text-sm text-[#888]">
+                                    Nur Suffix (letzte 4 Zeichen) — zum Abgleich mit AI Studio / Render.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    {aiKeysError ? (
+                        <p className="text-sm text-red-400 mb-3">{aiKeysError}</p>
+                    ) : null}
+                    {loading && !aiKeys ? (
+                        <div className="flex items-center justify-center py-8">
+                            <div className="animate-spin rounded-full h-8 w-8 border-3 border-[#5E5CE6] border-t-transparent" />
+                        </div>
+                    ) : (
+                        <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                                <KeyCard
+                                    title="GOOGLE_API_KEY (Gemini)"
+                                    fp={aiKeys?.google_api_key}
+                                    compareUrl={aiKeys?.fix_urls.ai_studio_keys || 'https://aistudio.google.com/app/apikey'}
+                                />
+                                <KeyCard
+                                    title="OPENAI_API_KEY (TTS)"
+                                    fp={aiKeys?.openai_api_key}
+                                    compareUrl={aiKeys?.fix_urls.openai_billing || 'https://platform.openai.com/settings/organization/billing'}
+                                />
+                            </div>
+                            {aiKeys?.compare_hint ? (
+                                <p className="text-xs text-[#777] mb-3">{aiKeys.compare_hint}</p>
+                            ) : null}
+                            <div className="flex flex-wrap gap-3 text-xs">
+                                <a
+                                    href={aiKeys?.fix_urls.ai_studio_billing || 'https://ai.studio/projects'}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#8B89F0] hover:bg-[#5E5CE6]/20"
+                                >
+                                    AI Studio Billing <ExternalLink size={12} />
+                                </a>
+                                <a
+                                    href={aiKeys?.fix_urls.ai_studio_keys || 'https://aistudio.google.com/app/apikey'}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#8B89F0] hover:bg-[#5E5CE6]/20"
+                                >
+                                    AI Studio API-Keys <ExternalLink size={12} />
+                                </a>
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 {/* Stats Cards */}
