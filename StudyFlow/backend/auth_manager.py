@@ -401,7 +401,7 @@ class AuthManager:
             # cannot 500 the whole profile endpoint (select('*')).
             res = (
                 db.table('users')
-                .select('username, email, tokens, subscription_tier, preferred_model, is_admin, xp, auth_id, created_at')
+                .select('username, email, tokens, subscription_tier, preferred_model, is_admin, xp, auth_id, created_at, password_hash')
                 .eq('username', username)
                 .execute()
             )
