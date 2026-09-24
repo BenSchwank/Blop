@@ -204,9 +204,18 @@ export default function Dashboard() {
       });
 
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const created = data?.folder;
+        if (created && typeof created === "object" && created.id) {
+          setFolders((prev) => [{ id: created.id, name: created.name || newFolderName }, ...prev]);
+        } else {
+          // Legacy response shape: { folder: "name" }
+          const name = typeof created === "string" ? created : newFolderName;
+          setFolders((prev) => [{ id: `tmp_${Date.now()}`, name }, ...prev]);
+          void fetchFolders();
+        }
         setNewFolderName("");
         setIsCreateOpen(false);
-        fetchFolders(); // Refresh list
       }
     } catch (error) {
       console.error("Error creating folder:", error);
@@ -220,6 +229,10 @@ export default function Dashboard() {
     if (!renameValue.trim() || !folderToRename) return;
 
     setIsRenaming(true);
+    const previous = folders;
+    setFolders((prev) =>
+      prev.map((f) => (f.id === folderToRename.id ? { ...f, name: renameValue } : f))
+    );
     try {
       const username = localStorage.getItem("username");
       const sid = localStorage.getItem("session_id") || "";
@@ -233,10 +246,12 @@ export default function Dashboard() {
         setIsRenameOpen(false);
         setFolderToRename(null);
         setRenameValue("");
-        fetchFolders(); // Refresh list
+      } else {
+        setFolders(previous);
       }
     } catch (error) {
       console.error("Error renaming folder:", error);
+      setFolders(previous);
     } finally {
       setIsRenaming(false);
     }
@@ -246,15 +261,21 @@ export default function Dashboard() {
     e.stopPropagation(); // Prevent folder click
     if (!confirm("Ordner wirklich löschen? Alle Inhalte gehen verloren.")) return;
 
+    const previous = folders;
+    setFolders((prev) => prev.filter((f) => f.id !== folderId));
     try {
       const username = localStorage.getItem("username");
       const sid = localStorage.getItem("session_id") || "";
-      await fetch(`${API_BASE}/folders/${folderId}?username=${encodeURIComponent(username || "")}&session_id=${encodeURIComponent(sid)}`, {
+      const res = await fetch(`${API_BASE}/folders/${folderId}?username=${encodeURIComponent(username || "")}&session_id=${encodeURIComponent(sid)}`, {
         method: "DELETE",
+        headers: { "X-Session-Id": sid },
       });
-      fetchFolders(); // Refresh
+      if (!res.ok) {
+        setFolders(previous);
+      }
     } catch (error) {
       console.error("Error deleting folder:", error);
+      setFolders(previous);
     }
   };
 

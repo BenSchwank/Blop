@@ -199,6 +199,38 @@ class DataManager:
         return {"folders": folders, "files": files_res.data}
 
     @staticmethod
+    def list_root_folders(username):
+        """Lightweight root-folder list (no nested files / no heavy columns)."""
+        db = DataManager._init_supabase()
+        if not db:
+            return []
+        res = (
+            db.table("folders")
+            .select("id, name, parent_id, created_at, username")
+            .eq("username", username)
+            .is_("parent_id", "null")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return res.data or []
+
+    @staticmethod
+    def list_subfolders(username, parent_id):
+        """Lightweight subfolder list for one parent."""
+        db = DataManager._init_supabase()
+        if not db:
+            return []
+        res = (
+            db.table("folders")
+            .select("id, name, parent_id, created_at, username")
+            .eq("username", username)
+            .eq("parent_id", str(parent_id))
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return res.data or []
+
+    @staticmethod
     def save(data, username):
         """Deprecated compatibility method - most actions should use targeted DB calls now."""
         # Due to relational DB, 'save entire JSON' is highly unoptimized. 
@@ -473,22 +505,73 @@ class DataManager:
         return None
 
     @staticmethod
-    def list_files(username, folder_id):
+    def list_files(username, folder_id, include_content: bool = False):
         db = DataManager._init_supabase()
         if not db: return []
-        
-        res = db.table('files').select('*').eq('folder_id', str(folder_id)).eq('username', username).execute()
+
+        columns = "id, name, type, created_at, updated_at, file_url, folder_id, username"
+        if include_content:
+            columns = f"{columns}, content"
+        res = (
+            db.table("files")
+            .select(columns)
+            .eq("folder_id", str(folder_id))
+            .eq("username", username)
+            .execute()
+        )
         files = []
-        for f in res.data:
-            # Parse content back if json
-            content = f.get("content")
-            if content and (content.startswith("[") or content.startswith("{")):
-                try: content = json.loads(content)
-                except: pass
-            
-            f["content"] = content
+        for f in (res.data or []):
+            if include_content:
+                content = f.get("content")
+                if content and isinstance(content, str) and (content.startswith("[") or content.startswith("{")):
+                    try:
+                        content = json.loads(content)
+                    except Exception:
+                        pass
+                f["content"] = content
             files.append(f)
         return files
+
+    @staticmethod
+    def get_file(username, file_id):
+        """Single file including parsed content."""
+        db = DataManager._init_supabase()
+        if not db:
+            return None
+        res = (
+            db.table("files")
+            .select("id, name, type, created_at, updated_at, file_url, folder_id, username, content")
+            .eq("id", str(file_id))
+            .eq("username", username)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+        f = res.data[0]
+        content = f.get("content")
+        if content and isinstance(content, str) and (content.startswith("[") or content.startswith("{")):
+            try:
+                content = json.loads(content)
+            except Exception:
+                pass
+        f["content"] = content
+        return f
+
+    @staticmethod
+    def list_file_ids(username, folder_id):
+        """Ids only — for AI-context validation without pulling content."""
+        db = DataManager._init_supabase()
+        if not db:
+            return set()
+        res = (
+            db.table("files")
+            .select("id")
+            .eq("folder_id", str(folder_id))
+            .eq("username", username)
+            .execute()
+        )
+        return {f.get("id") for f in (res.data or []) if f.get("id")}
 
     @staticmethod
     def save_transcript(filename, content, username, folder_id):

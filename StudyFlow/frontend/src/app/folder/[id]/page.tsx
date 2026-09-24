@@ -110,9 +110,14 @@ interface DocumentPatch {
 /** Normalizes FastAPI `detail` (string | object | array) for toasts and queue error text. */
 function formatFastApiDetail(detail: unknown): string {
     if (detail == null) return '';
-    if (typeof detail === 'string') return detail;
-    if (typeof detail === 'object') return JSON.stringify(detail);
-    return String(detail);
+    let text = '';
+    if (typeof detail === 'string') text = detail;
+    else if (typeof detail === 'object') text = JSON.stringify(detail);
+    else text = String(detail);
+    if (/429|quota|billing|credits are depleted|resource_exhausted|prepayment|AI Studio|platform\.openai|NO_API_KEY|api[_ ]?key/i.test(text)) {
+        return 'Die KI ist gerade nicht verfügbar. Bitte versuche es später erneut.';
+    }
+    return text;
 }
 
 /** Keys used in isGenerating + API paths for quiz/flashcards/plan */
@@ -191,7 +196,7 @@ type DraggableFileProps = {
     icon: React.ReactNode;
     openMenuFileId: string | null;
     setOpenMenuFileId: React.Dispatch<React.SetStateAction<string | null>>;
-    setSelectedFile: React.Dispatch<React.SetStateAction<FileData | null>>;
+    setSelectedFile: (file: FileData) => void;
     setFileToRename: React.Dispatch<React.SetStateAction<FileData | null>>;
     setRenameFileValue: React.Dispatch<React.SetStateAction<string>>;
     setIsRenameFileOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -1142,6 +1147,31 @@ export default function FolderPage() {
             setLoading(false);
         }
     }, [folderId]);
+
+    const selectFileWithContent = useCallback(async (file: FileData) => {
+        const needsContent = !['pdf', 'audio', 'video', 'image', 'youtube'].includes(file.type || '');
+        if (!needsContent || (file.content !== undefined && file.content !== null)) {
+            setSelectedFile(file);
+            return;
+        }
+        setSelectedFile(file);
+        try {
+            const username = localStorage.getItem("username") || "";
+            const sid = getSessionId();
+            const res = await fetch(
+                `${API_BASE}/files/item/${encodeURIComponent(file.id)}?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`,
+                { headers: sessionHeaders() }
+            );
+            if (!res.ok) return;
+            const full = await res.json();
+            setSelectedFile(full);
+            setFiles((prev) =>
+                prev.map((f) => (f.id === full.id ? { ...f, content: full.content } : f))
+            );
+        } catch (err) {
+            console.error("Failed to hydrate file content:", err);
+        }
+    }, []);
 
     useEffect(() => {
         setFiles([]);
@@ -2488,7 +2518,21 @@ export default function FolderPage() {
             const sid = localStorage.getItem("session_id") || "";
             if (!username || !sid) return;
             const existing = files.find((f) => f.type === "smart_learning" || f.id === `smart_main_${folderId}`);
-            const journey = normalizeSmartLearningContent(existing?.content, existing?.name || "Smart Learning");
+            let journeySource = existing?.content;
+            if (existing && (journeySource === undefined || journeySource === null)) {
+                const itemRes = await fetch(
+                    `${API_BASE}/files/item/${encodeURIComponent(existing.id)}?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`,
+                    { headers: { "X-Session-Id": sid } }
+                );
+                if (itemRes.ok) {
+                    const full = await itemRes.json();
+                    journeySource = full.content;
+                    setFiles((prev) =>
+                        prev.map((f) => (f.id === existing.id ? { ...f, content: full.content } : f))
+                    );
+                }
+            }
+            const journey = normalizeSmartLearningContent(journeySource, existing?.name || "Smart Learning");
             const nextSessions = (journey.progress?.practice_sessions || 0) + 1;
             const res = await fetch(
                 `${API_BASE}/ai/smart-learning/progress?session_id=${encodeURIComponent(sid)}`,
@@ -4106,7 +4150,7 @@ export default function FolderPage() {
                                 onClick={() => {
                                     const existing = files.find((f) => f.type === 'smart_learning');
                                     if (existing) {
-                                        setSelectedFile(existing);
+                                        void selectFileWithContent(existing);
                                         return;
                                     }
                                     setIsSmartLearningConfigOpen(true);
@@ -4334,7 +4378,7 @@ export default function FolderPage() {
                                                 icon={getFileIcon(file.type)}
                                                 openMenuFileId={openMenuFileId}
                                                 setOpenMenuFileId={setOpenMenuFileId}
-                                                setSelectedFile={setSelectedFile}
+                                                setSelectedFile={selectFileWithContent}
                                                 setFileToRename={setFileToRename}
                                                 setRenameFileValue={setRenameFileValue}
                                                 setIsRenameFileOpen={setIsRenameFileOpen}

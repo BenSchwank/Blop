@@ -242,7 +242,7 @@ def _elaboration_job_worker(
         _elaboration_job_fail(job_id, detail)
     except Exception as e:
         print(f"Elaboration job error: {e}")
-        _elaboration_job_fail(job_id, f"Ausarbeitungs-Fehler: {str(e)}")
+        _elaboration_job_fail(job_id, sanitize_ai_provider_detail(e))
 
 
 def _podcast_job_worker(
@@ -314,10 +314,10 @@ def _podcast_job_worker(
             detail = str(detail)
         _podcast_job_fail(job_id, detail)
     except RuntimeError as e:
-        _podcast_job_fail(job_id, str(e))
+        _podcast_job_fail(job_id, sanitize_ai_provider_detail(e))
     except Exception as e:
         print(f"Podcast job error: {e}")
-        _podcast_job_fail(job_id, f"Podcast-Fehler: {str(e)}")
+        _podcast_job_fail(job_id, sanitize_ai_provider_detail(e))
 
 
 def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
@@ -545,10 +545,10 @@ def _learning_video_job_worker(
             detail = str(detail)
         _learning_video_job_fail(job_id, detail)
     except RuntimeError as e:
-        _learning_video_job_fail(job_id, str(e))
+        _learning_video_job_fail(job_id, sanitize_ai_provider_detail(e))
     except Exception as e:
         print(f"Learning video error: {e}")
-        _learning_video_job_fail(job_id, f"Lernvideo-Fehler: {str(e)}")
+        _learning_video_job_fail(job_id, sanitize_ai_provider_detail(e))
     finally:
         if slide_root:
             shutil.rmtree(slide_root, ignore_errors=True)
@@ -1487,9 +1487,7 @@ def get_leaderboard(limit: int = 10):
 def get_folders(http_request: Request, username: str = "", session_id: str = ""):
     """Returns list of root folders for a user."""
     user = require_session_user(http_request, session_id=session_id or None, username=username or None)
-    data = DataManager.load(user)
-    all_folders = data.get("folders", [])
-    return [f for f in all_folders if not f.get("parent_id")]
+    return DataManager.list_root_folders(user)
 
 @app.delete("/api/folders/{folder_id}")
 def delete_folder(http_request: Request, folder_id: str, username: str = "", session_id: str = ""):
@@ -1537,8 +1535,7 @@ def get_folder_ai_context(http_request: Request, folder_id: str, username: str =
 def put_folder_ai_context(http_request: Request, folder_id: str, body: FolderAiContextRequest, session_id: str = ""):
     """Sets included file IDs for AI context; null, omitted, or [] clears to 'all materials'."""
     user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
-    all_files = DataManager.list_files(user, folder_id)
-    valid_ids = {f.get("id") for f in all_files if f.get("id")}
+    valid_ids = DataManager.list_file_ids(user, folder_id)
     if body.included_file_ids is None or len(body.included_file_ids) == 0:
         if not DataManager.set_ai_context_file_ids(user, folder_id, None):
             raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
@@ -1556,8 +1553,8 @@ def create_folder(http_request: Request, folder: FolderCreate, session_id: str =
     """Creates a new folder."""
     user = require_session_user(http_request, session_id=session_id or None, username=folder.username or None)
     try:
-        DataManager.create_folder(folder.name, user)
-        return {"status": "success", "folder": folder.name}
+        created = DataManager.create_folder(folder.name, user)
+        return {"status": "success", "folder": created}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1579,9 +1576,7 @@ def create_subfolder(http_request: Request, parent_id: str, body: SubfolderCreat
 def get_subfolders(http_request: Request, parent_id: str, username: str = "", session_id: str = ""):
     """Returns subfolders inside a parent folder."""
     user = require_session_user(http_request, session_id=session_id or None, username=username or None)
-    data = DataManager.load(user)
-    folders = data.get("folders", [])
-    return [f for f in folders if f.get("parent_id") == parent_id]
+    return DataManager.list_subfolders(user, parent_id)
 
 # --- FILE ENDPOINTS ---
 class FileUpdateRequest(BaseModel):
@@ -1773,8 +1768,13 @@ def ensure_minimum_tokens(username: str, reserve: int = 1):
     return tokens
 
 
-def raise_for_ai_provider_error(exc: Exception, prefix: str = "KI-Fehler") -> None:
-    """Map Gemini/provider quota failures to a clear 503 instead of a raw 500."""
+AI_USER_UNAVAILABLE_MSG = (
+    "Die KI ist gerade nicht verfügbar. Bitte versuche es später erneut."
+)
+
+
+def sanitize_ai_provider_detail(exc=None) -> str:
+    """Return a user-safe message; never leak provider billing / quota text."""
     msg = str(exc or "")
     low = msg.lower()
     if (
@@ -1784,15 +1784,21 @@ def raise_for_ai_provider_error(exc: Exception, prefix: str = "KI-Fehler") -> No
         or "prepayment" in low
         or "quota" in low
         or "billing" in low
+        or "rate limit" in low
+        or "exceeded your current quota" in low
+        or "api_key" in low
+        or "api key" in low
+        or "no_api_key" in low
+        or ("openai" in low and ("429" in msg or "insufficient" in low))
     ):
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Google-Gemini-Kontingent ist aufgebraucht. "
-                "Bitte in AI Studio Guthaben aufladen oder den API-Key prüfen."
-            ),
-        )
-    raise HTTPException(status_code=500, detail=f"{prefix}: {msg}")
+        return AI_USER_UNAVAILABLE_MSG
+    return AI_USER_UNAVAILABLE_MSG
+
+
+def raise_for_ai_provider_error(exc: Exception, prefix: str = "KI-Fehler") -> None:
+    """Map Gemini/provider failures to a neutral 503 — no billing/API-key leaks."""
+    print(f"{prefix}: {exc!r}")
+    raise HTTPException(status_code=503, detail=sanitize_ai_provider_detail(exc))
 
 def resolve_model_preference(username: str, request_model: Optional[str]) -> Optional[str]:
     requested = (request_model or "").strip()
@@ -1845,7 +1851,7 @@ def _configure_genai(username: str = None):
     env_key = os.environ.get("GOOGLE_API_KEY")
     
     if not env_key:
-        raise HTTPException(status_code=500, detail="NO_API_KEY_FOUND")
+        raise HTTPException(status_code=503, detail=AI_USER_UNAVAILABLE_MSG)
         
     genai.configure(api_key=env_key)
     return env_key
@@ -2001,7 +2007,7 @@ async def upload_audio(
         raise
     except Exception as e:
         print(f"Audio Upload Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Fehler bei der Audio-Verarbeitung: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Audio-Verarbeitung")
 
 @app.post("/api/files/image")
 async def upload_image(
@@ -2062,7 +2068,7 @@ async def upload_image(
                  
     except Exception as e:
         print(f"Image Upload Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Fehler bei der Bildverarbeitung: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Bildverarbeitung")
 
 @app.get("/api/files/signed-media-url")
 def signed_media_url(
@@ -2216,11 +2222,21 @@ def download_pdf(http_request: Request, username: str = "", folder_id: str = "",
         raise HTTPException(status_code=500, detail=f"PDF-Download fehlgeschlagen: {str(e)}")
 
 
+@app.get("/api/files/item/{file_id}")
+def get_file_item(http_request: Request, file_id: str, username: str = "", session_id: str = ""):
+    """Returns a single file including content (lazy load after metadata list)."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    row = DataManager.get_file(user, file_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
+    return row
+
+
 @app.get("/api/files/{folder_id}")
 def get_files(http_request: Request, folder_id: str, username: str = "", session_id: str = ""):
-    """Returns files in a specific folder."""
+    """Returns files in a specific folder (metadata only; use /files/item/{id} for content)."""
     user = require_session_user(http_request, session_id=session_id or None, username=username or None)
-    files = DataManager.list_files(user, folder_id)
+    files = DataManager.list_files(user, folder_id, include_content=False)
     return files
 
 
@@ -2611,7 +2627,7 @@ def create_study_plan(request: PlanRequest, background_tasks: BackgroundTasks):
         raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
         print(f"Plan generation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Lernplan-Fehler: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Lernplan-Fehler")
 
 
 @app.post("/api/ai/smart-learning")
@@ -2643,12 +2659,8 @@ def create_smart_learning(request: SmartLearningRequest, background_tasks: Backg
 
         # Preserve chapter/practice progress across re-generation (Lumivara-like continuity).
         try:
-            existing_files = DataManager.list_files(request.username, request.folder_id)
-            existing = next(
-                (f for f in existing_files if f.get("id") == file_id and f.get("type") == "smart_learning"),
-                None,
-            )
-            old_content = (existing or {}).get("content") if existing else None
+            existing = DataManager.get_file(request.username, file_id)
+            old_content = (existing or {}).get("content") if existing and existing.get("type") == "smart_learning" else None
             if isinstance(old_content, str):
                 try:
                     old_content = json.loads(old_content)
@@ -2729,9 +2741,8 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
 
     SubscriptionManager.ensure_feature(body.username, "smart_learning")
     file_id = f"smart_main_{body.folder_id}"
-    files = DataManager.list_files(body.username, body.folder_id)
-    existing = next((f for f in files if f.get("id") == file_id and f.get("type") == "smart_learning"), None)
-    if not existing:
+    existing = DataManager.get_file(body.username, file_id)
+    if not existing or existing.get("type") != "smart_learning":
         raise HTTPException(status_code=404, detail="Smart Learning nicht gefunden. Bitte zuerst generieren.")
 
     content = existing.get("content")
@@ -2824,7 +2835,7 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
     
     debug_log = []
     try:
-        files = DataManager.list_files(username, folder_id)
+        files = DataManager.list_files(username, folder_id, include_content=True)
         debug_log.append(f"Found {len(files)} files")
     except Exception as e:
         debug_log.append(f"ListFiles Error: {str(e)}")
@@ -2961,7 +2972,7 @@ def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
         raise
     except Exception as e:
         print(f"Quiz error: {e}")
-        raise HTTPException(status_code=500, detail=f"Quiz-Fehler: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Quiz-Fehler")
 
 @app.post("/api/ai/flashcards")
 def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
@@ -3011,7 +3022,7 @@ def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
         raise
     except Exception as e:
         print(f"Flashcards error: {e}")
-        raise HTTPException(status_code=500, detail=f"Karteikarten-Fehler: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Karteikarten-Fehler")
 
 @app.post("/api/ai/summary")
 def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
@@ -3050,7 +3061,7 @@ def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
         raise
     except Exception as e:
         print(f"Summary error: {e}")
-        raise HTTPException(status_code=500, detail=f"Zusammenfassung-Fehler: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Zusammenfassung-Fehler")
 
 @app.post("/api/ai/elaboration")
 def create_elaboration(request: ElaborationRequest):
@@ -3146,8 +3157,7 @@ def refine_elaboration(request: ElaborationRefineRequest):
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
-        all_files = DataManager.list_files(request.username, request.folder_id)
-        target = next((f for f in all_files if f.get("id") == request.file_id), None)
+        target = DataManager.get_file(request.username, request.file_id)
         if not target:
             raise HTTPException(status_code=404, detail="Datei für Anpassung nicht gefunden.")
         ftype = (target.get("type") or "summary").lower()
@@ -3295,7 +3305,7 @@ def refine_elaboration(request: ElaborationRefineRequest):
         raise
     except Exception as e:
         print(f"Elaboration refine error: {e}")
-        raise HTTPException(status_code=500, detail=f"Ausarbeitung-Anpassung fehlgeschlagen: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Ausarbeitung-Anpassung")
 
 @app.post("/api/ai/repetition")
 def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTasks):
@@ -3345,7 +3355,7 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
         raise
     except Exception as e:
         print(f"Repetition error: {e}")
-        raise HTTPException(status_code=500, detail=f"Wiederholungs-Fehler: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Wiederholungs-Fehler")
 
 @app.post("/api/ai/task-help")
 def get_task_help(request: TaskHelpRequest):
@@ -3377,7 +3387,7 @@ def get_task_help(request: TaskHelpRequest):
         raise
     except Exception as e:
         print(f"Task Help error: {e}")
-        raise HTTPException(status_code=500, detail=f"Aufgabenhilfe-Fehler: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Aufgabenhilfe-Fehler")
 
 @app.post("/api/ai/chat/stream")
 def chat_endpoint_stream(request: ChatRequest):
@@ -3411,7 +3421,7 @@ def chat_endpoint_stream(request: ChatRequest):
                         )
                         yield f"data: {json.dumps({'done': True, 'used_model': event.get('used_model', ''), **charge})}\n\n"
             except Exception as e:
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                yield f"data: {json.dumps({'error': sanitize_ai_provider_detail(e)})}\n\n"
 
         return StreamingResponse(
             generate(),
@@ -3422,7 +3432,7 @@ def chat_endpoint_stream(request: ChatRequest):
         raise
     except Exception as e:
         print(f"Chat stream error: {e}")
-        raise HTTPException(status_code=500, detail=f"Chatbot-Fehler: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Chatbot-Fehler")
 
 
 @app.post("/api/ai/chat")
@@ -3466,7 +3476,7 @@ def chat_endpoint(request: ChatRequest):
         raise
     except Exception as e:
         print(f"Chat error: {e}")
-        raise HTTPException(status_code=500, detail=f"Chatbot-Fehler: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Chatbot-Fehler")
 
 @app.post("/api/ai/document-chat")
 def document_chat_patch(request: DocumentChatPatchRequest):
@@ -3476,8 +3486,7 @@ def document_chat_patch(request: DocumentChatPatchRequest):
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
-        all_files = DataManager.list_files(request.username, request.folder_id)
-        target = next((f for f in all_files if f.get("id") == request.file_id), None)
+        target = DataManager.get_file(request.username, request.file_id)
         if not target:
             raise HTTPException(status_code=404, detail="Datei nicht gefunden.")
         content = target.get("content")
@@ -3509,7 +3518,7 @@ def document_chat_patch(request: DocumentChatPatchRequest):
         raise
     except Exception as e:
         print(f"Document chat error: {e}")
-        raise HTTPException(status_code=500, detail=f"Dokument-Chat-Fehler: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Dokument-Chat-Fehler")
 
 
 @app.post("/api/ai/edit-selection")
@@ -3550,7 +3559,7 @@ def edit_selection(request: SelectionEditRequest):
         raise
     except Exception as e:
         print(f"Selection edit error: {e}")
-        raise HTTPException(status_code=500, detail=f"Selektions-Bearbeitung fehlgeschlagen: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="Selektions-Bearbeitung")
 
 
 @app.post("/api/ai/tts-preview")
@@ -3571,7 +3580,7 @@ def tts_preview(request: TtsPreviewRequest):
         raise
     except Exception as e:
         print(f"TTS preview error: {e}")
-        raise HTTPException(status_code=500, detail=f"TTS-Vorschau fehlgeschlagen: {str(e)}")
+        raise_for_ai_provider_error(e, prefix="TTS-Vorschau")
 
 
 @app.post("/api/ai/podcast")

@@ -49,11 +49,27 @@ export default function SmartLearningPage() {
             }
             const data = await res.json();
             const files: FileRow[] = Array.isArray(data) ? data : data.files || [];
-            const existing =
+            const existingMeta =
                 files.find((f) => f.id === `smart_main_${folderId}`) ||
                 files.find((f) => f.type === "smart_learning") ||
                 null;
-            setFile(existing);
+            if (!existingMeta) {
+                setFile(null);
+                return;
+            }
+            if (existingMeta.content != null) {
+                setFile(existingMeta);
+                return;
+            }
+            const itemRes = await fetch(
+                `/api/files/item/${encodeURIComponent(existingMeta.id)}?username=${encodeURIComponent(u)}&session_id=${encodeURIComponent(sid)}`,
+                { headers: sid ? { "X-Session-Id": sid } : {} }
+            );
+            if (itemRes.ok) {
+                setFile(await itemRes.json());
+            } else {
+                setFile(existingMeta);
+            }
         } catch (e: any) {
             setError(e?.message || "Laden fehlgeschlagen.");
         } finally {

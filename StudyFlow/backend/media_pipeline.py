@@ -39,30 +39,19 @@ VIDEO_BUFSIZE = (os.environ.get("LEARNING_VIDEO_BUFSIZE", "").strip() or "1200k"
 
 
 def _openai_tts_failure_message(response: requests.Response) -> str:
-    """German user-facing hint for common OpenAI Speech API failures (Podcast / Lernvideo)."""
+    """Neutral user-facing hint; billing/API details stay in server logs only."""
     code = response.status_code
     snippet = (response.text or "").strip()[:600]
-    if code == 401:
-        return (
-            "OpenAI TTS (401): API-Schlüssel ungültig oder widerrufen. "
-            "Bitte auf dem Server OPENAI_API_KEY prüfen und unter https://platform.openai.com/api-keys "
-            "einen gültigen Secret Key setzen."
-        )
-    if code == 429:
-        return (
-            "OpenAI TTS (429): Kontingent aufgebraucht oder Rate-Limit. "
-            "Unter https://platform.openai.com → Billing Zahlungsmethode und Guthaben prüfen; "
-            "Lernvideos senden mehrere TTS-Anfragen (langer Text) und treffen schneller an Limits. "
-            f"API-Antwort: {snippet}"
-        )
-    return f"OpenAI TTS API Fehler {code}: {snippet}"
+    print(f"OpenAI TTS failure status={code} body={snippet}")
+    return "Die KI ist gerade nicht verfügbar. Bitte versuche es später erneut."
 
 
 def openai_tts_speech_mp3(text: str, voice: str = "alloy", instructions: Optional[str] = None) -> bytes:
     """Returns MP3 bytes. Requires OPENAI_API_KEY."""
     key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not key:
-        raise RuntimeError("OPENAI_API_KEY ist nicht gesetzt. Bitte in den Server-Umgebungsvariablen hinterlegen.")
+        print("OPENAI_API_KEY ist nicht gesetzt.")
+        raise RuntimeError("Die KI ist gerade nicht verfügbar. Bitte versuche es später erneut.")
     text = (text or "").strip()
     if not text:
         raise ValueError("Leerer Text für TTS.")
