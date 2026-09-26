@@ -25,6 +25,8 @@ public:
   void setDate(const QDate &date);
   QDate date() const { return m_date; }
   void setCompact(bool on);
+  /// Ultra-small dashboard tiles: list-only, no mode chips / nav.
+  void setMinimal(bool on);
   void setMode(Mode mode);
   Mode mode() const { return m_mode; }
   void refresh();
@@ -51,6 +53,7 @@ private:
 
   QDate m_date;
   bool m_compact{false};
+  bool m_minimal{false};
   Mode m_mode{Mode::List};
 
   QLabel *m_dateLabel{nullptr};

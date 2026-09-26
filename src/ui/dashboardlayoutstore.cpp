@@ -1,6 +1,5 @@
 #include "dashboardlayoutstore.h"
 
-#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -8,106 +7,200 @@
 #include <algorithm>
 
 namespace {
-QString settingsKey() { return QStringLiteral("dashboard/layout_v5"); }
+QString settingsKey() { return QStringLiteral("dashboard/layout_v6"); }
 
 DashboardWidgetSpec make(const QString &id, int order, int row, int col,
-                         int colSpan, int rowSpan, int itemLimit = 0) {
+                         DashSizeClass size) {
   DashboardWidgetSpec s;
   s.id = id;
   s.visible = true;
   s.order = order;
   s.row = row;
   s.col = col;
-  s.colSpan = colSpan;
-  s.rowSpan = rowSpan;
-  s.itemLimit = itemLimit;
+  s.sizeClass = size;
   return s;
-}
-
-QVector<DashboardWidgetSpec> migrateFromV4() {
-  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-  const QJsonDocument doc = QJsonDocument::fromJson(
-      st.value(QStringLiteral("dashboard/layout_v4")).toByteArray());
-  if (!doc.isArray())
-    return {};
-  auto out = DashboardLayoutStore::defaults();
-  for (const QJsonValue &value : doc.array()) {
-    const QJsonObject old = value.toObject();
-    const QString id = old.value(QStringLiteral("id")).toString();
-    for (auto &spec : out) {
-      if (spec.id != id)
-        continue;
-      spec.visible = old.value(QStringLiteral("visible")).toBool(spec.visible);
-      spec.itemLimit = old.value(QStringLiteral("itemLimit")).toInt(spec.itemLimit);
-      break;
-    }
-  }
-  return out;
-}
-
-QVector<DashboardWidgetSpec> migrateFromV1() {
-  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-  const QByteArray raw =
-      st.value(QStringLiteral("dashboard/layout_v1")).toByteArray();
-  if (raw.isEmpty())
-    return {};
-  const QJsonDocument doc = QJsonDocument::fromJson(raw);
-  if (!doc.isArray())
-    return {};
-
-  QVector<DashboardWidgetSpec> out = DashboardLayoutStore::defaults();
-  QHash<QString, bool> vis;
-  QHash<QString, int> ord;
-  for (const QJsonValue &v : doc.array()) {
-    const QJsonObject o = v.toObject();
-    const QString id = o.value(QStringLiteral("id")).toString();
-    if (id.isEmpty())
-      continue;
-    vis.insert(id, o.value(QStringLiteral("visible")).toBool(true));
-    ord.insert(id, o.value(QStringLiteral("order")).toInt(ord.size()));
-  }
-  for (auto &s : out) {
-    if (vis.contains(s.id))
-      s.visible = vis.value(s.id);
-    if (ord.contains(s.id))
-      s.order = ord.value(s.id);
-  }
-  std::sort(out.begin(), out.end(),
-            [](const DashboardWidgetSpec &a, const DashboardWidgetSpec &b) {
-              return a.order < b.order;
-            });
-  int row = 0;
-  for (auto &s : out) {
-    if (!s.visible)
-      continue;
-    s.row = row++;
-    s.col = 0;
-    s.colSpan = 12;
-    s.rowSpan = 1;
-  }
-  return out;
 }
 } // namespace
 
+int DashboardLayoutStore::snapColSpan(int colSpan) {
+  // True quarters: 3 + 9 = 12, 6 + 6 = 12, 12 = full.
+  if (colSpan <= 4)
+    return 3;
+  if (colSpan <= 7)
+    return 6;
+  if (colSpan <= 10)
+    return 9;
+  return 12;
+}
+
+int DashboardLayoutStore::snapRowSpan(int rowSpan) {
+  return qBound(2, rowSpan, 5);
+}
+
+int DashboardLayoutStore::colSpanFor(DashSizeClass c) {
+  switch (c) {
+  case DashSizeClass::S:
+  case DashSizeClass::S3:
+  case DashSizeClass::S4:
+    return 3;
+  case DashSizeClass::M:
+  case DashSizeClass::Tall:
+  case DashSizeClass::M4:
+  case DashSizeClass::M5:
+    return 6;
+  case DashSizeClass::Q3:
+  case DashSizeClass::Q3T:
+  case DashSizeClass::Q3H:
+  case DashSizeClass::Q3X:
+    return 9;
+  case DashSizeClass::L:
+  case DashSizeClass::XL:
+  case DashSizeClass::Hero:
+  case DashSizeClass::L5:
+    return 12;
+  }
+  return 6;
+}
+
+int DashboardLayoutStore::rowSpanFor(DashSizeClass c) {
+  switch (c) {
+  case DashSizeClass::S:
+  case DashSizeClass::M:
+  case DashSizeClass::Q3:
+  case DashSizeClass::L:
+    return 2;
+  case DashSizeClass::S3:
+  case DashSizeClass::Tall:
+  case DashSizeClass::Q3T:
+  case DashSizeClass::XL:
+    return 3;
+  case DashSizeClass::S4:
+  case DashSizeClass::M4:
+  case DashSizeClass::Q3H:
+  case DashSizeClass::Hero:
+    return 4;
+  case DashSizeClass::M5:
+  case DashSizeClass::Q3X:
+  case DashSizeClass::L5:
+    return 5;
+  }
+  return 2;
+}
+
+DashSizeClass DashboardLayoutStore::fromSpans(int colSpan, int rowSpan) {
+  const int cs = snapColSpan(colSpan);
+  const int rs = snapRowSpan(rowSpan);
+  if (cs == 3) {
+    if (rs <= 2)
+      return DashSizeClass::S;
+    if (rs == 3)
+      return DashSizeClass::S3;
+    return DashSizeClass::S4;
+  }
+  if (cs == 6) {
+    if (rs <= 2)
+      return DashSizeClass::M;
+    if (rs == 3)
+      return DashSizeClass::Tall;
+    if (rs == 4)
+      return DashSizeClass::M4;
+    return DashSizeClass::M5;
+  }
+  if (cs == 9) {
+    if (rs <= 2)
+      return DashSizeClass::Q3;
+    if (rs == 3)
+      return DashSizeClass::Q3T;
+    if (rs == 4)
+      return DashSizeClass::Q3H;
+    return DashSizeClass::Q3X;
+  }
+  if (rs <= 2)
+    return DashSizeClass::L;
+  if (rs == 3)
+    return DashSizeClass::XL;
+  if (rs == 4)
+    return DashSizeClass::Hero;
+  return DashSizeClass::L5;
+}
+
+DashSizeClass DashboardLayoutStore::sizeClassFromString(const QString &s) {
+  if (s == QLatin1String("S"))
+    return DashSizeClass::S;
+  if (s == QLatin1String("S3"))
+    return DashSizeClass::S3;
+  if (s == QLatin1String("S4"))
+    return DashSizeClass::S4;
+  if (s == QLatin1String("Tall"))
+    return DashSizeClass::Tall;
+  if (s == QLatin1String("M4"))
+    return DashSizeClass::M4;
+  if (s == QLatin1String("M5"))
+    return DashSizeClass::M5;
+  if (s == QLatin1String("Q3"))
+    return DashSizeClass::Q3;
+  if (s == QLatin1String("Q3T"))
+    return DashSizeClass::Q3T;
+  if (s == QLatin1String("Q3H"))
+    return DashSizeClass::Q3H;
+  if (s == QLatin1String("Q3X"))
+    return DashSizeClass::Q3X;
+  if (s == QLatin1String("L"))
+    return DashSizeClass::L;
+  if (s == QLatin1String("XL"))
+    return DashSizeClass::XL;
+  if (s == QLatin1String("Hero"))
+    return DashSizeClass::Hero;
+  if (s == QLatin1String("L5"))
+    return DashSizeClass::L5;
+  return DashSizeClass::M;
+}
+
+QString DashboardLayoutStore::sizeClassToString(DashSizeClass c) {
+  switch (c) {
+  case DashSizeClass::S:
+    return QStringLiteral("S");
+  case DashSizeClass::S3:
+    return QStringLiteral("S3");
+  case DashSizeClass::S4:
+    return QStringLiteral("S4");
+  case DashSizeClass::M:
+    return QStringLiteral("M");
+  case DashSizeClass::Tall:
+    return QStringLiteral("Tall");
+  case DashSizeClass::M4:
+    return QStringLiteral("M4");
+  case DashSizeClass::M5:
+    return QStringLiteral("M5");
+  case DashSizeClass::Q3:
+    return QStringLiteral("Q3");
+  case DashSizeClass::Q3T:
+    return QStringLiteral("Q3T");
+  case DashSizeClass::Q3H:
+    return QStringLiteral("Q3H");
+  case DashSizeClass::Q3X:
+    return QStringLiteral("Q3X");
+  case DashSizeClass::L:
+    return QStringLiteral("L");
+  case DashSizeClass::XL:
+    return QStringLiteral("XL");
+  case DashSizeClass::Hero:
+    return QStringLiteral("Hero");
+  case DashSizeClass::L5:
+    return QStringLiteral("L5");
+  }
+  return QStringLiteral("M");
+}
+
 QStringList DashboardLayoutStore::knownIds() {
-  return {QStringLiteral("greeting"), QStringLiteral("today"),
-          QStringLiteral("capture"),  QStringLiteral("projects"),
-          QStringLiteral("clock"),    QStringLiteral("todos"),
+  return {QStringLiteral("today"), QStringLiteral("todos"),
           QStringLiteral("calendar"), QStringLiteral("recent"),
-          QStringLiteral("shortcuts"), QStringLiteral("actions")};
+          QStringLiteral("shortcuts")};
 }
 
 QString DashboardLayoutStore::displayName(const QString &id) {
-  if (id == QLatin1String("greeting"))
-    return QStringLiteral("Begrüßung");
   if (id == QLatin1String("today"))
-    return QStringLiteral("Heute im Fokus");
-  if (id == QLatin1String("capture"))
-    return QStringLiteral("Schnellerfassung");
-  if (id == QLatin1String("projects"))
-    return QStringLiteral("Projekte");
-  if (id == QLatin1String("clock"))
-    return QStringLiteral("Uhr");
+    return QStringLiteral("Heute");
   if (id == QLatin1String("todos"))
     return QStringLiteral("Aufgaben");
   if (id == QLatin1String("calendar"))
@@ -116,8 +209,6 @@ QString DashboardLayoutStore::displayName(const QString &id) {
     return QStringLiteral("Zuletzt");
   if (id == QLatin1String("shortcuts"))
     return QStringLiteral("Schnellzugriff");
-  if (id == QLatin1String("actions"))
-    return QStringLiteral("Schnellaktionen");
   return id;
 }
 
@@ -126,53 +217,31 @@ DashboardWidgetSpec DashboardLayoutStore::defaultFor(const QString &id) {
     if (s.id == id)
       return s;
   }
-  return make(id, 99, 0, 0, 12, 1);
+  return make(id, 99, 0, 0, DashSizeClass::M);
 }
 
 QVector<DashboardWidgetSpec> DashboardLayoutStore::defaults() {
-  // Notion-style home: focus + capture/clock, tall columns, then recent/shortcuts.
   return {
-      make(QStringLiteral("greeting"), 0, 0, 0, 12, 1),
-      make(QStringLiteral("today"), 1, 0, 0, 8, 2),
-      make(QStringLiteral("capture"), 2, 0, 8, 4, 1),
-      make(QStringLiteral("clock"), 3, 1, 8, 4, 1),
-      make(QStringLiteral("todos"), 4, 2, 0, 6, 3),
-      make(QStringLiteral("calendar"), 5, 2, 6, 6, 3, 8),
-      make(QStringLiteral("projects"), 6, 5, 0, 5, 2),
-      make(QStringLiteral("recent"), 7, 5, 5, 7, 2, 5),
-      make(QStringLiteral("shortcuts"), 8, 7, 0, 12, 2),
+      make(QStringLiteral("today"), 0, 0, 0, DashSizeClass::M),
+      make(QStringLiteral("todos"), 1, 0, 6, DashSizeClass::M),
+      make(QStringLiteral("calendar"), 2, 2, 0, DashSizeClass::Tall),
+      make(QStringLiteral("recent"), 3, 2, 6, DashSizeClass::Tall),
+      make(QStringLiteral("shortcuts"), 4, 5, 0, DashSizeClass::L),
   };
-}
-
-int DashboardLayoutStore::itemLimitFor(const QString &id, int fallback) {
-  for (const auto &s : load()) {
-    if (s.id == id && s.itemLimit > 0)
-      return s.itemLimit;
-  }
-  return fallback;
 }
 
 QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   const QByteArray raw = st.value(settingsKey()).toByteArray();
-  if (raw.isEmpty()) {
-    auto migrated = migrateFromV4();
-    if (migrated.isEmpty())
-      migrated = migrateFromV1();
-    if (!migrated.isEmpty()) {
-      save(migrated);
-      return migrated;
-    }
+  if (raw.isEmpty())
     return defaults();
-  }
 
   const QJsonDocument doc = QJsonDocument::fromJson(raw);
   if (!doc.isArray())
     return defaults();
 
   QVector<DashboardWidgetSpec> out;
-  const QJsonArray arr = doc.array();
-  for (const QJsonValue &v : arr) {
+  for (const QJsonValue &v : doc.array()) {
     const QJsonObject o = v.toObject();
     DashboardWidgetSpec s;
     s.id = o.value(QStringLiteral("id")).toString();
@@ -180,17 +249,16 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
     s.order = o.value(QStringLiteral("order")).toInt(out.size());
     s.row = qBound(0, o.value(QStringLiteral("row")).toInt(0), 24);
     s.col = qBound(0, o.value(QStringLiteral("col")).toInt(0), 11);
-    s.colSpan = qBound(1, o.value(QStringLiteral("colSpan")).toInt(6), 12);
-    s.rowSpan = qBound(1, o.value(QStringLiteral("rowSpan")).toInt(1), 4);
-    if (s.col + s.colSpan > 12)
-      s.col = qMax(0, 12 - s.colSpan);
-    s.itemLimit = o.value(QStringLiteral("itemLimit")).toInt(0);
-    if (!s.id.isEmpty())
+    s.sizeClass = sizeClassFromString(
+        o.value(QStringLiteral("sizeClass")).toString(QStringLiteral("M")));
+    const int cs = colSpanFor(s.sizeClass);
+    if (s.col + cs > 12)
+      s.col = qMax(0, 12 - cs);
+    if (!s.id.isEmpty() && knownIds().contains(s.id))
       out.append(s);
   }
 
-  const QStringList known = knownIds();
-  for (const QString &id : known) {
+  for (const QString &id : knownIds()) {
     bool found = false;
     for (const auto &s : out) {
       if (s.id == id) {
@@ -199,10 +267,11 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
       }
     }
     if (!found) {
-      DashboardWidgetSpec s = defaultFor(id);
+      auto s = defaultFor(id);
+      s.visible = false;
       int maxBottom = 0;
       for (const auto &x : out)
-        maxBottom = qMax(maxBottom, x.row + x.rowSpan);
+        maxBottom = qMax(maxBottom, x.row + rowSpanFor(x.sizeClass));
       s.row = maxBottom;
       s.col = 0;
       out.append(s);
@@ -217,26 +286,6 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
                 return a.col < b.col;
               return a.order < b.order;
             });
-  int firstGridRow = 24;
-  for (const auto &s : out) {
-    if (s.visible && s.id != QLatin1String("greeting") &&
-        s.id != QLatin1String("actions"))
-      firstGridRow = qMin(firstGridRow, s.row);
-  }
-  if (firstGridRow > 0 && firstGridRow < 24) {
-    for (auto &s : out) {
-      if (s.id != QLatin1String("greeting") && s.id != QLatin1String("actions"))
-        s.row = qMax(0, s.row - firstGridRow);
-    }
-  }
-  for (auto &s : out) {
-    if (s.id == QLatin1String("capture"))
-      s.rowSpan = 1;
-    if (s.id == QLatin1String("actions"))
-      s.visible = false;
-    if (s.id == QLatin1String("greeting"))
-      s.visible = true;
-  }
   return out;
 }
 
@@ -250,9 +299,7 @@ void DashboardLayoutStore::save(const QVector<DashboardWidgetSpec> &specs) {
     o.insert(QStringLiteral("order"), i);
     o.insert(QStringLiteral("row"), s.row);
     o.insert(QStringLiteral("col"), s.col);
-    o.insert(QStringLiteral("colSpan"), s.colSpan);
-    o.insert(QStringLiteral("rowSpan"), s.rowSpan);
-    o.insert(QStringLiteral("itemLimit"), s.itemLimit);
+    o.insert(QStringLiteral("sizeClass"), sizeClassToString(s.sizeClass));
     arr.append(o);
   }
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));

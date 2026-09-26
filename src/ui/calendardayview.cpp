@@ -11,6 +11,7 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMenu>
 #include <QMessageBox>
@@ -137,29 +138,42 @@ CalendarDayView::CalendarDayView(QWidget *parent) : QWidget(parent) {
           [this]() { setDate(QDate::currentDate()); });
 
   m_stack = new QStackedWidget(this);
+  m_stack->setStyleSheet(
+      QStringLiteral("QStackedWidget { background: transparent; border: none; }"));
+
+  auto styleScroll = [](QScrollArea *sa, QWidget *host) {
+    sa->setAttribute(Qt::WA_StyledBackground, true);
+    sa->setFrameShape(QFrame::NoFrame);
+    sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    sa->setStyleSheet(QStringLiteral(
+        "QScrollArea { background: transparent; border: none; }"
+        "QScrollArea > QWidget > QWidget { background: transparent; }"));
+    if (sa->viewport()) {
+      sa->viewport()->setAutoFillBackground(false);
+      sa->viewport()->setStyleSheet(
+          QStringLiteral("background: transparent;"));
+    }
+    if (host) {
+      host->setAttribute(Qt::WA_StyledBackground, true);
+      host->setStyleSheet(QStringLiteral("background: transparent;"));
+    }
+  };
 
   // --- Liste ---
   m_listScroll = new QScrollArea(m_stack);
   m_listScroll->setWidgetResizable(true);
-  m_listScroll->setFrameShape(QFrame::NoFrame);
-  m_listScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  m_listScroll->setStyleSheet(
-      QStringLiteral("QScrollArea { background: transparent; border: none; }"));
   m_listHost = new QWidget;
   m_listLay = new QVBoxLayout(m_listHost);
   m_listLay->setContentsMargins(0, 0, 0, 0);
   m_listLay->setSpacing(UiScale::dp(6));
   m_listLay->addStretch(1);
   m_listScroll->setWidget(m_listHost);
+  styleScroll(m_listScroll, m_listHost);
   m_stack->addWidget(m_listScroll);
 
   // --- Tag (painted timeline) ---
   m_dayScroll = new QScrollArea(m_stack);
   m_dayScroll->setWidgetResizable(false);
-  m_dayScroll->setFrameShape(QFrame::NoFrame);
-  m_dayScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  m_dayScroll->setStyleSheet(
-      QStringLiteral("QScrollArea { background: transparent; border: none; }"));
   m_timeline = new QWidget;
   m_timeline->setObjectName(QStringLiteral("CalDayTimeline"));
   m_timeline->setAttribute(Qt::WA_StyledBackground, true);
@@ -167,21 +181,19 @@ CalendarDayView::CalendarDayView(QWidget *parent) : QWidget(parent) {
       QStringLiteral("QWidget#CalDayTimeline { background: transparent; }"));
   m_dayScroll->setWidget(m_timeline);
   m_dayScroll->viewport()->installEventFilter(this);
+  styleScroll(m_dayScroll, m_timeline);
   m_stack->addWidget(m_dayScroll);
 
   // --- Woche ---
   m_weekScroll = new QScrollArea(m_stack);
   m_weekScroll->setWidgetResizable(true);
-  m_weekScroll->setFrameShape(QFrame::NoFrame);
-  m_weekScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  m_weekScroll->setStyleSheet(
-      QStringLiteral("QScrollArea { background: transparent; border: none; }"));
   m_weekHost = new QWidget;
   m_weekLay = new QVBoxLayout(m_weekHost);
   m_weekLay->setContentsMargins(0, 0, 0, 0);
   m_weekLay->setSpacing(UiScale::dp(8));
   m_weekLay->addStretch(1);
   m_weekScroll->setWidget(m_weekHost);
+  styleScroll(m_weekScroll, m_weekHost);
   m_stack->addWidget(m_weekScroll);
 
   // --- Monat ---
@@ -232,6 +244,30 @@ void CalendarDayView::setCompact(bool on) {
   rebuildAll();
 }
 
+void CalendarDayView::setMinimal(bool on) {
+  if (m_minimal == on)
+    return;
+  m_minimal = on;
+  if (m_minimal)
+    setMode(Mode::List);
+  // Hide chrome that can't fit into an S tile.
+  if (m_modeGroup) {
+    for (auto *b : m_modeGroup->buttons())
+      b->setVisible(!m_minimal);
+  }
+  if (m_navBar)
+    m_navBar->setVisible(!m_minimal && m_mode != Mode::List);
+  if (m_modeGrid) {
+    for (int i = 0; i < m_modeGrid->count(); ++i) {
+      if (QLayoutItem *it = m_modeGrid->itemAt(i)) {
+        if (it->widget())
+          it->widget()->setVisible(!m_minimal);
+      }
+    }
+  }
+  rebuildAll();
+}
+
 void CalendarDayView::relayoutModeChips() {
   if (!m_modeGrid || !m_modeGroup)
     return;
@@ -253,6 +289,8 @@ void CalendarDayView::relayoutModeChips() {
 }
 
 void CalendarDayView::setMode(Mode mode) {
+  if (m_minimal)
+    mode = Mode::List;
   m_mode = mode;
   if (m_modeGroup) {
     if (QAbstractButton *b = m_modeGroup->button(static_cast<int>(mode)))
@@ -261,7 +299,7 @@ void CalendarDayView::setMode(Mode mode) {
   if (m_stack)
     m_stack->setCurrentIndex(static_cast<int>(mode));
   if (m_navBar)
-    m_navBar->setVisible(mode != Mode::List);
+    m_navBar->setVisible(!m_minimal && mode != Mode::List);
   rebuildAll();
 }
 
@@ -451,19 +489,25 @@ void CalendarDayView::rebuildList() {
     delete it;
   }
 
-  const int limit = m_compact ? 10 : 24;
+  const int limit = m_minimal ? 3 : (m_compact ? 10 : 24);
   const auto events = CalendarService::instance().upcoming(limit);
   if (events.isEmpty()) {
     auto *empty = new QLabel(
         CalendarService::instance().hasGoogleAccess()
             ? QStringLiteral("Keine anstehenden Termine.")
-            : QStringLiteral(
-                  "Keine Termine. Verbinde Google oder lege einen Termin an."),
+            : (m_minimal
+                   ? QStringLiteral("Keine Termine.")
+                   : QStringLiteral(
+                         "Keine Termine. Verbinde Google oder lege einen "
+                         "Termin an.")),
         m_listHost);
     empty->setWordWrap(true);
+    empty->setAlignment(m_minimal ? Qt::AlignTop | Qt::AlignLeft
+                                  : Qt::AlignLeft | Qt::AlignVCenter);
     empty->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 13px; background: transparent;")
-            .arg(muted()));
+        QStringLiteral("color: %1; font-size: %2px; background: transparent;")
+            .arg(BlopStyle::paperInkMuted().name(QColor::HexRgb))
+            .arg(m_minimal ? 12 : 13));
     m_listLay->addWidget(empty);
   } else {
     for (const CalendarEvent &e : events)
