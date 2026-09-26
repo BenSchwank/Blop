@@ -179,6 +179,10 @@ qt_add_executable(Blop
     src/ui/dashboardpage.h
     src/ui/dashboardlayoutstore.cpp
     src/ui/dashboardlayoutstore.h
+    src/ui/dashcanvas.cpp
+    src/ui/dashcanvas.h
+    src/ui/dashwidget.cpp
+    src/ui/dashwidget.h
     src/ui/todostore.cpp
     src/ui/todostore.h
     src/ui/calendarservice.cpp
