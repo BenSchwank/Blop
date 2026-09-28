@@ -30,6 +30,15 @@ public:
     /// instead of closing with EditProfileCode.
     void embedInWorkspace(bool asWorkspaceTab = true);
 
+    /// App-shell mode: hide internal left nav (MainWindow owns sidebar nav).
+    void setAppShellMode(bool on);
+    bool appShellMode() const { return m_appShellMode; }
+    QStringList sectionTitles() const { return m_sectionTitles; }
+    void setSectionIndex(int index);
+    int sectionIndex() const;
+    /// Drop stuck opacity effects so reopen never shows a blank white page.
+    void clearSectionPageEffects();
+
     // Helper so MainWindow knows which profile to edit
     QString profileIdToEdit() const { return m_editId; }
 
@@ -52,6 +61,8 @@ signals:
     void googleLoginRequested();
     /// Compact burger-nav setting changed (tablet/laptop).
     void uiLayoutPrefsChanged();
+    /// Auto-save / sidebar start / confirm-delete and related prefs.
+    void appPrefsChanged();
     /// Open the in-app cloud browser (Drive / Nextcloud / … / custom URL).
     void cloudExplorerRequested(const QString &id, const QString &type,
                                 const QString &name, const QString &webUrl);
@@ -66,14 +77,23 @@ private slots:
 
 private:
     bool m_dialogIntroDone{false};
+    bool m_appShellMode{false};
     Ui::SettingsDialog *ui;
     UiProfileManager *m_profileManager;
     QListWidget *m_profileList;
     QString m_editId; // Stored ID for editor
 
+    QStringList m_sectionTitles;
+    class QStackedWidget *m_sectionStack{nullptr};
+    QListWidget *m_sectionNav{nullptr};
+    QWidget *m_navCol{nullptr};
+    QWidget *m_contentCol{nullptr};
+    QWidget *m_shellSplit{nullptr};
+
     void refreshProfileList();
     void openEditor(const QString &profileId);
     void refreshTheme();
+    void animateSectionPage(QWidget *page);
 };
 
 #endif // SETTINGSDIALOG_H

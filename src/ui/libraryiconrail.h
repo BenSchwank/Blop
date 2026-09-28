@@ -17,6 +17,7 @@ public:
   int preferredWidth() const;
   void setActiveId(const QString &id);
   void setAvatarLetter(const QString &letter);
+  void setAccentColor(const QColor &color);
 
   /// ToolButton for a given rail id, or nullptr if unknown.
   QToolButton *buttonFor(const QString &id) const;
@@ -34,6 +35,6 @@ private:
 
   QHash<QString, QToolButton *> m_btns;
   QString m_active{QStringLiteral("home")};
-  QColor m_accent{QColor(QStringLiteral("#5B9DFF"))};
+  QColor m_accent;
   QString m_avatar{QStringLiteral("B")};
 };

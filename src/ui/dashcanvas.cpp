@@ -1,14 +1,20 @@
 #include "dashcanvas.h"
 
+#include "blop_theme.h"
+#include "dashpagescroll.h"
 #include "dashwidget.h"
 #include "phonechrome.h"
 #include "uiscale.h"
 
 #include <QApplication>
+#include <QCursor>
 #include <QEvent>
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPaintEvent>
+#include <QRadialGradient>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -38,24 +44,99 @@ protected:
   void paintEvent(QPaintEvent *) override {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(QPen(QColor(91, 157, 255, 170), 2));
-    p.setBrush(QColor(91, 157, 255, 42));
-    p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), UiScale::dp(12),
-                      UiScale::dp(12));
+    QColor pen = BlopTheme::accentPrimary();
+    pen.setAlpha(170);
+    QColor brush = BlopTheme::accentPrimary();
+    brush.setAlpha(42);
+    p.setPen(QPen(pen, 2));
+    p.setBrush(brush);
+    p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), UiScale::dp(16),
+                      UiScale::dp(16));
   }
 };
 
 DashCanvas::DashCanvas(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("DashCanvas"));
   setAttribute(Qt::WA_StyledBackground, true);
+  // Base fill comes from paintEvent (desk + soft vignette).
   setStyleSheet(QStringLiteral("QWidget#DashCanvas { background: transparent; }"));
   m_ghost = new DashSnapGhost(this);
+  m_dragWatch = new QTimer(this);
+  m_dragWatch->setInterval(16);
+  connect(m_dragWatch, &QTimer::timeout, this, [this]() {
+    if (!m_dragging)
+      return;
+    pinScrollNow();
+    // Windows sometimes drops MouseButtonRelease during app-wide filters.
+    if (!(QGuiApplication::mouseButtons() & Qt::LeftButton))
+      endGesture(true);
+  });
+  connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this,
+          [this]() { update(); });
+}
+
+void DashCanvas::paintEvent(QPaintEvent *event) {
+  Q_UNUSED(event);
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing, true);
+  const bool dark = BlopTheme::instance().isDark();
+  // Desk sits slightly below card sheets so elevation reads without drop-shadows.
+  const QColor desk =
+      dark ? QColor(0x12, 0x14, 0x1A) : QColor(0xF4, 0xF5, 0xF7);
+  p.fillRect(rect(), desk);
+
+  QRadialGradient vig(rect().center(),
+                      qMax(rect().width(), rect().height()) * 0.72);
+  if (dark) {
+    vig.setColorAt(0.0, QColor(255, 255, 255, 10));
+    vig.setColorAt(0.55, QColor(255, 255, 255, 0));
+    vig.setColorAt(1.0, QColor(0, 0, 0, 55));
+  } else {
+    vig.setColorAt(0.0, QColor(255, 255, 255, 110));
+    vig.setColorAt(0.55, QColor(255, 255, 255, 0));
+    vig.setColorAt(1.0, QColor(15, 23, 42, 10));
+  }
+  p.fillRect(rect(), vig);
+}
+
+void DashCanvas::pinScrollNow() {
+  if (QScrollArea *sa = scrollArea()) {
+    auto *bar = sa->verticalScrollBar();
+    if (auto *dash = qobject_cast<DashPageScroll *>(sa))
+      dash->setScrollFrozen(true, m_frozenScrollY);
+    if (bar->value() != m_frozenScrollY) {
+      QSignalBlocker block(bar);
+      bar->setValue(m_frozenScrollY);
+    }
+  }
+}
+
+void DashCanvas::startDragWatch() {
+  pinScrollNow();
+  if (m_dragWatch && !m_dragWatch->isActive())
+    m_dragWatch->start();
+}
+
+void DashCanvas::stopDragWatch() {
+  if (m_dragWatch)
+    m_dragWatch->stop();
 }
 
 void DashCanvas::setPhoneMode(bool phone) {
   if (m_phone == phone)
     return;
   m_phone = phone;
+  for (auto it = m_widgets.begin(); it != m_widgets.end(); ++it) {
+    if (it.value())
+      it.value()->setPhoneMode(phone);
+  }
+  applyPositions();
+}
+
+void DashCanvas::setBesideRail(bool on) {
+  if (m_besideRail == on)
+    return;
+  m_besideRail = on;
   applyPositions();
 }
 
@@ -66,11 +147,31 @@ void DashCanvas::setEditMode(bool on) {
       it.value()->setEditMode(on);
   }
   if (!on && m_dragging)
-    endGesture();
+    cancelGesture();
 }
 
 void DashCanvas::setSpecs(const QVector<DashboardWidgetSpec> &specs) {
   m_specs = specs;
+}
+
+void DashCanvas::restoreSpecs(const QVector<DashboardWidgetSpec> &specs) {
+  m_specs = specs;
+  // Drop widgets that are no longer visible / present, then rebuild.
+  syncWidgets();
+  // Force geometry even when size class did not change.
+  for (const auto &s : m_specs) {
+    if (!s.visible)
+      continue;
+    if (DashWidget *w = m_widgets.value(s.id)) {
+      w->setSizeClass(s.sizeClass);
+      w->applyChromePrefs(s.bgEnabled, s.borderEnabled, s.bgColor,
+                          s.borderColor);
+      w->setEditMode(m_editMode);
+      w->setPhoneMode(m_phone);
+    }
+  }
+  applyPositions();
+  emit specsChanged(m_specs);
 }
 
 DashWidget *DashCanvas::widgetFor(const QString &id) const {
@@ -98,7 +199,23 @@ void DashCanvas::wireWidget(DashWidget *w) {
           });
   connect(w, &DashWidget::sizeClassPicked, this,
           [this, w](DashSizeClass sc) { resizeBlock(w->blockId(), sc); });
-  connect(w, &DashWidget::contentChanged, this, [this]() { refreshAll(); });
+  connect(w, &DashWidget::contentChanged, this, [this]() {
+    refreshTodoDependent();
+    emit boardContentChanged();
+  });
+  connect(w, &DashWidget::removeBannerRequested, this,
+          &DashCanvas::removeBanner);
+  connect(w, &DashWidget::chromePrefsChanged, this,
+          [this, w](bool bg, bool border, const QString &bgColor,
+                   const QString &borderColor) {
+            if (auto *spec = findSpec(w->blockId())) {
+              spec->bgEnabled = bg;
+              spec->borderEnabled = border;
+              spec->bgColor = bgColor;
+              spec->borderColor = borderColor;
+              emit specsChanged(m_specs);
+            }
+          });
 }
 
 void DashCanvas::syncWidgets() {
@@ -124,10 +241,12 @@ void DashCanvas::syncWidgets() {
       w = DashWidget::create(s.id, this);
       m_widgets.insert(s.id, w);
       wireWidget(w);
+      w->setPhoneMode(m_phone);
       w->setEditMode(m_editMode);
       w->show();
     }
     w->setSizeClass(s.sizeClass);
+    w->applyChromePrefs(s.bgEnabled, s.borderEnabled, s.bgColor, s.borderColor);
   }
   applyPositions();
 }
@@ -139,17 +258,97 @@ void DashCanvas::refreshAll() {
   }
 }
 
-int DashCanvas::rowUnit() const { return UiScale::dp(100); }
-int DashCanvas::hGap() const { return UiScale::dp(m_phone ? 12 : 22); }
-int DashCanvas::vGap() const { return UiScale::dp(m_phone ? 12 : 18); }
+void DashCanvas::refreshTodoDependent() {
+  static const QStringList kIds = {QStringLiteral("today"),
+                                   QStringLiteral("todos")};
+  for (const QString &id : kIds) {
+    if (DashWidget *w = m_widgets.value(id))
+      w->refreshContent();
+  }
+}
+
+void DashCanvas::setBlockVisible(const QString &id, bool visible) {
+  auto *spec = findSpec(id);
+  if (!spec || spec->visible == visible)
+    return;
+  emit layoutAboutToChange();
+  spec->visible = visible;
+  if (visible) {
+    int maxBottom = 0;
+    for (const auto &s : m_specs) {
+      if (!s.visible || s.id == id)
+        continue;
+      maxBottom = qMax(maxBottom,
+                       s.row + DashboardLayoutStore::rowSpanFor(s.sizeClass));
+    }
+    spec->row = maxBottom;
+    spec->col = 0;
+    clampSpec(*spec);
+    reflowKeeping(id);
+  }
+  syncWidgets();
+  emit specsChanged(m_specs);
+}
+
+void DashCanvas::addBanner() {
+  emit layoutAboutToChange();
+  DashboardWidgetSpec s;
+  s.id = DashboardLayoutStore::allocateBannerId(m_specs);
+  s.visible = true;
+  s.sizeClass = DashSizeClass::L;
+  int maxBottom = 0;
+  for (const auto &x : m_specs) {
+    if (!x.visible)
+      continue;
+    maxBottom = qMax(maxBottom,
+                     x.row + DashboardLayoutStore::rowSpanFor(x.sizeClass));
+  }
+  s.row = maxBottom;
+  s.col = 0;
+  s.order = m_specs.size();
+  clampSpec(s);
+  m_specs.append(s);
+  reflowKeeping(s.id);
+  syncWidgets();
+  emit specsChanged(m_specs);
+}
+
+void DashCanvas::removeBanner(const QString &id) {
+  if (!DashboardLayoutStore::isBannerId(id))
+    return;
+  int idx = -1;
+  for (int i = 0; i < m_specs.size(); ++i) {
+    if (m_specs[i].id == id) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0)
+    return;
+  emit layoutAboutToChange();
+  m_specs.removeAt(idx);
+  if (DashWidget *w = m_widgets.take(id))
+    delete w;
+  syncWidgets();
+  emit specsChanged(m_specs);
+}
+
+int DashCanvas::rowUnit() const { return UiScale::dp(92); }
+int DashCanvas::hGap() const { return UiScale::dp(m_phone ? 12 : 14); }
+int DashCanvas::vGap() const { return UiScale::dp(m_phone ? 12 : 14); }
 
 QMargins DashCanvas::boardMargins() const {
-  const int side = UiScale::dp(m_phone ? 16 : 48);
+  const int left = UiScale::dp(m_phone ? 16 : 48);
+  // When a right rail is present, keep only a quiet gutter — avoids a
+  // Windows-looking dead strip + scrollbar gutter before the rail.
+  const int right =
+      m_phone ? left
+              : (m_besideRail ? UiScale::dp(8) : UiScale::dp(48));
   const int top = UiScale::dp(m_phone ? 4 : 8);
   const int bot =
       m_phone ? PhoneChrome::contentBottomInsetPx(const_cast<DashCanvas *>(this))
               : UiScale::dp(48);
-  return QMargins(side, top, side, bot);
+  return QMargins(left, top, right, bot);
 }
 
 QRect DashCanvas::cellRect(int row, int col, int rowSpan, int colSpan) const {
@@ -363,6 +562,9 @@ void DashCanvas::resizeBlock(const QString &id, DashSizeClass sizeClass) {
   auto *spec = findSpec(id);
   if (!spec)
     return;
+  if (spec->sizeClass == sizeClass)
+    return;
+  emit layoutAboutToChange();
   spec->sizeClass = sizeClass;
   clampSpec(*spec);
   reflowKeeping(id);
@@ -385,13 +587,20 @@ void DashCanvas::setScrollLocked(bool locked) {
   if (!sa)
     return;
   auto *bar = sa->verticalScrollBar();
+  auto *dashScroll = qobject_cast<DashPageScroll *>(sa);
   if (locked) {
     m_frozenScrollY = bar->value();
     m_savedVScrollPolicy = sa->verticalScrollBarPolicy();
+    if (dashScroll)
+      dashScroll->setScrollFrozen(true, m_frozenScrollY);
     // Hide + disable the bar so Qt cannot auto-scroll while the finger grows
     // a card past the viewport edge.
     sa->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     bar->setEnabled(false);
+    if (sa->viewport() && !m_viewportFilterInstalled) {
+      sa->viewport()->installEventFilter(this);
+      m_viewportFilterInstalled = true;
+    }
     QObject::disconnect(m_scrollFreezeConn);
     QObject::disconnect(m_scrollRangeConn);
     m_scrollFreezeConn =
@@ -411,8 +620,15 @@ void DashCanvas::setScrollLocked(bool locked) {
   } else {
     QObject::disconnect(m_scrollFreezeConn);
     QObject::disconnect(m_scrollRangeConn);
+    if (sa->viewport() && m_viewportFilterInstalled) {
+      sa->viewport()->removeEventFilter(this);
+      m_viewportFilterInstalled = false;
+    }
+    if (dashScroll)
+      dashScroll->setScrollFrozen(false);
     bar->setEnabled(true);
-    sa->setVerticalScrollBarPolicy(m_savedVScrollPolicy);
+    // Keep native chrome off — OverlayScrollIndicator owns the affordance.
+    sa->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   }
 }
 
@@ -422,6 +638,9 @@ void DashCanvas::beginMove(DashWidget *w, const QPoint &globalPos) {
   auto *spec = findSpec(w->blockId());
   if (!spec)
     return;
+  // Never stack gestures — sticky scroll/chase comes from a half-dead drag.
+  if (m_dragging)
+    endGesture(false);
 
   m_dragging = true;
   m_gesture = Gesture::Move;
@@ -431,6 +650,8 @@ void DashCanvas::beginMove(DashWidget *w, const QPoint &globalPos) {
   m_originTopLeft = w->pos();
   m_originSize = w->size();
   m_startSize = spec->sizeClass;
+  m_startRow = spec->row;
+  m_startCol = spec->col;
   m_previewSize = spec->sizeClass;
   m_previewRow = spec->row;
   m_previewCol = spec->col;
@@ -438,6 +659,7 @@ void DashCanvas::beginMove(DashWidget *w, const QPoint &globalPos) {
   setScrollLocked(true);
   w->setLifted(true);
   w->raise();
+  w->clearFocus();
   const int cs = DashboardLayoutStore::colSpanFor(spec->sizeClass);
   const int rs = DashboardLayoutStore::rowSpanFor(spec->sizeClass);
   if (m_ghost)
@@ -445,6 +667,7 @@ void DashCanvas::beginMove(DashWidget *w, const QPoint &globalPos) {
   // App-wide filter only — no mouse grab. Grabbing inside a QScrollArea makes
   // the viewport chase the cursor while/after resize.
   qApp->installEventFilter(this);
+  startDragWatch();
 }
 
 void DashCanvas::beginResize(DashWidget *w, const QPoint &globalPos) {
@@ -453,6 +676,8 @@ void DashCanvas::beginResize(DashWidget *w, const QPoint &globalPos) {
   auto *spec = findSpec(w->blockId());
   if (!spec)
     return;
+  if (m_dragging)
+    endGesture(false);
 
   m_dragging = true;
   m_gesture = Gesture::Resize;
@@ -462,6 +687,8 @@ void DashCanvas::beginResize(DashWidget *w, const QPoint &globalPos) {
   m_originTopLeft = w->pos();
   m_originSize = w->size();
   m_startSize = spec->sizeClass;
+  m_startRow = spec->row;
+  m_startCol = spec->col;
   m_previewSize = spec->sizeClass;
   m_previewRow = spec->row;
   m_previewCol = spec->col;
@@ -469,11 +696,13 @@ void DashCanvas::beginResize(DashWidget *w, const QPoint &globalPos) {
   setScrollLocked(true);
   w->setLifted(true);
   w->raise();
+  w->clearFocus();
   const int cs = DashboardLayoutStore::colSpanFor(spec->sizeClass);
   const int rs = DashboardLayoutStore::rowSpanFor(spec->sizeClass);
   if (m_ghost)
     m_ghost->showAt(cellRect(m_previewRow, m_previewCol, rs, cs));
   qApp->installEventFilter(this);
+  startDragWatch();
 }
 
 void DashCanvas::updateGesture(const QPoint &globalPos) {
@@ -484,13 +713,7 @@ void DashCanvas::updateGesture(const QPoint &globalPos) {
     return;
 
   // Keep scroll pinned for the whole gesture (Qt likes to chase the grabber).
-  if (QScrollArea *sa = scrollArea()) {
-    auto *bar = sa->verticalScrollBar();
-    if (bar->value() != m_frozenScrollY) {
-      QSignalBlocker block(bar);
-      bar->setValue(m_frozenScrollY);
-    }
-  }
+  pinScrollNow();
 
   const QMargins mg = boardMargins();
   const int availW = qMax(12, width() - mg.left() - mg.right());
@@ -500,12 +723,12 @@ void DashCanvas::updateGesture(const QPoint &globalPos) {
   const int pitchY = rowUnit() + vGap();
 
   if (m_gesture == Gesture::Move) {
+    // Ghost-only move: never relocate the live card during drag — that made
+    // QScrollArea chase the cursor until the next click.
     const QPoint delta = globalPos - m_pressGlobal;
-    m_dragWidget->move(m_originTopLeft + delta);
-
+    const QPoint topLeft = m_originTopLeft + delta;
     const int cs = DashboardLayoutStore::colSpanFor(spec->sizeClass);
     const int rs = DashboardLayoutStore::rowSpanFor(spec->sizeClass);
-    const QPoint topLeft = m_dragWidget->pos();
     int col = qRound(double(topLeft.x() - mg.left()) / double(pitchX));
     int row = qRound(double(topLeft.y() - mg.top()) / double(pitchY));
     col = qBound(0, col, 12 - cs);
@@ -515,6 +738,7 @@ void DashCanvas::updateGesture(const QPoint &globalPos) {
     m_previewSize = spec->sizeClass;
     if (m_ghost)
       m_ghost->showAt(cellRect(m_previewRow, m_previewCol, rs, cs));
+    pinScrollNow();
     return;
   }
 
@@ -561,70 +785,95 @@ void DashCanvas::updateGesture(const QPoint &globalPos) {
   m_previewSize = next;
   const int rs = DashboardLayoutStore::rowSpanFor(next);
   const QRect target = cellRect(m_previewRow, m_previewCol, rs, cs);
-  m_dragWidget->setMinimumSize(0, 0);
-  m_dragWidget->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-  m_dragWidget->setGeometry(target);
-  m_dragWidget->setSizeClass(next);
+  // Ghost-only resize preview — live geometry stays put until commit so the
+  // scroll area cannot chase a growing child under the cursor.
   if (m_ghost)
     m_ghost->showAt(target);
+  pinScrollNow();
 }
 
-void DashCanvas::endGesture() {
+void DashCanvas::cancelGesture() { endGesture(false); }
+
+void DashCanvas::endGesture(bool commit) {
   if (!m_dragging)
     return;
+  // Mark idle FIRST so nested filters / timers cannot re-enter updateGesture.
+  m_dragging = false;
+  stopDragWatch();
   const int keepScrollY = m_frozenScrollY;
   const Gesture finished = m_gesture;
+  m_gesture = Gesture::None;
 
-  // Tear down input capture FIRST so later layout can't keep a sticky chase.
+  // Tear down input capture before layout commits.
   qApp->removeEventFilter(this);
   if (QWidget *g = QWidget::mouseGrabber())
     g->releaseMouse();
+  // Belt-and-suspenders: any grabber left on children of this board.
   if (m_dragWidget) {
+    m_dragWidget->releaseMouse();
     m_dragWidget->clearFocus();
     m_dragWidget->setLifted(false);
   }
+  setScrollLocked(false);
 
   auto *spec = findSpec(m_dragId);
   if (spec) {
-    if (finished == Gesture::Move) {
-      spec->row = m_previewRow;
-      spec->col = m_previewCol;
+    if (commit) {
+      const bool changed =
+          (finished == Gesture::Move &&
+           (spec->row != m_previewRow || spec->col != m_previewCol)) ||
+          (finished == Gesture::Resize &&
+           (spec->sizeClass != m_previewSize || spec->row != m_previewRow ||
+            spec->col != m_previewCol));
+      if (changed)
+        emit layoutAboutToChange();
+      if (finished == Gesture::Move) {
+        spec->row = m_previewRow;
+        spec->col = m_previewCol;
+        clampSpec(*spec);
+        reflowKeeping(m_dragId);
+      } else if (finished == Gesture::Resize) {
+        spec->sizeClass = m_previewSize;
+        spec->row = m_previewRow;
+        spec->col = m_previewCol;
+        clampSpec(*spec);
+        reflowKeeping(m_dragId);
+      }
+      if (changed)
+        emit specsChanged(m_specs);
+    } else {
+      // Esc / cancel: restore footprint, do not persist preview.
+      spec->row = m_startRow;
+      spec->col = m_startCol;
+      spec->sizeClass = m_startSize;
       clampSpec(*spec);
-      reflowKeeping(m_dragId);
-    } else if (finished == Gesture::Resize) {
-      spec->sizeClass = m_previewSize;
-      spec->row = m_previewRow;
-      spec->col = m_previewCol;
-      clampSpec(*spec);
-      reflowKeeping(m_dragId);
     }
-    emit specsChanged(m_specs);
   }
 
   clearGhost();
   if (m_dragWidget && spec)
     m_dragWidget->setSizeClass(spec->sizeClass);
 
-  DashWidget *was = m_dragWidget;
-  m_dragging = false;
-  m_gesture = Gesture::None;
   m_dragWidget = nullptr;
   m_dragId.clear();
-
-  setScrollLocked(false);
 
   if (QScrollArea *sa = scrollArea()) {
     auto *bar = sa->verticalScrollBar();
     QSignalBlocker block(bar);
     bar->setValue(keepScrollY);
+    if (auto *dash = qobject_cast<DashPageScroll *>(sa))
+      dash->setScrollFrozen(false);
   }
 
   applyPositions();
 
-  // Layout/min-height changes can still nudge the bar — pin again next ticks.
   const auto pin = [this, keepScrollY]() {
+    if (m_dragging)
+      return;
     if (QScrollArea *sa = scrollArea()) {
       auto *bar = sa->verticalScrollBar();
+      if (auto *dash = qobject_cast<DashPageScroll *>(sa))
+        dash->setScrollFrozen(false);
       if (bar->value() != keepScrollY) {
         QSignalBlocker block(bar);
         bar->setValue(keepScrollY);
@@ -633,8 +882,6 @@ void DashCanvas::endGesture() {
   };
   QTimer::singleShot(0, this, pin);
   QTimer::singleShot(32, this, pin);
-  QTimer::singleShot(80, this, pin);
-  Q_UNUSED(was);
 }
 
 void DashCanvas::clearGhost() {
@@ -646,35 +893,59 @@ bool DashCanvas::eventFilter(QObject *watched, QEvent *event) {
   if (!m_dragging)
     return QWidget::eventFilter(watched, event);
 
+  const auto leftIsDown = [](const QMouseEvent *me) {
+    return me && (me->buttons() & Qt::LeftButton);
+  };
+
   switch (event->type()) {
-  case QEvent::MouseMove: {
-    const auto *me = static_cast<QMouseEvent *>(event);
-    // Missed mouse-up (common on Windows) — stop sticky resize/scroll chase.
-    if (!(me->buttons() & Qt::LeftButton)) {
-      endGesture();
-      return true;
+  case QEvent::MouseMove:
+  case QEvent::HoverMove:
+  case QEvent::NonClientAreaMouseMove: {
+    const auto *me = dynamic_cast<QMouseEvent *>(event);
+    // Missed mouse-up (common on Windows) — HoverMove alone must also end.
+    if (!leftIsDown(me) &&
+        !(QGuiApplication::mouseButtons() & Qt::LeftButton)) {
+      endGesture(true);
+      // Let the event continue so Qt can clear any sticky button/scroll state.
+      return false;
     }
-    updateGesture(me->globalPosition().toPoint());
+    if (me)
+      updateGesture(me->globalPosition().toPoint());
+    else
+      updateGesture(QCursor::pos());
     return true;
   }
   case QEvent::MouseButtonRelease:
+  case QEvent::NonClientAreaMouseButtonRelease:
   case QEvent::TouchEnd:
-  case QEvent::TouchCancel:
-    endGesture();
-    return true;
+  case QEvent::TouchCancel: {
+    if (event->type() == QEvent::MouseButtonRelease ||
+        event->type() == QEvent::NonClientAreaMouseButtonRelease) {
+      const auto *me = static_cast<QMouseEvent *>(event);
+      if (me->button() != Qt::LeftButton)
+        break;
+    }
+    endGesture(true);
+    // Critical: do NOT swallow the release — consuming it left Windows with a
+    // sticky "drag scroll" until the next click.
+    return false;
+  }
+  case QEvent::WindowDeactivate:
+  case QEvent::FocusOut:
+  case QEvent::ApplicationStateChange:
+    endGesture(true);
+    return false;
   case QEvent::KeyPress: {
     const auto *ke = static_cast<QKeyEvent *>(event);
     if (ke->key() == Qt::Key_Escape) {
-      endGesture();
+      cancelGesture();
       return true;
     }
     break;
   }
   case QEvent::Wheel:
   case QEvent::Scroll:
-  case QEvent::HoverMove:
-    // HoverMove must NOT drive the gesture — after release only hovers fire
-    // and that felt like the mouse was still glued to the card.
+    // Keep scroll frozen for the gesture; don't let the board nudge.
     return true;
   default:
     break;

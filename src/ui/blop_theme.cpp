@@ -130,37 +130,37 @@ BlopTheme::Accent BlopTheme::accentFromKey(const QString &k) {
 // =====================================================================
 
 QColor BlopTheme::surfaceBackground() {
-  // Match library sidebar charcoal — never pure black (too harsh vs nav).
-  return instance().isDark() ? QColor(0x16, 0x18, 0x1E) : QColor(0xF5, 0xF4, 0xF8);
+  // Match library sidebar (obsidianNav) — never pure black.
+  return instance().isDark() ? QColor(0x1A, 0x19, 0x16) : QColor(0xF5, 0xF4, 0xF8);
 }
 
 QColor BlopTheme::surfaceBase() {
-  return instance().isDark() ? QColor(0x1A, 0x1D, 0x24) : QColor(0xFF, 0xFF, 0xFF);
+  return instance().isDark() ? QColor(0x23, 0x25, 0x2A) : QColor(0xFF, 0xFF, 0xFF);
 }
 
 QColor BlopTheme::surfaceElevated() {
-  // Cards / page manager: clearly above sidebar so panels read as surfaces.
-  return instance().isDark() ? QColor(0x22, 0x26, 0x2F) : QColor(0xFF, 0xFF, 0xFF);
+  // Note cards: float above the library desk.
+  return instance().isDark() ? QColor(0x35, 0x38, 0x40) : QColor(0xFF, 0xFF, 0xFF);
 }
 
 QColor BlopTheme::surfaceMuted() {
-  return instance().isDark() ? QColor(0x2A, 0x2E, 0x38) : QColor(0xEC, 0xEB, 0xF1);
+  return instance().isDark() ? QColor(0x42, 0x46, 0x50) : QColor(0xEC, 0xEB, 0xF1);
 }
 
 QColor BlopTheme::surfaceInverse() {
-  return instance().isDark() ? QColor(0xF5, 0xF4, 0xF8) : QColor(0x16, 0x18, 0x1E);
+  return instance().isDark() ? QColor(0xF5, 0xF4, 0xF8) : QColor(0x1A, 0x19, 0x16);
 }
 
 QColor BlopTheme::textPrimary() {
-  return instance().isDark() ? QColor(0xF2, 0xF2, 0xF2) : QColor(0x1A, 0x17, 0x26);
+  return instance().isDark() ? QColor(0xF4, 0xF5, 0xF7) : QColor(0x1A, 0x17, 0x26);
 }
 
 QColor BlopTheme::textSecondary() {
-  return instance().isDark() ? QColor(0xB8, 0xBC, 0xC4) : QColor(0x52, 0x51, 0x6B);
+  return instance().isDark() ? QColor(0xA7, 0xAD, 0xB6) : QColor(0x52, 0x51, 0x6B);
 }
 
 QColor BlopTheme::textTertiary() {
-  return instance().isDark() ? QColor(0x8A, 0x8F, 0x9A) : QColor(0x80, 0x7F, 0x9A);
+  return instance().isDark() ? QColor(0x7D, 0x83, 0x8C) : QColor(0x80, 0x7F, 0x9A);
 }
 
 QColor BlopTheme::textOnAccent() { return QColor(0xFF, 0xFF, 0xFF); }
@@ -190,12 +190,14 @@ QColor BlopTheme::accentBorder() {
 }
 
 QColor BlopTheme::borderDefault() {
-  return instance().isDark() ? QColor(255, 255, 255, 28)
+  // Dark: cool white ~16% — card hairline, same job as light #E4E7EE.
+  return instance().isDark() ? QColor(244, 245, 247, 41)
                              : QColor(26, 23, 38, 31);
 }
 
 QColor BlopTheme::borderSubtle() {
-  return instance().isDark() ? QColor(255, 255, 255, 18)
+  // Dark: cool white ~14% — soft card hairline over desk.
+  return instance().isDark() ? QColor(244, 245, 247, 36)
                              : QColor(26, 23, 38, 18);
 }
 

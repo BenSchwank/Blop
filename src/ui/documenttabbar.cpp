@@ -130,6 +130,7 @@ void DocumentTab::setReadingMarkMode(bool on) {
     }
   }
   refreshChromeStyle();
+  setFixedWidth(sizeHint().width());
   update();
 }
 
@@ -208,9 +209,14 @@ void DocumentTab::refreshTitleLabel() {
   f.setPixelSize(13);
   f.setWeight(QFont::DemiBold);
   m_textLbl->setFont(f);
-  m_textLbl->setText(m_title);
   QFontMetrics fm(f);
-  m_textLbl->setMinimumWidth(fm.horizontalAdvance(m_title) + 4);
+  const int chromeW = UiScale::dp(12) + UiScale::dp(18) + UiScale::dp(8) +
+                      (m_closable ? UiScale::dp(26) : 0) + UiScale::dp(12);
+  const int maxTextW = qMax(UiScale::dp(40), tabMaxWidthPx() - chromeW);
+  const QString shown = fm.elidedText(m_title, Qt::ElideRight, maxTextW);
+  m_textLbl->setText(shown);
+  m_textLbl->setToolTip(shown == m_title ? QString() : m_title);
+  m_textLbl->setMinimumWidth(fm.horizontalAdvance(shown) + 4);
   setFixedWidth(sizeHint().width());
 }
 
@@ -245,11 +251,7 @@ QSize DocumentTab::iconTextSize() const {
 
 QSize DocumentTab::sizeHint() const {
   if (m_readingMarkMode) {
-    QFontMetrics fm(font());
-    const QString shown = m_textLbl ? m_textLbl->text() : m_title;
-    int textW = fm.horizontalAdvance(shown.isEmpty() ? QStringLiteral("W") : shown);
-    int w = UiScale::dp(10) + UiScale::dp(14) + UiScale::dp(6) + textW +
-            (m_closable ? UiScale::dp(20) : 0) + UiScale::dp(10);
+    int w = layout() ? layout()->sizeHint().width() : UiScale::dp(120);
     if (m_title.isEmpty() && !m_closable)
       w = UiScale::dp(28);
     return QSize(qMin(w, tabMaxWidthPx()), UiScale::dp(32));

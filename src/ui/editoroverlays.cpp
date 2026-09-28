@@ -252,20 +252,21 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
   card->setStyleSheet(
       BlopStyle::surfaceStyle(QStringLiteral("ColorPickerCard")) +
       BlopTheme::themed(QStringLiteral(
-      "QLabel { color: rgba(235, 237, 245, 0.95); }"
-      "QLineEdit {"
-      "  background: rgba(22, 24, 36, 0.95);"
-      "  border: 1px solid rgba(120, 130, 160, 0.35);"
-      "  border-radius: 10px;"
-      "  padding: 8px 12px;"
-      "  color: #E8EAFF;"
-      "  font-family: monospace;"
-      "  font-size: 13px;"
-      "  font-weight: 600;"
-      "}"
-      "QLineEdit:focus {"
-      "  border: 1px solid rgba(107, 163, 245, 0.65);"
-      "}")));
+                            "QLabel { color: rgba(235, 237, 245, 0.95); }"
+                            "QLineEdit {"
+                            "  background: rgba(22, 24, 36, 0.95);"
+                            "  border: 1px solid rgba(120, 130, 160, 0.35);"
+                            "  border-radius: %1px;"
+                            "  padding: 8px 12px;"
+                            "  color: #E8EAFF;"
+                            "  font-family: monospace;"
+                            "  font-size: 13px;"
+                            "  font-weight: 600;"
+                            "}"
+                            "QLineEdit:focus {"
+                            "  border: 1px solid rgba(107, 163, 245, 0.65);"
+                            "}")
+                            .arg(UiScale::dp(BlopStyle::radiusMdDp()))));
 
   QScreen *screen = nullptr;
   if (QWidget *ws = anchor->window())

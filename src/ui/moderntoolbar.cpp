@@ -6657,6 +6657,20 @@ void ModernToolbar::setDockMode(bool docked) {
   emit dockModeChanged(m_isDockedMode);
 }
 
+void ModernToolbar::setFloatingChromeSuppressed(bool on) {
+  m_suppressFloatingChrome = on;
+  if (!on)
+    return;
+  for (ToolbarBtn *b : leftChromeButtons()) {
+    if (!b)
+      continue;
+    if (b->parentWidget() != this)
+      b->setParent(this);
+    b->setDrawFloatingBg(false);
+    b->hide();
+  }
+}
+
 QList<ToolbarBtn *> ModernToolbar::leftChromeButtons() const {
   QList<ToolbarBtn *> out;
   if (btnBackOverview)
@@ -7287,6 +7301,13 @@ void ModernToolbar::updateLayout(bool animate) {
       int floaterX = 16;
       const int floaterY = 18;
       for (ToolbarBtn *b : chromeRow) {
+        if (m_suppressFloatingChrome) {
+          if (b && b->parentWidget() != this)
+            b->setParent(this);
+          if (b)
+            b->hide();
+          continue;
+        }
         if (QWidget *pw = parentWidget()) {
           if (b->parentWidget() == this) {
             QPoint g = mapToGlobal(b->pos());
@@ -7573,6 +7594,12 @@ void ModernToolbar::updateLayout(bool animate) {
       int floaterX = 16;
       const int floaterY = 18;
       for (ToolbarBtn *b : leftChromeButtons()) {
+        if (m_suppressFloatingChrome) {
+          if (b->parentWidget() != this)
+            b->setParent(this);
+          b->hide();
+          continue;
+        }
         b->setBtnSize(btnS);
         if (QWidget *pw = parentWidget()) {
           if (b->parentWidget() == this) {

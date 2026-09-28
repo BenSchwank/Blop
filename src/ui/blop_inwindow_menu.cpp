@@ -162,12 +162,14 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
     frame->setStyleSheet(BlopStyle::paperMenuFrameQss());
   } else {
     frame->setStyleSheet(QStringLiteral(
-        "#BlopInWindowMenuFrame {"
-        "  background-color: %1;"
-        "  border: 1px solid rgba(255,255,255,0.10);"
-        "  border-radius: 12px;"
-        "}")
-                            .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb)));
+                             "#BlopInWindowMenuFrame {"
+                             "  background-color: %1;"
+                             "  border: 1px solid rgba(255,255,255,0.10);"
+                             "  border-radius: %2px;"
+                             "}")
+                             .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb),
+                                  QString::number(
+                                      UiScale::dp(BlopStyle::radiusLgDp()))));
   }
   if (!qobject_cast<QGraphicsDropShadowEffect *>(frame->graphicsEffect())) {
     auto *shadow = new QGraphicsDropShadowEffect(frame);

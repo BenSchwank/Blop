@@ -1,5 +1,6 @@
 #include "blopwindowcontrols.h"
 
+#include "blopstyle.h"
 #include "uiscale.h"
 
 #include <QMouseEvent>
@@ -147,8 +148,9 @@ void BlopWindowControls::paintGlyph(QPainter &p, Hit which, const QRect &cell,
       p.drawRoundedRect(QRectF(c.x() - s + off, c.y() - s - off / 2, s * 1.6,
                                s * 1.6),
                         1.2, 1.2);
-      p.setBrush(m_lightBar ? QColor(0xFF, 0xFF, 0xFF, 235)
-                            : QColor(0x22, 0x26, 0x2F, 240));
+      QColor restoreFill = BlopStyle::obsidianSheet();
+      restoreFill.setAlpha(240);
+      p.setBrush(m_lightBar ? QColor(0xFF, 0xFF, 0xFF, 235) : restoreFill);
       p.drawRoundedRect(QRectF(c.x() - s - off / 2, c.y() - s + off, s * 1.6,
                                s * 1.6),
                         1.2, 1.2);
@@ -192,8 +194,10 @@ void BlopWindowControls::paintEvent(QPaintEvent *event) {
     p.fillPath(shadow, QColor(0, 0, 0, 6 + layer * 7));
   }
 
+  QColor darkShell = BlopStyle::obsidianSheet();
+  darkShell.setAlpha(220);
   const QColor shellBg =
-      m_lightBar ? QColor(0xFF, 0xFF, 0xFF, 235) : QColor(0x22, 0x26, 0x2F, 220);
+      m_lightBar ? QColor(0xFF, 0xFF, 0xFF, 235) : darkShell;
   const QColor shellBorder =
       m_lightBar ? QColor(0x37, 0x35, 0x2F, 40) : QColor(0xFF, 0xFF, 0xFF, 42);
 

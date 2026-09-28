@@ -163,10 +163,19 @@ function Invoke-Build {
       if (Test-Path $src) { Copy-Item -Force $src (Join-Path $tlsDst $name) }
     }
   }
+  # Image codecs for banner covers / library thumbs (jpeg/webp/…).
+  $imgSrcDir = Join-Path $script:QtDir 'plugins\imageformats'
+  $imgDst = Join-Path $BuildDir 'imageformats'
+  if (Test-Path $imgSrcDir) {
+    New-Item -ItemType Directory -Force -Path $imgDst | Out-Null
+    Get-ChildItem $imgSrcDir -Filter 'q*.dll' | ForEach-Object {
+      Copy-Item -Force $_.FullName (Join-Path $imgDst $_.Name)
+    }
+  }
   # Drop legacy console launcher that caused terminal spam.
   $legacyCmd = Join-Path $BuildDir 'blop-open.cmd'
   if (Test-Path $legacyCmd) { Remove-Item -Force $legacyCmd }
-  Write-Ok 'Qt runtime neben Binary (inkl. tls/)'
+  Write-Ok 'Qt runtime neben Binary (inkl. tls/ + imageformats/)'
 }
 
 function Invoke-Run {

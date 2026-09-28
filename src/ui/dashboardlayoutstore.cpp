@@ -1,5 +1,7 @@
 #include "dashboardlayoutstore.h"
 
+#include <QDateTime>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -7,7 +9,7 @@
 #include <algorithm>
 
 namespace {
-QString settingsKey() { return QStringLiteral("dashboard/layout_v6"); }
+QString settingsKey() { return QStringLiteral("dashboard/layout_v7"); }
 
 DashboardWidgetSpec make(const QString &id, int order, int row, int col,
                          DashSizeClass size) {
@@ -34,7 +36,7 @@ int DashboardLayoutStore::snapColSpan(int colSpan) {
 }
 
 int DashboardLayoutStore::snapRowSpan(int rowSpan) {
-  return qBound(2, rowSpan, 5);
+  return qBound(1, rowSpan, 5);
 }
 
 int DashboardLayoutStore::colSpanFor(DashSizeClass c) {
@@ -57,6 +59,7 @@ int DashboardLayoutStore::colSpanFor(DashSizeClass c) {
   case DashSizeClass::XL:
   case DashSizeClass::Hero:
   case DashSizeClass::L5:
+  case DashSizeClass::Title:
     return 12;
   }
   return 6;
@@ -64,6 +67,8 @@ int DashboardLayoutStore::colSpanFor(DashSizeClass c) {
 
 int DashboardLayoutStore::rowSpanFor(DashSizeClass c) {
   switch (c) {
+  case DashSizeClass::Title:
+    return 1;
   case DashSizeClass::S:
   case DashSizeClass::M:
   case DashSizeClass::Q3:
@@ -115,6 +120,8 @@ DashSizeClass DashboardLayoutStore::fromSpans(int colSpan, int rowSpan) {
       return DashSizeClass::Q3H;
     return DashSizeClass::Q3X;
   }
+  if (rs <= 1)
+    return DashSizeClass::Title;
   if (rs <= 2)
     return DashSizeClass::L;
   if (rs == 3)
@@ -153,6 +160,8 @@ DashSizeClass DashboardLayoutStore::sizeClassFromString(const QString &s) {
     return DashSizeClass::Hero;
   if (s == QLatin1String("L5"))
     return DashSizeClass::L5;
+  if (s == QLatin1String("Title"))
+    return DashSizeClass::Title;
   return DashSizeClass::M;
 }
 
@@ -188,17 +197,48 @@ QString DashboardLayoutStore::sizeClassToString(DashSizeClass c) {
     return QStringLiteral("Hero");
   case DashSizeClass::L5:
     return QStringLiteral("L5");
+  case DashSizeClass::Title:
+    return QStringLiteral("Title");
   }
   return QStringLiteral("M");
 }
 
 QStringList DashboardLayoutStore::knownIds() {
-  return {QStringLiteral("today"), QStringLiteral("todos"),
-          QStringLiteral("calendar"), QStringLiteral("recent"),
-          QStringLiteral("shortcuts")};
+  return {QStringLiteral("intro"), QStringLiteral("today"),
+          QStringLiteral("todos"), QStringLiteral("calendar"),
+          QStringLiteral("recent"), QStringLiteral("shortcuts")};
+}
+
+bool DashboardLayoutStore::isBannerId(const QString &id) {
+  return id == QLatin1String("banner") || id.startsWith(QLatin1String("banner_"));
+}
+
+bool DashboardLayoutStore::isKnownBlockId(const QString &id) {
+  return knownIds().contains(id) || isBannerId(id);
+}
+
+QString DashboardLayoutStore::allocateBannerId(
+    const QVector<DashboardWidgetSpec> &specs) {
+  auto used = [&](const QString &id) {
+    for (const auto &s : specs) {
+      if (s.id == id)
+        return true;
+    }
+    return false;
+  };
+  if (!used(QStringLiteral("banner")))
+    return QStringLiteral("banner");
+  for (int n = 2; n < 64; ++n) {
+    const QString id = QStringLiteral("banner_%1").arg(n);
+    if (!used(id))
+      return id;
+  }
+  return QStringLiteral("banner_%1").arg(QDateTime::currentMSecsSinceEpoch());
 }
 
 QString DashboardLayoutStore::displayName(const QString &id) {
+  if (id == QLatin1String("intro"))
+    return QStringLiteral("Begrüßung");
   if (id == QLatin1String("today"))
     return QStringLiteral("Heute");
   if (id == QLatin1String("todos"))
@@ -209,6 +249,8 @@ QString DashboardLayoutStore::displayName(const QString &id) {
     return QStringLiteral("Zuletzt");
   if (id == QLatin1String("shortcuts"))
     return QStringLiteral("Schnellzugriff");
+  if (isBannerId(id))
+    return QStringLiteral("Banner");
   return id;
 }
 
@@ -217,22 +259,32 @@ DashboardWidgetSpec DashboardLayoutStore::defaultFor(const QString &id) {
     if (s.id == id)
       return s;
   }
+  if (isBannerId(id))
+    return make(id, 99, 0, 0, DashSizeClass::L);
   return make(id, 99, 0, 0, DashSizeClass::M);
 }
 
 QVector<DashboardWidgetSpec> DashboardLayoutStore::defaults() {
+  // Notion page stack: cover → title → calendar + lists (no separate Heute).
+  auto today = make(QStringLiteral("today"), 2, 3, 0, DashSizeClass::M);
+  today.visible = false;
   return {
-      make(QStringLiteral("today"), 0, 0, 0, DashSizeClass::M),
-      make(QStringLiteral("todos"), 1, 0, 6, DashSizeClass::M),
-      make(QStringLiteral("calendar"), 2, 2, 0, DashSizeClass::Tall),
-      make(QStringLiteral("recent"), 3, 2, 6, DashSizeClass::Tall),
-      make(QStringLiteral("shortcuts"), 4, 5, 0, DashSizeClass::L),
+      make(QStringLiteral("banner"), 0, 0, 0, DashSizeClass::L),
+      make(QStringLiteral("intro"), 1, 2, 0, DashSizeClass::Title),
+      today,
+      make(QStringLiteral("calendar"), 2, 3, 0, DashSizeClass::Tall),
+      make(QStringLiteral("todos"), 3, 3, 6, DashSizeClass::M),
+      make(QStringLiteral("recent"), 4, 6, 6, DashSizeClass::Tall),
+      make(QStringLiteral("shortcuts"), 5, 9, 0, DashSizeClass::L),
   };
 }
 
 QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-  const QByteArray raw = st.value(settingsKey()).toByteArray();
+  QByteArray raw = st.value(settingsKey()).toByteArray();
+  // One-shot migrate from v6 if v7 empty.
+  if (raw.isEmpty())
+    raw = st.value(QStringLiteral("dashboard/layout_v6")).toByteArray();
   if (raw.isEmpty())
     return defaults();
 
@@ -251,10 +303,14 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
     s.col = qBound(0, o.value(QStringLiteral("col")).toInt(0), 11);
     s.sizeClass = sizeClassFromString(
         o.value(QStringLiteral("sizeClass")).toString(QStringLiteral("M")));
+    s.bgEnabled = o.value(QStringLiteral("bgEnabled")).toBool(true);
+    s.borderEnabled = o.value(QStringLiteral("borderEnabled")).toBool(true);
+    s.bgColor = o.value(QStringLiteral("bgColor")).toString();
+    s.borderColor = o.value(QStringLiteral("borderColor")).toString();
     const int cs = colSpanFor(s.sizeClass);
     if (s.col + cs > 12)
       s.col = qMax(0, 12 - cs);
-    if (!s.id.isEmpty() && knownIds().contains(s.id))
+    if (!s.id.isEmpty() && isKnownBlockId(s.id))
       out.append(s);
   }
 
@@ -268,13 +324,213 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
     }
     if (!found) {
       auto s = defaultFor(id);
-      s.visible = false;
+      if (id == QLatin1String("intro")) {
+        // Prefer defaults placement (under cover); fall back to top strip.
+        s = defaultFor(QStringLiteral("intro"));
+        s.visible = true;
+        bool hasBanner = false;
+        for (const auto &x : out) {
+          if (isBannerId(x.id) && x.visible) {
+            hasBanner = true;
+            break;
+          }
+        }
+        if (!hasBanner) {
+          s.row = 0;
+          s.col = 0;
+          s.sizeClass = DashSizeClass::Title;
+          const int shift = rowSpanFor(s.sizeClass);
+          for (auto &x : out)
+            x.row += shift;
+          out.prepend(s);
+        } else {
+          out.append(s);
+        }
+      } else {
+        s.visible = false;
+        int maxBottom = 0;
+        for (const auto &x : out)
+          maxBottom = qMax(maxBottom, x.row + rowSpanFor(x.sizeClass));
+        s.row = maxBottom;
+        s.col = 0;
+        out.append(s);
+      }
+    }
+  }
+
+  // One-shot: Notion stack — cover → title → dense content (fixes plump vertical stack).
+  {
+    QSettings mig(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    constexpr const char *kNotionStack = "dashboard/layout.notionStackV2";
+    // Stamp legacy banner migrations so they never re-inflate the cover.
+    mig.setValue(QStringLiteral("dashboard/layout.ensureBannerV1"), true);
+    mig.setValue(QStringLiteral("dashboard/layout.bannerHeroV1"), true);
+    mig.setValue(QStringLiteral("dashboard/layout.bannerShorterV1"), true);
+
+    if (!mig.value(QLatin1String(kNotionStack)).toBool()) {
+      mig.setValue(QLatin1String(kNotionStack), true);
+
+      QHash<QString, bool> visibility;
+      for (const auto &s : out)
+        visibility.insert(s.id, s.visible);
+
+      QVector<DashboardWidgetSpec> extras;
+      for (const auto &s : out) {
+        if (isBannerId(s.id) && s.id != QLatin1String("banner"))
+          extras.append(s);
+      }
+
+      out = defaults();
+      for (auto &s : out) {
+        if (visibility.contains(s.id))
+          s.visible = visibility.value(s.id);
+        if (s.id == QLatin1String("intro") || s.id == QLatin1String("banner"))
+          s.visible = true;
+      }
       int maxBottom = 0;
       for (const auto &x : out)
         maxBottom = qMax(maxBottom, x.row + rowSpanFor(x.sizeClass));
-      s.row = maxBottom;
-      s.col = 0;
-      out.append(s);
+      for (DashboardWidgetSpec extra : extras) {
+        extra.row = maxBottom;
+        extra.col = 0;
+        out.append(extra);
+        maxBottom += rowSpanFor(extra.sizeClass);
+      }
+
+      QJsonArray arr;
+      for (int i = 0; i < out.size(); ++i) {
+        const auto &s = out[i];
+        QJsonObject o;
+        o.insert(QStringLiteral("id"), s.id);
+        o.insert(QStringLiteral("visible"), s.visible);
+        o.insert(QStringLiteral("order"), i);
+        o.insert(QStringLiteral("row"), s.row);
+        o.insert(QStringLiteral("col"), s.col);
+        o.insert(QStringLiteral("sizeClass"), sizeClassToString(s.sizeClass));
+        o.insert(QStringLiteral("bgEnabled"), s.bgEnabled);
+        o.insert(QStringLiteral("borderEnabled"), s.borderEnabled);
+        if (!s.bgColor.isEmpty())
+          o.insert(QStringLiteral("bgColor"), s.bgColor);
+        if (!s.borderColor.isEmpty())
+          o.insert(QStringLiteral("borderColor"), s.borderColor);
+        arr.append(o);
+      }
+      mig.setValue(settingsKey(),
+                   QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    }
+  }
+
+  // One-shot: hide redundant Heute when Kalender or Aufgaben already on board.
+  {
+    QSettings mig(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    constexpr const char *kHideToday = "dashboard/layout.hideTodayV1";
+    if (!mig.value(QLatin1String(kHideToday)).toBool()) {
+      mig.setValue(QLatin1String(kHideToday), true);
+      bool hasCalOrTodos = false;
+      for (const auto &s : out) {
+        if (s.visible && (s.id == QLatin1String("calendar") ||
+                          s.id == QLatin1String("todos"))) {
+          hasCalOrTodos = true;
+          break;
+        }
+      }
+      if (hasCalOrTodos) {
+        for (auto &s : out) {
+          if (s.id == QLatin1String("today"))
+            s.visible = false;
+        }
+        QJsonArray arr;
+        for (int i = 0; i < out.size(); ++i) {
+          const auto &s = out[i];
+          QJsonObject o;
+          o.insert(QStringLiteral("id"), s.id);
+          o.insert(QStringLiteral("visible"), s.visible);
+          o.insert(QStringLiteral("order"), i);
+          o.insert(QStringLiteral("row"), s.row);
+          o.insert(QStringLiteral("col"), s.col);
+          o.insert(QStringLiteral("sizeClass"), sizeClassToString(s.sizeClass));
+          o.insert(QStringLiteral("bgEnabled"), s.bgEnabled);
+          o.insert(QStringLiteral("borderEnabled"), s.borderEnabled);
+          if (!s.bgColor.isEmpty())
+            o.insert(QStringLiteral("bgColor"), s.bgColor);
+          if (!s.borderColor.isEmpty())
+            o.insert(QStringLiteral("borderColor"), s.borderColor);
+          arr.append(o);
+        }
+        mig.setValue(settingsKey(),
+                     QJsonDocument(arr).toJson(QJsonDocument::Compact));
+      }
+    }
+  }
+
+  // Stale one-shot — do NOT hide the cover banner (that was a mistaken change).
+  // Keep the key stamped so older builds don't re-run a destructive hide.
+  {
+    QSettings mig(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    mig.setValue(QStringLiteral("dashboard/layout.hideBannerStripV1"), true);
+  }
+
+  // Undo mistaken hideBannerStripV1 — restore cover banner for users who lost it.
+  {
+    QSettings mig(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    constexpr const char *kRestore =
+        "dashboard/layout.restoreBannerAfterHideV1";
+    if (!mig.value(QLatin1String(kRestore)).toBool()) {
+      mig.setValue(QLatin1String(kRestore), true);
+      bool hasVisibleBanner = false;
+      DashboardWidgetSpec *primary = nullptr;
+      for (auto &s : out) {
+        if (!isBannerId(s.id))
+          continue;
+        if (s.id == QLatin1String("banner"))
+          primary = &s;
+        if (s.visible)
+          hasVisibleBanner = true;
+      }
+      if (!hasVisibleBanner) {
+        if (!primary) {
+          auto s = defaultFor(QStringLiteral("banner"));
+          s.visible = true;
+          s.row = 0;
+          s.col = 0;
+          const int shift = rowSpanFor(s.sizeClass);
+          for (auto &x : out)
+            x.row += shift;
+          out.prepend(s);
+        } else {
+          primary->visible = true;
+          primary->row = 0;
+          primary->col = 0;
+          primary->sizeClass = DashSizeClass::L;
+          const int shift = rowSpanFor(primary->sizeClass);
+          for (auto &x : out) {
+            if (&x == primary)
+              continue;
+            if (x.visible)
+              x.row += shift;
+          }
+        }
+        QJsonArray arr;
+        for (int i = 0; i < out.size(); ++i) {
+          const auto &s = out[i];
+          QJsonObject o;
+          o.insert(QStringLiteral("id"), s.id);
+          o.insert(QStringLiteral("visible"), s.visible);
+          o.insert(QStringLiteral("order"), i);
+          o.insert(QStringLiteral("row"), s.row);
+          o.insert(QStringLiteral("col"), s.col);
+          o.insert(QStringLiteral("sizeClass"), sizeClassToString(s.sizeClass));
+          o.insert(QStringLiteral("bgEnabled"), s.bgEnabled);
+          o.insert(QStringLiteral("borderEnabled"), s.borderEnabled);
+          if (!s.bgColor.isEmpty())
+            o.insert(QStringLiteral("bgColor"), s.bgColor);
+          if (!s.borderColor.isEmpty())
+            o.insert(QStringLiteral("borderColor"), s.borderColor);
+          arr.append(o);
+        }
+        mig.setValue(settingsKey(),
+                     QJsonDocument(arr).toJson(QJsonDocument::Compact));
+      }
     }
   }
 
@@ -300,6 +556,12 @@ void DashboardLayoutStore::save(const QVector<DashboardWidgetSpec> &specs) {
     o.insert(QStringLiteral("row"), s.row);
     o.insert(QStringLiteral("col"), s.col);
     o.insert(QStringLiteral("sizeClass"), sizeClassToString(s.sizeClass));
+    o.insert(QStringLiteral("bgEnabled"), s.bgEnabled);
+    o.insert(QStringLiteral("borderEnabled"), s.borderEnabled);
+    if (!s.bgColor.isEmpty())
+      o.insert(QStringLiteral("bgColor"), s.bgColor);
+    if (!s.borderColor.isEmpty())
+      o.insert(QStringLiteral("borderColor"), s.borderColor);
     arr.append(o);
   }
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));

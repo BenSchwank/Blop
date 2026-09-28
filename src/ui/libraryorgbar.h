@@ -40,10 +40,11 @@ private:
   void rebuildStyles();
   void onViewClicked(int id);
   void refreshSortLabel();
+  void showSortMenu();
 
   QButtonGroup *m_viewGroup{nullptr};
   QPushButton *m_btnSort{nullptr};
   SmartView m_view{SmartView::All};
   SortMode m_sort{SortMode::Name};
-  QColor m_accent{QColor(QStringLiteral("#5B9DFF"))};
+  QColor m_accent;
 };

@@ -386,14 +386,18 @@ void PageThumbnailSidebar::setHorizontalStrip(bool on) {
       m_btnToggle->setToolTip(QStringLiteral("Seitenleiste einklappen"));
       m_btnToggle->setText(QStringLiteral("▴"));
       m_btnToggle->setIcon(QIcon());
-      m_btnToggle->setStyleSheet(QStringLiteral(
-          "QPushButton#PageRailToggleBtn {"
-          "  background: #F8F9FB; border: 1px solid #E4E7EE; border-radius: 10px;"
-          "  color: #5A6070; font-size: 16px; font-weight: 700;"
-          "}"
-          "QPushButton#PageRailToggleBtn:hover {"
-          "  border-color: #5B9DFF; background: rgba(91,157,255,0.10);"
-          "}"));
+      m_btnToggle->setStyleSheet(
+          QStringLiteral(
+              "QPushButton#PageRailToggleBtn {"
+              "  background: %1; border: 1px solid %2; border-radius: 10px;"
+              "  color: %3; font-size: 16px; font-weight: 700;"
+              "}"
+              "QPushButton#PageRailToggleBtn:hover {"
+              "  border-color: #5B9DFF; background: rgba(91,157,255,0.10);"
+              "}")
+              .arg(NoteChrome::panelElevated().name(),
+                   NoteChrome::borderSoft().name(),
+                   NoteChrome::textSecondary().name()));
       row->addWidget(m_btnToggle, 0, Qt::AlignVCenter);
     }
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -543,11 +547,7 @@ void PageThumbnailSidebar::applyCollapsedState() {
 
 void PageThumbnailSidebar::refreshListStyle() {
   const QColor accent = NoteChrome::accent();
-  const QString bg =
-      m_horizontalStrip
-          ? (NoteChrome::isDark() ? NoteChrome::toolbarFill().name()
-                                  : BlopStyle::paperBg().name(QColor::HexRgb))
-          : NoteChrome::toolbarFill().name();
+  const QString bg = NoteChrome::toolbarFill().name();
   const QString edge =
       m_horizontalStrip
           ? QStringLiteral("border-bottom: 1px solid %1;")

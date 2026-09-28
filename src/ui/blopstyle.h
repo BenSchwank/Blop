@@ -57,7 +57,7 @@ QColor textSecondary();
 // Paper stays light even when the app is in Dark mode. Obsidian chrome stays
 // charcoal regardless of Light/Dark. Do not pass these through BlopTheme::themed().
 QColor paperBg();            // #F8FAFC app/dialog desk
-QColor paperBgLibrary();     // #F5F5F5 library page
+QColor paperBgLibrary();     // #F4F5F7 library page
 QColor paperInk();           // #1E293B
 QColor paperInkMuted();      // #64748B
 QColor paperChipBg();        // #F1F5F9 quiet chip / hover cousin
@@ -67,15 +67,16 @@ QColor paperBorder();        // #E2E8F0
 QColor paperPrimaryLight();  // #EFF6FF active segment / nav fill
 QColor paperHover();         // #F1F5F9 menu/row hover
 QColor lightModalBackdrop(); // rgba(15,23,42,0.4)
-QColor obsidianBg();         // #1A1D24 chrome / elevated nav
-QColor obsidianDesk();       // #16181E workspace (= sidebar)
-QColor obsidianNav();        // #16181E library sidebar (dark anchor)
-QColor obsidianText();       // #F2F2F2
-QColor obsidianSheet();      // #22262F overflow / elevated sheet
+QColor obsidianBg();         // #23252A chrome / content
+QColor obsidianDesk();       // #1A1916 workspace rail (= sidebar)
+QColor obsidianNav();        // #1A1916 library sidebar (dark anchor)
+QColor obsidianText();       // #F4F5F7
+QColor obsidianSheet();      // #353840 overflow / elevated note cards
+QColor obsidianContent();    // #23252A Dark library desk (cards float above)
 
 int surfaceRadiusDp();
-int radiusLgDp(); // 12 — modals / cards
-int radiusMdDp(); // 8  — menus / chips
+int radiusLgDp(); // 10 — modals / large sheets (soft, not pill)
+int radiusMdDp(); // 8  — cards / menus / chips
 
 /// Minimum interactive height for primary controls (chips, toolbar slots,
 /// search fields). Satisfies finger + stylus without bloating mouse UI.
@@ -125,7 +126,8 @@ void applyModalShadow(QWidget *card);
 
 /// Quiet icon/tool button: transparent idle, soft hover, press. For title-bar
 /// and sidebar icon strips (mouse hover + touch press).
-QString quietIconButtonQss(int radiusPx = 8);
+/// minDp defaults to touchTargetMinDp(); pass 32 for compact library header icons.
+QString quietIconButtonQss(int radiusPx = 8, int minDp = -1);
 
 /// In-window menu row (Overflow ⋯): theme-aware (paper in Light, Obsidian in Dark).
 QString menuItemQss(bool destructive = false);

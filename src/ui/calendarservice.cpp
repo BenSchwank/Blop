@@ -60,6 +60,7 @@ QVector<CalendarEvent> CalendarService::loadLocal() const {
     e.allDay = o.value(QStringLiteral("allDay")).toBool(false);
     e.source = QStringLiteral("local");
     e.location = o.value(QStringLiteral("location")).toString();
+    e.color = o.value(QStringLiteral("color")).toString();
     if (!e.id.isEmpty() && e.start.isValid())
       out.append(e);
   }
@@ -78,6 +79,8 @@ void CalendarService::saveLocal(const QVector<CalendarEvent> &events) const {
     o.insert(QStringLiteral("end"), e.end.toString(Qt::ISODate));
     o.insert(QStringLiteral("allDay"), e.allDay);
     o.insert(QStringLiteral("location"), e.location);
+    if (!e.color.isEmpty())
+      o.insert(QStringLiteral("color"), e.color);
     arr.append(o);
   }
   QFile f(localCalPath());
@@ -127,7 +130,9 @@ QVector<CalendarEvent> CalendarService::eventsForDay(const QDate &day) const {
 
 CalendarEvent CalendarService::addLocal(const QString &title,
                                         const QDateTime &start,
-                                        const QDateTime &end, bool allDay) {
+                                        const QDateTime &end, bool allDay,
+                                        const QString &location,
+                                        const QString &color) {
   auto items = loadLocal();
   CalendarEvent e;
   e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -137,6 +142,8 @@ CalendarEvent CalendarService::addLocal(const QString &title,
   e.end = end.isValid() ? end : start.addSecs(3600);
   e.allDay = allDay;
   e.source = QStringLiteral("local");
+  e.location = location.trimmed();
+  e.color = color.trimmed();
   items.append(e);
   saveLocal(items);
   emit eventsChanged();
@@ -145,10 +152,12 @@ CalendarEvent CalendarService::addLocal(const QString &title,
 
 CalendarEvent CalendarService::createEvent(const QString &title,
                                            const QDateTime &start,
-                                           const QDateTime &end, bool allDay) {
+                                           const QDateTime &end, bool allDay,
+                                           const QString &location,
+                                           const QString &color) {
   const QString token = GoogleAuthManager::instance().accessToken();
   if (token.isEmpty())
-    return addLocal(title, start, end, allDay);
+    return addLocal(title, start, end, allDay, location, color);
 
   auto *nam = new QNetworkAccessManager(this);
   QUrl url(QStringLiteral(
@@ -162,6 +171,8 @@ CalendarEvent CalendarService::createEvent(const QString &title,
   body.insert(QStringLiteral("summary"),
               title.trimmed().isEmpty() ? QStringLiteral("Termin")
                                         : title.trimmed());
+  if (!location.trimmed().isEmpty())
+    body.insert(QStringLiteral("location"), location.trimmed());
   QJsonObject startObj;
   QJsonObject endObj;
   if (allDay) {
@@ -182,7 +193,7 @@ CalendarEvent CalendarService::createEvent(const QString &title,
   body.insert(QStringLiteral("end"), endObj);
 
   // Optimistic local mirror until refresh returns.
-  CalendarEvent pending = addLocal(title, start, end, allDay);
+  CalendarEvent pending = addLocal(title, start, end, allDay, location, color);
   pending.source = QStringLiteral("google");
 
   QNetworkReply *reply =

@@ -18,15 +18,25 @@ public:
   explicit DashCanvas(QWidget *parent = nullptr);
 
   void setPhoneMode(bool phone);
+  /// Tighten right board inset when a right rail sits beside the canvas.
+  void setBesideRail(bool on);
   void setEditMode(bool on);
   bool editMode() const { return m_editMode; }
 
   void setSpecs(const QVector<DashboardWidgetSpec> &specs);
   QVector<DashboardWidgetSpec> specs() const { return m_specs; }
+  /// Replace layout and rebuild widgets/geometry (used by undo).
+  void restoreSpecs(const QVector<DashboardWidgetSpec> &specs);
 
   void syncWidgets();
   void applyPositions();
   void refreshAll();
+  /// Refresh only widgets that depend on todos / “today” (not calendar/recent).
+  void refreshTodoDependent();
+  /// Toggle visibility; newly shown blocks are placed below content and reflowed.
+  void setBlockVisible(const QString &id, bool visible);
+  void addBanner();
+  void removeBanner(const QString &id);
 
   DashWidget *widgetFor(const QString &id) const;
   /// Change size class and push neighbors so nothing overlaps / leaves the grid.
@@ -40,9 +50,13 @@ signals:
   void studyRequested();
   void searchLibrary(const QString &text);
   void maximizeCalendarRequested();
+  void boardContentChanged();
+  /// Emitted immediately before a committed layout mutation (for undo snapshots).
+  void layoutAboutToChange();
 
 protected:
   void resizeEvent(QResizeEvent *event) override;
+  void paintEvent(QPaintEvent *event) override;
   bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
@@ -69,15 +83,20 @@ private:
   void beginMove(DashWidget *w, const QPoint &globalPos);
   void beginResize(DashWidget *w, const QPoint &globalPos);
   void updateGesture(const QPoint &globalPos);
-  void endGesture();
+  void endGesture(bool commit);
+  void cancelGesture();
   void clearGhost();
   void setScrollLocked(bool locked);
+  void startDragWatch();
+  void stopDragWatch();
+  void pinScrollNow();
   QScrollArea *scrollArea() const;
   void wireWidget(DashWidget *w);
 
   QVector<DashboardWidgetSpec> m_specs;
   QHash<QString, DashWidget *> m_widgets;
   bool m_phone{false};
+  bool m_besideRail{false};
   bool m_editMode{false};
 
   Gesture m_gesture{Gesture::None};
@@ -87,6 +106,8 @@ private:
   QPoint m_originTopLeft;
   QSize m_originSize;
   DashSizeClass m_startSize{DashSizeClass::M};
+  int m_startRow{0};
+  int m_startCol{0};
   int m_previewRow{0};
   int m_previewCol{0};
   DashSizeClass m_previewSize{DashSizeClass::M};
@@ -96,4 +117,6 @@ private:
   Qt::ScrollBarPolicy m_savedVScrollPolicy{Qt::ScrollBarAsNeeded};
   QMetaObject::Connection m_scrollFreezeConn;
   QMetaObject::Connection m_scrollRangeConn;
+  bool m_viewportFilterInstalled{false};
+  QTimer *m_dragWatch{nullptr};
 };

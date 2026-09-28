@@ -54,14 +54,14 @@ QColor textSecondary() {
   return c;
 }
 
-int surfaceRadiusDp() { return BlopTheme::r12; }
-int radiusLgDp() { return 12; }
-int radiusMdDp() { return 8; }
+int surfaceRadiusDp() { return radiusMdDp(); } // 8 — soft, not pill-round
+int radiusLgDp() { return 10; }                 // modals / large sheets
+int radiusMdDp() { return 8; }                  // cards / menus / chips
 
 int touchTargetMinDp() { return 40; }
 
 QColor paperBg() { return QColor(0xFF, 0xFF, 0xFF); }
-QColor paperBgLibrary() { return QColor(0xF5, 0xF5, 0xF5); }
+QColor paperBgLibrary() { return QColor(0xF4, 0xF5, 0xF7); }
 QColor paperInk() { return QColor(0x1E, 0x29, 0x3B); }
 QColor paperInkMuted() { return QColor(0x64, 0x74, 0x8B); }
 QColor paperChipBg() { return QColor(0xF1, 0xF5, 0xF9); }
@@ -72,14 +72,13 @@ QColor paperBorder() { return QColor(0xE2, 0xE8, 0xF0); }
 QColor paperPrimaryLight() { return QColor(0xEF, 0xF6, 0xFF); }
 QColor paperHover() { return QColor(0xF1, 0xF5, 0xF9); }
 QColor lightModalBackdrop() { return QColor(15, 23, 42, 102); } // 0.4 alpha
-// Dark shell: sidebar (obsidianNav) stays the darkest anchor. Desktop library
-// content uses Notion paper (paperBgLibrary) for contrast; elevated sheets use
-// obsidianSheet.
-QColor obsidianBg() { return QColor(0x1A, 0x1D, 0x24); }
-QColor obsidianDesk() { return QColor(0x16, 0x18, 0x1E); }
-QColor obsidianNav() { return QColor(0x16, 0x18, 0x1E); }
-QColor obsidianText() { return QColor(0xF2, 0xF2, 0xF2); }
-QColor obsidianSheet() { return QColor(0x22, 0x26, 0x2F); }
+// Dark shell: black sidebar, quieter library desk, elevated note cards.
+QColor obsidianBg() { return QColor(0x23, 0x25, 0x2A); }
+QColor obsidianDesk() { return QColor(0x1A, 0x19, 0x16); }
+QColor obsidianNav() { return QColor(0x1A, 0x19, 0x16); }
+QColor obsidianText() { return QColor(0xF4, 0xF5, 0xF7); }
+QColor obsidianSheet() { return QColor(0x35, 0x38, 0x40); }
+QColor obsidianContent() { return QColor(0x23, 0x25, 0x2A); }
 
 namespace {
 
@@ -398,24 +397,29 @@ void applyModalShadow(QWidget *card) {
     card->setGraphicsEffect(nullptr);
 }
 
-QString quietIconButtonQss(int radiusPx) {
-  const QString hover = BlopTheme::instance().isDark()
-                            ? QStringLiteral("rgba(255,255,255,0.10)")
-                            : QStringLiteral("rgba(0,0,0,0.08)");
-  const QString press = BlopTheme::instance().isDark()
-                            ? QStringLiteral("rgba(255,255,255,0.16)")
-                            : QStringLiteral("rgba(0,0,0,0.12)");
+QString quietIconButtonQss(int radiusPx, int minDp) {
+  const bool dark = BlopTheme::instance().isDark();
+  const QString hover = dark ? QStringLiteral("rgba(255,255,255,0.10)")
+                             : QStringLiteral("rgba(0,0,0,0.08)");
+  const QString press = dark ? QStringLiteral("rgba(255,255,255,0.16)")
+                             : QStringLiteral("rgba(0,0,0,0.12)");
+  const QString fg = dark ? BlopTheme::textPrimary().name(QColor::HexRgb)
+                          : BlopStyle::paperInk().name(QColor::HexRgb);
+  const int minPx = UiScale::dp(minDp > 0 ? minDp : touchTargetMinDp());
   return QStringLiteral(
              "QToolButton, QPushButton {"
              "  background: transparent; border: none;"
              "  border-radius: %1px; padding: 0;"
              "  min-width: %2px; min-height: %2px;"
+             "  max-width: %2px; max-height: %2px;"
+             "  color: %5;"
              "}"
-             "QToolButton:hover, QPushButton:hover { background: %3; }"
-             "QToolButton:pressed, QPushButton:pressed { background: %4; }")
+             "QToolButton:hover, QPushButton:hover { background: %3; color: %5; }"
+             "QToolButton:pressed, QPushButton:pressed { background: %4; color: %5; }"
+             "QToolButton:disabled, QPushButton:disabled { color: rgba(148,163,184,0.7); }")
       .arg(radiusPx)
-      .arg(UiScale::dp(touchTargetMinDp()))
-      .arg(hover, press);
+      .arg(minPx)
+      .arg(hover, press, fg);
 }
 
 QString menuItemQss(bool destructive) {

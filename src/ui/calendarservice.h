@@ -14,6 +14,7 @@ struct CalendarEvent {
   bool allDay{false};
   QString source; // "local" | "google"
   QString location;
+  QString color; // optional #RRGGBB accent
 };
 
 /// Local Blop events + Google Calendar when an access token is available.
@@ -25,10 +26,14 @@ public:
   QVector<CalendarEvent> upcoming(int limit = 12) const;
   QVector<CalendarEvent> eventsForDay(const QDate &day) const;
   CalendarEvent addLocal(const QString &title, const QDateTime &start,
-                         const QDateTime &end, bool allDay = false);
+                         const QDateTime &end, bool allDay = false,
+                         const QString &location = QString(),
+                         const QString &color = QString());
   /// Creates on Google when access token exists; otherwise local.
   CalendarEvent createEvent(const QString &title, const QDateTime &start,
-                            const QDateTime &end, bool allDay = false);
+                            const QDateTime &end, bool allDay = false,
+                            const QString &location = QString(),
+                            const QString &color = QString());
   bool removeLocal(const QString &id);
   /// Deletes local or Google event by id.
   bool removeEvent(const QString &id);

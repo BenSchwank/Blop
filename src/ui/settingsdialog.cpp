@@ -1,4 +1,5 @@
 #include "settingsdialog.h"
+#include "settings_ui_helpers.h"
 #include "calendarservice.h"
 #include "cloudstoragestore.h"
 #include "googleauthmanager.h"
@@ -8,6 +9,7 @@
 #include "blop_modal.h"
 #include "blop_dialogs.h"
 #include "blop_theme.h"
+#include "bloplocale.h"
 #include "blop_scroll.h"
 #include "blopripple.h"
 #include "blopstyle.h"
@@ -24,6 +26,7 @@
 #include <QEvent>
 #include <QFileDialog>
 #include <QFrame>
+#include <QGraphicsOpacityEffect>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -37,6 +40,7 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPalette>
+#include <QParallelAnimationGroup>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QRadioButton>
@@ -64,304 +68,12 @@
 // Old layout was a single QFormLayout-like dump of fields inside the tab
 // designed in Qt Designer. New layout uses a Hero section (current profile
 // + "Profil bearbeiten") on top, a search bar, and four collapsible
-// BlopSheet-skinned cards (Konto / Erscheinungsbild / Verhalten / Erweitert).
-// Wide-mode (>=720px) lays the four cards in a 2-col grid; narrow-mode
-// stacks them. Animations are limited to the section expand/collapse so
-// the dialog itself stays responsive and there are no Windows-style
-// off-screen-pixmap costs (same lesson learnt during Phase A for MorphTray).
+// BlopSheet-skinned cards (Konto / Darstellung / Werkzeuge / Profile / Speicher / Mehr).
+// Desktop: Notion left-nav + stacked pages. Phone: collapsible cards + search.
 
 namespace {
 
-constexpr const char *kRawQssProp = "blopRawQss";
-constexpr const char *kTokenQssProp = "blopTokenQss";
-constexpr const char *kSurfaceNameProp = "blopSurfaceName";
-
-#ifndef Q_OS_ANDROID
-// Desktop Settings always sits on Notion paper — use dark ink regardless of
-// app Dark mode (sidebar stays Obsidian; this panel is the light content).
-bool useSettingsPaper() { return true; }
-#else
-// Android: Paper in Light, Obsidian/theme tokens in Dark (matches desktop language).
-bool useSettingsPaper() { return !BlopTheme::instance().isDark(); }
-#endif
-
-void applyStoredQss(QWidget *w) {
-    if (!w)
-        return;
-    // Desktop Settings nav-panel pages stay on Notion paper — never re-apply
-    // dark BlopStyle::surfaceStyle after setNavPanelMode cleared the look.
-    if (w->property("blopNavPaper").toBool())
-        return;
-    const QString surface = w->property(kSurfaceNameProp).toString();
-    if (!surface.isEmpty()) {
-        w->setStyleSheet(BlopStyle::surfaceStyle(surface));
-        return;
-    }
-    const QByteArray token = w->property(kTokenQssProp).toByteArray();
-    if (token == "input") {
-        w->setStyleSheet(useSettingsPaper() ? BlopStyle::paperInputQss()
-                                            : BlopTheme::inputQss());
-        return;
-    }
-    if (token == "primary") {
-        w->setStyleSheet(useSettingsPaper() ? BlopStyle::paperPrimaryButtonQss()
-                                            : BlopTheme::primaryButtonQss());
-        return;
-    }
-    if (token == "secondary") {
-        w->setStyleSheet(useSettingsPaper() ? BlopStyle::paperSecondaryButtonQss()
-                                            : BlopTheme::secondaryButtonQss());
-        return;
-    }
-    if (token == "destructive") {
-        w->setStyleSheet(useSettingsPaper() ? BlopStyle::paperDestructiveButtonQss()
-                                            : BlopTheme::secondaryButtonQss());
-        return;
-    }
-    if (token == "tertiary") {
-        w->setStyleSheet(BlopTheme::tertiaryButtonQss());
-        return;
-    }
-    const QVariant raw = w->property(kRawQssProp);
-    if (raw.isValid())
-        w->setStyleSheet(BlopTheme::themed(raw.toString()));
-}
-
-void setThemedQss(QWidget *w, const QString &raw) {
-    if (!w)
-        return;
-    w->setProperty(kRawQssProp, raw);
-    w->setStyleSheet(BlopTheme::themed(raw));
-}
-
-void setTokenQss(QWidget *w, const char *kind) {
-    if (!w)
-        return;
-    w->setProperty(kTokenQssProp, QByteArray(kind));
-    applyStoredQss(w);
-}
-
-/// Literal QSS (never BlopTheme::themed) — for Notion paper / Obsidian chrome.
-void setLiteralQss(QWidget *w, const QString &raw) {
-    if (!w)
-        return;
-    w->setProperty(kRawQssProp, QVariant()); // clear so refreshTheme won't re-theme
-    w->setStyleSheet(raw);
-}
-
-void setSurfaceQss(QWidget *w, const QString &name) {
-    if (!w)
-        return;
-    w->setObjectName(name);
-    w->setProperty(kSurfaceNameProp, name);
-    w->setStyleSheet(BlopStyle::surfaceStyle(name));
-}
-
-QString accentRgba(int alpha) {
-    const QColor c = BlopTheme::accentPrimary();
-    return QStringLiteral("rgba(%1,%2,%3,%4)")
-        .arg(c.red())
-        .arg(c.green())
-        .arg(c.blue())
-        .arg(alpha);
-}
-
-QString settingsInk() {
-    return useSettingsPaper() ? BlopStyle::paperInk().name(QColor::HexRgb)
-                              : BlopTheme::textPrimary().name(QColor::HexRgb);
-}
-QString settingsInkMuted() {
-    return useSettingsPaper() ? BlopStyle::paperInkMuted().name(QColor::HexRgb)
-                              : BlopTheme::textSecondary().name(QColor::HexRgb);
-}
-QString settingsChipBg() {
-    return useSettingsPaper() ? BlopStyle::paperChipBg().name(QColor::HexRgb)
-                              : BlopTheme::surfaceMuted().name(QColor::HexRgb);
-}
-
-QString segmentedControlQss() {
-    if (!useSettingsPaper())
-        return BlopStyle::segmentQss();
-    return BlopStyle::paperSegmentQss();
-}
-
-/// Notion-style property row: label left, quiet action right.
-QString propertyRowShellQss(bool last) {
-    const QString rule = useSettingsPaper()
-                             ? QStringLiteral("1px solid rgba(20,24,40,0.06)")
-                             : QStringLiteral("1px solid rgba(255,255,255,0.08)");
-    const QString hover = useSettingsPaper()
-                              ? QStringLiteral("rgba(55,53,47,0.05)")
-                              : QStringLiteral("rgba(255,255,255,0.06)");
-    const QString press = useSettingsPaper()
-                              ? QStringLiteral("rgba(55,53,47,0.09)")
-                              : QStringLiteral("rgba(255,255,255,0.10)");
-    return QStringLiteral(
-               "QWidget#SettingsPropRow {"
-               "  background: transparent;"
-               "  border: none;"
-               "  border-bottom: %1;"
-               "  border-radius: 8px;"
-               "}"
-               "QWidget#SettingsPropRow:hover { background: %2; }"
-               "QWidget#SettingsPropRow:pressed { background: %3; }")
-        .arg(last ? QStringLiteral("none") : rule, hover, press);
-}
-
-QString propertyActionQss(bool destructive = false) {
-    if (destructive) {
-        return QStringLiteral(
-            "QPushButton {"
-            "  background: transparent; color: #C0392B; border: none;"
-            "  text-align: right; font-size: 13px; font-weight: 600;"
-            "  padding: 8px 10px; min-height: %1px; border-radius: 8px;"
-            "}"
-            "QPushButton:hover { color: #A93226; background: rgba(192,57,43,0.08); }"
-            "QPushButton:pressed { background: rgba(192,57,43,0.14); }")
-            .arg(UiScale::dp(BlopStyle::touchTargetMinDp() - 8));
-    }
-    return QStringLiteral(
-               "QPushButton {"
-               "  background: transparent; color: %1; border: none;"
-               "  text-align: right; font-size: 13px; font-weight: 600;"
-               "  padding: 8px 10px; min-height: %3px; border-radius: 8px;"
-               "}"
-               "QPushButton:hover { color: %2; background: rgba(91,157,255,0.10); }"
-               "QPushButton:pressed { background: rgba(91,157,255,0.16); }")
-        .arg(settingsInkMuted(),
-             BlopTheme::accentPrimary().name(QColor::HexRgb),
-             QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 8)));
-}
-
-QWidget *makePropertyRow(QWidget *parent, const QString &label,
-                         QWidget *action, bool last = false) {
-    auto *row = new QWidget(parent);
-    row->setObjectName(QStringLiteral("SettingsPropRow"));
-    row->setAttribute(Qt::WA_StyledBackground, true);
-    row->setAttribute(Qt::WA_Hover, true);
-    row->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() + 4));
-    row->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    row->setCursor(Qt::PointingHandCursor);
-    row->setStyleSheet(propertyRowShellQss(last));
-    const bool phoneStack = UiScale::isAndroidPhoneUi(parent);
-    auto *lbl = new QLabel(label, row);
-    lbl->setWordWrap(true);
-    lbl->setStyleSheet(QStringLiteral(
-                           "color: %1; font-size: 13px; font-weight: 500;"
-                           "background: transparent;")
-                           .arg(settingsInk()));
-    if (phoneStack) {
-        auto *lay = new QVBoxLayout(row);
-        lay->setContentsMargins(UiScale::dp(14), UiScale::dp(8), UiScale::dp(14),
-                                UiScale::dp(8));
-        lay->setSpacing(UiScale::dp(8));
-        lay->addWidget(lbl);
-        if (action) {
-            action->setParent(row);
-            action->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-            if (auto *btn = qobject_cast<QPushButton *>(action)) {
-                btn->setCursor(Qt::PointingHandCursor);
-                btn->setFlat(true);
-                BlopRipple::attachPressFeedback(btn, 0.96);
-            }
-            lay->addWidget(action);
-        }
-    } else {
-        auto *lay = new QHBoxLayout(row);
-        lay->setContentsMargins(UiScale::dp(14), UiScale::dp(8), UiScale::dp(14),
-                                UiScale::dp(8));
-        lay->setSpacing(UiScale::dp(12));
-        lay->addWidget(lbl, 1);
-        if (action) {
-            action->setParent(row);
-            if (auto *btn = qobject_cast<QPushButton *>(action)) {
-                btn->setCursor(Qt::PointingHandCursor);
-                btn->setFlat(true);
-                BlopRipple::attachPressFeedback(btn, 0.96);
-            }
-            lay->addWidget(action, 0, Qt::AlignVCenter);
-        }
-    }
-    return row;
-}
-
-/// Notion-style row with title + muted status on the left, quiet actions right.
-/// On phone: stack actions under the title so rows never exceed viewport width.
-QWidget *makeNamedPropertyRow(QWidget *parent, const QString &title,
-                              const QString &status, QWidget *actions,
-                              bool last = false) {
-    auto *row = new QWidget(parent);
-    row->setObjectName(QStringLiteral("SettingsPropRow"));
-    row->setMinimumHeight(UiScale::dp(48));
-    row->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    row->setStyleSheet(propertyRowShellQss(last));
-
-    const bool phoneStack = UiScale::isAndroidPhoneUi(parent);
-    auto *textCol = new QVBoxLayout();
-    textCol->setContentsMargins(0, 0, 0, 0);
-    textCol->setSpacing(2);
-    auto *titleLbl = new QLabel(title, row);
-    titleLbl->setWordWrap(true);
-    titleLbl->setStyleSheet(QStringLiteral(
-        "color: %1; font-size: 13px; font-weight: 600;"
-        "background: transparent;")
-                                .arg(settingsInk()));
-    textCol->addWidget(titleLbl);
-    if (!status.isEmpty()) {
-        auto *st = new QLabel(status, row);
-        st->setObjectName(QStringLiteral("PropStatus"));
-        st->setWordWrap(true);
-        st->setStyleSheet(QStringLiteral(
-            "color: %1; font-size: 11px; font-weight: 400;"
-            "background: transparent;")
-                              .arg(settingsInkMuted()));
-        textCol->addWidget(st);
-    }
-
-    if (phoneStack) {
-        auto *lay = new QVBoxLayout(row);
-        lay->setContentsMargins(UiScale::dp(14), UiScale::dp(10), UiScale::dp(12),
-                                UiScale::dp(10));
-        lay->setSpacing(UiScale::dp(8));
-        lay->addLayout(textCol);
-        if (actions) {
-            actions->setParent(row);
-            actions->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-            lay->addWidget(actions);
-        }
-    } else {
-        auto *lay = new QHBoxLayout(row);
-        lay->setContentsMargins(UiScale::dp(14), UiScale::dp(10), UiScale::dp(12),
-                                UiScale::dp(10));
-        lay->setSpacing(UiScale::dp(10));
-        lay->addLayout(textCol, 1);
-        if (actions) {
-            actions->setParent(row);
-            lay->addWidget(actions, 0, Qt::AlignVCenter);
-        }
-    }
-    return row;
-}
-
-QPushButton *makeQuietAction(QWidget *parent, const QString &text,
-                             bool destructive = false) {
-    auto *b = new QPushButton(text, parent);
-    b->setCursor(Qt::PointingHandCursor);
-    b->setFlat(true);
-    setLiteralQss(b, propertyActionQss(destructive));
-    return b;
-}
-
-void refreshThemedTree(QWidget *root) {
-    if (!root)
-        return;
-    applyStoredQss(root);
-    const auto kids = root->findChildren<QWidget *>();
-    for (QWidget *w : kids) {
-        applyStoredQss(w);
-        w->update();
-    }
-}
+using namespace SettingsUi;
 
 // Painted chevron — Unicode ▾/▸ often renders as tofu on Android fonts.
 class SettingsChevronLabel : public QLabel {
@@ -483,6 +195,8 @@ public:
 
     QString title() const { return m_title; }
     QString subtitle() const { return m_subtitle; }
+    void setSectionKeywords(const QString &keys) { m_sectionKeywords = keys; }
+    QString sectionKeywords() const { return m_sectionKeywords; }
 
     /// Concept B nav-panel: Notion page on paper — no dark surface, no black header.
     void setNavPanelMode(bool on) {
@@ -495,15 +209,17 @@ public:
             m_expanded = true;
             m_body->setMaximumHeight(QWIDGETSIZE_MAX);
             m_body->show();
-            setProperty(kSurfaceNameProp, QVariant());
+            setProperty("blopSurfaceName", QVariant());
             setProperty("blopNavPaper", true);
             setAttribute(Qt::WA_StyledBackground, true);
             setAutoFillBackground(true);
             {
+                const QColor bg = settingsContentBg();
+                const QColor ink = QColor(settingsInk());
                 QPalette pal = palette();
-                pal.setColor(QPalette::Window, BlopStyle::paperBg());
-                pal.setColor(QPalette::Base, BlopStyle::paperBg());
-                pal.setColor(QPalette::WindowText, BlopStyle::paperInk());
+                pal.setColor(QPalette::Window, bg);
+                pal.setColor(QPalette::Base, bg);
+                pal.setColor(QPalette::WindowText, ink);
                 setPalette(pal);
             }
             setStyleSheet(QStringLiteral(
@@ -511,62 +227,57 @@ public:
                 "  background-color: %1;"
                 "  border: none;"
                 "}")
-                              .arg(BlopStyle::paperBg().name(QColor::HexRgb)));
+                              .arg(settingsContentBg().name(QColor::HexRgb)));
             setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
             if (auto *rootLay = qobject_cast<QVBoxLayout *>(layout())) {
                 rootLay->setContentsMargins(0, 0, 0, 0);
-                rootLay->setSpacing(UiScale::dp(8));
+                rootLay->setSpacing(UiScale::dp(10));
             }
             if (m_header) {
                 m_header->setAttribute(Qt::WA_StyledBackground, true);
                 m_header->setAutoFillBackground(true);
                 QPalette hp = m_header->palette();
-                hp.setColor(QPalette::Window, BlopStyle::paperBg());
-                hp.setColor(QPalette::WindowText, BlopStyle::paperInk());
+                hp.setColor(QPalette::Window, settingsContentBg());
+                hp.setColor(QPalette::WindowText, QColor(settingsInk()));
                 m_header->setPalette(hp);
                 m_header->setStyleSheet(QStringLiteral(
                     "background: %1; border: none;")
-                                            .arg(BlopStyle::paperBg().name(
+                                            .arg(settingsContentBg().name(
                                                 QColor::HexRgb)));
             }
-            // Flat property container — hairline only, no nested “card on black”.
+            // Seamless list — no boxed card, soft inset only.
             if (m_body) {
                 m_body->setObjectName(QStringLiteral("SettingsCardBody"));
                 m_body->setAttribute(Qt::WA_StyledBackground, true);
                 m_body->setAutoFillBackground(true);
                 QPalette pal = m_body->palette();
-                pal.setColor(QPalette::Window, BlopStyle::paperRowBg());
-                pal.setColor(QPalette::Base, BlopStyle::paperRowBg());
-                pal.setColor(QPalette::WindowText, BlopStyle::paperInk());
+                pal.setColor(QPalette::Window, settingsContentRowBg());
+                pal.setColor(QPalette::Base, settingsContentRowBg());
+                pal.setColor(QPalette::WindowText, QColor(settingsInk()));
                 m_body->setPalette(pal);
                 m_body->setStyleSheet(QStringLiteral(
                     "QWidget#SettingsCardBody {"
-                    "  background-color: %1;"
-                    "  border: 1px solid rgba(55,53,47,0.09);"
-                    "  border-radius: 8px;"
-                    "}")
-                                         .arg(BlopStyle::paperRowBg().name(
-                                             QColor::HexRgb)));
+                    "  background: transparent;"
+                    "  border: none;"
+                    "}"));
                 if (m_bodyLay) {
-                    m_bodyLay->setContentsMargins(0, 0, 0, 0);
+                    m_bodyLay->setContentsMargins(0, UiScale::dp(2), 0, 0);
                     m_bodyLay->setSpacing(0);
                 }
             }
             if (m_titleLbl) {
-                m_titleLbl->setProperty(kRawQssProp, QVariant());
+                m_titleLbl->setProperty("blopRawQss", QVariant());
                 m_titleLbl->setStyleSheet(QStringLiteral(
-                    "color: %1; font-size: 20px; font-weight: 700;"
-                    "letter-spacing: -0.3px; background: transparent;")
-                                              .arg(BlopStyle::paperInk().name(
-                                                  QColor::HexRgb)));
+                    "color: %1; font-size: 15px; font-weight: 650;"
+                    "letter-spacing: -0.25px; background: transparent;")
+                                              .arg(settingsInk()));
             }
             if (m_subtitleLbl) {
-                m_subtitleLbl->setProperty(kRawQssProp, QVariant());
+                m_subtitleLbl->setProperty("blopRawQss", QVariant());
                 m_subtitleLbl->setStyleSheet(QStringLiteral(
-                    "color: %1; font-size: 13px; font-weight: 400;"
-                    "background: transparent;")
-                                                 .arg(BlopStyle::paperInkMuted()
-                                                          .name(QColor::HexRgb)));
+                    "color: %1; font-size: 12px; font-weight: 400;"
+                    "background: transparent; padding-top: 1px;")
+                                                 .arg(settingsInkMuted()));
             }
         } else {
             setProperty("blopNavPaper", false);
@@ -621,6 +332,8 @@ public:
 
     bool expanded() const { return m_expanded; }
 
+    QWidget *bodyWidget() const { return m_body; }
+
     void refreshTheme() {
         if (m_navPanel) {
             setStyleSheet(QStringLiteral(
@@ -663,6 +376,7 @@ private:
 
     QString m_title;
     QString m_subtitle;
+    QString m_sectionKeywords;
     QLabel *m_titleLbl{nullptr};
     QLabel *m_subtitleLbl{nullptr};
     SettingsChevronLabel *m_chevron{nullptr};
@@ -761,14 +475,16 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // L-corners through the BlopModal card on the software rasterizer.
     setAttribute(Qt::WA_TranslucentBackground, false);
 #ifndef Q_OS_ANDROID
-    // Concept B / Notion overlay: dialog owns its paper fill (BlopModal must
-    // not replace this with transparent — see blopOwnsBackground).
+    // Dialog owns its fill (BlopModal must not replace — blopOwnsBackground).
+    // Follow Modus: paper in Light, Obsidian in Dark.
     setProperty("blopOwnsBackground", true);
+    setProperty("blopForcePaper", useSettingsPaper());
     setLiteralQss(this, QStringLiteral(
         "QDialog { background-color: %1; border: none; border-radius: 12px; }")
-        .arg(BlopStyle::paperBg().name(QColor::HexRgb)));
+        .arg(settingsContentBg().name(QColor::HexRgb)));
 #else
     setProperty("blopOwnsBackground", true);
+    setProperty("blopForcePaper", useSettingsPaper());
     if (useSettingsPaper()) {
         setLiteralQss(this, QStringLiteral(
             "QDialog { background-color: %1; border: none; border-radius: 0px; }")
@@ -785,7 +501,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     if (phoneUi)
         setMinimumSize(0, 0);
     else
-        setMinimumSize(UiScale::dp(720), UiScale::dp(520));
+        setMinimumSize(0, 0); // SideSheet host sizes the dialog; don't fight BlopModal.
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
 #ifndef Q_OS_ANDROID
@@ -951,10 +667,12 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
     // ----- Search bar ---------------------------------------------------
     auto *searchRow = new QFrame(tabDesign);
+    searchRow->setObjectName(QStringLiteral("SettingsSearchRow"));
     auto *searchLay = new QHBoxLayout(searchRow);
     searchLay->setContentsMargins(pagePad, phoneUi ? UiScale::dp(10) : 18,
                                   pagePad, phoneUi ? UiScale::dp(8) : 12);
     auto *search = new QLineEdit(searchRow);
+    search->setObjectName(QStringLiteral("SettingsSearch"));
     search->setPlaceholderText(QStringLiteral("Einstellungen durchsuchen..."));
     if (useSettingsPaper()) {
         setLiteralQss(search, BlopStyle::paperInputQss());
@@ -1002,7 +720,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     contentWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     auto *contentLay = new QVBoxLayout(contentWidget);
     contentLay->setContentsMargins(pagePad, phoneUi ? UiScale::dp(12) : 24,
-                                   pagePad, phoneUi ? UiScale::dp(20) : 32);
+                                   pagePad, phoneUi ? UiScale::dp(28) : 48);
     contentLay->setSpacing(cardGap);
 
     scroll->setWidget(contentWidget);
@@ -1048,42 +766,34 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Card: Konto --------------------------------------------------
     auto *cardKonto = new BlopSettingsCard(
         QStringLiteral("Konto"),
-        studyLoggedIn ? QStringLiteral("Profil und Anmeldebildschirm")
-                      : QStringLiteral("Zum Anmeldebildschirm"),
+        studyLoggedIn ? QStringLiteral("Study-Anmeldung und Sitzung")
+                      : QStringLiteral("Anmelden bei Study"),
         contentWidget);
+    cardKonto->setSectionKeywords(
+        QStringLiteral("login anmelden google study account abmelden sitzung session"));
     {
         auto closeAfterAccountAction = [this, phoneUi]() {
             if (phoneUi)
                 accept();
         };
 
-        if (studyLoggedIn) {
-            auto *who = new QLabel(
-                QStringLiteral("Angemeldet als %1").arg(studyUser), cardKonto);
-            who->setWordWrap(true);
-            setLiteralQss(who, QStringLiteral(
-                "color: %1; font-size: 13px; font-weight: 500;"
-                "background: transparent; padding: 12px 14px 4px 14px;")
-                .arg(settingsInkMuted()));
-            cardKonto->addBodyWidget(who);
-        } else {
-            auto *hint = new QLabel(
-                QStringLiteral(
-                    "Melde dich bei Study an, um Notizen zu teilen."),
-                cardKonto);
-            hint->setWordWrap(true);
-            setLiteralQss(hint, QStringLiteral(
-                "color: %1; font-size: 13px;"
-                "background: transparent; padding: 12px 14px 4px 14px;")
-                .arg(settingsInkMuted()));
-            cardKonto->addBodyWidget(hint);
-        }
+        const QString statusText =
+            studyLoggedIn
+                ? QStringLiteral("Angemeldet als %1").arg(studyUser)
+                : QStringLiteral("Nicht angemeldet — Notizen teilen braucht Study");
+        auto *statusLbl = new QLabel(statusText, cardKonto);
+        statusLbl->setWordWrap(true);
+        setLiteralQss(statusLbl, QStringLiteral(
+            "color: %1; font-size: 12px; background: transparent;")
+            .arg(settingsInkMuted()));
+        cardKonto->addBodyWidget(makePropertyRow(
+            cardKonto, QStringLiteral("Status"), statusLbl, false,
+            QStringLiteral("status sitzung account")));
 
-        auto *btnAuthScreen = new QPushButton(
+        auto *btnAuthScreen = makeQuietAction(
+            cardKonto,
             studyLoggedIn ? QStringLiteral("Öffnen →")
-                          : QStringLiteral("Anmelden →"),
-            cardKonto);
-        setLiteralQss(btnAuthScreen, propertyActionQss(false));
+                          : QStringLiteral("Anmelden →"));
         connect(btnAuthScreen, &QPushButton::clicked, this,
                 [this, studyLoggedIn, closeAfterAccountAction]() {
                   if (studyLoggedIn) {
@@ -1095,12 +805,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 });
         cardKonto->addBodyWidget(makePropertyRow(
             cardKonto, QStringLiteral("Anmeldebildschirm"), btnAuthScreen,
-            false));
+            false, QStringLiteral("login auth anmelden study")));
 
         if (!studyLoggedIn) {
-            auto *btnGoogle = new QPushButton(QStringLiteral("Google →"),
-                                              cardKonto);
-            setLiteralQss(btnGoogle, propertyActionQss(false));
+            auto *btnGoogle = makeQuietAction(cardKonto,
+                                              QStringLiteral("Google →"));
             connect(btnGoogle, &QPushButton::clicked, this,
                     [this, closeAfterAccountAction]() {
                       emit googleLoginRequested();
@@ -1108,70 +817,94 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     });
             cardKonto->addBodyWidget(makePropertyRow(
                 cardKonto, QStringLiteral("Mit Google anmelden"), btnGoogle,
-                false));
+                false, QStringLiteral("google oauth gmail")));
         }
 
-        auto *btnEdit = new QPushButton(QStringLiteral("Bearbeiten →"), cardKonto);
-        setLiteralQss(btnEdit, propertyActionQss(false));
-        connect(btnEdit, &QPushButton::clicked, this, [this]() {
-            openEditor(m_profileManager ? m_profileManager->currentProfile().id
-                                        : QString());
-        });
-        cardKonto->addBodyWidget(makePropertyRow(
-            cardKonto, QStringLiteral("Aktuelles Profil"), btnEdit,
-            !studyLoggedIn));
-
         if (studyLoggedIn) {
-            auto *btnLogout = new QPushButton(QStringLiteral("Abmelden"),
-                                              cardKonto);
-            setLiteralQss(btnLogout, propertyActionQss(true));
+            auto *btnLogout = makeQuietAction(cardKonto,
+                                              QStringLiteral("Abmelden"), true);
             connect(btnLogout, &QPushButton::clicked, this, [this]() {
                 emit logoutRequested();
                 accept();
             });
             cardKonto->addBodyWidget(makePropertyRow(
-                cardKonto, QStringLiteral("Sitzung"), btnLogout, true));
+                cardKonto, QStringLiteral("Sitzung"), btnLogout, false,
+                QStringLiteral("logout abmelden session")));
+        }
+
+        {
+            auto *startSeg = new QWidget(cardKonto);
+            styleSegmentTrack(startSeg);
+            auto *startLay = new QHBoxLayout(startSeg);
+            startLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                         UiScale::dp(3), UiScale::dp(3));
+            startLay->setSpacing(UiScale::dp(2));
+            const int segH = settingsSegmentMinHeight();
+            const QString segStyle = segmentedControlQss();
+            auto *btnLib = new QPushButton(QStringLiteral("Bibliothek"), startSeg);
+            auto *btnLast = new QPushButton(QStringLiteral("Letzte Notiz"), startSeg);
+            for (QPushButton *b : {btnLib, btnLast}) {
+                b->setCheckable(true);
+                b->setCursor(Qt::PointingHandCursor);
+                b->setFixedHeight(segH);
+                b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+                setThemedQss(b, segStyle);
+                BlopRipple::attachPressFeedback(b, 0.92);
+                startLay->addWidget(b, 0);
+            }
+            auto *startGroup = new QButtonGroup(this);
+            startGroup->setExclusive(true);
+            startGroup->addButton(btnLib, 0);
+            startGroup->addButton(btnLast, 1);
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            const bool lastNote =
+                st.value(QStringLiteral("ui/startView"), QStringLiteral("library"))
+                    .toString() == QLatin1String("lastNote");
+            btnLib->setChecked(!lastNote);
+            btnLast->setChecked(lastNote);
+            connect(startGroup, &QButtonGroup::idClicked, this, [this](int id) {
+                QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+                s.setValue(QStringLiteral("ui/startView"),
+                           id == 1 ? QStringLiteral("lastNote")
+                                   : QStringLiteral("library"));
+                emit appPrefsChanged();
+            });
+            cardKonto->addBodyWidget(makePropertyRow(
+                cardKonto, QStringLiteral("Startansicht"), startSeg, true,
+                QStringLiteral("start startup bibliothek letzte notiz")));
         }
     }
 
     // ----- Card: Darstellung (Light/Dark Mode) --------------------------
-    // v3.17.0: new theme switcher backed by BlopTheme. Lets the user pick
-    // a light or dark surface palette while the accent stays the same
-    // in both modes (Blue / Green / Pink — never hardcoded purple chrome).
     auto *cardTheme = new BlopSettingsCard(
-        QStringLiteral("Thema"),
+        QStringLiteral("Darstellung"),
         QStringLiteral("Hell, Dunkel und Akzentfarbe"),
         contentWidget);
+    cardTheme->setSectionKeywords(
+        QStringLiteral("thema theme dunkelmodus dark light hell akzent farbe "
+                       "burger tablet layout sprache language locale deutsch "
+                       "english sidebar seitenleiste bewegung motion"));
     {
-        auto *lblMode = new QLabel(QStringLiteral("Modus"), cardTheme);
-        setThemedQss(lblMode, QStringLiteral(
-            "color: %1; font-size: 12px; font-weight: 600;"
-            "background: transparent;")
-            .arg(settingsInk()));
-        cardTheme->addBodyWidget(lblMode);
-
-        auto *modeRow = new QWidget(cardTheme);
-        auto *modeLay = new QHBoxLayout(modeRow);
-        modeLay->setContentsMargins(0, 0, 0, 0);
-        modeLay->setSpacing(8);
-
-        auto *btnDark = new QPushButton(QStringLiteral("Dunkel"), modeRow);
-        auto *btnLight = new QPushButton(QStringLiteral("Hell"), modeRow);
-        btnDark->setCheckable(true);
-        btnLight->setCheckable(true);
-        btnDark->setCursor(Qt::PointingHandCursor);
-        btnLight->setCursor(Qt::PointingHandCursor);
-        btnDark->setMinimumHeight(40);
-        btnLight->setMinimumHeight(40);
+        const int segH = settingsSegmentMinHeight();
         const QString segStyle = segmentedControlQss();
-        setThemedQss(btnDark, segStyle);
-        setThemedQss(btnLight, segStyle);
-        BlopRipple::attachPressFeedback(btnDark, 0.92);
-        BlopRipple::attachPressFeedback(btnLight, 0.92);
-        modeLay->addWidget(btnDark, 1);
-        modeLay->addWidget(btnLight, 1);
-        cardTheme->addBodyWidget(modeRow);
 
+        auto *modeSeg = new QWidget(cardTheme);
+        styleSegmentTrack(modeSeg);
+        auto *modeLay = new QHBoxLayout(modeSeg);
+        modeLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                    UiScale::dp(3), UiScale::dp(3));
+        modeLay->setSpacing(UiScale::dp(2));
+        auto *btnDark = new QPushButton(QStringLiteral("Dunkel"), modeSeg);
+        auto *btnLight = new QPushButton(QStringLiteral("Hell"), modeSeg);
+        for (QPushButton *b : {btnDark, btnLight}) {
+            b->setCheckable(true);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setFixedHeight(segH);
+            b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+            setThemedQss(b, segStyle);
+            BlopRipple::attachPressFeedback(b, 0.92);
+            modeLay->addWidget(b, 0);
+        }
         auto *bgMode = new QButtonGroup(this);
         bgMode->setExclusive(true);
         bgMode->addButton(btnDark, 0);
@@ -1183,37 +916,49 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             BlopTheme::instance().setMode(id == 1 ? BlopTheme::Mode::Light
                                                   : BlopTheme::Mode::Dark);
         });
+        cardTheme->addBodyWidget(makePropertyRow(
+            cardTheme, QStringLiteral("Modus"), modeSeg, false,
+            QStringLiteral("dark light hell dunkel thema")));
 
-        auto *hint = new QLabel(
-            QStringLiteral("Die Akzentfarbe bleibt in beiden Modi erhalten."),
-            cardTheme);
-        hint->setWordWrap(true);
-        setThemedQss(hint, QStringLiteral(
-            "color: %1; font-size: 12px;"
-            "background: transparent; padding-top: 6px;")
-            .arg(settingsInkMuted()));
-        cardTheme->addBodyWidget(hint);
-
-        // v3.17.1/B4: integrated accent picker. The old free-floating
-        // "Akzentfarbe" block inside "Erscheinungsbild" only emitted a
-        // local signal that the surrounding system didn't persist (it
-        // was rebuilt on every Settings open). The new picker drives
-        // BlopTheme::setAccent() directly, which persists to
-        // QSettings and refreshes UIStyles + cardQss callers via the
-        // themeChanged signal. SettingsDialog::refreshTheme() re-skins
-        // this dialog live so Hell/Dunkel does not leave dark glass islands.
-        auto *lblAccentTheme =
-            new QLabel(QStringLiteral("Akzentfarbe"), cardTheme);
-        setThemedQss(lblAccentTheme, QStringLiteral(
-            "color: %1; font-size: 12px; "
-            "font-weight: 600; background: transparent; padding-top: 8px;")
-            .arg(settingsInk()));
-        cardTheme->addBodyWidget(lblAccentTheme);
+        auto *langSeg = new QWidget(cardTheme);
+        styleSegmentTrack(langSeg);
+        auto *langLay = new QHBoxLayout(langSeg);
+        langLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                    UiScale::dp(3), UiScale::dp(3));
+        langLay->setSpacing(UiScale::dp(2));
+        auto *btnSys = new QPushButton(QStringLiteral("System"), langSeg);
+        auto *btnDe = new QPushButton(QStringLiteral("Deutsch"), langSeg);
+        auto *btnEn = new QPushButton(QStringLiteral("English"), langSeg);
+        for (QPushButton *b : {btnSys, btnDe, btnEn}) {
+            b->setCheckable(true);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setFixedHeight(segH);
+            b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+            setThemedQss(b, segStyle);
+            BlopRipple::attachPressFeedback(b, 0.92);
+            langLay->addWidget(b, 0);
+        }
+        auto *langGroup = new QButtonGroup(this);
+        langGroup->setExclusive(true);
+        langGroup->addButton(btnSys, static_cast<int>(BlopLocale::Pref::System));
+        langGroup->addButton(btnDe, static_cast<int>(BlopLocale::Pref::German));
+        langGroup->addButton(btnEn, static_cast<int>(BlopLocale::Pref::English));
+        const auto langPref = BlopLocale::instance().preference();
+        btnSys->setChecked(langPref == BlopLocale::Pref::System);
+        btnDe->setChecked(langPref == BlopLocale::Pref::German);
+        btnEn->setChecked(langPref == BlopLocale::Pref::English);
+        connect(langGroup, &QButtonGroup::idClicked, this, [](int id) {
+            BlopLocale::instance().setPreference(
+                static_cast<BlopLocale::Pref>(id));
+        });
+        cardTheme->addBodyWidget(makePropertyRow(
+            cardTheme, QStringLiteral("Sprache"), langSeg, false,
+            QStringLiteral("sprache language locale deutsch english")));
 
         auto *accentRow = new QWidget(cardTheme);
         auto *accentLay = new QHBoxLayout(accentRow);
         accentLay->setContentsMargins(0, 0, 0, 0);
-        accentLay->setSpacing(10);
+        accentLay->setSpacing(UiScale::dp(8));
         struct AccentChoice {
             BlopTheme::Accent value;
             QString hex;
@@ -1226,76 +971,112 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
              QStringLiteral("Green")},
             {BlopTheme::Accent::Pink, QStringLiteral("#FF6B9D"),
              QStringLiteral("Pink")}};
-        const BlopTheme::Accent activeAccent =
-            BlopTheme::instance().accent();
+        const BlopTheme::Accent activeAccent = BlopTheme::instance().accent();
         auto *accentGroup = new QButtonGroup(this);
         accentGroup->setExclusive(true);
+        const int swatch = UiScale::dp(28);
         for (int i = 0; i < choices.size(); ++i) {
             const AccentChoice &ch = choices[i];
             auto *b = new QPushButton(accentRow);
             b->setCheckable(true);
             b->setCursor(Qt::PointingHandCursor);
-            b->setFixedSize(40, 40);
+            b->setFixedSize(swatch, swatch);
             b->setToolTip(ch.tip);
-            // The button background stays the accent color (Brand) so
-            // themed() must NOT touch it. We compose with .arg() so
-            // BlopTheme::themed runs over the static frame, then we
-            // patch the dynamic bg into the result. Simpler: just set
-            // it without themed() since the frame uses rgba() tints
-            // that look fine in both modes.
             b->setStyleSheet(
                 QStringLiteral(
                     "QPushButton { background-color: %1;"
-                    "  border-radius: 20px;"
-                    "  border: 2px solid rgba(255,255,255,0.14); }"
-                    "QPushButton:hover { border: 2px solid rgba(255,255,255,0.5); }"
-                    "QPushButton:checked { border: 3px solid #FFFFFF; }")
-                    .arg(ch.hex));
+                    "  border-radius: %2px;"
+                    "  border: 2px solid rgba(55,53,47,0.12); }"
+                    "QPushButton:hover { border: 2px solid rgba(55,53,47,0.35); }"
+                    "QPushButton:checked { border: 2px solid %3; }")
+                    .arg(ch.hex, QString::number(swatch / 2),
+                         BlopStyle::paperInk().name(QColor::HexRgb)));
             b->setChecked(ch.value == activeAccent);
             accentGroup->addButton(b, static_cast<int>(ch.value));
             BlopRipple::attachPressFeedback(b, 0.88);
             accentLay->addWidget(b);
         }
         accentLay->addStretch();
-        cardTheme->addBodyWidget(accentRow);
         connect(accentGroup, &QButtonGroup::idClicked, this, [this](int id) {
             const auto a = static_cast<BlopTheme::Accent>(id);
             BlopTheme::instance().setAccent(a);
             emit accentColorChanged(BlopTheme::accentPrimary());
         });
+        cardTheme->addBodyWidget(makePropertyRow(
+            cardTheme, QStringLiteral("Akzent"), accentRow, false,
+            QStringLiteral("akzent farbe accent blue green pink")));
 
-        auto *btnBurger = new QPushButton(
-            QStringLiteral("Burger-Menü auch auf Tablet/Laptop"), cardTheme);
+        auto *btnBurger = makeQuietAction(
+            cardTheme, QStringLiteral("Tablet/Laptop"));
         btnBurger->setCheckable(true);
-        btnBurger->setCursor(Qt::PointingHandCursor);
-        btnBurger->setMinimumHeight(40);
         btnBurger->setChecked(UiScale::forceBurgerMenu());
-        setThemedQss(btnBurger, QStringLiteral(
-            "QPushButton { background: %1; color: %2;"
-            "  border: 1px solid rgba(20,24,40,0.12); border-radius: 10px;"
-            "  padding: 10px 14px; text-align: left; font-weight: 600; }"
-            "QPushButton:checked { background: %3;"
-            "  border-color: %4; }")
-                .arg(settingsChipBg(), settingsInk(), accentRgba(70),
-                     BlopTheme::accentPrimary().name(QColor::HexRgb)));
+        btnBurger->setToolTip(QStringLiteral(
+            "Burger-Menü auch auf Tablet/Laptop (Handy: immer an)"));
         connect(btnBurger, &QPushButton::toggled, this, [this](bool on) {
             UiScale::setForceBurgerMenu(on);
             emit uiLayoutPrefsChanged();
         });
-        BlopRipple::attachPressFeedback(btnBurger, 0.96);
-        cardTheme->addBodyWidget(btnBurger);
-        auto *burgerHint = new QLabel(
-            QStringLiteral(
-                "Auf dem Handy ist das Burger-Menü immer an und die "
-                "Seitenleiste ausgeblendet. Auf Tablet oder Laptop kannst du "
-                "es hier zusätzlich einschalten."),
-            cardTheme);
-        burgerHint->setWordWrap(true);
-        setLiteralQss(burgerHint, QStringLiteral(
-            "color: %1; font-size: 11px;"
-            "background: transparent; padding: 2px 0 4px 0;")
-            .arg(settingsInkMuted()));
-        cardTheme->addBodyWidget(burgerHint);
+        cardTheme->addBodyWidget(makePropertyRow(
+            cardTheme, QStringLiteral("Burger-Menü"), btnBurger, false,
+            QStringLiteral("burger tablet laptop layout")));
+
+        auto *sidebarSeg = new QWidget(cardTheme);
+        styleSegmentTrack(sidebarSeg);
+        auto *sidebarLay = new QHBoxLayout(sidebarSeg);
+        sidebarLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                       UiScale::dp(3), UiScale::dp(3));
+        sidebarLay->setSpacing(UiScale::dp(2));
+        auto *btnSideOpen = new QPushButton(QStringLiteral("Offen"), sidebarSeg);
+        auto *btnSideClosed = new QPushButton(QStringLiteral("Zu"), sidebarSeg);
+        for (QPushButton *b : {btnSideOpen, btnSideClosed}) {
+            b->setCheckable(true);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setFixedHeight(segH);
+            b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+            setThemedQss(b, segStyle);
+            BlopRipple::attachPressFeedback(b, 0.92);
+            sidebarLay->addWidget(b, 0);
+        }
+        auto *sidebarGroup = new QButtonGroup(this);
+        sidebarGroup->setExclusive(true);
+        sidebarGroup->addButton(btnSideOpen, 1);
+        sidebarGroup->addButton(btnSideClosed, 0);
+        {
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            const bool open =
+                st.value(QStringLiteral("ui/sidebarStartOpen"), true).toBool();
+            btnSideOpen->setChecked(open);
+            btnSideClosed->setChecked(!open);
+        }
+        connect(sidebarGroup, &QButtonGroup::idClicked, this, [this](int id) {
+            QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            s.setValue(QStringLiteral("ui/sidebarStartOpen"), id == 1);
+            emit appPrefsChanged();
+        });
+        cardTheme->addBodyWidget(makePropertyRow(
+            cardTheme, QStringLiteral("Sidebar beim Start"), sidebarSeg, false,
+            QStringLiteral("sidebar seitenleiste start offen zu")));
+
+        auto *btnMotion = makeQuietAction(cardTheme, QStringLiteral("Aus"));
+        btnMotion->setCheckable(true);
+        {
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            btnMotion->setChecked(
+                st.value(QStringLiteral("ui/reduceMotion"), false).toBool());
+        }
+        btnMotion->setText(btnMotion->isChecked() ? QStringLiteral("An")
+                                                  : QStringLiteral("Aus"));
+        btnMotion->setToolTip(
+            QStringLiteral("Weniger Animationen in Einstellungen und UI"));
+        connect(btnMotion, &QPushButton::toggled, this, [this, btnMotion](bool on) {
+            QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            s.setValue(QStringLiteral("ui/reduceMotion"), on);
+            btnMotion->setText(on ? QStringLiteral("An") : QStringLiteral("Aus"));
+            emit appPrefsChanged();
+        });
+        cardTheme->addBodyWidget(makePropertyRow(
+            cardTheme, QStringLiteral("Bewegung reduzieren"), btnMotion, true,
+            QStringLiteral("motion animation bewegung reduce")));
     }
 
     // ----- Card: Werkzeuge ----------------------------------------------
@@ -1307,6 +1088,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Studio-Werkzeugleiste (Layout A–D)"),
 #endif
         contentWidget);
+    cardLook->setSectionKeywords(
+        QStringLiteral("toolbar radial studio layout favoriten werkzeugleiste "
+                       "klassisch vertikal autosave speichern seitenfarbe "
+                       "löschen delete"));
     {
 #ifdef Q_OS_ANDROID
         auto *rNorm = new QRadioButton(QStringLiteral("Vertikal / Adaptiv"),
@@ -1349,19 +1134,14 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         rFull->setEnabled(false);
         rNorm->setChecked(true);
 
-        auto *lblLayout =
-            new QLabel(QStringLiteral("Werkzeugleisten-Layout"), cardLook);
-        setThemedQss(lblLayout, QStringLiteral(
-            "color: %1; font-size: 12px; font-weight: 600;"
-            "background: transparent;")
-            .arg(settingsInk()));
-        cardLook->addBodyWidget(lblLayout);
-
-        auto *variantRow = new QWidget(cardLook);
-        auto *variantLay = new QHBoxLayout(variantRow);
-        variantLay->setContentsMargins(0, 0, 0, 0);
-        variantLay->setSpacing(UiScale::dp(6));
+        auto *variantSeg = new QWidget(cardLook);
+        styleSegmentTrack(variantSeg);
+        auto *variantLay = new QHBoxLayout(variantSeg);
+        variantLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                       UiScale::dp(3), UiScale::dp(3));
+        variantLay->setSpacing(UiScale::dp(2));
         const QString segStyle = segmentedControlQss();
+        const int segH = settingsSegmentMinHeight();
         auto *bgVariant = new QButtonGroup(this);
         bgVariant->setExclusive(true);
         struct VariantOpt {
@@ -1377,30 +1157,28 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             {4, "D Vertikal", "Zweispaltige Werkzeug-Grid"},
         };
         QSettings vs(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-        // Default A (1) when unset — matches ModernToolbar::defaultStudioVariantInt.
         int saved = vs.value(QStringLiteral("ui/studio_toolbar_variant"), 1)
                         .toInt();
         if (saved < 0 || saved > 4)
           saved = 1;
         for (const VariantOpt &o : opts) {
-          auto *b = new QPushButton(QString::fromUtf8(o.label), variantRow);
+          auto *b = new QPushButton(QString::fromUtf8(o.label), variantSeg);
           b->setCheckable(true);
           b->setCursor(Qt::PointingHandCursor);
           b->setToolTip(QString::fromUtf8(o.tip));
-          b->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
-          b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+          b->setFixedHeight(segH);
+          b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
           setThemedQss(b, segStyle);
           bgVariant->addButton(b, o.id);
           if (o.id == saved)
             b->setChecked(true);
           BlopRipple::attachPressFeedback(b, 0.94);
-          variantLay->addWidget(b);
+          variantLay->addWidget(b, 0);
         }
         connect(bgVariant, &QButtonGroup::idClicked, this, [this](int id) {
           QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
           s.setValue(QStringLiteral("ui/studio_toolbar_variant"), id);
           emit studioToolbarVariantChanged(id);
-          // C Radial also mirrors profile toolbarStyle for Android parity.
           if (m_profileManager) {
             auto profile = m_profileManager->currentProfile();
             profile.toolbarStyle = (id == 3) ? 1 : 0;
@@ -1408,49 +1186,160 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
           }
           emit toolbarStyleChanged(id == 3);
         });
-        cardLook->addBodyWidget(variantRow);
-
-        auto *hint = new QLabel(
-            QStringLiteral(
-                "A ist Standard. C aktiviert die Radial-Leiste. "
-                "Formel/Molekül sind vorerst Platzhalter-Tools."),
-            cardLook);
-        hint->setWordWrap(true);
-        setLiteralQss(hint, QStringLiteral(
-            "color: %1; font-size: 11px;"
-            "background: transparent; padding: 2px 0 4px 0;")
-            .arg(settingsInkMuted()));
-        cardLook->addBodyWidget(hint);
+        cardLook->addBodyWidget(makePropertyRow(
+            cardLook, QStringLiteral("Layout"), variantSeg, false,
+            QStringLiteral("toolbar studio layout a b c d klassisch radial")));
 #endif
+
+        auto *autoSeg = new QWidget(cardLook);
+        styleSegmentTrack(autoSeg);
+        auto *autoLay = new QHBoxLayout(autoSeg);
+        autoLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                    UiScale::dp(3), UiScale::dp(3));
+        autoLay->setSpacing(UiScale::dp(2));
+        const int autoSegH = settingsSegmentMinHeight();
+        const QString autoSegStyle = segmentedControlQss();
+        auto *btnAutoNow = new QPushButton(QStringLiteral("Sofort"), autoSeg);
+        auto *btnAuto15 = new QPushButton(QStringLiteral("1,5s"), autoSeg);
+        auto *btnAuto5 = new QPushButton(QStringLiteral("5s"), autoSeg);
+        auto *btnAutoOff = new QPushButton(QStringLiteral("Aus"), autoSeg);
+        for (QPushButton *b :
+             {btnAutoNow, btnAuto15, btnAuto5, btnAutoOff}) {
+            b->setCheckable(true);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setFixedHeight(autoSegH);
+            b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+            setThemedQss(b, autoSegStyle);
+            BlopRipple::attachPressFeedback(b, 0.92);
+            autoLay->addWidget(b, 0);
+        }
+        auto *autoGroup = new QButtonGroup(this);
+        autoGroup->setExclusive(true);
+        autoGroup->addButton(btnAutoNow, 0);
+        autoGroup->addButton(btnAuto15, 1500);
+        autoGroup->addButton(btnAuto5, 5000);
+        autoGroup->addButton(btnAutoOff, 9999);
+        {
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            const int ms = st.value(QStringLiteral("ui/autoSaveMs"), 1500).toInt();
+            if (ms < 0)
+                btnAutoOff->setChecked(true);
+            else if (ms == 0)
+                btnAutoNow->setChecked(true);
+            else if (ms >= 4000)
+                btnAuto5->setChecked(true);
+            else
+                btnAuto15->setChecked(true);
+        }
+        connect(autoGroup, &QButtonGroup::idClicked, this, [this](int id) {
+            QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            s.setValue(QStringLiteral("ui/autoSaveMs"), id == 9999 ? -1 : id);
+            emit appPrefsChanged();
+        });
+        cardLook->addBodyWidget(makePropertyRow(
+            cardLook, QStringLiteral("Auto-Speichern"), autoSeg, false,
+            QStringLiteral("autosave speichern debounce")));
+
+        auto *pageSeg = new QWidget(cardLook);
+        styleSegmentTrack(pageSeg);
+        auto *pageLay = new QHBoxLayout(pageSeg);
+        pageLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                    UiScale::dp(3), UiScale::dp(3));
+        pageLay->setSpacing(UiScale::dp(2));
+        auto *btnPageLight = new QPushButton(QStringLiteral("Hell"), pageSeg);
+        auto *btnPageDark = new QPushButton(QStringLiteral("Dunkel"), pageSeg);
+        for (QPushButton *b : {btnPageLight, btnPageDark}) {
+            b->setCheckable(true);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setFixedHeight(autoSegH);
+            b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+            setThemedQss(b, autoSegStyle);
+            BlopRipple::attachPressFeedback(b, 0.92);
+            pageLay->addWidget(b, 0);
+        }
+        auto *pageGroup = new QButtonGroup(this);
+        pageGroup->setExclusive(true);
+        pageGroup->addButton(btnPageLight, 0);
+        pageGroup->addButton(btnPageDark, 1);
+        {
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            const bool dark =
+                st.value(QStringLiteral("ui/defaultPageColor"),
+                         QStringLiteral("light"))
+                    .toString() == QLatin1String("dark");
+            btnPageLight->setChecked(!dark);
+            btnPageDark->setChecked(dark);
+        }
+        connect(pageGroup, &QButtonGroup::idClicked, this, [this](int id) {
+            QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            s.setValue(QStringLiteral("ui/defaultPageColor"),
+                       id == 1 ? QStringLiteral("dark")
+                               : QStringLiteral("light"));
+            emit appPrefsChanged();
+        });
+        cardLook->addBodyWidget(makePropertyRow(
+            cardLook, QStringLiteral("Neue Notizen: Seitenfarbe"), pageSeg,
+            false,
+            QStringLiteral("seitenfarbe paper page color hell dunkel")));
+
+        auto *btnConfirm = makeQuietAction(cardLook, QStringLiteral("An"));
+        btnConfirm->setCheckable(true);
+        {
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            btnConfirm->setChecked(
+                st.value(QStringLiteral("ui/confirmDelete"), true).toBool());
+        }
+        btnConfirm->setText(btnConfirm->isChecked() ? QStringLiteral("An")
+                                                    : QStringLiteral("Aus"));
+        btnConfirm->setToolTip(
+            QStringLiteral("Vor dem Löschen einer Notiz nachfragen"));
+        connect(btnConfirm, &QPushButton::toggled, this,
+                [this, btnConfirm](bool on) {
+                    QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+                    s.setValue(QStringLiteral("ui/confirmDelete"), on);
+                    btnConfirm->setText(on ? QStringLiteral("An")
+                                           : QStringLiteral("Aus"));
+                    emit appPrefsChanged();
+                });
+        cardLook->addBodyWidget(makePropertyRow(
+            cardLook, QStringLiteral("Löschen bestätigen"), btnConfirm, true,
+            QStringLiteral("löschen delete confirm trash")));
     }
 
-    // ----- Card: Verhalten (Profile list) -------------------------------
+    // ----- Card: Profile (UI modes) ------------------------------------
     auto *cardBehavior = new BlopSettingsCard(
-        QStringLiteral("Verhalten"),
-        QStringLiteral("UI-Profile / Modi"),
+        QStringLiteral("Profile"),
+        QStringLiteral("UI-Profile und Modi"),
         contentWidget);
+    cardBehavior->setSectionKeywords(
+        QStringLiteral("verhalten profil mode modus ui-profil bearbeiten"));
     {
         m_profileList = new QListWidget(cardBehavior);
         setThemedQss(m_profileList, QStringLiteral(
             "QListWidget {"
-            "  background: %1;"
-            "  border: 1px solid rgba(20, 24, 40, 0.12);"
-            "  border-radius: 10px;"
-            "  color: %2;"
-            "  padding: 4px;"
+            "  background: transparent;"
+            "  border: none;"
+            "  color: %1;"
+            "  padding: 2px 4px;"
+            "  outline: none;"
             "}"
             "QListWidget::item {"
-            "  padding: 10px 12px;"
+            "  padding: 6px 10px;"
             "  border-radius: 6px;"
-            "  margin: 2px;"
-            "  min-height: 36px;"
+            "  margin: 1px 0;"
+            "  min-height: 28px;"
             "}"
             "QListWidget::item:selected {"
-            "  background: %3;"
+            "  background: %2;"
+            "}"
+            "QListWidget::item:hover:!selected {"
+            "  background: rgba(55,53,47,0.05);"
             "}")
-            .arg(settingsChipBg(), settingsInk(), accentRgba(140)));
-        m_profileList->setMinimumHeight(132);
+            .arg(settingsInk(), accentRgba(90)));
+        m_profileList->setMinimumHeight(UiScale::dp(96));
+        m_profileList->setMaximumHeight(UiScale::dp(160));
         m_profileList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        m_profileList->setFrameShape(QFrame::NoFrame);
         m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
         BlopScroll::enableFingerScroll(m_profileList);
         if (phoneUi)
@@ -1461,25 +1350,33 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 &SettingsDialog::onProfileClicked);
         cardBehavior->addBodyWidget(m_profileList);
 
-        auto *btnNewProfile = new QPushButton(
-            QStringLiteral("Neuen Modus erstellen"), cardBehavior);
-        btnNewProfile->setCursor(Qt::PointingHandCursor);
-        setThemedQss(btnNewProfile, QStringLiteral(
-            "QPushButton { background-color: %1; color: %2;"
-            "  border: 1px solid rgba(20,24,40,0.12); border-radius: 10px;"
-            "  padding: 10px 14px; font-weight: 600; min-height: 40px; }"
-            "QPushButton:hover { border-color: %3; }")
-                .arg(settingsChipBg(), settingsInk(), accentRgba(166)));
+        auto *btnNewProfile =
+            makeQuietAction(cardBehavior, QStringLiteral("Neu →"));
         connect(btnNewProfile, &QPushButton::clicked, this,
                 &SettingsDialog::onCreateProfile);
-        cardBehavior->addBodyWidget(btnNewProfile);
+        cardBehavior->addBodyWidget(makePropertyRow(
+            cardBehavior, QStringLiteral("Modus erstellen"), btnNewProfile,
+            false, QStringLiteral("profil neu erstellen mode")));
+
+        auto *btnEditProfile =
+            makeQuietAction(cardBehavior, QStringLiteral("Bearbeiten →"));
+        connect(btnEditProfile, &QPushButton::clicked, this, [this]() {
+            openEditor(m_profileManager ? m_profileManager->currentProfile().id
+                                        : QString());
+        });
+        cardBehavior->addBodyWidget(makePropertyRow(
+            cardBehavior, QStringLiteral("Aktuelles Profil"), btnEditProfile,
+            true, QStringLiteral("profil bearbeiten edit mode")));
     }
 
     // ----- Card: Speicher — Notion property rows for clouds ---------------
     auto *cardStorage = new BlopSettingsCard(
-        QStringLiteral("Speicher"),
+        QStringLiteral("Cloud"),
         QStringLiteral("Notizen lokal — Clouds öffnen in Blop"),
         contentWidget);
+    cardStorage->setSectionKeywords(
+        QStringLiteral("drive nextcloud cloud lokal sync ordner speicher "
+                       "google library bibliothek"));
     {
         StoragePrefs::ensureLocalLibraryRoot();
 
@@ -1492,47 +1389,56 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         auto *hint = new QLabel(StoragePrefs::modeHint(StoragePrefs::mode()),
                                 cardStorage);
         hint->setObjectName(QStringLiteral("StorageModeHint"));
-        hint->setWordWrap(true);
-        setLiteralQss(hint, QStringLiteral(
-            "color: %1; font-size: 12px;"
-            "background: transparent; padding: 10px 14px 6px 14px;")
-            .arg(settingsInkMuted()));
-        cardStorage->addBodyWidget(hint);
+        hint->hide(); // kept for applyMode text updates; UI uses short path row
 
-        auto *modeRow = new QWidget(cardStorage);
-        auto *modeLay = new QHBoxLayout(modeRow);
-        modeLay->setContentsMargins(UiScale::dp(10), UiScale::dp(4),
-                                    UiScale::dp(10), UiScale::dp(4));
-        modeLay->setSpacing(6);
+        auto *modeSeg = new QWidget(cardStorage);
+        styleSegmentTrack(modeSeg);
+        tagSearchKeys(modeSeg,
+                      QStringLiteral("lokal cloud speicher modus sync"));
+        auto *modeLay = new QHBoxLayout(modeSeg);
+        modeLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                    UiScale::dp(3), UiScale::dp(3));
+        modeLay->setSpacing(UiScale::dp(2));
 
         const QString segStyle = segmentedControlQss();
-        auto *btnLocal = new QPushButton(QStringLiteral("Nur lokal"), modeRow);
-        auto *btnCloud = new QPushButton(QStringLiteral("Nur Cloud"), modeRow);
-        auto *btnBoth = new QPushButton(QStringLiteral("Lokal + Cloud"), modeRow);
+        const int segH = settingsSegmentMinHeight();
+        auto *btnLocal = new QPushButton(QStringLiteral("Lokal"), modeSeg);
+        auto *btnCloud = new QPushButton(QStringLiteral("Cloud"), modeSeg);
+        auto *btnBoth = new QPushButton(QStringLiteral("Beides"), modeSeg);
         for (QPushButton *b : {btnLocal, btnCloud, btnBoth}) {
             b->setCheckable(true);
             b->setCursor(Qt::PointingHandCursor);
-            b->setMinimumHeight(UiScale::dp(34));
+            b->setFixedHeight(segH);
+            b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
             setThemedQss(b, segStyle);
             BlopRipple::attachPressFeedback(b, 0.92);
-            modeLay->addWidget(b, 1);
+            modeLay->addWidget(b, 0);
         }
         const auto curMode = StoragePrefs::mode();
         btnLocal->setChecked(curMode == StoragePrefs::Mode::LocalOnly);
         btnCloud->setChecked(curMode == StoragePrefs::Mode::CloudOnly);
         btnBoth->setChecked(curMode == StoragePrefs::Mode::LocalAndCloud);
-        cardStorage->addBodyWidget(modeRow);
+        cardStorage->addBodyWidget(makePropertyRow(
+            cardStorage, QStringLiteral("Modus"), modeSeg, false,
+            QStringLiteral("lokal cloud speicher modus sync")));
 
-        auto *localPathLbl = new QLabel(
-            QStringLiteral("Lokal: %1")
-                .arg(StoragePrefs::ensureLocalLibraryRoot()),
-            cardStorage);
-        localPathLbl->setWordWrap(true);
+        const QString localPath = StoragePrefs::ensureLocalLibraryRoot();
+        auto *localPathLbl = new QLabel(localPath, cardStorage);
+        localPathLbl->setWordWrap(false);
+        localPathLbl->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        localPathLbl->setToolTip(localPath);
         setLiteralQss(localPathLbl, QStringLiteral(
             "color: %1; font-size: 11px;"
-            "background: transparent; padding: 2px 14px 10px 14px;")
+            "background: transparent;")
             .arg(settingsInkMuted()));
-        cardStorage->addBodyWidget(localPathLbl);
+        {
+          QFontMetrics fm(localPathLbl->font());
+          localPathLbl->setText(
+              fm.elidedText(localPath, Qt::ElideMiddle, UiScale::dp(280)));
+        }
+        cardStorage->addBodyWidget(makePropertyRow(
+            cardStorage, QStringLiteral("Lokal"), localPathLbl, false,
+            QStringLiteral("lokal pfad library")));
 
         auto connectCloudProvider =
             [this, btnLocal, btnCloud, btnBoth, hint](
@@ -1645,7 +1551,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             } else {
                 auto *al = new QHBoxLayout(actions);
                 al->setContentsMargins(0, 0, 0, 0);
-                al->setSpacing(UiScale::dp(6));
+                al->setSpacing(UiScale::dp(2));
                 al->addWidget(btnPrimary);
                 al->addWidget(btnFolder);
                 al->addWidget(btnOpen);
@@ -1742,23 +1648,24 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             ordered.prepend(drive);
 
             for (int i = 0; i < ordered.size(); ++i)
-                addCloudRow(ordered[i], i == ordered.size() - 1);
+                addCloudRow(ordered[i], /*last=*/false);
             refreshCloudUi();
         }
 
-        auto applyMode = [this, btnLocal, btnCloud, btnBoth, hint](
-                             StoragePrefs::Mode m) {
+        auto applyMode = [this, btnLocal, btnCloud, btnBoth, hint,
+                          localPathLbl](StoragePrefs::Mode m) {
             btnLocal->setChecked(m == StoragePrefs::Mode::LocalOnly);
             btnCloud->setChecked(m == StoragePrefs::Mode::CloudOnly);
             btnBoth->setChecked(m == StoragePrefs::Mode::LocalAndCloud);
             StoragePrefs::setMode(m);
-            QString text = StoragePrefs::modeHint(m);
-            if (m != StoragePrefs::Mode::LocalOnly &&
-                StoragePrefs::primaryLinkedCloudPath().isEmpty()) {
-                text += QStringLiteral(
-                    "\nTipp: Verknüpfe unten einen Cloud-Anbieter.");
+            hint->setText(StoragePrefs::modeHint(m));
+            if (localPathLbl) {
+              const QString p = StoragePrefs::ensureLocalLibraryRoot();
+              QFontMetrics fm(localPathLbl->font());
+              localPathLbl->setToolTip(p);
+              localPathLbl->setText(
+                  fm.elidedText(p, Qt::ElideMiddle, UiScale::dp(280)));
             }
-            hint->setText(text);
             emit storagePrefsChanged();
         };
         QObject::connect(btnLocal, &QPushButton::clicked, this,
@@ -1774,109 +1681,81 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                              applyMode(StoragePrefs::Mode::LocalAndCloud);
                          });
 
-        // Custom embed — compact Notion footer.
+        // Custom embed — one compact row.
         auto *customUrl = new QLineEdit(cardStorage);
-        customUrl->setPlaceholderText(
-            QStringLiteral("https://cloud.example.com"));
-        customUrl->setMinimumHeight(UiScale::dp(34));
+        customUrl->setPlaceholderText(QStringLiteral("https://…"));
+        customUrl->setFixedHeight(UiScale::dp(26));
 #ifndef Q_OS_ANDROID
-        setLiteralQss(customUrl, BlopStyle::paperInputQss());
+        {
+          const bool paper = useSettingsPaper();
+          const QString ink = paper ? BlopStyle::paperInk().name(QColor::HexRgb)
+                                    : BlopTheme::textPrimary().name(QColor::HexRgb);
+          const QString idleBg = paper ? QStringLiteral("rgba(55,53,47,0.04)")
+                                       : QStringLiteral("rgba(255,255,255,0.06)");
+          const QString focusBg = paper ? QStringLiteral("rgba(55,53,47,0.06)")
+                                        : QStringLiteral("rgba(255,255,255,0.09)");
+          setLiteralQss(customUrl, QStringLiteral(
+              "QLineEdit {"
+              "  background: %1; color: %2;"
+              "  border: none; border-radius: 8px;"
+              "  padding: 0 10px; font-size: 12px;"
+              "}"
+              "QLineEdit:focus { background: %3; }")
+              .arg(idleBg, ink, focusBg));
+        }
 #else
         setTokenQss(customUrl, "input");
-#endif
-        auto *customName = new QLineEdit(cardStorage);
-        customName->setPlaceholderText(QStringLiteral("Name (optional)"));
-        customName->setMinimumHeight(UiScale::dp(34));
-#ifndef Q_OS_ANDROID
-        setLiteralQss(customName, BlopStyle::paperInputQss());
-#else
-        setTokenQss(customName, "input");
 #endif
         auto *btnEmbed =
             makeQuietAction(cardStorage, QStringLiteral("Einbetten →"));
         connect(btnEmbed, &QPushButton::clicked, this,
-                [this, customUrl, customName, requestCloud]() {
+                [this, customUrl, requestCloud]() {
                   const QString typed = customUrl->text().trimmed();
                   if (typed.isEmpty())
                     return;
                   CloudStorageEntry e;
                   e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
                   e.type = QStringLiteral("custom");
-                  e.name = customName->text().trimmed().isEmpty()
-                               ? QStringLiteral("Eigene Cloud")
-                               : customName->text().trimmed();
+                  e.name = QStringLiteral("Eigene Cloud");
                   e.webUrl = QUrl::fromUserInput(typed).toString();
                   CloudStorageStore::upsert(e);
                   requestCloud(e);
                 });
 
-        auto *customWrap = new QWidget(cardStorage);
-        customWrap->setObjectName(QStringLiteral("SettingsPropRow"));
-        customWrap->setStyleSheet(propertyRowShellQss(true));
-        auto *customLay = new QVBoxLayout(customWrap);
-        customLay->setContentsMargins(UiScale::dp(14), UiScale::dp(10),
-                                      UiScale::dp(14), UiScale::dp(12));
+        auto *customActions = new QWidget(cardStorage);
+        auto *customLay = new QHBoxLayout(customActions);
+        customLay->setContentsMargins(0, 0, 0, 0);
         customLay->setSpacing(UiScale::dp(6));
-        auto *customTitle = new QLabel(QStringLiteral("Eigene Cloud"), customWrap);
-        customTitle->setStyleSheet(QStringLiteral(
-            "color: %1; font-size: 13px; font-weight: 600;"
-            "background: transparent;")
-                                       .arg(BlopStyle::paperInk().name(
-                                           QColor::HexRgb)));
-        customLay->addWidget(customTitle);
-        customLay->addWidget(customUrl);
-        auto *nameRow = new QHBoxLayout();
-        nameRow->setContentsMargins(0, 0, 0, 0);
-        nameRow->setSpacing(UiScale::dp(8));
-        nameRow->addWidget(customName, 1);
-        nameRow->addWidget(btnEmbed, 0, Qt::AlignVCenter);
-        customLay->addLayout(nameRow);
-        cardStorage->addBodyWidget(customWrap);
+        customLay->addWidget(customUrl, 1);
+        customLay->addWidget(btnEmbed, 0, Qt::AlignVCenter);
+        cardStorage->addBodyWidget(makePropertyRow(
+            cardStorage, QStringLiteral("Eigene"), customActions, true,
+            QStringLiteral("eigene cloud custom url einbetten webdav")));
     }
 
-    // ----- Card: Integrationen (Cloud, Kalender, zukünftige APIs) ----------
-    auto *cardIntegrations = new BlopSettingsCard(
-        QStringLiteral("Integrationen"),
-        QStringLiteral("Cloud, Google Kalender und weitere Verbindungen"),
+    // ----- Card: Kalender + System --------------------------------------
+    auto *cardMore = new BlopSettingsCard(
+        QStringLiteral("Kalender"),
+        QStringLiteral("Integrationen, Version und Diagnose"),
         contentWidget);
+    cardMore->setSectionKeywords(
+        QStringLiteral("kalender calendar integration version diagnose "
+                       "trace debug entwickler erweiterte mehr"));
     {
-      // --- Cloud (Kurzlink in den Speicher-Bereich) ---
-      auto *cloudHint = new QLabel(
-          QStringLiteral(
-              "Cloud-Ordner (Drive, Nextcloud, …) verwaltest du unter Speicher."),
-          cardIntegrations);
-      cloudHint->setWordWrap(true);
-      setLiteralQss(cloudHint, QStringLiteral(
-          "color: %1; font-size: 12px; background: transparent;")
-          .arg(settingsInkMuted()));
-      cardIntegrations->addBodyWidget(makePropertyRow(
-          cardIntegrations, QStringLiteral("Cloud"), cloudHint, true));
-
-      // --- Google Calendar ---
-      auto *calStatus = new QLabel(cardIntegrations);
-      auto refreshCalStatus = [calStatus]() {
-        if (CalendarService::instance().hasGoogleAccess()) {
-          calStatus->setText(QStringLiteral("Verbunden — Termine werden synchronisiert"));
-        } else {
-          calStatus->setText(QStringLiteral("Nicht verbunden"));
-        }
+      auto *calStatusLbl = new QLabel(cardMore);
+      calStatusLbl->hide(); // status text mirrored into named row
+      auto refreshCalStatusText = []() -> QString {
+        return CalendarService::instance().hasGoogleAccess()
+                   ? QStringLiteral("Verbunden")
+                   : QStringLiteral("Nicht verbunden");
       };
-      refreshCalStatus();
-      setLiteralQss(calStatus, QStringLiteral(
-          "color: %1; font-size: 13px; background: transparent;")
-          .arg(settingsInkMuted()));
-      cardIntegrations->addBodyWidget(makePropertyRow(
-          cardIntegrations, QStringLiteral("Google Kalender"), calStatus, true));
+      calStatusLbl->setText(refreshCalStatusText());
 
       auto *btnCalConnect =
-          new QPushButton(QStringLiteral("Verbinden"), cardIntegrations);
-      btnCalConnect->setCursor(Qt::PointingHandCursor);
-      auto *btnCalSync =
-          new QPushButton(QStringLiteral("Jetzt sync"), cardIntegrations);
-      btnCalSync->setCursor(Qt::PointingHandCursor);
+          makeQuietAction(cardMore, QStringLiteral("Verbinden"));
+      auto *btnCalSync = makeQuietAction(cardMore, QStringLiteral("Sync"));
       auto *btnCalDisconnect =
-          new QPushButton(QStringLiteral("Trennen"), cardIntegrations);
-      btnCalDisconnect->setCursor(Qt::PointingHandCursor);
+          makeQuietAction(cardMore, QStringLiteral("Trennen"), true);
       auto updateCalButtons = [btnCalConnect, btnCalSync, btnCalDisconnect]() {
         const bool on = CalendarService::instance().hasGoogleAccess();
         btnCalConnect->setVisible(!on);
@@ -1891,169 +1770,112 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         CalendarService::instance().refreshGoogle();
       });
       connect(btnCalDisconnect, &QPushButton::clicked, this,
-              [refreshCalStatus, updateCalButtons]() {
+              [updateCalButtons, calStatusLbl, refreshCalStatusText]() {
                 CalendarService::instance().disconnectGoogle();
-                refreshCalStatus();
-                updateCalButtons();
-              });
-      connect(&CalendarService::instance(), &CalendarService::eventsChanged,
-              cardIntegrations, [refreshCalStatus, updateCalButtons]() {
-                refreshCalStatus();
-                updateCalButtons();
-              });
-      connect(&GoogleAuthManager::instance(),
-              &GoogleAuthManager::calendarTokenUpdated, cardIntegrations,
-              [refreshCalStatus, updateCalButtons]() {
-                refreshCalStatus();
+                calStatusLbl->setText(refreshCalStatusText());
                 updateCalButtons();
               });
 
-      auto *calBtns = new QWidget(cardIntegrations);
+      auto *calBtns = new QWidget(cardMore);
+      auto *calLay = new QHBoxLayout(calBtns);
+      calLay->setContentsMargins(0, 0, 0, 0);
+      calLay->setSpacing(UiScale::dp(4));
+      calLay->addWidget(btnCalConnect);
+      calLay->addWidget(btnCalSync);
+      calLay->addWidget(btnCalDisconnect);
       if (phoneUi) {
-          auto *calLay = new QVBoxLayout(calBtns);
-          calLay->setContentsMargins(0, 0, 0, 0);
-          calLay->setSpacing(UiScale::dp(8));
-          for (QPushButton *b :
-               {btnCalConnect, btnCalSync, btnCalDisconnect}) {
-              b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-              b->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
-              calLay->addWidget(b);
-          }
-      } else {
-          auto *calLay = new QHBoxLayout(calBtns);
-          calLay->setContentsMargins(0, 0, 0, 0);
-          calLay->setSpacing(UiScale::dp(8));
-          calLay->addWidget(btnCalConnect, 0);
-          calLay->addWidget(btnCalSync, 0);
-          calLay->addWidget(btnCalDisconnect, 0);
-          calLay->addStretch(1);
+        for (QPushButton *b : {btnCalConnect, btnCalSync, btnCalDisconnect}) {
+          b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+          b->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+        }
       }
-      cardIntegrations->addBodyWidget(makePropertyRow(
-          cardIntegrations, QStringLiteral("Kalender-Aktionen"), calBtns, true));
 
-      auto *future = new QLabel(
-          QStringLiteral("Weitere Integrationen (z. B. Tasks, Mail) folgen hier."),
-          cardIntegrations);
-      future->setWordWrap(true);
-      setLiteralQss(future, QStringLiteral(
-          "color: %1; font-size: 12px; background: transparent;")
+      auto *calRow = makeNamedPropertyRow(
+          cardMore, QStringLiteral("Google Kalender"),
+          refreshCalStatusText(), calBtns, false,
+          QStringLiteral("kalender calendar google termine sync"));
+      cardMore->addBodyWidget(calRow);
+      auto *calStatusInRow =
+          calRow->findChild<QLabel *>(QStringLiteral("PropStatus"));
+      auto syncCalStatusUi = [calStatusInRow, calStatusLbl, refreshCalStatusText,
+                              updateCalButtons]() {
+        const QString t = refreshCalStatusText();
+        calStatusLbl->setText(t);
+        if (calStatusInRow)
+          calStatusInRow->setText(t);
+        updateCalButtons();
+      };
+      connect(&CalendarService::instance(), &CalendarService::eventsChanged,
+              cardMore, syncCalStatusUi);
+      connect(&GoogleAuthManager::instance(),
+              &GoogleAuthManager::calendarTokenUpdated, cardMore,
+              syncCalStatusUi);
+
+      const QString version = QString(BLOP_VERSION_STR);
+      const QString versionLabel =
+          (version.startsWith(QLatin1Char('v')) ? QStringLiteral("Blop ")
+                                                : QStringLiteral("Blop v")) +
+          version;
+      auto *info = new QLabel(versionLabel, cardMore);
+      setLiteralQss(info, QStringLiteral(
+          "color: %1; font-size: 12px; font-weight: 500;"
+          "background: transparent;")
           .arg(settingsInkMuted()));
-      cardIntegrations->addBodyWidget(makePropertyRow(
-          cardIntegrations, QStringLiteral("Demnächst"), future, true));
-    }
-    cardIntegrations->setExpanded(true);
+      cardMore->addBodyWidget(makePropertyRow(
+          cardMore, QStringLiteral("Version"), info, false,
+          QStringLiteral("version about über blop")));
 
-    // ----- Card: Erweitert ----------------------------------------------
-    auto *cardAdv = new BlopSettingsCard(
-        QStringLiteral("Erweitert"),
-        QStringLiteral("Version, Entwickler"),
-        contentWidget);
-    {
-        const QString version = QString(BLOP_VERSION_STR);
-        const QString versionLabel =
-            (version.startsWith('v') ? QStringLiteral("Blop ")
-                                     : QStringLiteral("Blop v")) +
-            version;
-        auto *info = new QLabel(versionLabel, cardAdv);
-        setLiteralQss(info, QStringLiteral(
-            "color: %1; font-size: 13px; font-weight: 500;"
-            "background: transparent;")
-            .arg(settingsInkMuted()));
-        cardAdv->addBodyWidget(makePropertyRow(
-            cardAdv, QStringLiteral("Version"), info, true));
-
-        // Opt-in only — never on for normal users. Agent QA reads the file.
-        auto *btnTrace = new QPushButton(
-            QStringLiteral("Session-Trace (Entwickler)"), cardAdv);
-        btnTrace->setCheckable(true);
-        btnTrace->setCursor(Qt::PointingHandCursor);
-        btnTrace->setMinimumHeight(40);
-        btnTrace->setChecked(BlopDiag::sessionTraceActive());
-        setThemedQss(btnTrace, QStringLiteral(
-            "QPushButton { background: %1; color: %2;"
-            "  border: 1px solid rgba(20,24,40,0.12); border-radius: 10px;"
-            "  padding: 10px 14px; text-align: left; font-weight: 600; }"
-            "QPushButton:checked { background: %3;"
-            "  border-color: %4; }")
-                .arg(settingsChipBg(), settingsInk(), accentRgba(70),
-                     BlopTheme::accentPrimary().name(QColor::HexRgb)));
-        auto *traceHint = new QLabel(cardAdv);
-        traceHint->setWordWrap(true);
-        setLiteralQss(traceHint, QStringLiteral(
-            "color: %1; font-size: 11px;"
-            "background: transparent; padding: 2px 0 4px 0;")
-            .arg(settingsInkMuted()));
-        const auto refreshTraceHint = [traceHint](bool on) {
-            if (!on) {
-                traceHint->setText(QStringLiteral(
-                    "Aus (Standard). Schreibt keine Klicks/Fehler. Nur für "
-                    "lokale Agent-/QA-Sessions einschalten — oder "
-                    "BLOP_SESSION_TRACE=1 setzen."));
-                return;
-            }
-            traceHint->setText(
-                QStringLiteral(
-                    "An. UI-Aktionen + Warnungen/Fehler →\n%1")
-                    .arg(BlopDiag::sessionTracePath()));
-        };
-        refreshTraceHint(btnTrace->isChecked());
-        connect(btnTrace, &QPushButton::toggled, this,
-                [refreshTraceHint](bool on) {
-                    BlopDiag::setSessionTraceEnabled(on);
-                    refreshTraceHint(on);
-                });
-        BlopRipple::attachPressFeedback(btnTrace, 0.96);
-        cardAdv->addBodyWidget(btnTrace);
-        cardAdv->addBodyWidget(traceHint);
+      auto *btnTrace = makeQuietAction(cardMore, QStringLiteral("Aus"));
+      btnTrace->setCheckable(true);
+      btnTrace->setChecked(BlopDiag::sessionTraceActive());
+      btnTrace->setText(btnTrace->isChecked() ? QStringLiteral("An")
+                                              : QStringLiteral("Aus"));
+      btnTrace->setToolTip(QStringLiteral(
+          "Session-Trace nur für lokale Agent-/QA-Sessions"));
+      connect(btnTrace, &QPushButton::toggled, this, [btnTrace](bool on) {
+        BlopDiag::setSessionTraceEnabled(on);
+        btnTrace->setText(on ? QStringLiteral("An") : QStringLiteral("Aus"));
+      });
+      cardMore->addBodyWidget(makePropertyRow(
+          cardMore, QStringLiteral("Session-Trace"), btnTrace,
+#ifndef Q_OS_ANDROID
+          false,
+#else
+          true,
+#endif
+          QStringLiteral("trace diagnose debug entwickler")));
 
 #ifndef Q_OS_ANDROID
-        auto *btnTbDebug = new QPushButton(
-            QStringLiteral("Toolbar-Debug (Entwickler)"), cardAdv);
-        btnTbDebug->setCheckable(true);
-        btnTbDebug->setCursor(Qt::PointingHandCursor);
-        btnTbDebug->setMinimumHeight(40);
-        {
-          QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-          btnTbDebug->setChecked(
-              s.value(QStringLiteral("diag/toolbarDebug"), false).toBool() ||
-              qEnvironmentVariableIsSet("BLOP_TOOLBAR_DEBUG"));
-        }
-        setThemedQss(btnTbDebug, QStringLiteral(
-            "QPushButton { background: %1; color: %2;"
-            "  border: 1px solid rgba(20,24,40,0.12); border-radius: 10px;"
-            "  padding: 10px 14px; text-align: left; font-weight: 600; }"
-            "QPushButton:checked { background: %3;"
-            "  border-color: %4; }")
-                .arg(settingsChipBg(), settingsInk(), accentRgba(70),
-                     BlopTheme::accentPrimary().name(QColor::HexRgb)));
-        auto *tbHint = new QLabel(
-            QStringLiteral(
-                "Zusätzliche Glyph-Palette in der Notiz (Entwickler). "
-                "Layouts A–D wählst du unter Werkzeuge. Oder BLOP_TOOLBAR_DEBUG=1."),
-            cardAdv);
-        tbHint->setWordWrap(true);
-        setLiteralQss(tbHint, QStringLiteral(
-            "color: %1; font-size: 11px;"
-            "background: transparent; padding: 2px 0 4px 0;")
-            .arg(settingsInkMuted()));
-        connect(btnTbDebug, &QPushButton::toggled, this, [](bool on) {
-          QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-          s.setValue(QStringLiteral("diag/toolbarDebug"), on);
-        });
-        BlopRipple::attachPressFeedback(btnTbDebug, 0.96);
-        cardAdv->addBodyWidget(btnTbDebug);
-        cardAdv->addBodyWidget(tbHint);
+      auto *btnTbDebug = makeQuietAction(cardMore, QStringLiteral("Aus"));
+      btnTbDebug->setCheckable(true);
+      {
+        QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+        btnTbDebug->setChecked(
+            s.value(QStringLiteral("diag/toolbarDebug"), false).toBool() ||
+            qEnvironmentVariableIsSet("BLOP_TOOLBAR_DEBUG"));
+      }
+      btnTbDebug->setText(btnTbDebug->isChecked() ? QStringLiteral("An")
+                                                  : QStringLiteral("Aus"));
+      btnTbDebug->setToolTip(
+          QStringLiteral("Toolbar-Debug-Palette in der Notiz"));
+      connect(btnTbDebug, &QPushButton::toggled, this, [btnTbDebug](bool on) {
+        QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+        s.setValue(QStringLiteral("diag/toolbarDebug"), on);
+        btnTbDebug->setText(on ? QStringLiteral("An") : QStringLiteral("Aus"));
+      });
+      cardMore->addBodyWidget(makePropertyRow(
+          cardMore, QStringLiteral("Toolbar-Debug"), btnTbDebug, true,
+          QStringLiteral("toolbar debug entwickler")));
 #endif
     }
-    cardAdv->setExpanded(true);
+    cardMore->setExpanded(true);
 
     const QList<BlopSettingsCard *> allCards = {
-        cardKonto, cardTheme, cardLook, cardBehavior, cardStorage,
-        cardIntegrations, cardAdv};
+        cardKonto, cardTheme, cardLook, cardBehavior, cardStorage, cardMore};
 
 #ifndef Q_OS_ANDROID
     if (!phoneUi) {
-        // --- Notion float: warm nav + paper pages, no dark chrome ----------
+        // --- Full window: Obsidian left nav (Hauptmenü-Stil) + paper pages ---
         root->removeWidget(hero);
         root->removeWidget(searchRow);
         root->removeWidget(scroll);
@@ -2062,32 +1884,38 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
         auto *split = new QWidget(tabDesign);
         split->setObjectName(QStringLiteral("SettingsNotionSplit"));
-        BlopStyle::paintPaperSurface(split, QStringLiteral("SettingsNotionSplit"));
+        m_shellSplit = split;
+        split->setAttribute(Qt::WA_StyledBackground, true);
+        split->setStyleSheet(QStringLiteral(
+            "QWidget#SettingsNotionSplit { background: %1; border: none; }")
+                                 .arg(BlopStyle::obsidianDesk().name(
+                                     QColor::HexRgb)));
         auto *splitLay = new QHBoxLayout(split);
         splitLay->setContentsMargins(0, 0, 0, 0);
         splitLay->setSpacing(0);
 
-        const QString navWarm = QStringLiteral("#F1F1EC");
+        const QColor navBg = BlopStyle::obsidianNav();
+        const QColor navInk = BlopStyle::obsidianText();
+        const QColor navMuted = QColor(0xB8, 0xBC, 0xC4);
         auto *navCol = new QWidget(split);
         navCol->setObjectName(QStringLiteral("SettingsNavCol"));
-        navCol->setFixedWidth(UiScale::dp(212));
+        m_navCol = navCol;
+        navCol->setFixedWidth(UiScale::dp(220));
         navCol->setAttribute(Qt::WA_StyledBackground, true);
         navCol->setAutoFillBackground(true);
         {
             QPalette np = navCol->palette();
-            np.setColor(QPalette::Window, QColor(navWarm));
-            np.setColor(QPalette::Base, QColor(navWarm));
-            np.setColor(QPalette::Text, BlopStyle::paperInk());
+            np.setColor(QPalette::Window, navBg);
+            np.setColor(QPalette::Base, navBg);
+            np.setColor(QPalette::Text, navInk);
             navCol->setPalette(np);
         }
         navCol->setStyleSheet(QStringLiteral(
             "QWidget#SettingsNavCol {"
             "  background: %1;"
-            "  border-right: 1px solid rgba(20,24,40,0.07);"
-            "  border-top-left-radius: 12px;"
-            "  border-bottom-left-radius: 12px;"
+            "  border-right: 1px solid rgba(255,255,255,0.10);"
             "}")
-                                 .arg(navWarm));
+                                 .arg(navBg.name(QColor::HexRgb)));
         auto *navLay = new QVBoxLayout(navCol);
         navLay->setContentsMargins(UiScale::dp(10), UiScale::dp(14),
                                    UiScale::dp(10), UiScale::dp(12));
@@ -2095,19 +1923,20 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
         auto *navTitle = new QLabel(QStringLiteral("EINSTELLUNGEN"), navCol);
         navTitle->setStyleSheet(QStringLiteral(
-            "color: %1; font-size: 11px; font-weight: 600;"
+            "color: %1; font-size: 11px; font-weight: 700;"
             "letter-spacing: 0.6px; background: transparent;"
             "padding: 2px 8px 10px 8px;")
-                                    .arg(BlopStyle::paperInkMuted().name(
-                                        QColor::HexRgb)));
+                                    .arg(navMuted.name(QColor::HexRgb)));
         navLay->addWidget(navTitle, 0);
 
         auto *nav = new QListWidget(navCol);
         nav->setObjectName(QStringLiteral("SettingsNavList"));
+        m_sectionNav = nav;
         nav->setFocusPolicy(Qt::NoFocus);
         nav->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         nav->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-        // Soft Notion pill — no thick accent rail.
+        // Same language as library sidebar rows (quiet select + accent).
+        const QColor acc = BlopTheme::accentPrimary();
         nav->setStyleSheet(QStringLiteral(
             "QListWidget#SettingsNavList {"
             "  background: transparent; border: none; outline: none;"
@@ -2116,29 +1945,34 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "QListWidget#SettingsNavList::item {"
             "  padding: 10px 10px; margin: 1px 0;"
             "  border: none; border-radius: 8px; min-height: %2px;"
+            "  color: %1;"
             "}"
             "QListWidget#SettingsNavList::item:selected {"
-            "  background: rgba(55,53,47,0.08);"
+            "  background: rgba(%4,%5,%6,0.22);"
             "  color: %3;"
             "  font-weight: 600;"
+            "  border: 1px solid rgba(%4,%5,%6,0.55);"
             "}"
             "QListWidget#SettingsNavList::item:hover:!selected {"
-            "  background: rgba(55,53,47,0.06);"
+            "  background: rgba(255,255,255,0.06);"
             "}")
-            .arg(BlopStyle::paperInkMuted().name(QColor::HexRgb),
+            .arg(navMuted.name(QColor::HexRgb),
                  QString::number(UiScale::dp(BlopStyle::touchTargetMinDp())),
-                 BlopStyle::paperInk().name(QColor::HexRgb)));
+                 navInk.name(QColor::HexRgb))
+            .arg(acc.red())
+            .arg(acc.green())
+            .arg(acc.blue()));
         BlopScroll::enableFingerScroll(nav);
         navLay->addWidget(nav, 1);
 
-        // Profile chip — Notion workspace switcher (avatar + name + ›).
+        // Profile chip at bottom of nav — quiet, like sidebar account.
         hero->setParent(navCol);
         hero->setAttribute(Qt::WA_StyledBackground, true);
         hero->setCursor(Qt::PointingHandCursor);
         hero->setStyleSheet(QStringLiteral(
             "#SettingsHero {"
-            "  background: rgba(255,255,255,0.55);"
-            "  border: 1px solid rgba(55,53,47,0.08);"
+            "  background: rgba(255,255,255,0.06);"
+            "  border: 1px solid rgba(255,255,255,0.08);"
             "  border-radius: 8px;"
             "}"));
         if (auto *hl = qobject_cast<QHBoxLayout *>(hero->layout())) {
@@ -2149,6 +1983,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         if (auto *name = hero->findChild<QLabel *>(
                 QStringLiteral("SettingsHeroName"))) {
             name->setWordWrap(false);
+            name->setStyleSheet(QStringLiteral(
+                "color: %1; font-size: 13px; font-weight: 600;"
+                "background: transparent;")
+                                    .arg(navInk.name(QColor::HexRgb)));
             QFontMetrics fm(name->font());
             name->setText(fm.elidedText(name->text(), Qt::ElideRight,
                                         UiScale::dp(110)));
@@ -2160,21 +1998,21 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                                        : QStringLiteral("Gast"));
             setLiteralQss(sub, QStringLiteral(
                 "color: %1; font-size: 11px; background: transparent;")
-                .arg(BlopStyle::paperInkMuted().name(QColor::HexRgb)));
+                .arg(navMuted.name(QColor::HexRgb)));
         }
         navLay->addWidget(hero, 0);
 
         auto *contentCol = new QWidget(split);
         contentCol->setObjectName(QStringLiteral("SettingsContentCol"));
-        BlopStyle::paintPaperSurface(contentCol,
-                                     QStringLiteral("SettingsContentCol"));
+        m_contentCol = contentCol;
+        paintSettingsContentSurface(contentCol,
+                                    QStringLiteral("SettingsContentCol"));
         contentCol->setStyleSheet(QStringLiteral(
             "QWidget#SettingsContentCol {"
             "  background: %1;"
-            "  border-top-right-radius: 12px;"
-            "  border-bottom-right-radius: 12px;"
+            "  border: none;"
             "}")
-                                      .arg(BlopStyle::paperBg().name(
+                                      .arg(settingsContentBg().name(
                                           QColor::HexRgb)));
         auto *contentColLay = new QVBoxLayout(contentCol);
         contentColLay->setContentsMargins(0, 0, 0, 0);
@@ -2184,7 +2022,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         searchRow->setParent(contentCol);
         searchRow->setAttribute(Qt::WA_StyledBackground, true);
         searchRow->setStyleSheet(QStringLiteral("background: %1;")
-                                     .arg(BlopStyle::paperBg().name(QColor::HexRgb)));
+                                     .arg(settingsContentBg().name(
+                                         QColor::HexRgb)));
         searchLay->setContentsMargins(UiScale::dp(24), UiScale::dp(12),
                                       UiScale::dp(16), UiScale::dp(6));
         searchLay->setSpacing(UiScale::dp(10));
@@ -2194,17 +2033,27 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             search->setMaximumWidth(QWIDGETSIZE_MAX);
             search->setMinimumHeight(UiScale::dp(34));
             search->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            const QString searchBg = useSettingsPaper()
+                                         ? QStringLiteral("rgba(55,53,47,0.06)")
+                                         : QStringLiteral("rgba(255,255,255,0.07)");
+            const QString searchFocus =
+                useSettingsPaper() ? QStringLiteral("rgba(55,53,47,0.08)")
+                                   : QStringLiteral("rgba(255,255,255,0.10)");
+            const QColor accFocus = BlopTheme::accentPrimary();
             setLiteralQss(search, QStringLiteral(
                 "QLineEdit {"
-                "  background: rgba(55,53,47,0.06); color: %1;"
+                "  background: %1; color: %2;"
                 "  border: none; border-radius: 6px;"
                 "  padding: 6px 12px; font-size: 13px;"
                 "}"
                 "QLineEdit:focus {"
-                "  background: rgba(55,53,47,0.08);"
-                "  border: 1px solid rgba(91,157,255,0.45);"
+                "  background: %3;"
+                "  border: 1px solid rgba(%4,%5,%6,0.45);"
                 "}")
-                .arg(BlopStyle::paperInk().name(QColor::HexRgb)));
+                .arg(searchBg, settingsInk(), searchFocus)
+                .arg(accFocus.red())
+                .arg(accFocus.green())
+                .arg(accFocus.blue()));
         }
         // Drop the desktop stretch that capped search width.
         if (searchLay->count() >= 2) {
@@ -2217,32 +2066,39 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             ui->btnClose->setMinimumHeight(UiScale::dp(32));
             ui->btnClose->setMinimumWidth(UiScale::dp(64));
             ui->btnClose->setParent(searchRow);
+            const QString fertigHover = useSettingsPaper()
+                                            ? QStringLiteral("rgba(55,53,47,0.06)")
+                                            : QStringLiteral("rgba(255,255,255,0.08)");
             ui->btnClose->setStyleSheet(QStringLiteral(
                 "QPushButton {"
                 "  background: transparent; color: %1; border: none;"
                 "  border-radius: 6px; padding: 6px 10px;"
                 "  font-weight: 600; font-size: 13px;"
                 "}"
-                "QPushButton:hover { background: rgba(55,53,47,0.06); }")
+                "QPushButton:hover { background: %2; }")
                                             .arg(BlopTheme::accentPrimary().name(
-                                                QColor::HexRgb)));
+                                                     QColor::HexRgb),
+                                                 fertigHover));
             searchLay->addWidget(ui->btnClose, 0, Qt::AlignVCenter);
         }
         contentColLay->addWidget(searchRow);
 
         auto *stack = new QStackedWidget(contentCol);
         stack->setObjectName(QStringLiteral("SettingsSectionStack"));
-        BlopStyle::paintPaperSurface(stack,
-                                     QStringLiteral("SettingsSectionStack"));
+        m_sectionStack = stack;
+        paintSettingsContentSurface(stack,
+                                    QStringLiteral("SettingsSectionStack"));
 
-        const QString paperHex = BlopStyle::paperBg().name(QColor::HexRgb);
+        m_sectionTitles.clear();
+        const QString contentHex = settingsContentBg().name(QColor::HexRgb);
         const QString pageScrollQss =
             QStringLiteral(
                 "QScrollArea { background: %1; border: none; }"
                 "QScrollArea > QWidget { background: %1; }"
                 "QScrollArea > QWidget > QWidget { background: %1; }")
-                .arg(paperHex) +
-            BlopStyle::paperScrollbarQss();
+                .arg(contentHex) +
+            (useSettingsPaper() ? BlopStyle::paperScrollbarQss()
+                                : QString());
 
         for (BlopSettingsCard *c : allCards) {
             c->setNavPanelMode(true);
@@ -2255,18 +2111,19 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             if (QWidget *vp = pageScroll->viewport()) {
                 vp->setAutoFillBackground(true);
                 QPalette vpPal = vp->palette();
-                vpPal.setColor(QPalette::Window, BlopStyle::paperBg());
-                vpPal.setColor(QPalette::Base, BlopStyle::paperBg());
+                vpPal.setColor(QPalette::Window, settingsContentBg());
+                vpPal.setColor(QPalette::Base, settingsContentBg());
                 vp->setPalette(vpPal);
             }
             BlopScroll::enableFingerScroll(pageScroll);
 
             auto *page = new QWidget();
             page->setObjectName(QStringLiteral("SettingsStackPage"));
-            BlopStyle::paintPaperSurface(page, QStringLiteral("SettingsStackPage"));
+            paintSettingsContentSurface(page,
+                                        QStringLiteral("SettingsStackPage"));
             auto *pageLay = new QVBoxLayout(page);
-            pageLay->setContentsMargins(UiScale::dp(24), UiScale::dp(4),
-                                        UiScale::dp(28), UiScale::dp(28));
+            pageLay->setContentsMargins(UiScale::dp(22), UiScale::dp(8),
+                                        UiScale::dp(28), UiScale::dp(48));
             pageLay->setSpacing(0);
             c->setParent(page);
             c->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
@@ -2276,6 +2133,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             pageScroll->setWidget(page);
             stack->addWidget(pageScroll);
             nav->addItem(c->title());
+            m_sectionTitles.append(c->title());
         }
         contentColLay->addWidget(stack, 1);
 
@@ -2284,13 +2142,18 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         root->addWidget(split, 1);
 
         setLiteralQss(this, QStringLiteral(
-            "QDialog { background-color: %1; border: none; border-radius: 12px; }")
-            .arg(BlopStyle::paperBg().name(QColor::HexRgb)));
+            "QDialog { background-color: %1; border: none; border-radius: 0px; }")
+            .arg(BlopStyle::obsidianDesk().name(QColor::HexRgb)));
 
         nav->setCurrentRow(0);
         stack->setCurrentIndex(0);
-        connect(nav, &QListWidget::currentRowChanged, stack,
-                &QStackedWidget::setCurrentIndex);
+        connect(nav, &QListWidget::currentRowChanged, this,
+                [this, stack](int row) {
+                    if (!stack || row < 0 || row >= stack->count())
+                        return;
+                    stack->setCurrentIndex(row);
+                    animateSectionPage(stack->widget(row));
+                });
 
         connect(search, &QLineEdit::textChanged, this,
                 [nav, stack, allCards](const QString &q) {
@@ -2298,10 +2161,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     int firstVisible = -1;
                     for (int i = 0; i < allCards.size(); ++i) {
                         BlopSettingsCard *c = allCards[i];
-                        const bool hit =
-                            needle.isEmpty() ||
-                            c->title().toLower().contains(needle) ||
-                            c->subtitle().toLower().contains(needle);
+                        const bool hit = sectionMatchesSearch(
+                            c->bodyWidget() ? c->bodyWidget() : c, needle,
+                            c->title(), c->subtitle(), c->sectionKeywords());
+                        applyRowSearchFilter(
+                            c->bodyWidget() ? c->bodyWidget() : c, needle);
                         if (auto *item = nav->item(i))
                             item->setHidden(!hit);
                         if (hit && firstVisible < 0)
@@ -2309,7 +2173,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     }
                     if (firstVisible >= 0 &&
                         (nav->currentRow() < 0 ||
-                         nav->item(nav->currentRow())->isHidden())) {
+                         (nav->item(nav->currentRow()) &&
+                          nav->item(nav->currentRow())->isHidden()))) {
                         nav->setCurrentRow(firstVisible);
                         stack->setCurrentIndex(firstVisible);
                     }
@@ -2335,11 +2200,18 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             for (BlopSettingsCard *c : allCards) {
                 if (needle.isEmpty()) {
                     c->setVisible(true);
+                    applyRowSearchFilter(c->bodyWidget() ? c->bodyWidget() : c,
+                                         QString());
                     continue;
                 }
-                const bool hit = c->title().toLower().contains(needle) ||
-                                 c->subtitle().toLower().contains(needle);
+                const bool hit = sectionMatchesSearch(
+                    c->bodyWidget() ? c->bodyWidget() : c, needle, c->title(),
+                    c->subtitle(), c->sectionKeywords());
+                applyRowSearchFilter(c->bodyWidget() ? c->bodyWidget() : c,
+                                     needle);
                 c->setVisible(hit);
+                if (hit)
+                    c->setExpanded(true);
             }
         });
     }
@@ -2353,56 +2225,98 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 SettingsDialog::~SettingsDialog() { delete ui; }
 
 void SettingsDialog::refreshTheme() {
+    setProperty("blopForcePaper", useSettingsPaper());
+    const QString dialogBg =
+        m_appShellMode ? settingsContentBg().name(QColor::HexRgb)
+                       : BlopStyle::obsidianDesk().name(QColor::HexRgb);
+    setLiteralQss(this, QStringLiteral(
+        "QDialog { background-color: %1; border: none; border-radius: 0px; }")
+        .arg(dialogBg));
     refreshThemedTree(this);
 #ifndef Q_OS_ANDROID
-    if (auto *col = findChild<QWidget *>(QStringLiteral("SettingsContentCol")))
-        BlopStyle::paintPaperSurface(col, QStringLiteral("SettingsContentCol"));
+    const QColor contentBg = settingsContentBg();
+    const QString contentHex = contentBg.name(QColor::HexRgb);
+    if (m_appShellMode && m_contentCol) {
+        paintSettingsContentSurface(m_contentCol,
+                                    QStringLiteral("SettingsContentCol"));
+        m_contentCol->setStyleSheet(QStringLiteral(
+            "QWidget#SettingsContentCol { background: %1; border: none; }")
+                                        .arg(contentHex));
+    }
+    if (auto *col = findChild<QWidget *>(QStringLiteral("SettingsContentCol"))) {
+        paintSettingsContentSurface(col, QStringLiteral("SettingsContentCol"));
+        col->setStyleSheet(QStringLiteral(
+            "QWidget#SettingsContentCol { background: %1; border: none; }")
+                               .arg(contentHex));
+    }
+    if (m_sectionNav) {
+        const QColor acc = BlopTheme::accentPrimary();
+        const QColor navMuted = BlopTheme::textSecondary();
+        const QColor navInk = BlopTheme::textPrimary();
+        m_sectionNav->setStyleSheet(QStringLiteral(
+            "QListWidget#SettingsNavList {"
+            "  background: transparent; border: none; outline: none;"
+            "  color: %1; font-size: 13px; font-weight: 500;"
+            "}"
+            "QListWidget#SettingsNavList::item {"
+            "  padding: 10px 10px; margin: 1px 0;"
+            "  border: none; border-radius: 8px; min-height: %2px;"
+            "  color: %1;"
+            "}"
+            "QListWidget#SettingsNavList::item:selected {"
+            "  background: rgba(%4,%5,%6,0.22);"
+            "  color: %3;"
+            "  font-weight: 600;"
+            "  border: 1px solid rgba(%4,%5,%6,0.55);"
+            "}"
+            "QListWidget#SettingsNavList::item:hover:!selected {"
+            "  background: rgba(255,255,255,0.06);"
+            "}")
+            .arg(navMuted.name(QColor::HexRgb),
+                 QString::number(UiScale::dp(BlopStyle::touchTargetMinDp())),
+                 navInk.name(QColor::HexRgb))
+            .arg(acc.red())
+            .arg(acc.green())
+            .arg(acc.blue()));
+    }
     if (auto *stack =
             findChild<QStackedWidget *>(QStringLiteral("SettingsSectionStack")))
-        BlopStyle::paintPaperSurface(stack,
-                                     QStringLiteral("SettingsSectionStack"));
+        paintSettingsContentSurface(stack,
+                                    QStringLiteral("SettingsSectionStack"));
     for (QWidget *page :
          findChildren<QWidget *>(QStringLiteral("SettingsStackPage"))) {
         if (page)
-            BlopStyle::paintPaperSurface(page,
-                                         QStringLiteral("SettingsStackPage"));
+            paintSettingsContentSurface(page,
+                                        QStringLiteral("SettingsStackPage"));
     }
+    // Re-skin nav-panel cards for Light/Dark (titles, body, header).
     for (QFrame *card :
          findChildren<QFrame *>(QStringLiteral("BlopSettingsCard"))) {
         if (!card || !card->property("blopNavPaper").toBool())
             continue;
-        card->setProperty("blopSurfaceName", QVariant());
         card->setAttribute(Qt::WA_StyledBackground, true);
         card->setAutoFillBackground(true);
         QPalette pal = card->palette();
-        pal.setColor(QPalette::Window, BlopStyle::paperBg());
-        pal.setColor(QPalette::Base, BlopStyle::paperBg());
-        pal.setColor(QPalette::WindowText, BlopStyle::paperInk());
+        pal.setColor(QPalette::Window, contentBg);
+        pal.setColor(QPalette::Base, contentBg);
+        pal.setColor(QPalette::WindowText, QColor(settingsInk()));
         card->setPalette(pal);
         card->setStyleSheet(QStringLiteral(
-            "#BlopSettingsCard {"
-            "  background-color: %1; border: none;"
-            "}")
-                                .arg(BlopStyle::paperBg().name(QColor::HexRgb)));
+            "#BlopSettingsCard { background-color: %1; border: none; }")
+                                .arg(contentHex));
         if (auto *body =
                 card->findChild<QWidget *>(QStringLiteral("SettingsCardBody"))) {
             body->setAttribute(Qt::WA_StyledBackground, true);
             body->setAutoFillBackground(true);
             QPalette bp = body->palette();
-            bp.setColor(QPalette::Window, BlopStyle::paperRowBg());
-            bp.setColor(QPalette::Base, BlopStyle::paperRowBg());
-            bp.setColor(QPalette::WindowText, BlopStyle::paperInk());
+            bp.setColor(QPalette::Window, settingsContentRowBg());
+            bp.setColor(QPalette::Base, settingsContentRowBg());
+            bp.setColor(QPalette::WindowText, QColor(settingsInk()));
             body->setPalette(bp);
             body->setStyleSheet(QStringLiteral(
                 "QWidget#SettingsCardBody {"
-                "  background-color: %1;"
-                "  border: 1px solid rgba(20,24,40,0.08);"
-                "  border-radius: 10px;"
-                "}")
-                                    .arg(BlopStyle::paperRowBg().name(
-                                        QColor::HexRgb)));
+                "  background: transparent; border: none; }"));
         }
-        // Ensure page title header never paints dark.
         for (QWidget *child : card->findChildren<QWidget *>()) {
             if (!child || child->objectName() == QStringLiteral("SettingsCardBody"))
                 continue;
@@ -2410,24 +2324,79 @@ void SettingsDialog::refreshTheme() {
                 continue;
             child->setAutoFillBackground(true);
             QPalette hp = child->palette();
-            hp.setColor(QPalette::Window, BlopStyle::paperBg());
+            hp.setColor(QPalette::Window, contentBg);
             child->setPalette(hp);
-            child->setStyleSheet(QStringLiteral("background: %1; border: none;")
-                                     .arg(BlopStyle::paperBg().name(
-                                         QColor::HexRgb)));
+            child->setStyleSheet(
+                QStringLiteral("background: %1; border: none;").arg(contentHex));
+            for (QLabel *lbl : child->findChildren<QLabel *>()) {
+                if (!lbl)
+                    continue;
+                const QString ss = lbl->styleSheet();
+                const bool isTitle =
+                    ss.contains(QLatin1String("font-size: 15")) ||
+                    ss.contains(QLatin1String("font-size: 22"));
+                setLiteralQss(
+                    lbl, QStringLiteral(
+                             "color: %1; font-size: %2px; font-weight: %3;"
+                             "background: transparent; %4")
+                             .arg(isTitle ? settingsInk() : settingsInkMuted())
+                             .arg(isTitle ? 15 : 12)
+                             .arg(isTitle ? 650 : 400)
+                             .arg(isTitle ? QStringLiteral("letter-spacing: -0.25px;")
+                                          : QStringLiteral("padding-top: 1px;")));
+            }
         }
     }
     for (QScrollArea *sa :
          findChildren<QScrollArea *>(QStringLiteral("SettingsPaperScroll"))) {
-        if (!sa || !sa->viewport())
+        if (!sa)
             continue;
-        sa->viewport()->setAutoFillBackground(true);
-        QPalette vp = sa->viewport()->palette();
-        vp.setColor(QPalette::Window, BlopStyle::paperBg());
-        vp.setColor(QPalette::Base, BlopStyle::paperBg());
-        sa->viewport()->setPalette(vp);
+        const QString scrollQss =
+            QStringLiteral(
+                "QScrollArea { background: %1; border: none; }"
+                "QScrollArea > QWidget { background: %1; }"
+                "QScrollArea > QWidget > QWidget { background: %1; }")
+                .arg(contentHex) +
+            (useSettingsPaper() ? BlopStyle::paperScrollbarQss() : QString());
+        sa->setStyleSheet(scrollQss);
+        if (sa->viewport()) {
+            sa->viewport()->setAutoFillBackground(true);
+            QPalette vp = sa->viewport()->palette();
+            vp.setColor(QPalette::Window, contentBg);
+            vp.setColor(QPalette::Base, contentBg);
+            sa->viewport()->setPalette(vp);
+        }
+    }
+    // Search toolbar row + field.
+    if (auto *searchRow = findChild<QWidget *>(QStringLiteral("SettingsSearchRow"))) {
+        searchRow->setStyleSheet(
+            QStringLiteral("background: %1;").arg(contentHex));
+    }
+    if (auto *search = findChild<QLineEdit *>(QStringLiteral("SettingsSearch"))) {
+        const QString searchBg = useSettingsPaper()
+                                     ? QStringLiteral("rgba(55,53,47,0.06)")
+                                     : QStringLiteral("rgba(255,255,255,0.07)");
+        const QString searchFocus =
+            useSettingsPaper() ? QStringLiteral("rgba(55,53,47,0.08)")
+                               : QStringLiteral("rgba(255,255,255,0.10)");
+        const QColor accFocus = BlopTheme::accentPrimary();
+        setLiteralQss(search, QStringLiteral(
+            "QLineEdit {"
+            "  background: %1; color: %2;"
+            "  border: none; border-radius: 6px;"
+            "  padding: 6px 12px; font-size: 13px;"
+            "}"
+            "QLineEdit:focus {"
+            "  background: %3;"
+            "  border: 1px solid rgba(%4,%5,%6,0.45);"
+            "}")
+            .arg(searchBg, settingsInk(), searchFocus)
+            .arg(accFocus.red())
+            .arg(accFocus.green())
+            .arg(accFocus.blue()));
     }
 #endif
+    retintSettingsControls(this);
 }
 
 void SettingsDialog::showEvent(QShowEvent *event) {
@@ -2545,6 +2514,145 @@ void SettingsDialog::openEditor(const QString &profileId) {
     done(EditProfileCode);
 }
 
+void SettingsDialog::setAppShellMode(bool on)
+{
+    m_appShellMode = on;
+    setProperty("blopAppShell", on);
+    if (m_navCol)
+        m_navCol->setVisible(!on);
+    const QString contentHex = settingsContentBg().name(QColor::HexRgb);
+    if (m_contentCol) {
+        m_contentCol->setStyleSheet(QStringLiteral(
+            "QWidget#SettingsContentCol {"
+            "  background: %1;"
+            "  border: none;"
+            "}")
+                                        .arg(contentHex));
+        paintSettingsContentSurface(m_contentCol,
+                                    QStringLiteral("SettingsContentCol"));
+    }
+    // Follow Light/Dark content desk — never force paper white in Dark.
+    setLiteralQss(this, QStringLiteral(
+        "QDialog { background-color: %1; border: none; border-radius: 0px; }")
+        .arg(contentHex));
+}
+
+void SettingsDialog::setSectionIndex(int index)
+{
+    if (!m_sectionStack || index < 0 || index >= m_sectionStack->count())
+        return;
+    if (m_sectionNav && m_sectionNav->currentRow() != index) {
+        m_sectionNav->setCurrentRow(index); // anim via currentRowChanged
+        return;
+    }
+    if (m_sectionStack->currentIndex() == index) {
+        // Same page — do not re-run fade (can leave opacity stuck at 0).
+        clearSectionPageEffects();
+        return;
+    }
+    m_sectionStack->setCurrentIndex(index);
+    animateSectionPage(m_sectionStack->widget(index));
+}
+
+void SettingsDialog::clearSectionPageEffects()
+{
+    if (!m_sectionStack)
+        return;
+    for (int i = 0; i < m_sectionStack->count(); ++i) {
+        QWidget *page = m_sectionStack->widget(i);
+        if (!page)
+            continue;
+        if (page->graphicsEffect())
+            page->setGraphicsEffect(nullptr);
+        if (auto *sa = qobject_cast<QScrollArea *>(page)) {
+            if (sa->viewport() && sa->viewport()->graphicsEffect())
+                sa->viewport()->setGraphicsEffect(nullptr);
+            if (QWidget *inner = sa->widget()) {
+                if (inner->graphicsEffect())
+                    inner->setGraphicsEffect(nullptr);
+            }
+        }
+    }
+}
+
+void SettingsDialog::animateSectionPage(QWidget *page)
+{
+    if (!page)
+        return;
+    clearSectionPageEffects();
+    if (!isVisible() || !page->isVisible())
+        return;
+
+    // Respect reduce-motion pref.
+    QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    if (st.value(QStringLiteral("ui/reduceMotion"), false).toBool())
+        return;
+
+    auto *fx = new QGraphicsOpacityEffect(page);
+    page->setGraphicsEffect(fx);
+    fx->setOpacity(0.0);
+
+    QWidget *inner = page;
+    if (auto *sa = qobject_cast<QScrollArea *>(page)) {
+        if (sa->widget())
+            inner = sa->widget();
+    }
+
+    QVBoxLayout *lay = qobject_cast<QVBoxLayout *>(inner->layout());
+    const int baseTop = UiScale::dp(8);
+    const int slide = UiScale::dp(8);
+    int left = UiScale::dp(22);
+    int right = UiScale::dp(28);
+    int bottom = UiScale::dp(48);
+    if (lay) {
+        const QMargins m = lay->contentsMargins();
+        left = m.left();
+        right = m.right();
+        bottom = m.bottom();
+        lay->setContentsMargins(left, baseTop + slide, right, bottom);
+    }
+
+    auto *group = new QParallelAnimationGroup(page);
+    group->setObjectName(QStringLiteral("SettingsSectionAnim"));
+    auto *fade = new QPropertyAnimation(fx, "opacity", group);
+    fade->setDuration(BlopMotion::kFast);
+    fade->setStartValue(0.0);
+    fade->setEndValue(1.0);
+    fade->setEasingCurve(BlopMotion::kEaseStandard);
+
+    auto *slideAnim = new QVariantAnimation(group);
+    slideAnim->setDuration(BlopMotion::kFast);
+    slideAnim->setStartValue(baseTop + slide);
+    slideAnim->setEndValue(baseTop);
+    slideAnim->setEasingCurve(BlopMotion::kEaseStandard);
+    if (lay) {
+        QObject::connect(slideAnim, &QVariantAnimation::valueChanged, page,
+                         [lay, left, right, bottom](const QVariant &v) {
+                             lay->setContentsMargins(left, v.toInt(), right,
+                                                     bottom);
+                         });
+    }
+    group->addAnimation(fade);
+    group->addAnimation(slideAnim);
+    QObject::connect(group, &QParallelAnimationGroup::finished, page,
+                     [page, fx]() {
+                         if (page->graphicsEffect() == fx)
+                             page->setGraphicsEffect(nullptr);
+                     });
+    // If the page is hidden mid-anim, drop the effect so reopen is never blank.
+    QObject::connect(page, &QObject::destroyed, group, &QObject::deleteLater);
+    group->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+int SettingsDialog::sectionIndex() const
+{
+    if (m_sectionStack)
+        return m_sectionStack->currentIndex();
+    if (m_sectionNav)
+        return m_sectionNav->currentRow();
+    return 0;
+}
+
 void SettingsDialog::embedInWorkspace(bool asWorkspaceTab) {
     setWindowFlags(Qt::Widget);
     setModal(false);
@@ -2572,11 +2680,12 @@ void SettingsDialog::embedInWorkspace(bool asWorkspaceTab) {
     const int radius = asWorkspaceTab ? 0 : UiScale::dp(12);
     setLiteralQss(this, QStringLiteral(
         "QDialog { background: %1; border: none; border-radius: %2px; }")
-        .arg(BlopStyle::paperBg().name(QColor::HexRgb),
+        .arg(settingsContentBg().name(QColor::HexRgb),
              QString::number(radius)));
 #else
     setThemedQss(this, QStringLiteral(
-        "QDialog { background-color: #1A1A24; border: none; border-radius: 0px; }"));
+        "QDialog { background-color: %1; border: none; border-radius: 0px; }")
+                    .arg(settingsContentBg().name(QColor::HexRgb)));
 #endif
 }
 

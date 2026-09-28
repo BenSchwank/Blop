@@ -124,6 +124,63 @@ void paintA4(QPainter *p, const QRect &full, const Spec &spec) {
   p->restore();
 }
 
+/// Stacked document with text lines + a small embed card — distinct from A4.
+void paintStruktur(QPainter *p, const QRect &full, const Spec &spec) {
+  Q_UNUSED(spec);
+  const qreal s = full.width();
+  const QRectF back(full.left() + s * 0.26, full.top() + s * 0.10, s * 0.52,
+                    s * 0.72);
+  const QRectF front(full.left() + s * 0.18, full.top() + s * 0.16, s * 0.56,
+                     s * 0.74);
+
+  p->setPen(Qt::NoPen);
+  p->setBrush(QColor(0, 0, 0, 40));
+  p->drawRoundedRect(back.translated(s * 0.02, s * 0.025), s * 0.05, s * 0.05);
+
+  p->setBrush(QColor(232, 236, 244));
+  p->setPen(QPen(QColor(0, 0, 0, 35), qMax(1.0, s / 72.0)));
+  p->drawRoundedRect(back, s * 0.05, s * 0.05);
+
+  p->setBrush(QColor(252, 252, 255));
+  p->drawRoundedRect(front, s * 0.05, s * 0.05);
+
+  QPainterPath clip;
+  clip.addRoundedRect(front.adjusted(1, 1, -1, -1), s * 0.045, s * 0.045);
+  p->save();
+  p->setClipPath(clip);
+
+  p->setPen(Qt::NoPen);
+  p->setBrush(QColor(91, 157, 255, 200));
+  p->drawRoundedRect(QRectF(front.left() + s * 0.08, front.top() + s * 0.08,
+                            s * 0.28, s * 0.055),
+                     s * 0.02, s * 0.02);
+
+  p->setPen(QPen(QColor(120, 128, 148, 160), qMax(1.0, s / 48.0), Qt::SolidLine,
+                 Qt::RoundCap));
+  for (int i = 0; i < 3; ++i) {
+    const qreal y = front.top() + s * (0.22 + i * 0.09);
+    const qreal wFrac = (i == 2) ? 0.32 : 0.42;
+    p->drawLine(QPointF(front.left() + s * 0.08, y),
+                QPointF(front.left() + s * 0.08 + s * wFrac, y));
+  }
+
+  const QRectF card(front.left() + s * 0.08, front.top() + s * 0.48, s * 0.40,
+                    s * 0.20);
+  p->setPen(Qt::NoPen);
+  p->setBrush(QColor(0, 0, 0, 28));
+  p->drawRoundedRect(card.translated(s * 0.01, s * 0.01), s * 0.03, s * 0.03);
+  p->setBrush(QColor(58, 62, 72));
+  p->drawRoundedRect(card, s * 0.03, s * 0.03);
+  p->setPen(QPen(QColor(255, 255, 255, 70), qMax(0.8, s / 80.0)));
+  for (int i = 1; i <= 3; ++i) {
+    const qreal y = card.top() + card.height() * (qreal(i) / 4.0);
+    p->drawLine(QPointF(card.left() + s * 0.04, y),
+                QPointF(card.right() - s * 0.04, y));
+  }
+
+  p->restore();
+}
+
 void paintInfinite(QPainter *p, const QRect &full, const Spec &spec) {
   const qreal s = full.width();
   const QRectF back(full.left() + s * 0.22, full.top() + s * 0.14, s * 0.62,
@@ -336,7 +393,7 @@ QPixmap pixmap(const Spec &spec, int px) {
     paintInfinite(&p, full, spec);
     break;
   case Kind::Struktur:
-    paintA4(&p, full, spec);
+    paintStruktur(&p, full, spec);
     break;
   case Kind::A4:
   default:
@@ -371,11 +428,15 @@ void paintHero(QPainter *p, const QRect &r, const Spec &spec) {
     paintFolder(p, r);
     return;
   }
+  if (spec.kind == Kind::Struktur) {
+    paintStruktur(p, r, spec);
+    return;
+  }
 
   const QColor paper = readablePaper(spec.paper);
   const int rad = qMax(8, r.width() / 16);
   QRect sheet = r.adjusted(1, 1, -1, -1);
-  if (spec.kind == Kind::A4 || spec.kind == Kind::Struktur) {
+  if (spec.kind == Kind::A4) {
     const int w = int(sheet.height() * 0.78);
     if (w > 0 && w < sheet.width())
       sheet = QRect(sheet.center().x() - w / 2, sheet.top(), w, sheet.height());

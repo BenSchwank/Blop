@@ -125,6 +125,8 @@ qt_add_executable(Blop
     src/ui/editoroverlays.h
     src/ui/settingsdialog.cpp
     src/ui/settingsdialog.h
+    src/ui/settings_ui_helpers.cpp
+    src/ui/settings_ui_helpers.h
     src/ui/graphaxissettingsdialog.cpp
     src/ui/graphaxissettingsdialog.h
     src/ui/graphlegenddock.cpp
@@ -139,6 +141,8 @@ qt_add_executable(Blop
     src/ui/markdowneditor.h
     src/ui/strukturnoteeditor.cpp
     src/ui/strukturnoteeditor.h
+    src/ui/notetoolbars.cpp
+    src/ui/notetoolbars.h
     src/ui/moderntoolbar.cpp
     src/ui/moderntoolbar.h
     src/ui/studiotoolbardebugpalette.cpp
@@ -155,6 +159,8 @@ qt_add_executable(Blop
     src/ui/blopwindowcontrols.h
     src/ui/pagethumbnailsidebar.cpp
     src/ui/pagethumbnailsidebar.h
+    src/ui/pagebookmarkrail.cpp
+    src/ui/pagebookmarkrail.h
     src/ui/libraryiconrail.cpp
     src/ui/libraryiconrail.h
     src/ui/noteleftrail.cpp
@@ -177,6 +183,15 @@ qt_add_executable(Blop
     src/ui/libraryorgbar.h
     src/ui/dashboardpage.cpp
     src/ui/dashboardpage.h
+    src/ui/bloplocale.cpp
+    src/ui/bloplocale.h
+    src/ui/dashdeskhero.cpp
+    src/ui/dashdeskhero.h
+    src/ui/dashrightrail.cpp
+    src/ui/dashrightrail.h
+    src/ui/weatherservice.cpp
+    src/ui/weatherservice.h
+    src/ui/dashpagescroll.h
     src/ui/dashboardlayoutstore.cpp
     src/ui/dashboardlayoutstore.h
     src/ui/dashcanvas.cpp
@@ -187,6 +202,8 @@ qt_add_executable(Blop
     src/ui/todostore.h
     src/ui/calendarservice.cpp
     src/ui/calendarservice.h
+    src/ui/calendareventeditor.cpp
+    src/ui/calendareventeditor.h
     src/ui/calendardayview.cpp
     src/ui/calendardayview.h
     src/ui/notepreviewicon.h

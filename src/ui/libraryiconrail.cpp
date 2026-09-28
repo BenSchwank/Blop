@@ -1,5 +1,7 @@
 #include "libraryiconrail.h"
 
+#include "blop_theme.h"
+#include "blopstyle.h"
 #include "moderntoolbar.h"
 #include "uiscale.h"
 
@@ -12,6 +14,14 @@
 #include <QVBoxLayout>
 
 namespace {
+QString accentRgba(const QColor &c, qreal a) {
+  return QStringLiteral("rgba(%1,%2,%3,%4)")
+      .arg(c.red())
+      .arg(c.green())
+      .arg(c.blue())
+      .arg(QString::number(a, 'f', 2));
+}
+
 QIcon glyph(const QString &name, const QColor &fg, int px) {
   QPixmap pm(px, px);
   pm.fill(Qt::transparent);
@@ -28,6 +38,7 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("LibraryIconRail"));
   setAttribute(Qt::WA_StyledBackground, true);
   setFixedWidth(preferredWidth());
+  m_accent = BlopTheme::accentPrimary();
 
   auto *lay = new QVBoxLayout(this);
   lay->setContentsMargins(0, UiScale::dp(12), 0, UiScale::dp(12));
@@ -38,11 +49,6 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   logo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   logo->setAlignment(Qt::AlignCenter);
   logo->setText(QStringLiteral("B"));
-  logo->setStyleSheet(QStringLiteral(
-      "QLabel#LibraryIconRailLogo {"
-      "  background: #5B9DFF; color: #FFFFFF; border-radius: 8px;"
-      "  font-weight: 800; font-size: 13px;"
-      "}"));
   lay->addWidget(logo, 0, Qt::AlignHCenter);
   lay->addSpacing(UiScale::dp(8));
 
@@ -105,6 +111,17 @@ void LibraryIconRail::setActiveId(const QString &id) {
   refreshStyles();
 }
 
+void LibraryIconRail::setAccentColor(const QColor &color) {
+  if (!color.isValid())
+    return;
+  if (m_accent == color)
+    return;
+  m_accent = color;
+  refreshStyles();
+  if (m_avatar != QLatin1String("B"))
+    setAvatarLetter(m_avatar);
+}
+
 void LibraryIconRail::setAvatarLetter(const QString &letter) {
   m_avatar = letter.trimmed().left(1).toUpper();
   if (m_avatar.isEmpty())
@@ -114,7 +131,7 @@ void LibraryIconRail::setAvatarLetter(const QString &letter) {
     pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
-    p.setBrush(QColor(0x5B, 0x9D, 0xFF));
+    p.setBrush(m_accent);
     p.setPen(Qt::NoPen);
     p.drawEllipse(0, 0, pm.width(), pm.height());
     p.setPen(Qt::white);
@@ -130,7 +147,7 @@ void LibraryIconRail::setAvatarLetter(const QString &letter) {
 void LibraryIconRail::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);
-  p.fillRect(rect(), QColor(0x16, 0x18, 0x1E));
+  p.fillRect(rect(), BlopStyle::obsidianNav());
   // Charcoal hairlines (never white) — top under logo / bottom above footer.
   p.setPen(QPen(QColor(255, 255, 255, 18), 1));
   const int midY = height() / 2;
@@ -149,35 +166,47 @@ void LibraryIconRail::paintEvent(QPaintEvent *event) {
 }
 
 void LibraryIconRail::refreshStyles() {
+  const QString nav = BlopStyle::obsidianNav().name(QColor::HexRgb);
+  const QString acc = m_accent.name(QColor::HexRgb);
+  const QString hover = accentRgba(m_accent, 0.16);
+  const QString onBg = accentRgba(m_accent, 0.18);
+  const QString onHover = accentRgba(m_accent, 0.28);
   setStyleSheet(QStringLiteral(
-      "QWidget#LibraryIconRail { background: #16181E; border: none; }"
+      "QWidget#LibraryIconRail { background: %1; border: none; }"
+      "QLabel#LibraryIconRailLogo {"
+      "  background: %2; color: #FFFFFF; border-radius: 8px;"
+      "  font-weight: 800; font-size: 13px;"
+      "}"
       "QToolButton#LibraryIconRailBtn {"
       "  background: transparent; border: none; border-radius: 10px;"
       "}"
       "QToolButton#LibraryIconRailBtn:hover {"
-      "  background: rgba(255,255,255,0.06);"
-      "}"));
+      "  background: %3;"
+      "}")
+                    .arg(nav, acc, hover));
   for (auto it = m_btns.begin(); it != m_btns.end(); ++it) {
     QToolButton *btn = it.value();
     if (!btn)
       continue;
     const bool on = it.key() == m_active;
     const QString iconKey = btn->property("iconKey").toString();
+    // Cool gray icons — never pure white (invisible on light hover washes).
+    const QColor idleIcon(0xB8, 0xBE, 0xC9);
     if (it.key() == QLatin1String("account") && !m_avatar.isEmpty() &&
         m_avatar != QLatin1String("B")) {
       // Avatar icon set separately.
     } else {
-      btn->setIcon(glyph(iconKey, on ? m_accent : QColor(200, 204, 214),
-                         UiScale::dp(20)));
+      btn->setIcon(glyph(iconKey, on ? m_accent : idleIcon, UiScale::dp(20)));
     }
     if (on) {
       btn->setStyleSheet(QStringLiteral(
           "QToolButton#LibraryIconRailBtn {"
-          "  background: rgba(91,157,255,0.18); border: none; border-radius: 10px;"
+          "  background: %1; border: none; border-radius: 10px;"
           "}"
           "QToolButton#LibraryIconRailBtn:hover {"
-          "  background: rgba(91,157,255,0.24);"
-          "}"));
+          "  background: %2;"
+          "}")
+                             .arg(onBg, onHover));
     } else {
       btn->setStyleSheet(QString());
     }

@@ -7,6 +7,7 @@ class QPropertyAnimation;
 class QFrame;
 class QDialog;
 class QEvent;
+class QLabel;
 
 /// Reusable, theme-aware in-window modal sheet for Blop. Renders a backdrop
 /// scrim over the parent window and a content card / bottom sheet that
@@ -19,9 +20,11 @@ class QEvent;
 ///   * Mode::BottomSheet - slides up from the bottom edge, rounded top
 ///                         corners only, drag-down-to-dismiss. Default on
 ///                         Android phones.
-///   * Mode::SideSheet   - v3.17.3: slides in from the right edge,
-///                         rounded left corners only. Used by wide
-///                         dialogs like Settings on tablet/desktop.
+///   * Mode::SideSheet   - slides in from the right edge,
+///                         rounded left corners only.
+///   * Mode::Stage       - centered ~60% stage with soft-blurred backdrop.
+///   * Mode::Float       - large centered floating host with transparent
+///                         chrome (Format-Deck / Neue Notiz). Scrim only.
 ///   * Mode::Auto        - BottomSheet on Android phone, Card otherwise.
 ///
 /// API:
@@ -32,10 +35,14 @@ class QEvent;
 /// The returned BlopModal takes ownership of `content` (reparents it).
 /// Outside-tap on the backdrop, ESC key (desktop) or drag-down (sheet mode)
 /// triggers dismiss with reverse animation, then deleteLater().
+///
+/// Content property `blopForcePaper` (bool): when true with
+/// `blopOwnsBackground`, the host sheet stays Notion paper even in Dark
+/// mode (desktop Settings). Otherwise ownsBg fill follows the app theme.
 class BlopModal : public QWidget {
   Q_OBJECT
 public:
-  enum class Mode { Auto, Card, BottomSheet, SideSheet };
+  enum class Mode { Auto, Card, BottomSheet, SideSheet, Stage, Float };
   Q_ENUM(Mode)
 
   static BlopModal *present(QWidget *parent, QWidget *content,
@@ -61,8 +68,21 @@ public:
 
   void dismiss();
 
-  /// Override the default card width on desktop. Ignored in BottomSheet mode.
+  /// Override the default card width on desktop. Ignored in BottomSheet /
+  /// Stage modes (Stage sizes itself to ~60% of the host).
   void setPreferredCardWidth(int px);
+
+  /// Float/Card height as fraction of host (e.g. 0.58 pick → 0.78 expand).
+  void setPreferredCardHeightFrac(qreal frac);
+
+  /// Store preferred size without relayout — pair with animateCardToPreferred.
+  void preparePreferredSize(int widthPx, qreal heightFrac);
+
+  /// Animate the card from its current geometry to the preferred size.
+  void animateCardToPreferred(int durationMs = 220);
+
+  /// Walk ancestors to find the hosting BlopModal (content is inside the card).
+  static BlopModal *hostOf(QWidget *content);
 
 signals:
   void aboutToDismiss();
@@ -82,20 +102,26 @@ private:
             const QString &accessibleTitle);
 
   void layoutContent();
+  QRect preferredCardRect() const;
   void startOpenAnim();
   void startDismissAnim();
   void applyTheme();
   void onParentResized();
   void dismissFromOutsideTap(const QPoint &pos);
   Mode resolveMode(Mode requested) const;
+  void installBlurBackdrop();
+  void layoutBlurLayers();
 
   QWidget *m_content{nullptr};
   QFrame *m_card{nullptr};
   QWidget *m_dragHandle{nullptr}; // BottomSheet only
+  QLabel *m_blurLayer{nullptr};   // Stage only
+  QWidget *m_dimLayer{nullptr};    // Stage only
   QPropertyAnimation *m_backdropAnim{nullptr};
   QPropertyAnimation *m_cardAnim{nullptr};
   Mode m_mode{Mode::Auto};
   int m_preferredCardWidth{420};
+  qreal m_preferredCardHeightFrac{0.72};
   bool m_dismissing{false};
   bool m_dragging{false};
   QPoint m_dragStart;

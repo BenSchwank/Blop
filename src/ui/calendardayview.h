@@ -5,34 +5,31 @@
 #include <QDate>
 #include <QWidget>
 
-class QButtonGroup;
 class QCalendarWidget;
-class QGridLayout;
 class QLabel;
 class QPushButton;
 class QScrollArea;
 class QStackedWidget;
 class QVBoxLayout;
 
-/// Dashboard/maximized calendar: Liste | Tag | Woche | Monat.
+/// Dashboard/maximized calendar: Tag | Woche | Monat via quiet ⋯ menu.
 class CalendarDayView : public QWidget {
   Q_OBJECT
 public:
-  enum class Mode { List = 0, Day = 1, Week = 2, Month = 3 };
+  enum class Mode { Day = 0, Week = 1, Month = 2 };
 
   explicit CalendarDayView(QWidget *parent = nullptr);
 
   void setDate(const QDate &date);
   QDate date() const { return m_date; }
   void setCompact(bool on);
-  /// Ultra-small dashboard tiles: list-only, no mode chips / nav.
+  /// Ultra-small dashboard tiles: day agenda, no mode chrome / nav.
   void setMinimal(bool on);
   void setMode(Mode mode);
   Mode mode() const { return m_mode; }
   void refresh();
 
 signals:
-  void createAt(const QDateTime &start);
   void dateChanged(const QDate &date);
 
 protected:
@@ -41,33 +38,38 @@ protected:
 
 private:
   void rebuildAll();
-  void rebuildList();
   void rebuildDay();
   void rebuildWeek();
   void rebuildMonthList();
   void updateChrome();
-  void relayoutModeChips();
+  void refreshGoogleButton();
+  void applyCompactChrome();
+  void syncModeLabel();
+  void showModeMenu();
+  void requestCreate(const QDateTime &presetStart);
   void showEventMenu(const CalendarEvent &e, const QPoint &globalPos);
   void confirmDelete(const CalendarEvent &e);
   QWidget *makeEventRow(const CalendarEvent &e, QWidget *parent);
+  static QString modeLabel(Mode mode);
 
   QDate m_date;
   bool m_compact{false};
   bool m_minimal{false};
-  Mode m_mode{Mode::List};
+  Mode m_mode{Mode::Day};
 
   QLabel *m_dateLabel{nullptr};
   QWidget *m_navBar{nullptr};
-  QButtonGroup *m_modeGroup{nullptr};
-  QGridLayout *m_modeGrid{nullptr};
+  QWidget *m_modeBar{nullptr};
+  QLabel *m_modeLabel{nullptr};
+  QPushButton *m_btnModeMore{nullptr};
+  QPushButton *m_btnAdd{nullptr};
+  QPushButton *m_btnGoogle{nullptr};
   QStackedWidget *m_stack{nullptr};
-
-  QScrollArea *m_listScroll{nullptr};
-  QWidget *m_listHost{nullptr};
-  QVBoxLayout *m_listLay{nullptr};
 
   QScrollArea *m_dayScroll{nullptr};
   QWidget *m_timeline{nullptr};
+  QWidget *m_dayPage{nullptr};
+  QVBoxLayout *m_dayAgendaLay{nullptr};
 
   QScrollArea *m_weekScroll{nullptr};
   QWidget *m_weekHost{nullptr};

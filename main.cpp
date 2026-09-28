@@ -28,6 +28,7 @@
 #include "blop_observability.h"
 #include "blop_scroll.h"
 #include "blop_theme.h"
+#include "bloplocale.h"
 #include "mainwindow.h"
 #ifndef Q_OS_ANDROID
 #include "desktopdeeplink.h"
@@ -114,6 +115,7 @@ int main(int argc, char *argv[]) {
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
+  BlopLocale::instance().applyFromSettings();
   BlopScroll::installApplicationWide(&a);
 
 #ifdef Q_OS_ANDROID

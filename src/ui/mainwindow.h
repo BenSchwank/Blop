@@ -19,6 +19,7 @@
 #include <QNetworkReply>
 #include <QPropertyAnimation>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSlider>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -51,9 +52,12 @@ class LibraryOrgBar;
 class MainWindow;
 class PageManager;
 class PageThumbnailSidebar;
+class PageBookmarkRail;
 class PenPresetBar;
 class NoteLeftRail;
 class RadialToolbarFab;
+class NoteToolbarHost;
+class StrukturNoteEditor;
 class StudioToolbarDebugPalette;
 class MultiPageNoteView;
 class ToolPropertiesPanel;
@@ -63,6 +67,8 @@ class PhoneShell;
 class LibraryIconRail;
 class SettingsDialog;
 class QSortFilterProxyModel;
+class QStandardItemModel;
+class QStandardItem;
 class QShowEvent;
 class QKeyEvent;
 struct WebBookmark {
@@ -354,6 +360,10 @@ private:
   void switchToEditorChrome();
   void switchToWorkspaceChrome();
   void openSettingsWorkspace();
+  void openSettingsShell();
+  void closeSettingsShell();
+  void rebuildSettingsShellNav();
+  void setLibraryMidChromeVisible(bool visible);
   void connectSettingsAccountActions(class SettingsDialog *dlg);
   void openStudyAuthPage(const QString &path);
   void showPhoneTagsSheet();
@@ -367,6 +377,8 @@ private:
   int findWorkspaceTabIndex(const QString &kind) const;
   void openLoadedA4Note(const QString &path, const QString &fileName, Note note);
   void applyTheme();
+  void refreshSidebarSearchHint();
+  void applyAutoSavePrefs();
   void applyLibraryFilters();
   void rebuildPageSettingsTags();
   void assignTagsForNotePath(const QString &path);
@@ -375,6 +387,13 @@ private:
   /// Open a folder in the main library grid (and keep QFileSystemModel in sync).
   void navigateLibraryToPath(const QString &path);
   void updateLibraryHeader();
+  void refreshFavoritesModel();
+  void setLibraryFavoritesMode(bool on);
+  bool libraryFavoritesMode() const { return m_libraryFavoritesMode; }
+  QString movePathToTrash(const QString &absolutePath);
+  bool isLibraryTrashView() const;
+  void deleteSelectedLibraryItems();
+  QStringList selectedLibraryPaths() const;
 
   void updateGrid();
   void updateSidebarState();
@@ -386,6 +405,7 @@ private:
   /// Keep push offset + sidebar geometry in sync (no overlap with main content).
   void syncSidebarPushLayout();
   void syncTitleBarSidebarInset();
+  void setTitleBarSidebarInset(int insetPx);
 #ifdef Q_OS_ANDROID
   void updateAndroidSidebarScrimGeometry();
 #endif
@@ -431,6 +451,14 @@ private:
   void updateNoteBottomChrome();
   void positionDrawboardToolbar();
   void positionNoteChrome();
+  /// Desktop note toolbars (Balken/Floating/Radiant/Wissenschaftlich).
+  bool noteToolbarsActive() const;
+  void syncNoteToolbarUndoState();
+  void positionNoteToolbars();
+  /// "Zurück zu <Struktur>" pill while an embed's A4 page is open.
+  void showStrukturBackPill(StrukturNoteEditor *source, const QString &notePath);
+  void syncStrukturBackPill();
+  void returnToStruktur();
   void applyNoteChromeTheme();
   void styleNoteHeaderChrome();
   void refreshTopNavChrome();
@@ -569,6 +597,10 @@ private:
   DocumentTabBar *m_documentTabBar{nullptr};
   /// Drawboard Pages panel (left column thumbnails).
   PageThumbnailSidebar *m_pageThumbnailSidebar{nullptr};
+  PageBookmarkRail *m_pageBookmarkRail{nullptr};
+  bool m_pageBookmarkRailPref{true};
+  void positionPageBookmarkRail();
+  void setPageBookmarkRailPref(bool on);
   /// Drawboard left menu strip (pages / search / utilities).
   NoteLeftRail *m_noteLeftRail{nullptr};
   /// Right-side tool properties dock (color / width / opacity).
@@ -578,6 +610,13 @@ private:
   bool m_toolPropertiesVisible{false};
   /// Movable radial tool FAB (expands to Drawboard-style wheel).
   RadialToolbarFab *m_radialFab{nullptr};
+  /// Desktop: four mockup toolbars replacing the ModernToolbar rail.
+  NoteToolbarHost *m_noteToolbars{nullptr};
+  QPushButton *m_strukturBackPill{nullptr};
+  QPointer<StrukturNoteEditor> m_strukturReturnEditor;
+  QPointer<QWidget> m_strukturReturnNote;
+  /// A4 path opened from the Struktur embed; resolved to a tab once loaded.
+  QString m_strukturReturnPath;
   QLineEdit *m_titleSearchBar{nullptr};
   QPushButton *m_btnTitleSettings{nullptr};
   QPushButton *m_btnTitleShare{nullptr};
@@ -611,9 +650,14 @@ private:
 
   QWidget *m_sidebarContainer{nullptr};
   QWidget *m_sidebarNavPanel{nullptr};
+  QScrollArea *m_sidebarMidScroll{nullptr};
+  QWidget *m_sidebarSearchWrap{nullptr};
   LibraryIconRail *m_libraryIconRail{nullptr};
   QLineEdit *m_sidebarSearch{nullptr};
+  QLabel *m_sidebarSearchHint{nullptr};
+  QAction *m_sidebarSearchHintAct{nullptr};
   QPushButton *m_sidebarModeBtn{nullptr};
+  QPushButton *m_btnSidebarNewNote{nullptr};
   QListWidget *m_navSidebar{nullptr};
   QListWidget *m_sidebarNotesList{nullptr};
   QListWidget *m_sidebarCloudList{nullptr};
@@ -623,10 +667,18 @@ private:
 
   QPushButton *m_btnSidebarSettings{nullptr};
 
+  /// Settings as full app shell (sidebar nav + right content), like Hauptmenü.
+  bool m_settingsShellActive{false};
+  QWidget *m_settingsShellPage{nullptr};
+  class SettingsDialog *m_settingsShellDlg{nullptr};
+  QListWidget *m_settingsNavList{nullptr};
+
   QWidget *m_overviewContainer{nullptr};
   class DashboardPage *m_dashboardPage{nullptr};
   FreeGridView *m_fileListView{nullptr};
   QSortFilterProxyModel *m_libraryProxy{nullptr};
+  QStandardItemModel *m_favoritesModel{nullptr};
+  bool m_libraryFavoritesMode{false};
   LibraryTagsPanel *m_libraryTagsPanel{nullptr};
   PhoneLibraryNav *m_phoneLibraryNav{nullptr};
   PhoneShell *m_phoneShell{nullptr};
@@ -643,6 +695,8 @@ private:
   QString m_openingNotePath;
   QWidget *m_emptyStateHost{nullptr};
   QLabel *m_lblEmptyIcon{nullptr};
+  QLabel *m_lblEmptyTitle{nullptr};
+  QLabel *m_lblEmptySubtitle{nullptr};
   QPushButton *m_btnEmptyCta{nullptr};
   QPushButton *m_fabNote{nullptr};
 

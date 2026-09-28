@@ -218,6 +218,10 @@ public:
     void setToolMode(ToolMode mode);
     ToolMode toolMode() const { return mode_; }
 
+    /// Keep back/undo/redo from detaching onto the editor surface as floaters
+    /// (desktop note toolbars own those actions).
+    void setFloatingChromeSuppressed(bool on);
+
     // Docking logic
     void setDockMode(bool docked);
     bool isDockedMode() const { return m_isDockedMode; }
@@ -448,6 +452,7 @@ private:
     int effectiveButtonSize(int w, int h) const;
     int effectiveGap() const;
     QList<ToolbarBtn*> leftChromeButtons() const;
+    bool m_suppressFloatingChrome{false};
     void snapToEdge();
     void checkOrientation(const QPoint& globalPos);
     void reorderButtons();

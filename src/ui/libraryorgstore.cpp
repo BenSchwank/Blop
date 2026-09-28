@@ -1,6 +1,7 @@
 #include "libraryorgstore.h"
 
 #include <QDateTime>
+#include <QFileInfo>
 #include <QHash>
 #include <QSettings>
 #include <QVariant>
@@ -74,18 +75,28 @@ void saveRecent(QSettings &s, const QVector<RecentEntry> &entries) {
 bool LibraryOrgStore::isFavorite(const QString &absolutePath) {
   if (absolutePath.isEmpty())
     return false;
+  const QString key = QFileInfo(absolutePath).absoluteFilePath();
   QSettings s(QString::fromLatin1(kOrg), QString::fromLatin1(kApp));
-  return loadStringList(s, kFavKey).contains(absolutePath);
+  const QStringList favs = loadStringList(s, kFavKey);
+  for (const QString &f : favs) {
+    if (QFileInfo(f).absoluteFilePath() == key)
+      return true;
+  }
+  return false;
 }
 
 void LibraryOrgStore::setFavorite(const QString &absolutePath, bool favorite) {
   if (absolutePath.isEmpty())
     return;
+  const QString key = QFileInfo(absolutePath).absoluteFilePath();
   QSettings s(QString::fromLatin1(kOrg), QString::fromLatin1(kApp));
   QStringList favs = loadStringList(s, kFavKey);
-  favs.removeAll(absolutePath);
+  for (int i = favs.size() - 1; i >= 0; --i) {
+    if (QFileInfo(favs.at(i)).absoluteFilePath() == key)
+      favs.removeAt(i);
+  }
   if (favorite)
-    favs.prepend(absolutePath);
+    favs.prepend(key);
   saveStringList(s, kFavKey, favs);
 }
 

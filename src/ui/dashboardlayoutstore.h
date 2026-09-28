@@ -21,6 +21,7 @@ enum class DashSizeClass {
   XL = 12,   // 12×3
   Hero = 13, // 12×4
   L5 = 14,   // 12×5
+  Title = 15 // 12×1 page title strip
 };
 
 struct DashboardWidgetSpec {
@@ -30,6 +31,13 @@ struct DashboardWidgetSpec {
   int row{0};
   int col{0};
   DashSizeClass sizeClass{DashSizeClass::M};
+  /// Soft card plate behind the widget body (intro/banner ignore outside edit).
+  bool bgEnabled{true};
+  /// Outline around the card.
+  bool borderEnabled{true};
+  /// Empty = theme default card fill / border.
+  QString bgColor;
+  QString borderColor;
 };
 
 class DashboardLayoutStore {
@@ -39,7 +47,12 @@ public:
   static void save(const QVector<DashboardWidgetSpec> &specs);
   static void reset();
 
+  /// Fixed core block ids (not including dynamic banners).
   static QStringList knownIds();
+  static bool isBannerId(const QString &id);
+  static bool isKnownBlockId(const QString &id);
+  /// Next free banner id (`banner`, `banner_2`, …).
+  static QString allocateBannerId(const QVector<DashboardWidgetSpec> &specs);
   static QString displayName(const QString &id);
   static DashboardWidgetSpec defaultFor(const QString &id);
 

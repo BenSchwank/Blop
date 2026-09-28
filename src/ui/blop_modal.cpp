@@ -5,12 +5,14 @@
 #include "uiscale.h"
 
 #include <QApplication>
+#include <QAbstractAnimation>
 #include <QColor>
 #include <QDialog>
 #include <QEasingCurve>
 #include <QEvent>
 #include <QEventLoop>
 #include <QFrame>
+#include <QGraphicsBlurEffect>
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -34,6 +36,22 @@ constexpr int kBackdropFadeOutMs = BlopMotion::kFast;
 constexpr int kCardExitMs = BlopMotion::kFast;
 constexpr int kDragDismissThresholdDp = 80;
 constexpr int kDragHandleHeightDp = 28;
+
+QColor ownedSheetFill(QWidget *content) {
+  if (content && content->property("blopForcePaper").toBool())
+    return BlopStyle::paperSurface();
+  if (BlopTheme::instance().isDark())
+    return BlopTheme::surfaceElevated();
+  return BlopStyle::paperSurface();
+}
+
+QColor ownedSheetBorder(QWidget *content) {
+  if (content && content->property("blopForcePaper").toBool())
+    return BlopStyle::paperBorder();
+  if (BlopTheme::instance().isDark())
+    return BlopTheme::borderDefault();
+  return BlopStyle::paperBorder();
+}
 } // namespace
 
 BlopModal *BlopModal::present(QWidget *parent, QWidget *content, Mode mode,
@@ -45,6 +63,9 @@ BlopModal *BlopModal::present(QWidget *parent, QWidget *content, Mode mode,
   auto *modal = new BlopModal(win ? win : parent, content, mode, accessibleTitle);
   if (preferredCardWidth > 0)
     modal->setPreferredCardWidth(preferredCardWidth);
+  // Grab the host *before* show so the soft-blur stage sees the real UI.
+  if (modal->m_mode == Mode::Stage)
+    modal->installBlurBackdrop();
   modal->show();
   modal->raise();
   modal->startOpenAnim();
@@ -68,6 +89,12 @@ int BlopModal::execBlocking(QWidget *parent, QDialog *dlg, Mode mode,
   auto *modal = present(parent, dlg, mode, QString(), preferredCardWidth);
   if (!modal)
     return QDialog::Rejected;
+  if (mode == Mode::Float ||
+      (mode == Mode::Auto && modal)) {
+    // Neue Notiz pick default; dialog may grow after format choice.
+    if (preferredCardWidth > 0 && preferredCardWidth <= 600)
+      modal->setPreferredCardHeightFrac(0.58);
+  }
 
   int result = QDialog::Rejected;
   QEventLoop loop;
@@ -138,6 +165,12 @@ BlopModal::BlopModal(QWidget *parent, QWidget *content, Mode mode,
   case Mode::SideSheet:
     cardObjName = QStringLiteral("BlopModalSideSheet");
     break;
+  case Mode::Stage:
+    cardObjName = QStringLiteral("BlopModalStage");
+    break;
+  case Mode::Float:
+    cardObjName = QStringLiteral("BlopModalFloat");
+    break;
   case Mode::Card:
   case Mode::Auto:
   default:
@@ -168,8 +201,13 @@ BlopModal::BlopModal(QWidget *parent, QWidget *content, Mode mode,
   }
 
   content->setParent(m_card);
-  // Don't stretch short dialogs to fill 85% of the window height.
-  cardLay->addWidget(content, 0);
+  // Stage / sheets / float fill the host; compact cards stay content-sized.
+  const int contentStretch =
+      (m_mode == Mode::Stage || m_mode == Mode::BottomSheet ||
+       m_mode == Mode::SideSheet || m_mode == Mode::Float)
+          ? 1
+          : 0;
+  cardLay->addWidget(content, contentStretch);
 
   applyTheme();
   connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this,
@@ -204,16 +242,105 @@ void BlopModal::setPreferredCardWidth(int px) {
   layoutContent();
 }
 
+void BlopModal::setPreferredCardHeightFrac(qreal frac) {
+  m_preferredCardHeightFrac = qBound(0.35, frac, 0.95);
+  layoutContent();
+}
+
+void BlopModal::preparePreferredSize(int widthPx, qreal heightFrac) {
+  if (widthPx > 0)
+    m_preferredCardWidth = widthPx;
+  m_preferredCardHeightFrac = qBound(0.35, heightFrac, 0.95);
+}
+
+BlopModal *BlopModal::hostOf(QWidget *content) {
+  for (QWidget *w = content; w; w = w->parentWidget()) {
+    if (auto *m = qobject_cast<BlopModal *>(w))
+      return m;
+  }
+  return nullptr;
+}
+
+QRect BlopModal::preferredCardRect() const {
+  if (!parentWidget() || !m_card)
+    return {};
+  const int W = width();
+  const int H = height();
+  if (m_mode == Mode::Float) {
+    const int gap = UiScale::dp(24);
+    int cardW = m_preferredCardWidth > 0 ? m_preferredCardWidth : int(W * 0.58);
+    cardW = qBound(UiScale::dp(420), cardW, W - 2 * gap);
+    const qreal frac =
+        m_preferredCardHeightFrac > 0.0 ? m_preferredCardHeightFrac : 0.72;
+    int cardH = int(H * frac);
+    cardH = qBound(UiScale::dp(360), cardH, H - 2 * gap);
+    return QRect((W - cardW) / 2, (H - cardH) / 2, cardW, cardH);
+  }
+  // Fallback: current geometry after a layout pass would be needed; return
+  // existing card rect for non-Float modes.
+  return m_card->geometry();
+}
+
+void BlopModal::animateCardToPreferred(int durationMs) {
+  if (!m_card || m_dismissing)
+    return;
+  const QRect target = preferredCardRect();
+  if (!target.isValid()) {
+    layoutContent();
+    return;
+  }
+  if (m_cardAnim) {
+    m_cardAnim->stop();
+    m_cardAnim->deleteLater();
+    m_cardAnim = nullptr;
+  }
+  // Keep preferred values in sync so resizeEvent / layoutContent match.
+  // Width/height already stored via setters; just animate geometry.
+  const QRect start = m_card->geometry();
+  if ((start.topLeft() - target.topLeft()).manhattanLength() < 2 &&
+      qAbs(start.width() - target.width()) < 2 &&
+      qAbs(start.height() - target.height()) < 2) {
+    m_card->setGeometry(target);
+    return;
+  }
+  m_cardAnim = new QPropertyAnimation(m_card, "geometry", this);
+  m_cardAnim->setDuration(qMax(80, durationMs));
+  m_cardAnim->setStartValue(start);
+  m_cardAnim->setEndValue(target);
+  m_cardAnim->setEasingCurve(QEasingCurve::OutCubic);
+  connect(m_cardAnim, &QPropertyAnimation::finished, this, [this]() {
+    m_cardAnim = nullptr;
+    // Sync content without restarting another animation.
+    if (m_card)
+      layoutContent();
+  });
+  m_cardAnim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
 void BlopModal::applyTheme() {
-  setStyleSheet(BlopTheme::scrimQss(QStringLiteral("BlopModalBackdrop")));
+  if (m_mode == Mode::Stage) {
+    // Soft-blur stage: backdrop is the blurred snapshot + dim layer, not
+    // the solid theme scrim (avoids double-darkening).
+    setStyleSheet(QStringLiteral(
+        "QWidget#BlopModalBackdrop { background: transparent; border: none; }"));
+  } else {
+    setStyleSheet(BlopTheme::scrimQss(QStringLiteral("BlopModalBackdrop")));
+  }
 
   if (m_content) {
-    if (m_mode == Mode::Card || m_mode == Mode::Auto) {
+    if (m_mode == Mode::Card || m_mode == Mode::Auto || m_mode == Mode::Stage ||
+        m_mode == Mode::SideSheet || m_mode == Mode::Float) {
       m_content->setAutoFillBackground(false);
-      // Dialogs that paint their own surface (Settings Notion paper) must
-      // keep their stylesheet — forcing transparent wiped paper to black.
-      if (!m_content->property("blopOwnsBackground").toBool())
-        m_content->setStyleSheet(QStringLiteral("background: transparent;"));
+      // Dialogs that paint their own surface must keep their stylesheet.
+      if (!m_content->property("blopOwnsBackground").toBool()) {
+        if (m_mode == Mode::SideSheet) {
+          m_content->setStyleSheet(
+              QStringLiteral("background-color: %1;")
+                  .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb)));
+        } else {
+          m_content->setStyleSheet(QStringLiteral("background: transparent;"));
+        }
+      }
     } else {
       m_content->setStyleSheet(
           QStringLiteral("background-color: %1;")
@@ -235,6 +362,13 @@ void BlopModal::applyTheme() {
     m_card->setStyleSheet(qss);
   } else if (m_mode == Mode::SideSheet) {
     // Side sheet: rounded left corners only, full-height right pane.
+    // ownsBg + blopForcePaper → Notion paper; else follow app theme.
+    const bool ownsBg =
+        m_content && m_content->property("blopOwnsBackground").toBool();
+    const QColor fill =
+        ownsBg ? ownedSheetFill(m_content) : BlopTheme::surfaceElevated();
+    const QColor border =
+        ownsBg ? ownedSheetBorder(m_content) : BlopTheme::borderDefault();
     QString qss = QStringLiteral(
                       "QFrame#BlopModalSideSheet {"
                       "  background: %1;"
@@ -244,36 +378,59 @@ void BlopModal::applyTheme() {
                       "  border-top-right-radius: 0px;"
                       "  border-bottom-right-radius: 0px;"
                       "}")
-                      .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
-                           QStringLiteral("rgba(%1,%2,%3,%4)")
-                               .arg(BlopTheme::borderDefault().red())
-                               .arg(BlopTheme::borderDefault().green())
-                               .arg(BlopTheme::borderDefault().blue())
-                               .arg(QString::number(
-                                   BlopTheme::borderDefault().alphaF(), 'f', 3)),
+                      .arg(fill.name(QColor::HexRgb),
+                           border.name(QColor::HexRgb),
                            QString::number(BlopTheme::r24));
     m_card->setStyleSheet(qss);
     m_card->setGraphicsEffect(nullptr);
-    } else {
-    // Centered card + scrim (Notion-style). Settings owns paper fill —
-    // match the card chrome so dark surfaceStyle doesn't peek at corners.
-    m_card->setObjectName(QStringLiteral("BlopModalCard"));
-    m_card->setAutoFillBackground(true);
-    const bool ownsBg =
-        m_content && m_content->property("blopOwnsBackground").toBool();
-    if (ownsBg) {
+  } else if (m_mode == Mode::Float) {
+    m_card->setObjectName(QStringLiteral("BlopModalFloat"));
+    m_card->setGraphicsEffect(nullptr);
+    const bool forcePaper =
+        m_content && m_content->property("blopForcePaper").toBool();
+    if (forcePaper) {
+      // Settings / paper dialogs: opaque floating sheet (same host as Deck).
+      m_card->setAutoFillBackground(true);
+      const int rad = UiScale::dp(BlopStyle::radiusLgDp() + 4);
       m_card->setStyleSheet(
-          QStringLiteral("QFrame#BlopModalCard {"
+          QStringLiteral("QFrame#BlopModalFloat {"
                          "  background: %1;"
                          "  border: 1px solid %2;"
                          "  border-radius: %3px;"
                          "}")
-              .arg(BlopStyle::paperSurface().name(QColor::HexRgb),
-                   BlopStyle::paperBorder().name(QColor::HexRgb),
-                   QString::number(UiScale::dp(BlopStyle::radiusLgDp()))));
+              .arg(ownedSheetFill(m_content).name(QColor::HexRgb),
+                   ownedSheetBorder(m_content).name(QColor::HexRgb),
+                   QString::number(rad)));
     } else {
+      // Format-Deck: transparent chrome — cards paint themselves.
+      m_card->setAutoFillBackground(false);
+      m_card->setStyleSheet(QStringLiteral(
+          "QFrame#BlopModalFloat { background: transparent; border: none; }"));
+    }
+  } else {
+    // Centered card / stage + scrim.
+    const QString obj = (m_mode == Mode::Stage)
+                            ? QStringLiteral("BlopModalStage")
+                            : QStringLiteral("BlopModalCard");
+    m_card->setObjectName(obj);
+    m_card->setAutoFillBackground(true);
+    const bool ownsBg =
+        m_content && m_content->property("blopOwnsBackground").toBool();
+    const int rad = UiScale::dp(m_mode == Mode::Stage
+                                    ? BlopStyle::radiusLgDp() + 2
+                                    : BlopStyle::radiusLgDp());
+    if (ownsBg) {
       m_card->setStyleSheet(
-          BlopStyle::surfaceStyle(QStringLiteral("BlopModalCard")));
+          QStringLiteral("QFrame#%1 {"
+                         "  background: %2;"
+                         "  border: 1px solid %3;"
+                         "  border-radius: %4px;"
+                         "}")
+              .arg(obj, ownedSheetFill(m_content).name(QColor::HexRgb),
+                   ownedSheetBorder(m_content).name(QColor::HexRgb),
+                   QString::number(rad)));
+    } else {
+      m_card->setStyleSheet(BlopStyle::surfaceStyle(obj));
     }
     // Never use QGraphicsDropShadowEffect here. On Windows/MinGW it races
     // the software rasterizer (QWidgetEffectSourcePrivate::pixmap /
@@ -281,6 +438,64 @@ void BlopModal::applyTheme() {
     // clicks (Neue Notiz / Einstellungen). Border + scrim is enough depth.
     m_card->setGraphicsEffect(nullptr);
   }
+}
+
+void BlopModal::installBlurBackdrop() {
+  if (m_mode != Mode::Stage || !parentWidget())
+    return;
+
+  QPixmap snap = parentWidget()->grab();
+  if (snap.isNull())
+    return;
+
+  if (!m_blurLayer) {
+    m_blurLayer = new QLabel(this);
+    m_blurLayer->setObjectName(QStringLiteral("BlopModalBlurLayer"));
+    m_blurLayer->setScaledContents(true);
+    m_blurLayer->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  }
+  m_blurLayer->setPixmap(snap);
+
+  auto *blur = qobject_cast<QGraphicsBlurEffect *>(m_blurLayer->graphicsEffect());
+  if (!blur) {
+    blur = new QGraphicsBlurEffect(m_blurLayer);
+    m_blurLayer->setGraphicsEffect(blur);
+  }
+  blur->setBlurRadius(10);
+  blur->setBlurHints(QGraphicsBlurEffect::PerformanceHint);
+
+  if (!m_dimLayer) {
+    m_dimLayer = new QWidget(this);
+    m_dimLayer->setObjectName(QStringLiteral("BlopModalDimLayer"));
+    m_dimLayer->setAttribute(Qt::WA_StyledBackground, true);
+    m_dimLayer->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  }
+  const QColor scrim = BlopTheme::scrimColor();
+  m_dimLayer->setStyleSheet(
+      QStringLiteral("QWidget#BlopModalDimLayer {"
+                     "  background: rgba(%1,%2,%3,0.38);"
+                     "  border: none;"
+                     "}")
+          .arg(scrim.red())
+          .arg(scrim.green())
+          .arg(scrim.blue()));
+
+  layoutBlurLayers();
+}
+
+void BlopModal::layoutBlurLayers() {
+  if (m_blurLayer)
+    m_blurLayer->setGeometry(rect());
+  if (m_dimLayer)
+    m_dimLayer->setGeometry(rect());
+  if (m_blurLayer)
+    m_blurLayer->lower();
+  if (m_dimLayer && m_blurLayer)
+    m_dimLayer->stackUnder(m_card);
+  else if (m_dimLayer)
+    m_dimLayer->lower();
+  if (m_card)
+    m_card->raise();
 }
 
 void BlopModal::layoutContent() {
@@ -333,11 +548,54 @@ void BlopModal::layoutContent() {
         lay->activate();
       }
     }
+  } else if (m_mode == Mode::Stage) {
+    // Variante A: centered ~60% stage. Floors keep readability on large
+    // monitors; caps keep breathing room on small laptop windows.
+    const int maxW = qMax(UiScale::dp(320), int(W * 0.88));
+    const int maxH = qMax(UiScale::dp(280), int(H * 0.88));
+    int cardW = int(W * 0.60);
+    int cardH = int(H * 0.60);
+    cardW = qBound(qMin(UiScale::dp(720), maxW), cardW, maxW);
+    cardH = qBound(qMin(UiScale::dp(520), maxH), cardH, maxH);
+    m_card->setGeometry((W - cardW) / 2, (H - cardH) / 2, cardW, cardH);
+    if (m_content) {
+      m_content->setMinimumSize(0, 0);
+      m_content->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+      m_content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+      if (auto *lay = m_content->layout()) {
+        lay->setSizeConstraint(QLayout::SetNoConstraint);
+        lay->activate();
+      }
+    }
+    if (auto *cardLay = qobject_cast<QVBoxLayout *>(m_card->layout())) {
+      const int idx = cardLay->indexOf(m_content);
+      if (idx >= 0)
+        cardLay->setStretch(idx, 1);
+    }
+    layoutBlurLayers();
+  } else if (m_mode == Mode::Float) {
+    // Format-Deck / Neue Notiz: size driven by preferred width + height frac.
+    const QRect r = preferredCardRect();
+    m_card->setGeometry(r);
+    if (m_content) {
+      m_content->setMinimumSize(0, 0);
+      m_content->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+      m_content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+      if (auto *lay = m_content->layout()) {
+        lay->setSizeConstraint(QLayout::SetNoConstraint);
+        lay->activate();
+      }
+    }
+    if (auto *cardLay = qobject_cast<QVBoxLayout *>(m_card->layout())) {
+      const int idx = cardLay->indexOf(m_content);
+      if (idx >= 0)
+        cardLay->setStretch(idx, 1);
+    }
   } else {
     const int preferred =
         m_preferredCardWidth > 0 ? m_preferredCardWidth : UiScale::dp(420);
-    // Wider overlays (Neue Notiz) stay a centered card sized to the
-    // preferred width + content height — never a near-fullscreen sheet.
+    // Wider overlays stay a centered card sized to the preferred width +
+    // content height — never a near-fullscreen sheet.
     const bool sizedCard = preferred >= 700;
     if (sizedCard) {
       const int gap = UiScale::dp(16);
