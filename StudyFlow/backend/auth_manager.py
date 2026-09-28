@@ -130,7 +130,11 @@ class AuthManager:
 
     @staticmethod
     def _is_expired(last_active):
-        """Returns True if the session has been inactive for 30 days."""
+        """Returns True if the session has been inactive for 30 days.
+
+        Parse failures must NOT count as expired — that previously deleted live
+        sessions when Supabase returned an unexpected timestamp format.
+        """
         if not last_active:
             return True
         try:
@@ -141,13 +145,17 @@ class AuthManager:
                     cleaned = cleaned + ":00"
                 elif cleaned.endswith("-00"):
                     cleaned = cleaned + ":00"
+                # Also normalize "+0000" / "-0000"
+                if len(cleaned) >= 5 and cleaned[-5] in "+-" and cleaned[-4:].isdigit():
+                    cleaned = cleaned[:-2] + ":" + cleaned[-2:]
                 last_active = datetime.fromisoformat(cleaned)
             # Legacy local sessions were written without timezone; treat them as UTC.
             if last_active.tzinfo is None:
                 last_active = last_active.replace(tzinfo=timezone.utc)
             return (datetime.now(timezone.utc) - last_active).total_seconds() > 60 * 60 * 24 * 30
-        except Exception:
-            return True
+        except Exception as exc:
+            print(f"AuthManager._is_expired parse failed (keeping session): {exc!r} raw={last_active!r}")
+            return False
 
     @staticmethod
     def _fetch_session_row(db, session_id):

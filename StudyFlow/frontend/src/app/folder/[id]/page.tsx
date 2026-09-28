@@ -35,6 +35,23 @@ function openYoutubeVideoInNewTab(videoId: string) {
     );
 }
 
+/** AI POSTs must carry the session so long jobs don't look "logged out" afterwards. */
+function aiFetchInit(body: Record<string, unknown>, signal?: AbortSignal): RequestInit {
+    return {
+        method: "POST",
+        headers: sessionHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(body),
+        signal,
+    };
+}
+
+function aiUrl(path: string): string {
+    const sid = getSessionId();
+    if (!sid) return path;
+    const sep = path.includes("?") ? "&" : "?";
+    return `${path}${sep}session_id=${encodeURIComponent(sid)}`;
+}
+
 /** YouTube imports are saved with display name `YouTube: {videoId}` (see backend main.py). */
 function youtubeVideoIdFromTranscriptFile(file: Pick<FileData, "name" | "type">): string | null {
     if (file.type !== "transcript") return null;
@@ -1103,7 +1120,7 @@ export default function FolderPage() {
         try {
             const res = await fetch(`${API_BASE}/folders/${folderId}/ai-context`, {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     included_file_ids: next === null || next.length === 0 ? null : next,
@@ -1612,12 +1629,12 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/${endpoint}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, folder_id: folderId, duration_days: 7, model_preference: effectiveModelPreference }),
-                signal: ac.signal,
-            });
+            const res = await fetch(aiUrl(`${API_BASE}/ai/${endpoint}`), aiFetchInit({
+                username,
+                folder_id: folderId,
+                duration_days: 7,
+                model_preference: effectiveModelPreference,
+            }, ac.signal));
 
             if (res.ok) {
                 ok = true;
@@ -1732,9 +1749,9 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/quiz`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/quiz`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
@@ -1805,9 +1822,9 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/flashcards`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/flashcards`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
@@ -1881,18 +1898,13 @@ export default function FolderPage() {
         // I will add `detail_level` to the POST body.)
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/summary`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
+            const res = await fetch(aiUrl(`${API_BASE}/ai/summary`), aiFetchInit({
                     username,
                     folder_id: folderId,
                     detail_level: summaryDetailLevel,
                     model_preference: effectiveModelPreference,
                     learning_mode: learningMode
-                }),
-                signal: acSum.signal,
-            });
+            }, acSum.signal));
 
             if (res.ok) {
                 ok = true;
@@ -1952,9 +1964,9 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/elaboration`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/elaboration`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
@@ -2090,9 +2102,9 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/repetition`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/repetition`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
@@ -2171,9 +2183,9 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/podcast`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/podcast`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
@@ -2322,9 +2334,9 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/learning-video`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/learning-video`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
@@ -2472,9 +2484,9 @@ export default function FolderPage() {
 
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/plan`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/plan`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
@@ -2681,9 +2693,9 @@ export default function FolderPage() {
 
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/ai/task-help`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/task-help`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
@@ -3261,9 +3273,9 @@ export default function FolderPage() {
             }
             const range = readSelectionRangeRef.current;
             const surrounding = range?.commonAncestorContainer?.textContent || "";
-            const res = await fetch(`${API_BASE}/ai/edit-selection`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/edit-selection`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
                     selected_text: readSelectionText,
@@ -3312,9 +3324,9 @@ export default function FolderPage() {
                 showToast("Nicht angemeldet.");
                 return;
             }
-            const res = await fetch(`${API_BASE}/ai/tts-preview`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/tts-preview`), {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({ username, voice }),
             });
             if (!res.ok) {
@@ -3383,7 +3395,7 @@ export default function FolderPage() {
         setIsRefining(true);
         try {
             const username = localStorage.getItem('username') || '';
-            const res = await fetch(`${API_BASE}/ai/elaboration/refine`, {
+            const res = await fetch(aiUrl(`${API_BASE}/ai/elaboration/refine`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

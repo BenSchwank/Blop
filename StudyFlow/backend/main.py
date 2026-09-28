@@ -1420,9 +1420,14 @@ def verify_google_oauth(req: GoogleVerifyRequest):
         raise HTTPException(status_code=500, detail=f"Server Fehler: {msg}")
 
 @app.get("/api/auth/validate")
-def validate_session(session_id: str):
-    """Validate session token"""
-    username = AuthManager.validate_session(session_id)
+def validate_session(http_request: Request, session_id: str = ""):
+    """Validate session token (query or X-Session-Id header)."""
+    sid = (
+        (session_id or "").strip()
+        or (http_request.headers.get("X-Session-Id") or "").strip()
+        or (http_request.query_params.get("session_id") or "").strip()
+    )
+    username = AuthManager.validate_session(sid) if sid else None
     if username:
         return {"valid": True, "username": username}
     raise HTTPException(status_code=401, detail="Session ungültig oder abgelaufen")
@@ -2996,14 +3001,17 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
     Aggregates material from the folder.
     If included_file_ids is None, loads saved folder filter from DB; empty/null filter uses all files.
     Returns (content_parts, debug_log)
+
+    Loads metadata first, applies AI-context filter, then fetches content only for
+    text-like files (PDFs use storage download — never DB content).
     """
     # Ensure GenAI is configured (redundant but safe for helper usage)
     _configure_genai(username)
     
     debug_log = []
     try:
-        files = DataManager.list_files(username, folder_id, include_content=True)
-        debug_log.append(f"Found {len(files)} files")
+        files = DataManager.list_files(username, folder_id, include_content=False)
+        debug_log.append(f"Found {len(files)} files (metadata)")
     except Exception as e:
         debug_log.append(f"ListFiles Error: {str(e)}")
         return [], debug_log
@@ -3017,6 +3025,17 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
         debug_log.append(f"Filtered to {len(files)} files by ai_context_file_ids")
     else:
         debug_log.append("Using all files (no ai_context filter)")
+
+    TEXT_TYPES = (
+        "transcript",
+        "summary",
+        "repetition",
+        "elaboration",
+        "plan",
+        "quiz",
+        "flashcards",
+        "smart_learning",
+    )
         
     content_parts = []
     has_content = False
@@ -3024,20 +3043,13 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
     for f in files:
         f_type = f.get("type", "unknown")
         f_name = f.get("name", "unnamed")
+        f_id = f.get("id")
         debug_log.append(f"Processing {f_name} ({f_type})")
         
-        # 1. YouTube Transcripts (Text)
-        if f_type == "transcript":
-             if "content" in f:
-                 content_parts.append(f"--- Transkript: {f_name} ---\n{f['content']}\n\n")
-                 has_content = True
-                 debug_log.append(f"Added transcript {f_name}")
-             else:
-                 debug_log.append(f"Transcript {f_name} has no content")
-
-        # 1b. Text-based generated / stored documents (summary, plans, quiz JSON, etc.)
-        elif f_type in ("summary", "repetition", "elaboration", "plan", "quiz", "flashcards", "smart_learning"):
-            raw = f.get("content")
+        # 1. YouTube Transcripts / text documents — content on demand
+        if f_type in TEXT_TYPES:
+            full = DataManager.get_file(username, f_id) if f_id else None
+            raw = (full or {}).get("content") if full else None
             if raw is None:
                 debug_log.append(f"{f_name} ({f_type}) has no content field")
                 continue
@@ -3048,11 +3060,12 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
             if not text.strip():
                 debug_log.append(f"{f_name} ({f_type}) empty content")
                 continue
-            content_parts.append(f"--- {f_name} ({f_type}) ---\n{text}\n\n")
+            label = "Transkript" if f_type == "transcript" else f_type
+            content_parts.append(f"--- {f_name} ({label}) ---\n{text}\n\n")
             has_content = True
             debug_log.append(f"Added text context from {f_type} {f_name}")
         
-        # 2. PDFs (Upload to Gemini for OCR/Vision)
+        # 2. PDFs (Upload to Gemini for OCR/Vision) — storage only, no DB content
         elif f_type == "pdf":
             try:
                 # Get local path
@@ -3192,14 +3205,35 @@ def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
         raise_for_ai_provider_error(e, prefix="Karteikarten-Fehler", username=getattr(request, "username", None))
 
 @app.post("/api/ai/summary")
-def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
+def create_summary(
+    http_request: Request,
+    request: SummaryRequest,
+    background_tasks: BackgroundTasks,
+    session_id: str = "",
+):
     from ai_service import AIService
     try:
-        SubscriptionManager.ensure_feature(request.username, "summary")
-        ensure_minimum_tokens(request.username, 1)
+        sid = (
+            (session_id or "").strip()
+            or (http_request.headers.get("X-Session-Id") or "").strip()
+            or (http_request.query_params.get("session_id") or "").strip()
+        )
+        if sid:
+            user = require_session_user(
+                http_request,
+                session_id=sid,
+                username=request.username or None,
+            )
+        else:
+            # Legacy clients without session header — still require a username body.
+            user = (request.username or "").strip()
+            if not user:
+                raise HTTPException(status_code=401, detail="Session ungültig oder abgelaufen")
+        SubscriptionManager.ensure_feature(user, "summary")
+        ensure_minimum_tokens(user, 1)
         _configure_genai()
-        model_pref = resolve_model_preference(request.username, request.model_preference)
-        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        model_pref = resolve_model_preference(user, request.model_preference)
+        context, debug_log = _get_folder_context(user, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         summary_result = AIService.generate_summary(
@@ -3210,9 +3244,9 @@ def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
             return_meta=True,
         )
         summary = summary_result["text"]
-        DataManager.save_generated_summary(summary, request.username, request.folder_id)
+        DataManager.save_generated_summary(summary, user, request.folder_id)
         charge = deduct_tokens_by_usage(
-            request.username,
+            user,
             "summary",
             summary_result.get("used_model", model_pref or ""),
             summary_result.get("usage"),
