@@ -60,7 +60,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         };
         window.addEventListener('blop_tokens_updated', onTokensUpdated);
         return () => window.removeEventListener('blop_tokens_updated', onTokensUpdated);
-    }, [pathname]);
+    }, []);
 
     const handleLogout = () => {
         localStorage.clear();

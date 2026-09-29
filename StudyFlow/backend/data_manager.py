@@ -314,7 +314,7 @@ class DataManager:
 
     @staticmethod
     def get_ai_context_file_ids(username: str, folder_id: str) -> Optional[List[str]]:
-        """Returns None or empty to mean 'all files'. Non-empty list restricts AI context to those file ids."""
+        """Returns None or empty to mean source materials only. Non-empty list is an explicit selection."""
         db = DataManager._init_supabase()
         if not db:
             return None
@@ -346,7 +346,7 @@ class DataManager:
 
     @staticmethod
     def set_ai_context_file_ids(username: str, folder_id: str, file_ids: Optional[List[str]]) -> bool:
-        """Pass None or [] to clear filter (all materials)."""
+        """Pass None or [] to clear the explicit selection (source materials only)."""
         db = DataManager._init_supabase()
         if not db:
             return False
@@ -588,8 +588,41 @@ class DataManager:
         }, username, folder_id)
 
     @staticmethod
+    def upsert_canonical_artifact(username, folder_id, file_id, name, file_type, content, retire_prefixes):
+        """One current AI file per type. Drops older generated rows with the given id prefixes."""
+        try:
+            existing = DataManager.list_files(username, folder_id, include_content=False) or []
+        except Exception:
+            existing = []
+        keep = str(file_id)
+        for row in existing:
+            fid = str(row.get("id") or "")
+            if row.get("type") != file_type or fid == keep:
+                continue
+            if any(fid.startswith(prefix) for prefix in retire_prefixes):
+                DataManager.delete_file(username, folder_id, fid)
+        DataManager.save_file_metadata({
+            "id": file_id,
+            "name": name,
+            "type": file_type,
+            "content": content,
+            "created_at": datetime.now().isoformat(),
+        }, username, folder_id)
+
+    @staticmethod
     def save_summary_as_file(title, content, username, folder_id, type="summary"):
-        file_id = f"summary_{int(datetime.now().timestamp())}"
+        if type == "summary":
+            DataManager.upsert_canonical_artifact(
+                username,
+                folder_id,
+                f"summary_main_{folder_id}",
+                title,
+                "summary",
+                content,
+                ("summary_",),
+            )
+            return
+        file_id = f"{type}_{int(datetime.now().timestamp())}"
         DataManager.save_file_metadata({
             "id": file_id, "name": title, "type": type, "content": content
         }, username, folder_id)
@@ -1023,7 +1056,7 @@ class DataManager:
 
     @staticmethod
     def save_flashcards(username, folder_id, cards_data):
-        file_id = f"cards_{folder_id}_main"
+        file_id = f"cards_main_{folder_id}"
         DataManager.save_file_metadata({
             "id": file_id, "name": "Flashcards", "type": "flashcards", "content": cards_data
         }, username, folder_id)

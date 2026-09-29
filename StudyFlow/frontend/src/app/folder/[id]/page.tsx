@@ -10,6 +10,8 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import RichTextEditor from "@/components/RichTextEditor";
 import SmartLearningView, { normalizeSmartLearningContent } from "@/components/SmartLearningView";
+import QuizSession, { type QuizQuestion as QuizSessionQuestion } from "@/components/QuizSession";
+import FlashcardSession from "@/components/FlashcardSession";
 import { registerAiJobAbort, unregisterAiJobAbort, isAbortError } from "@/lib/aiJobAbortRegistry";
 import { getSessionId, sessionHeaders } from "@/lib/session";
 import { OVERLAY_FOLDER_KI_PANEL } from "@/constants/overlayLayout";
@@ -80,6 +82,35 @@ interface QuizQuestion {
     question: string;
     options?: string[];
     answer: string;
+    explanation?: string;
+}
+
+const AI_CREATION_TYPES = new Set([
+    "summary",
+    "repetition",
+    "elaboration",
+    "plan",
+    "quiz",
+    "flashcards",
+    "smart_learning",
+    "podcast",
+]);
+
+function isAiCreationFile(file: { type: string; name?: string }): boolean {
+    if (AI_CREATION_TYPES.has(file.type)) return true;
+    // KI-Lernvideos landen als type "video" mit typischem Namen
+    if (file.type === "video" && /lernvideo|learning.?video/i.test(file.name || "")) return true;
+    return false;
+}
+
+function partitionFolderFiles<T extends { type: string; name?: string }>(all: T[]): { materials: T[]; creations: T[] } {
+    const materials: T[] = [];
+    const creations: T[] = [];
+    for (const f of all) {
+        if (isAiCreationFile(f)) creations.push(f);
+        else materials.push(f);
+    }
+    return { materials, creations };
 }
 
 interface SubfolderRow {
@@ -199,11 +230,12 @@ const LEARNING_VIDEO_SETTINGS_KEY = "blop_study_learning_video_settings_v1";
 const PODCAST_SETTINGS_KEY = "blop_study_podcast_settings_v1";
 const OPENAI_TTS_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"] as const;
 
-/** File types that the backend includes in folder AI context (see _get_folder_context). */
+/** File types the user can opt into AI context. Default selection is pdf + transcript only. */
 const AI_CONTEXT_FILE_TYPES = new Set([
     'transcript',
     'summary',
     'repetition',
+    'elaboration',
     'plan',
     'quiz',
     'flashcards',
@@ -211,8 +243,14 @@ const AI_CONTEXT_FILE_TYPES = new Set([
     'smart_learning',
 ]);
 
+const AI_CONTEXT_SOURCE_TYPES = new Set(['pdf', 'transcript']);
+
 function isAiContextSourceFile(f: Pick<FileData, 'type'>): boolean {
     return AI_CONTEXT_FILE_TYPES.has(f.type);
+}
+
+function isDefaultAiContextFile(f: Pick<FileData, 'type'>): boolean {
+    return AI_CONTEXT_SOURCE_TYPES.has(f.type);
 }
 
 function fileTypeSupportsPromptRefine(t: string): boolean {
@@ -268,58 +306,10 @@ type DraggableFileProps = {
     onCopyFile: (file: FileData) => void;
 };
 
-// Sub-component for interactive Quiz viewing
-const QuizViewer = ({ questions }: { questions: QuizQuestion[] }) => {
-    const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string>>({});
-
-    const handleSelect = (qIndex: number, option: string) => {
-        if (selectedAnswers[qIndex]) return; // prevent changing answer after selection
-        setSelectedAnswers(prev => ({ ...prev, [qIndex]: option }));
-    };
-
-    return (
-        <div className="space-y-6 pb-12">
-            {questions.map((q: QuizQuestion, i: number) => {
-                const userSelected = selectedAnswers[i];
-                return (
-                    <div key={i} className="bg-[#151525] p-5 rounded-xl border border-[#2A2A40] shadow-md">
-                        <p className="font-medium text-white mb-4 text-lg">{i + 1}. {q.question}</p>
-                        <div className="space-y-3">
-                            {q.options?.map((opt: string, idx: number) => {
-                                const isSelected = userSelected === opt;
-                                const isCorrect = opt === q.answer;
-                                const showCorrect = userSelected && isCorrect; // Highlight correct answer once user has voted
-                                const showWrong = isSelected && !isCorrect;
-
-                                let styles = "border-[#3B3B55] hover:bg-[#1C1C33] cursor-pointer text-gray-300";
-
-                                if (userSelected) {
-                                    styles = "border-[#2A2A40] opacity-60 cursor-default"; // General disabled state
-                                    if (showCorrect) styles = "border-green-500/50 bg-green-500/10 text-green-400 font-medium opacity-100";
-                                    if (showWrong) styles = "border-red-500/50 bg-red-500/10 text-red-400 font-medium opacity-100";
-                                }
-
-                                return (
-                                    <div
-                                        key={idx}
-                                        onClick={() => handleSelect(i, opt)}
-                                        className={`p-3 rounded-lg border transition-all ${styles}`}
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <span>{opt}</span>
-                                            {showCorrect && <svg className="text-green-500" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>}
-                                            {showWrong && <svg className="text-red-500" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                );
-            })}
-        </div>
-    );
-};
+// Sub-component for interactive Quiz viewing — replaced by QuizSession
+const QuizViewer = ({ questions }: { questions: QuizQuestion[] }) => (
+    <QuizSession questions={questions as QuizSessionQuestion[]} />
+);
 
 // Subfolder Droppable Wrapper
 const DroppableSubfolder = ({ subfolder, onClick, onRename, onDelete }: { subfolder: SubfolderRow, onClick: () => void, onRename: (sf: SubfolderRow) => void, onDelete: (sf: SubfolderRow) => void }) => {
@@ -529,11 +519,56 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
     );
 };
 
+async function pollCoreAiJob(jobId: string, username: string, signal: AbortSignal): Promise<any> {
+    const pollMs = 2000;
+    const maxPolls = 450;
+    for (let i = 0; i < maxPolls; i++) {
+        if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+        await new Promise((r) => setTimeout(r, pollMs));
+        if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+        const sid = typeof window !== "undefined" ? localStorage.getItem("session_id") || "" : "";
+        const st = await fetch(
+            `/api/ai/jobs/status/${encodeURIComponent(jobId)}?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`,
+            { signal, headers: sid ? { "X-Session-Id": sid } : undefined }
+        );
+        if (!st.ok) {
+            let msg = `HTTP ${st.status}`;
+            try {
+                const err = await st.json();
+                msg = formatFastApiDetail(err.detail) || msg;
+            } catch {
+                /* ignore */
+            }
+            throw new Error(msg);
+        }
+        const j = (await st.json()) as { status?: string; detail?: string };
+        if (j.status === "done") return j;
+        if (j.status === "error") throw new Error(j.detail || "Fehler bei der Erstellung.");
+    }
+    throw new Error("Zeitüberschreitung — bitte später in den Dateien nachsehen.");
+}
+
+async function readGeneratedAiPayload(
+    res: Response,
+    username: string,
+    signal: AbortSignal
+): Promise<any | null> {
+    if (res.status === 202) {
+        const start = await res.json().catch(() => ({} as { job_id?: string }));
+        const jid = start?.job_id;
+        if (!jid) throw new Error("Keine Job-ID vom Server.");
+        return pollCoreAiJob(String(jid), username, signal);
+    }
+    if (!res.ok) return null;
+    return res.json();
+}
+
 export default function FolderPage() {
     const router = useRouter();
     const params = useParams();
     const folderId = params?.id as string;
     const [files, setFiles] = useState<FileData[]>([]);
+    const [folderName, setFolderName] = useState("");
     const [loading, setLoading] = useState(true);
     const [filesLoadError, setFilesLoadError] = useState<string | null>(null);
 
@@ -767,14 +802,12 @@ export default function FolderPage() {
     const [flashcardsCount, setFlashcardsCount] = useState(20);
     const [flashcardsMaxText, setFlashcardsMaxText] = useState(320);
 
-    // Deep-link from /folder/[id]/smart-learning "Jetzt lernen"
+    const practiceIntentRef = useRef<string | null>(null);
     useEffect(() => {
         if (typeof window === "undefined") return;
         const practice = new URLSearchParams(window.location.search).get("practice");
         if (practice !== "quiz" && practice !== "flashcards") return;
-        smartLearningPracticeBumpRef.current = true;
-        if (practice === "quiz") setIsQuizConfigOpen(true);
-        if (practice === "flashcards") setIsFlashcardsConfigOpen(true);
+        practiceIntentRef.current = practice;
         router.replace(`/folder/${folderId}`, { scroll: false });
     }, [folderId, router]);
 
@@ -1146,31 +1179,24 @@ export default function FolderPage() {
 
     const toggleAiContextFile = (fileId: string, wantChecked: boolean) => {
         const contextFiles = files.filter(isAiContextSourceFile);
-        const allIds = contextFiles.map((f) => f.id);
-        if (allIds.length === 0) return;
+        const sourceIds = contextFiles.filter(isDefaultAiContextFile).map((f) => f.id);
+        if (contextFiles.length === 0) return;
 
-        if (aiContextIncludedIds === null) {
-            if (!wantChecked) {
-                void persistAiContext(allIds.filter((id) => id !== fileId));
-            }
-            return;
-        }
-        if (wantChecked) {
-            const nu = [...new Set([...aiContextIncludedIds, fileId])];
-            if (nu.length >= allIds.length) {
-                void persistAiContext(null);
-            } else {
-                void persistAiContext(nu);
-            }
-        } else {
-            const nu = aiContextIncludedIds.filter((id) => id !== fileId);
-            void persistAiContext(nu.length === 0 ? null : nu);
-        }
+        const current = aiContextIncludedIds === null ? sourceIds : aiContextIncludedIds;
+        const next = wantChecked
+            ? [...new Set([...current, fileId])]
+            : current.filter((id) => id !== fileId);
+        const sourceSet = new Set(sourceIds);
+        const isDefault =
+            next.length === sourceIds.length &&
+            next.every((id) => sourceSet.has(id)) &&
+            sourceIds.every((id) => next.includes(id));
+        void persistAiContext(isDefault ? null : next);
     };
 
-    const isFileInAiContext = (id: string) => {
-        if (aiContextIncludedIds === null) return true;
-        return aiContextIncludedIds.includes(id);
+    const isFileInAiContext = (file: Pick<FileData, 'id' | 'type'>) => {
+        if (aiContextIncludedIds === null) return isDefaultAiContextFile(file);
+        return aiContextIncludedIds.includes(file.id);
     };
 
     const announceUsage = (data: any) => {
@@ -1193,10 +1219,13 @@ export default function FolderPage() {
                 setFilesLoadError("Bitte melde dich an, um Ordnerinhalte zu laden.");
                 return;
             }
-
-            const [filesRes, subfoldersRes] = await Promise.all([
-                fetch(`${API_BASE}/files/${folderId}?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`),
-                fetch(`${API_BASE}/folders/${folderId}/subfolders?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`),
+            const q = `username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`;
+            const [filesRes, subfoldersRes, contextRes, userRes, folderRes] = await Promise.all([
+                fetch(`${API_BASE}/files/${folderId}?${q}`),
+                fetch(`${API_BASE}/folders/${folderId}/subfolders?${q}`),
+                fetch(`${API_BASE}/folders/${folderId}/ai-context?${q}`),
+                fetch(`${API_BASE}/user/${username}?session_id=${encodeURIComponent(sid)}`),
+                fetch(`${API_BASE}/folders/${folderId}?${q}`),
             ]);
 
             if (filesRes.ok) {
@@ -1205,7 +1234,7 @@ export default function FolderPage() {
                 setFilesLoadError(`Dateien konnten nicht geladen werden (HTTP ${filesRes.status}).`);
                 if (filesRes.status >= 500) {
                     await new Promise((r) => setTimeout(r, 500));
-                    const retry = await fetch(`${API_BASE}/files/${folderId}?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`);
+                    const retry = await fetch(`${API_BASE}/files/${folderId}?${q}`);
                     if (retry.ok) {
                         setFiles(await retry.json());
                         setFilesLoadError(null);
@@ -1217,6 +1246,18 @@ export default function FolderPage() {
                 setSubfolders(await subfoldersRes.json());
             } else {
                 setSubfolders([]);
+            }
+            if (contextRes.ok) {
+                const data = await contextRes.json();
+                setAiContextIncludedIds(data.included_file_ids ?? null);
+            }
+            if (userRes.ok) {
+                const data = await userRes.json();
+                setGlobalPreferredModel(data.preferred_model || "");
+            }
+            if (folderRes.ok) {
+                const data = await folderRes.json();
+                setFolderName(typeof data.name === "string" ? data.name : "");
             }
         } catch (error) {
             console.error("Failed to fetch files:", error);
@@ -1252,8 +1293,25 @@ export default function FolderPage() {
     }, []);
 
     useEffect(() => {
+        const practice = practiceIntentRef.current;
+        if (!practice || loading) return;
+        practiceIntentRef.current = null;
+        const existing = files.find((f) => f.type === practice);
+        if (existing) {
+            void selectFileWithContent(existing);
+            return;
+        }
+        showToast(
+            practice === "quiz"
+                ? "Noch kein Quiz in diesem Ordner. Erstelle eines über Quiz."
+                : "Noch keine Karteikarten in diesem Ordner. Erstelle welche über Karteikarten."
+        );
+    }, [loading, files, selectFileWithContent]);
+
+    useEffect(() => {
         setFiles([]);
         setSubfolders([]);
+        setFolderName("");
         setFilesLoadError(null);
         setLoading(true);
     }, [folderId]);
@@ -1261,44 +1319,6 @@ export default function FolderPage() {
     useEffect(() => {
         void fetchFiles();
     }, [fetchFiles]);
-
-    const fetchAiContext = useCallback(async () => {
-        try {
-            const username = localStorage.getItem("username");
-            const sid = localStorage.getItem("session_id") || "";
-            if (!username) return;
-            const res = await fetch(
-                `/api/folders/${folderId}/ai-context?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`
-            );
-            if (res.ok) {
-                const data = await res.json();
-                setAiContextIncludedIds(data.included_file_ids ?? null);
-            }
-        } catch {
-            // ignore
-        }
-    }, [folderId]);
-
-    useEffect(() => {
-        void fetchAiContext();
-    }, [fetchAiContext]);
-
-    useEffect(() => {
-        const username = localStorage.getItem("username");
-        const sid = localStorage.getItem("session_id") || "";
-        if (!username) return;
-        const fetchModel = async () => {
-            try {
-                const res = await fetch(`${API_BASE}/user/${username}?session_id=${encodeURIComponent(sid)}`);
-                if (!res.ok) return;
-                const data = await res.json();
-                setGlobalPreferredModel(data.preferred_model || '');
-            } catch {
-                // ignore
-            }
-        };
-        void fetchModel();
-    }, []);
 
     useEffect(() => {
         setFlashcardFlipMap({});
@@ -1762,12 +1782,12 @@ export default function FolderPage() {
                 signal: ac.signal,
             });
 
-            if (res.ok) {
+            const data = await readGeneratedAiPayload(res, username || "", ac.signal);
+            if (data) {
                 ok = true;
-                const data = await res.json();
                 announceUsage(data);
                 const generated: FileData = {
-                    id: `quiz_main_${folderId}`,
+                    id: typeof data.file_id === "string" ? data.file_id : `quiz_main_${folderId}`,
                     name: 'AI Quiz',
                     type: 'quiz',
                     created_at: new Date().toISOString(),
@@ -1835,12 +1855,12 @@ export default function FolderPage() {
                 signal: acFc.signal,
             });
 
-            if (res.ok) {
+            const data = await readGeneratedAiPayload(res, username || "", acFc.signal);
+            if (data) {
                 ok = true;
-                const data = await res.json();
                 announceUsage(data);
                 const generated: FileData = {
-                    id: `cards_main_${folderId}`,
+                    id: typeof data.file_id === "string" ? data.file_id : `cards_main_${folderId}`,
                     name: 'Generierte Karteikarten',
                     type: 'flashcards',
                     created_at: new Date().toISOString(),
@@ -1906,12 +1926,12 @@ export default function FolderPage() {
                     learning_mode: learningMode
             }, acSum.signal));
 
-            if (res.ok) {
+            const data = await readGeneratedAiPayload(res, username || "", acSum.signal);
+            if (data && typeof data.summary === "string") {
                 ok = true;
-                const data = await res.json();
                 announceUsage(data);
                 setSelectedFile({
-                    id: `summary_${Date.now()}`, // Temporary ID for immediate viewing
+                    id: typeof data.file_id === "string" ? data.file_id : `summary_main_${folderId}`,
                     name: 'Automatische Zusammenfassung',
                     type: 'summary',
                     created_at: new Date().toISOString(),
@@ -2499,10 +2519,10 @@ export default function FolderPage() {
                 signal: acPlan.signal,
             });
 
-            if (res.ok) {
-                const data = await res.json();
+            const data = await readGeneratedAiPayload(res, username || "", acPlan.signal);
+            if (data) {
                 announceUsage(data);
-                if (data.plan && data.plan.length > 0) {
+                if (data.plan && Array.isArray(data.plan) && data.plan.length > 0) {
                     ok = true;
                     setSelectedFile({
                         id: 'plan_main',
@@ -2573,8 +2593,8 @@ export default function FolderPage() {
                 signal: ac.signal,
             });
 
-            if (res.ok) {
-                const data = await res.json();
+            const data = await readGeneratedAiPayload(res, username || "", ac.signal);
+            if (data) {
                 announceUsage(data);
                 const journey = normalizeSmartLearningContent(
                     data.smart_learning || data.file?.content,
@@ -2663,6 +2683,7 @@ export default function FolderPage() {
                         username,
                         folder_id: folderId,
                         completed_chapter_ids: journey.progress?.completed_chapter_ids || [],
+                        completed_lesson_ids: journey.progress?.completed_lesson_ids || [],
                         practice_sessions: nextSessions,
                     }),
                 }
@@ -4087,124 +4108,23 @@ export default function FolderPage() {
         if (file.type === 'flashcards') {
             const cardRows = normalizeFlashcards(file.content);
             if (cardRows.length === 0) return <p>Fehlerhaftes oder leeres Karteikarten-Format.</p>;
-            const currentLearnIndex = learnQueue.length > 0 ? learnQueue[0] : null;
-            const currentLearnCard = currentLearnIndex !== null ? cardRows[currentLearnIndex] : null;
             return (
-                <div className="flex flex-col h-full">
-                    <div className="flex flex-wrap gap-2 justify-between mb-4">
-                        <div className="text-xs text-gray-400 flex items-center">
-                            Gesamtübersicht: {cardRows.length} Karte{cardRows.length === 1 ? '' : 'n'}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <button
-                                onClick={() => startLearnMode(cardRows)}
-                                className="bg-[#151525] hover:bg-[#1C1C33] border border-[#3B3B55] text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
-                            >
-                                <Shuffle size={16} />
-                                Lernmodus starten
-                            </button>
-                            <button
-                                onClick={() => exportFlashcardsToCsv(file.name, cardRows)}
-                                className="bg-[#151525] hover:bg-[#1C1C33] border border-[#3B3B55] text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
-                            >
-                                <Download size={16} />
-                                Export to Anki (CSV)
-                            </button>
-                        </div>
-                    </div>
-
-                    {isLearnModeActive && (
-                        <div className="mb-5 border border-[#3B3B55] bg-[#111122] rounded-xl p-4">
-                            <div className="flex items-center justify-between mb-3">
-                                <h4 className="text-white font-semibold">Lernmodus (zufällig + Wiederholung)</h4>
-                                <button
-                                    onClick={() => setIsLearnModeActive(false)}
-                                    className="text-xs text-gray-300 hover:text-white px-2 py-1 rounded-lg hover:bg-[#1C1C33]"
-                                >
-                                    Beenden
-                                </button>
-                            </div>
-                            <p className="text-xs text-gray-400 mb-4">Bewertung steuert die Wiederholung: schwer kommt früher wieder, mittel normal, leicht verschwindet schneller.</p>
-                            {currentLearnCard ? (
-                                <div className="space-y-3">
-                                    <div className="bg-[#151525] border border-[#2A2A40] rounded-xl p-4">
-                                        <p className="text-xs text-gray-400 mb-1">Vorderseite</p>
-                                        <p className="text-white whitespace-pre-wrap">{currentLearnCard.front}</p>
-                                    </div>
-                                    <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-xl p-4">
-                                        <p className="text-xs text-gray-400 mb-1">Rückseite</p>
-                                        <p className="text-gray-300 whitespace-pre-wrap">{currentLearnCard.back}</p>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        <button onClick={() => { if (currentLearnIndex !== null) applyLearnRating(currentLearnIndex, 'leicht'); }} className="px-3 py-2 rounded-lg text-sm bg-green-500/20 border border-green-500/40 text-green-300 hover:bg-green-500/30">Leicht</button>
-                                        <button onClick={() => { if (currentLearnIndex !== null) applyLearnRating(currentLearnIndex, 'mittel'); }} className="px-3 py-2 rounded-lg text-sm bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30">Mittel</button>
-                                        <button onClick={() => { if (currentLearnIndex !== null) applyLearnRating(currentLearnIndex, 'schwer'); }} className="px-3 py-2 rounded-lg text-sm bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30">Schwer</button>
-                                    </div>
-                                    <p className="text-xs text-gray-500">Bewertungen: {learnProgress} · Verbleibend in Queue: {learnQueue.length}</p>
-                                </div>
-                            ) : (
-                                <div className="bg-[#151525] border border-[#2A2A40] rounded-xl p-4 text-sm text-gray-300">
-                                    Session beendet. Alle Karten haben aktuell genug Fortschritt.
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-12">
-                        {cardRows.map((c: FlashcardRow, i: number) => {
-                            const isFlipped = !!flashcardFlipMap[i];
-                            return (
-                                <div key={i} className="group relative">
-                                    <div className="absolute top-3 left-3 z-10 text-xs px-2 py-1 rounded-md bg-black/45 text-gray-300">
-                                        Karte {i + 1}
-                                    </div>
-                                    <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setEditFlashcardIndex(i);
-                                                setEditFlashcardFront(c.front);
-                                                setEditFlashcardBack(c.back);
-                                                setIsEditFlashcardOpen(true);
-                                            }}
-                                            className="p-1.5 bg-black/40 hover:bg-black/80 rounded-lg text-gray-300 hover:text-white transition-colors backdrop-blur-sm"
-                                            title="Karte bearbeiten"
-                                        >
-                                            <Edit size={16} />
-                                        </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setFullscreenCard(c);
-                                                setIsFullscreenCardFlipped(false);
-                                            }}
-                                            className="p-1.5 bg-black/40 hover:bg-black/80 rounded-lg text-gray-300 hover:text-white transition-colors backdrop-blur-sm"
-                                            title="Vollbild"
-                                        >
-                                            <Maximize2 size={16} />
-                                        </button>
-                                    </div>
-                                    <div
-                                        className="h-48 w-full [perspective:1000px] cursor-pointer"
-                                        onClick={() => {
-                                            setFlashcardFlipMap((prev) => ({ ...prev, [i]: !prev[i] }));
-                                        }}
-                                    >
-                                        <div className={`w-full h-full transition-all duration-500 [transform-style:preserve-3d] relative rounded-xl shadow-lg border border-[#2A2A40] bg-[#151525] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
-                                            <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] flex flex-col items-center justify-center p-6 pb-8 text-center text-white font-medium text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
-                                                {c.front}
-                                                <div className="absolute bottom-3 right-3 text-xs text-gray-500 flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg> Klick zum Drehen</div>
-                                            </div>
-                                            <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col items-center justify-center p-6 pb-8 text-center text-gray-300 bg-[#0B0B1A] text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
-                                                {c.back}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
+                <FlashcardSession
+                    cards={cardRows}
+                    onExportCsv={() => exportFlashcardsToCsv(file.name, cardRows)}
+                    onEditCard={(i) => {
+                        const c = cardRows[i];
+                        if (!c) return;
+                        setEditFlashcardIndex(i);
+                        setEditFlashcardFront(c.front);
+                        setEditFlashcardBack(c.back);
+                        setIsEditFlashcardOpen(true);
+                    }}
+                    onFullscreen={(c) => {
+                        setFullscreenCard(c);
+                        setIsFullscreenCardFlipped(false);
+                    }}
+                />
             );
         }
         if (file.type === 'repetition') {
@@ -4264,16 +4184,19 @@ export default function FolderPage() {
                     <div className="flex items-center gap-4">
                         <button onClick={() => router.back()} className="p-2 hover:bg-[#1C1C33] rounded-xl text-gray-400 hover:text-white transition-colors"><ArrowLeft size={22} /></button>
                         <div>
-                            <h1 className="text-2xl font-bold text-white">Ordner Details</h1>
-                            <p className="text-sm text-gray-400">ID: {folderId}</p>
+                            <h1 className="text-2xl font-bold text-white">{folderName || "Ordner"}</h1>
+                            <p className="text-sm text-gray-400">
+                                {files.length} {files.length === 1 ? "Datei" : "Dateien"}
+                            </p>
                         </div>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
                         {/* AI Actions */}
-                        <div className="flex gap-2 mr-2 border-r border-[#2A2A40] pr-4">
-                            <button onClick={() => handleGenerate('plan')} disabled={isGenerating.includes('plan')} className="p-2.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernplan erstellen">
-                                {isGenerating.includes('plan') ? <Loader2 size={20} className="animate-spin" /> : <BrainCircuit size={20} />}
+                        <div className="flex flex-wrap gap-2 mr-2 border-r border-[#2A2A40] pr-4">
+                            <button onClick={() => handleGenerate('plan')} disabled={isGenerating.includes('plan')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Lernplan erstellen">
+                                {isGenerating.includes('plan') ? <Loader2 size={16} className="animate-spin" /> : <BrainCircuit size={16} />}
+                                Lernplan
                             </button>
                             <button
                                 type="button"
@@ -4286,31 +4209,39 @@ export default function FolderPage() {
                                     setIsSmartLearningConfigOpen(true);
                                 }}
                                 disabled={isGenerating.includes('smart-learning')}
-                                className="p-2.5 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 rounded-xl transition-all disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium"
                                 title="Smart Learning"
                             >
-                                {isGenerating.includes('smart-learning') ? <Loader2 size={20} className="animate-spin" /> : <Sparkles size={20} />}
+                                {isGenerating.includes('smart-learning') ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                                Lernen
                             </button>
-                            <button onClick={() => handleGenerate('quiz')} disabled={isGenerating.includes('quiz')} className="p-2.5 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50" title="Quiz erstellen">
-                                {isGenerating.includes('quiz') ? <Loader2 size={20} className="animate-spin" /> : <HelpCircle size={20} />}
+                            <button onClick={() => handleGenerate('quiz')} disabled={isGenerating.includes('quiz')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Quiz erstellen">
+                                {isGenerating.includes('quiz') ? <Loader2 size={16} className="animate-spin" /> : <HelpCircle size={16} />}
+                                Quiz
                             </button>
-                            <button onClick={() => handleGenerate('flashcards')} disabled={isGenerating.includes('flashcards')} className="p-2.5 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-xl transition-all disabled:opacity-50" title="Karteikarten erstellen">
-                                {isGenerating.includes('flashcards') ? <Loader2 size={20} className="animate-spin" /> : <Layers size={20} />}
+                            <button onClick={() => handleGenerate('flashcards')} disabled={isGenerating.includes('flashcards')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Karteikarten erstellen">
+                                {isGenerating.includes('flashcards') ? <Loader2 size={16} className="animate-spin" /> : <Layers size={16} />}
+                                Karten
                             </button>
-                            <button onClick={() => handleGenerate('summary')} disabled={isGenerating.includes('summary')} className="p-2.5 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50" title="Zusammenfassung erstellen">
-                                {isGenerating.includes('summary') ? <Loader2 size={20} className="animate-spin" /> : <FileOutput size={20} />}
+                            <button onClick={() => handleGenerate('summary')} disabled={isGenerating.includes('summary')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Zusammenfassung erstellen">
+                                {isGenerating.includes('summary') ? <Loader2 size={16} className="animate-spin" /> : <FileOutput size={16} />}
+                                Zusammenfassung
                             </button>
-                            <button onClick={() => handleGenerate('elaboration')} disabled={isGenerating.includes('elaboration')} className="p-2.5 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50" title="Ausarbeitung erstellen">
-                                {isGenerating.includes('elaboration') ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
+                            <button onClick={() => handleGenerate('elaboration')} disabled={isGenerating.includes('elaboration')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Ausarbeitung erstellen">
+                                {isGenerating.includes('elaboration') ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                                Ausarbeitung
                             </button>
-                            <button onClick={() => handleGenerate('repetition')} disabled={isGenerating.includes('repetition')} className="p-2.5 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50" title="Wiederholung erstellen">
-                                {isGenerating.includes('repetition') ? <Loader2 size={20} className="animate-spin" /> : <Repeat size={20} />}
+                            <button onClick={() => handleGenerate('repetition')} disabled={isGenerating.includes('repetition')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Wiederholung erstellen">
+                                {isGenerating.includes('repetition') ? <Loader2 size={16} className="animate-spin" /> : <Repeat size={16} />}
+                                Wiederholung
                             </button>
-                            <button type="button" onClick={() => setIsPodcastConfigOpen(true)} disabled={isGenerating.includes('podcast')} className="p-2.5 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 rounded-xl transition-all disabled:opacity-50" title="Podcast (Einstellungen & TTS)">
-                                {isGenerating.includes('podcast') ? <Loader2 size={20} className="animate-spin" /> : <Mic size={20} />}
+                            <button type="button" onClick={() => setIsPodcastConfigOpen(true)} disabled={isGenerating.includes('podcast')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Podcast (Einstellungen & TTS)">
+                                {isGenerating.includes('podcast') ? <Loader2 size={16} className="animate-spin" /> : <Mic size={16} />}
+                                Podcast
                             </button>
-                            <button type="button" onClick={() => setIsLearningVideoConfigOpen(true)} disabled={isGenerating.includes('learning-video')} className="p-2.5 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernvideo (Einstellungen & KI)">
-                                {isGenerating.includes('learning-video') ? <Loader2 size={20} className="animate-spin" /> : <Video size={20} />}
+                            <button type="button" onClick={() => setIsLearningVideoConfigOpen(true)} disabled={isGenerating.includes('learning-video')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Lernvideo (Einstellungen & KI)">
+                                {isGenerating.includes('learning-video') ? <Loader2 size={16} className="animate-spin" /> : <Video size={16} />}
+                                Video
                             </button>
                         </div>
 
@@ -4396,7 +4327,7 @@ export default function FolderPage() {
                                         <div>
                                             <h3 className="text-sm font-semibold text-white">Material für KI</h3>
                                             <p className="text-xs text-gray-500 mt-0.5">
-                                                Nur angehakte Dateien fließen in Quiz, Plan, Podcast, Lernvideo &amp; Co. ein. Standard: alle.
+                                                Standard: PDFs und Transkripte. Erstellungen nur, wenn du sie anhakst.
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-2">
@@ -4406,7 +4337,7 @@ export default function FolderPage() {
                                                 onClick={() => void persistAiContext(null)}
                                                 className="text-xs px-3 py-1.5 rounded-lg bg-[#1C1C33] border border-[#2A2A40] text-gray-300 hover:text-white"
                                             >
-                                                Alle nutzen
+                                                Nur Quellen
                                             </button>
                                         </div>
                                     </div>
@@ -4416,7 +4347,7 @@ export default function FolderPage() {
                                                 <input
                                                     type="checkbox"
                                                     className="mt-1 rounded border-[#2A2A40] bg-[#0B0B1A]"
-                                                    checked={isFileInAiContext(f.id)}
+                                                    checked={isFileInAiContext(f)}
                                                     onChange={(e) => toggleAiContextFile(f.id, e.target.checked)}
                                                 />
                                                 <span className="text-gray-300 truncate flex-1" title={f.name}>
@@ -4484,7 +4415,7 @@ export default function FolderPage() {
                                 <div className="h-px bg-[#1C1C33]" />
                             )}
 
-                            {/* Files */}
+                            {/* Files: Materialien vs Erstellungen */}
                             {files.length === 0 && !filesLoadError ? (
                                 <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-16 text-center border-dashed">
                                     <div className="flex justify-center mb-6">
@@ -4499,26 +4430,49 @@ export default function FolderPage() {
                                     <button onClick={() => setIsUploadOpen(true)} className="inline-flex items-center gap-2 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all"><Plus size={18} /><span>Material hinzufügen</span></button>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-1 gap-3">
-                                    <AnimatePresence mode="popLayout">
-                                        {files.map((file) => (
-                                            <DraggableFile
-                                                key={file.id}
-                                                file={file}
-                                                icon={getFileIcon(file.type)}
-                                                openMenuFileId={openMenuFileId}
-                                                setOpenMenuFileId={setOpenMenuFileId}
-                                                setSelectedFile={selectFileWithContent}
-                                                setFileToRename={setFileToRename}
-                                                setRenameFileValue={setRenameFileValue}
-                                                setIsRenameFileOpen={setIsRenameFileOpen}
-                                                handleDelete={handleDeleteFile}
-                                                onRefineFile={handleRefineFile}
-                                                onOpenShareOverlay={openShareOverlay}
-                                                onCopyFile={handleCopyFile}
-                                            />
-                                        ))}
-                                    </AnimatePresence>
+                                <div className="space-y-8">
+                                    {(() => {
+                                        const { materials, creations } = partitionFolderFiles(files);
+                                        const renderSection = (title: string, list: typeof files, emptyHint: string) => (
+                                            <div className="space-y-3">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <h3 className="text-sm font-semibold text-gray-300 tracking-wide">{title}</h3>
+                                                    <span className="text-xs text-gray-500">{list.length}</span>
+                                                </div>
+                                                {list.length === 0 ? (
+                                                    <p className="text-xs text-gray-600 italic px-1">{emptyHint}</p>
+                                                ) : (
+                                                    <div className="grid grid-cols-1 gap-3">
+                                                        <AnimatePresence mode="popLayout">
+                                                            {list.map((file) => (
+                                                                <DraggableFile
+                                                                    key={file.id}
+                                                                    file={file}
+                                                                    icon={getFileIcon(file.type)}
+                                                                    openMenuFileId={openMenuFileId}
+                                                                    setOpenMenuFileId={setOpenMenuFileId}
+                                                                    setSelectedFile={selectFileWithContent}
+                                                                    setFileToRename={setFileToRename}
+                                                                    setRenameFileValue={setRenameFileValue}
+                                                                    setIsRenameFileOpen={setIsRenameFileOpen}
+                                                                    handleDelete={handleDeleteFile}
+                                                                    onRefineFile={handleRefineFile}
+                                                                    onOpenShareOverlay={openShareOverlay}
+                                                                    onCopyFile={handleCopyFile}
+                                                                />
+                                                            ))}
+                                                        </AnimatePresence>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                        return (
+                                            <>
+                                                {renderSection('Materialien', materials, 'Noch kein Material — PDFs, Transkripte oder Audio hochladen.')}
+                                                {renderSection('Erstellungen', creations, 'Noch keine Erstellungen — Quiz, Zusammenfassung oder Smart Learning erzeugen.')}
+                                            </>
+                                        );
+                                    })()}
                                 </div>
                             )}
                         </div>

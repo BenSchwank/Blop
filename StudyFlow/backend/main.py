@@ -161,6 +161,98 @@ def _elaboration_job_fail(job_id: str, detail: str) -> None:
         DataManager.save_background_job(job_id, "elaboration", uname, "error", detail=detail)
 
 
+_CORE_AI_JOBS: dict = {}
+_CORE_AI_JOBS_LOCK = threading.Lock()
+_CORE_AI_JOB_MAX = 256
+_CORE_AI_JOB_TYPES = ("quiz", "flashcards", "summary", "plan", "smart_learning")
+
+
+def _core_ai_prune_locked() -> None:
+    if len(_CORE_AI_JOBS) < _CORE_AI_JOB_MAX:
+        return
+    finished = [
+        (jid, j.get("created_at", 0))
+        for jid, j in _CORE_AI_JOBS.items()
+        if j.get("status") in ("done", "error")
+    ]
+    finished.sort(key=lambda x: x[1])
+    for jid, _ in finished[: max(32, len(finished) // 2)]:
+        _CORE_AI_JOBS.pop(jid, None)
+
+
+def _core_ai_fail(job_id: str, job_type: str, detail: str) -> None:
+    uname: Optional[str] = None
+    with _CORE_AI_JOBS_LOCK:
+        if job_id in _CORE_AI_JOBS:
+            j = _CORE_AI_JOBS[job_id]
+            uname = j.get("username")
+            j["status"] = "error"
+            j["detail"] = detail
+            j["finished_at"] = time.time()
+    if uname:
+        DataManager.save_background_job(job_id, job_type, uname, "error", detail=detail)
+
+
+def _spawn_core_ai_job(job_type: str, username: str, fn):
+    """Run fn() off the request thread. fn returns a JSON-serializable dict or raises."""
+    job_id = str(uuid.uuid4())
+    with _CORE_AI_JOBS_LOCK:
+        _core_ai_prune_locked()
+        _CORE_AI_JOBS[job_id] = {
+            "status": "pending",
+            "username": username,
+            "job_type": job_type,
+            "created_at": time.time(),
+        }
+    DataManager.save_background_job(job_id, job_type, username, "pending")
+
+    def _run() -> None:
+        try:
+            payload = fn()
+            if not isinstance(payload, dict):
+                payload = {"status": "success"}
+            with _CORE_AI_JOBS_LOCK:
+                job = _CORE_AI_JOBS.get(job_id)
+                if job is not None:
+                    job.update({"status": "done", "finished_at": time.time(), "result": payload})
+            DataManager.save_background_job(job_id, job_type, username, "done", result=payload)
+        except HTTPException as e:
+            _core_ai_fail(job_id, job_type, ai_detail_to_string(e.detail, username=username))
+        except Exception as e:
+            print(f"{job_type} job error: {e}")
+            _core_ai_fail(job_id, job_type, sanitize_ai_provider_detail(e, username=username))
+
+    threading.Thread(target=_run, daemon=True).start()
+    return JSONResponse(status_code=202, content={"status": "accepted", "job_id": job_id})
+
+
+@app.get("/api/ai/jobs/status/{job_id}")
+def core_ai_job_status(job_id: str, username: str):
+    row = DataManager.get_background_job(job_id, username)
+    with _CORE_AI_JOBS_LOCK:
+        job = _CORE_AI_JOBS.get(job_id)
+    if job and job.get("username") == username and job.get("job_type") in _CORE_AI_JOB_TYPES:
+        status = job.get("status")
+        if status == "error":
+            return {"status": "error", "detail": job.get("detail") or "Unbekannter Fehler."}
+        if status == "done":
+            result = job.get("result") if isinstance(job.get("result"), dict) else {}
+            payload = {k: v for k, v in result.items() if k != "status"}
+            return {"status": "done", **payload}
+        return {"status": "pending"}
+    if row and row.get("job_type") in _CORE_AI_JOB_TYPES:
+        st = row.get("status")
+        if st == "error":
+            return {"status": "error", "detail": row.get("detail") or "Unbekannter Fehler."}
+        if st == "done":
+            result = row.get("result") if isinstance(row.get("result"), dict) else {}
+            payload = {k: v for k, v in result.items() if k != "status"}
+            return {"status": "done", **payload}
+        if st == "pending":
+            return {"status": "pending"}
+    raise HTTPException(status_code=404, detail="Unbekannter oder abgelaufener Auftrag.")
+
+
 def _elaboration_job_worker(
     job_id: str,
     username: str,
@@ -1510,6 +1602,15 @@ def get_folders(http_request: Request, username: str = "", session_id: str = "")
     user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     return DataManager.list_root_folders(user)
 
+@app.get("/api/folders/{folder_id}")
+def get_folder_meta(http_request: Request, folder_id: str, username: str = "", session_id: str = ""):
+    """Folder display name for the header."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    name = DataManager.get_folder_name(user, folder_id)
+    if not name:
+        raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
+    return {"id": folder_id, "name": name}
+
 @app.delete("/api/folders/{folder_id}")
 def delete_folder(http_request: Request, folder_id: str, username: str = "", session_id: str = ""):
     """Deletes a folder."""
@@ -1546,7 +1647,7 @@ class FolderAiContextRequest(BaseModel):
 
 @app.get("/api/folders/{folder_id}/ai-context")
 def get_folder_ai_context(http_request: Request, folder_id: str, username: str = "", session_id: str = ""):
-    """Returns which file IDs are included for AI; null means all files."""
+    """Returns which file IDs are included for AI; null means source materials only (pdf, transcript)."""
     user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     ids = DataManager.get_ai_context_file_ids(user, folder_id)
     return {"included_file_ids": ids}
@@ -2582,6 +2683,7 @@ class SmartLearningProgressRequest(BaseModel):
     username: str
     folder_id: str
     completed_chapter_ids: Optional[List[str]] = None
+    completed_lesson_ids: Optional[List[str]] = None
     practice_sessions: Optional[int] = None
     readiness: Optional[int] = None
 
@@ -2749,13 +2851,13 @@ def recognize_math_ink(request: MathInkRecognizeRequest):
 
 
 @app.post("/api/ai/plan")
-def create_study_plan(request: PlanRequest, background_tasks: BackgroundTasks):
+def create_study_plan(request: PlanRequest):
     """Generates a study plan from folder contents."""
-    from ai_service import AIService
+    SubscriptionManager.ensure_feature(request.username, "plan")
+    ensure_minimum_tokens(request.username, 2)
 
-    try:
-        SubscriptionManager.ensure_feature(request.username, "plan")
-        ensure_minimum_tokens(request.username, 2)
+    def work():
+        from ai_service import AIService
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
         
@@ -2780,7 +2882,7 @@ def create_study_plan(request: PlanRequest, background_tasks: BackgroundTasks):
         
         # Save Plan
         DataManager.save_plan(plan, request.username, request.folder_id)
-        background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Lernplan")
+        try_notify_document_ready(request.username, request.folder_id, "Lernplan")
         charge = deduct_tokens_by_usage(
             request.username,
             "plan",
@@ -2794,22 +2896,18 @@ def create_study_plan(request: PlanRequest, background_tasks: BackgroundTasks):
             "usage": plan_result.get("usage", {}),
             **charge,
         }
-    
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions as-is
-    except Exception as e:
-        print(f"Plan generation error: {e}")
-        raise_for_ai_provider_error(e, prefix="Lernplan-Fehler", username=getattr(request, "username", None))
+
+    return _spawn_core_ai_job("plan", request.username, work)
 
 
 @app.post("/api/ai/smart-learning")
-def create_smart_learning(request: SmartLearningRequest, background_tasks: BackgroundTasks):
+def create_smart_learning(request: SmartLearningRequest):
     """Generates a Smart Learning journey (chapters + readiness shell) from folder contents."""
-    from ai_service import AIService
+    SubscriptionManager.ensure_feature(request.username, "smart_learning")
+    ensure_minimum_tokens(request.username, 2)
 
-    try:
-        SubscriptionManager.ensure_feature(request.username, "smart_learning")
-        ensure_minimum_tokens(request.username, 2)
+    def work():
+        from ai_service import AIService
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
 
@@ -2843,20 +2941,34 @@ def create_smart_learning(request: SmartLearningRequest, background_tasks: Backg
                 old_completed = old_progress.get("completed_chapter_ids") or []
                 if not isinstance(old_completed, list):
                     old_completed = []
+                old_lessons = old_progress.get("completed_lesson_ids") or []
+                if not isinstance(old_lessons, list):
+                    old_lessons = []
                 new_ids = {
                     str(ch.get("id"))
                     for ch in (journey.get("chapters") or [])
                     if isinstance(ch, dict) and ch.get("id")
                 }
+                new_lesson_ids = set()
+                for ch in (journey.get("chapters") or []):
+                    if not isinstance(ch, dict):
+                        continue
+                    for les in (ch.get("lessons") or []):
+                        if isinstance(les, dict) and les.get("id"):
+                            new_lesson_ids.add(str(les["id"]))
                 kept = [str(x) for x in old_completed if str(x) in new_ids]
+                kept_lessons = [str(x) for x in old_lessons if str(x) in new_lesson_ids]
                 sessions = max(0, int(old_progress.get("practice_sessions") or 0))
-                chapter_count = len(journey.get("chapters") or []) if isinstance(journey.get("chapters"), list) else 0
                 readiness = 0
-                if chapter_count > 0:
-                    readiness = int(round(100.0 * len(set(kept)) / chapter_count))
+                if new_lesson_ids:
+                    readiness = int(round(100.0 * len(set(kept_lessons)) / max(len(new_lesson_ids), 1)))
+                    readiness = min(100, readiness + min(15, sessions * 3))
+                elif len(new_ids) > 0:
+                    readiness = int(round(100.0 * len(set(kept)) / len(new_ids)))
                     readiness = min(100, readiness + min(20, sessions * 5))
                 journey["progress"] = {
                     "completed_chapter_ids": list(dict.fromkeys(kept)),
+                    "completed_lesson_ids": list(dict.fromkeys(kept_lessons)),
                     "practice_sessions": sessions,
                 }
                 journey["readiness"] = readiness
@@ -2873,7 +2985,7 @@ def create_smart_learning(request: SmartLearningRequest, background_tasks: Backg
             request.username,
             request.folder_id,
         )
-        background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Smart Learning")
+        try_notify_document_ready(request.username, request.folder_id, "Smart Learning")
         charge = deduct_tokens_by_usage(
             request.username,
             "smart_learning",
@@ -2893,11 +3005,8 @@ def create_smart_learning(request: SmartLearningRequest, background_tasks: Backg
             "usage": result.get("usage", {}),
             **charge,
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Smart Learning generation error: {e}")
-        raise_for_ai_provider_error(e, prefix="Smart-Learning-Fehler", username=getattr(request, "username", None))
+
+    return _spawn_core_ai_job("smart_learning", request.username, work)
 
 
 @app.patch("/api/ai/smart-learning/progress")
@@ -2929,6 +3038,8 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
     progress = content.get("progress") if isinstance(content.get("progress"), dict) else {}
     if body.completed_chapter_ids is not None:
         progress["completed_chapter_ids"] = [str(x) for x in body.completed_chapter_ids]
+    if body.completed_lesson_ids is not None:
+        progress["completed_lesson_ids"] = [str(x) for x in body.completed_lesson_ids]
     if body.practice_sessions is not None:
         progress["practice_sessions"] = max(0, int(body.practice_sessions))
 
@@ -2936,9 +3047,25 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
     completed = progress.get("completed_chapter_ids") or []
     if not isinstance(completed, list):
         completed = []
+    completed_lessons = progress.get("completed_lesson_ids") or []
+    if not isinstance(completed_lessons, list):
+        completed_lessons = []
+
+    lesson_ids = []
+    for ch in (content.get("chapters") or []):
+        if not isinstance(ch, dict):
+            continue
+        for les in (ch.get("lessons") or []):
+            if isinstance(les, dict) and les.get("id"):
+                lesson_ids.append(str(les["id"]))
 
     if body.readiness is not None:
         readiness = max(0, min(100, int(body.readiness)))
+    elif lesson_ids:
+        done = len(set(str(x) for x in completed_lessons) & set(lesson_ids))
+        readiness = int(round(100.0 * done / len(lesson_ids)))
+        sessions = int(progress.get("practice_sessions") or 0)
+        readiness = min(100, readiness + min(15, sessions * 3))
     elif chapter_count > 0:
         readiness = int(round(100.0 * len(set(completed)) / chapter_count))
         sessions = int(progress.get("practice_sessions") or 0)
@@ -2948,6 +3075,7 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
 
     content["progress"] = {
         "completed_chapter_ids": list(dict.fromkeys(completed)),
+        "completed_lesson_ids": list(dict.fromkeys([str(x) for x in completed_lessons])),
         "practice_sessions": int(progress.get("practice_sessions") or 0),
     }
     content["readiness"] = readiness
@@ -3016,6 +3144,9 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
         debug_log.append(f"ListFiles Error: {str(e)}")
         return [], debug_log
 
+    # Default (no saved selection): source materials only. Creations are included
+    # only when the user explicitly checks them in "Material für KI".
+    SOURCE_TYPES = ("pdf", "transcript")
     ids_filter = included_file_ids
     if ids_filter is None:
         ids_filter = DataManager.get_ai_context_file_ids(username, folder_id)
@@ -3024,7 +3155,8 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
         files = [f for f in files if f.get("id") in idset]
         debug_log.append(f"Filtered to {len(files)} files by ai_context_file_ids")
     else:
-        debug_log.append("Using all files (no ai_context filter)")
+        files = [f for f in files if f.get("type") in SOURCE_TYPES]
+        debug_log.append("Using source materials only (pdf, transcript)")
 
     TEXT_TYPES = (
         "transcript",
@@ -3107,12 +3239,12 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
     return content_parts, debug_log
 
 @app.post("/api/ai/quiz")
-def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
-    from ai_service import AIService
-    from datetime import datetime
-    try:
-        SubscriptionManager.ensure_feature(request.username, "quiz")
-        ensure_minimum_tokens(request.username, 1)
+def create_quiz(request: GenRequest):
+    SubscriptionManager.ensure_feature(request.username, "quiz")
+    ensure_minimum_tokens(request.username, 1)
+
+    def work():
+        from ai_service import AIService
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
@@ -3130,11 +3262,16 @@ def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
             return_meta=True,
         )
         quiz = quiz_result["data"]
-        file_id = f"quiz_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}"
-        quiz_name = DataManager.unique_file_name("AI Quiz", request.username, request.folder_id)
-        DataManager.save_file_metadata({
-            "id": file_id, "name": quiz_name, "type": "quiz", "content": quiz, "created_at": datetime.now().isoformat()
-        }, request.username, request.folder_id)
+        file_id = f"quiz_main_{request.folder_id}"
+        DataManager.upsert_canonical_artifact(
+            request.username,
+            request.folder_id,
+            file_id,
+            "AI Quiz",
+            "quiz",
+            quiz,
+            ("quiz_",),
+        )
         charge = deduct_tokens_by_usage(
             request.username,
             "quiz",
@@ -3144,23 +3281,21 @@ def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
         return {
             "status": "success",
             "quiz": quiz,
+            "file_id": file_id,
             "used_model": quiz_result.get("used_model", model_pref or ""),
             "usage": quiz_result.get("usage", {}),
             **charge,
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Quiz error: {e}")
-        raise_for_ai_provider_error(e, prefix="Quiz-Fehler", username=getattr(request, "username", None))
+
+    return _spawn_core_ai_job("quiz", request.username, work)
 
 @app.post("/api/ai/flashcards")
-def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
-    from ai_service import AIService
-    from datetime import datetime
-    try:
-        SubscriptionManager.ensure_feature(request.username, "flashcards")
-        ensure_minimum_tokens(request.username, 1)
+def create_flashcards(request: GenRequest):
+    SubscriptionManager.ensure_feature(request.username, "flashcards")
+    ensure_minimum_tokens(request.username, 1)
+
+    def work():
+        from ai_service import AIService
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
@@ -3176,15 +3311,17 @@ def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
             return_meta=True,
         )
         cards = cards_result["data"]
-        cards_name = DataManager.unique_file_name("Generierte Karteikarten", request.username, request.folder_id)
-        DataManager.save_file_metadata({
-            "id": f"cards_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}",
-            "name": cards_name,
-            "type": "flashcards",
-            "content": cards,
-            "created_at": datetime.now().isoformat()
-        }, request.username, request.folder_id)
-        background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Karteikarten")
+        file_id = f"cards_main_{request.folder_id}"
+        DataManager.upsert_canonical_artifact(
+            request.username,
+            request.folder_id,
+            file_id,
+            "Generierte Karteikarten",
+            "flashcards",
+            cards,
+            ("cards_",),
+        )
+        try_notify_document_ready(request.username, request.folder_id, "Karteikarten")
         charge = deduct_tokens_by_usage(
             request.username,
             "flashcards",
@@ -3194,43 +3331,40 @@ def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
         return {
             "status": "success",
             "flashcards": cards,
+            "file_id": file_id,
             "used_model": cards_result.get("used_model", model_pref or ""),
             "usage": cards_result.get("usage", {}),
             **charge,
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Flashcards error: {e}")
-        raise_for_ai_provider_error(e, prefix="Karteikarten-Fehler", username=getattr(request, "username", None))
+
+    return _spawn_core_ai_job("flashcards", request.username, work)
 
 @app.post("/api/ai/summary")
 def create_summary(
     http_request: Request,
     request: SummaryRequest,
-    background_tasks: BackgroundTasks,
     session_id: str = "",
 ):
-    from ai_service import AIService
-    try:
-        sid = (
-            (session_id or "").strip()
-            or (http_request.headers.get("X-Session-Id") or "").strip()
-            or (http_request.query_params.get("session_id") or "").strip()
+    sid = (
+        (session_id or "").strip()
+        or (http_request.headers.get("X-Session-Id") or "").strip()
+        or (http_request.query_params.get("session_id") or "").strip()
+    )
+    if sid:
+        user = require_session_user(
+            http_request,
+            session_id=sid,
+            username=request.username or None,
         )
-        if sid:
-            user = require_session_user(
-                http_request,
-                session_id=sid,
-                username=request.username or None,
-            )
-        else:
-            # Legacy clients without session header — still require a username body.
-            user = (request.username or "").strip()
-            if not user:
-                raise HTTPException(status_code=401, detail="Session ungültig oder abgelaufen")
-        SubscriptionManager.ensure_feature(user, "summary")
-        ensure_minimum_tokens(user, 1)
+    else:
+        user = (request.username or "").strip()
+        if not user:
+            raise HTTPException(status_code=401, detail="Session ungültig oder abgelaufen")
+    SubscriptionManager.ensure_feature(user, "summary")
+    ensure_minimum_tokens(user, 1)
+
+    def work():
+        from ai_service import AIService
         _configure_genai()
         model_pref = resolve_model_preference(user, request.model_preference)
         context, debug_log = _get_folder_context(user, request.folder_id)
@@ -3254,15 +3388,13 @@ def create_summary(
         return {
             "status": "success",
             "summary": summary,
+            "file_id": f"summary_main_{request.folder_id}",
             "used_model": summary_result.get("used_model", model_pref or ""),
             "usage": summary_result.get("usage", {}),
             **charge,
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Summary error: {e}")
-        raise_for_ai_provider_error(e, prefix="Zusammenfassung-Fehler", username=getattr(request, "username", None))
+
+    return _spawn_core_ai_job("summary", user, work)
 
 @app.post("/api/ai/elaboration")
 def create_elaboration(request: ElaborationRequest):

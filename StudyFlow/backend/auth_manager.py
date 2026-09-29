@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import time
 from datetime import datetime, timezone
 import uuid
 
@@ -15,6 +16,8 @@ SESSION_DB_FILE = "user_data/sessions.json"
 class AuthManager:
     _sessions_cache = None
     _sessions_mtime = 0
+    _session_touch_at = {}
+    _SESSION_TOUCH_MIN_SEC = 60
 
     @staticmethod
     def _get_db():
@@ -194,6 +197,16 @@ class AuthManager:
     def _touch_session_row(db, session_id, username=None):
         if not db or not session_id:
             return
+        now_ts = time.time()
+        last = AuthManager._session_touch_at.get(session_id, 0)
+        if now_ts - last < AuthManager._SESSION_TOUCH_MIN_SEC:
+            return
+        AuthManager._session_touch_at[session_id] = now_ts
+        if len(AuthManager._session_touch_at) > 4000:
+            cutoff = now_ts - 3600
+            AuthManager._session_touch_at = {
+                sid: ts for sid, ts in AuthManager._session_touch_at.items() if ts >= cutoff
+            }
         now = datetime.now(timezone.utc).isoformat()
         try:
             db.table("sessions").update({"last_active": now}).eq("id", session_id).execute()

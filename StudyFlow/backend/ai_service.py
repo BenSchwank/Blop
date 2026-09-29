@@ -784,23 +784,25 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             exam_hint = f"- Geplante Prüfung / Zieltermin: {exam_line}\n" if exam_line else ""
 
             prompt = f"""
-Du bist ein KI-Lerncoach. Erstelle aus dem Material eine SMART-LEARNING-LERNREISE
-(ähnlich einem Prüfungstrainer): klare Kapitel, kurze Zusammenfassungen, Kernpunkte.
+Du bist ein KI-Lerncoach (Duolingo-Stil). Erstelle aus dem Material eine SMART-LEARNING-LERNREISE:
+Kapitel mit kurzem Überblick PLUS micro-lessons (erst erklären, dann sofort testen).
 
 FOKUS: {focus_line}
 {exam_hint}
 {MATH_ACCURACY_INSTRUCTIONS}
 
 ANFORDERUNGEN:
-1. 4–8 Kapitel in sinnvoller Lernreihenfolge (vom Fundament zur Anwendung).
-2. Jedes Kapitel: prägnanter Titel, Zusammenfassung (4–8 Sätze), 3–6 key_points.
-3. Titel der gesamten Lernreise: prüfungsnah und konkret (kein generisches „Lernreise“).
-4. source_hint: ein Satz, woraus das Material besteht (z. B. „Skript + Transkript“).
-5. readiness immer 0 (Fortschritt kommt später vom Client).
-6. progress.completed_chapter_ids = [] und progress.practice_sessions = 0.
-7. Kapitel-IDs: kurze slugs wie "ch1", "ch2", …
+1. 4–8 Kapitel in sinnvoller Lernreihenfolge (Fundament → Anwendung).
+2. Jedes Kapitel: Titel, summary (3–6 Sätze), 3–5 key_points.
+3. Zusätzlich 2–4 lessons pro Kapitel. Jede Lesson:
+   - teach: 2–5 Sätze Erklärung (klar, prüfungsnah)
+   - check: Sofort-Test (type "mc" oder "true_false") mit prompt, 2–4 options, answer, explanation
+4. Titel der Lernreise: prüfungsnah und konkret.
+5. source_hint: ein Satz zum Material.
+6. readiness immer 0; progress.completed_chapter_ids=[], completed_lesson_ids=[], practice_sessions=0.
+7. IDs: Kapitel "ch1"…; Lessons "ch1-l1", "ch1-l2", …
 
-Ausgabe: EIN JSON-Objekt (kein Array) genau in dieser Form:
+Ausgabe: EIN JSON-Objekt:
 {{
   "title": "…",
   "readiness": 0,
@@ -810,11 +812,25 @@ Ausgabe: EIN JSON-Objekt (kein Array) genau in dieser Form:
       "id": "ch1",
       "title": "…",
       "summary": "…",
-      "key_points": ["…", "…"]
+      "key_points": ["…"],
+      "lessons": [
+        {{
+          "id": "ch1-l1",
+          "teach": "…",
+          "check": {{
+            "type": "mc",
+            "prompt": "…?",
+            "options": ["A", "B", "C", "D"],
+            "answer": "A",
+            "explanation": "…"
+          }}
+        }}
+      ]
     }}
   ],
   "progress": {{
     "completed_chapter_ids": [],
+    "completed_lesson_ids": [],
     "practice_sessions": 0
   }}
 }}
@@ -844,6 +860,7 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
             result["source_hint"] = str(result.get("source_hint") or "").strip()
             result["progress"] = {
                 "completed_chapter_ids": [],
+                "completed_lesson_ids": [],
                 "practice_sessions": int((result.get("progress") or {}).get("practice_sessions") or 0),
             }
             normalized_chapters = []
@@ -857,11 +874,55 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                 if not isinstance(kps, list):
                     kps = [str(kps)]
                 key_points = [str(p).strip() for p in kps if str(p).strip()]
+                lessons_raw = ch.get("lessons") or []
+                if not isinstance(lessons_raw, list):
+                    lessons_raw = []
+                normalized_lessons = []
+                for li, les in enumerate(lessons_raw):
+                    if not isinstance(les, dict):
+                        continue
+                    teach = str(les.get("teach") or "").strip()
+                    check = les.get("check") if isinstance(les.get("check"), dict) else {}
+                    prompt_q = str(check.get("prompt") or "").strip()
+                    answer = str(check.get("answer") or "").strip()
+                    options = check.get("options") if isinstance(check.get("options"), list) else []
+                    options = [str(o).strip() for o in options if str(o).strip()]
+                    if not teach or not prompt_q or not answer:
+                        continue
+                    if len(options) < 2:
+                        options = ["Richtig", "Falsch"] if answer in ("Richtig", "Falsch") else [answer, "Andere Antwort"]
+                    lid = str(les.get("id") or f"{cid}-l{li + 1}").strip() or f"{cid}-l{li + 1}"
+                    normalized_lessons.append({
+                        "id": lid,
+                        "teach": teach,
+                        "check": {
+                            "type": "true_false" if str(check.get("type") or "") == "true_false" else "mc",
+                            "prompt": prompt_q,
+                            "options": options,
+                            "answer": answer,
+                            "explanation": str(check.get("explanation") or "").strip(),
+                        },
+                    })
+                # Fallback: key points → mini lessons
+                if not normalized_lessons and key_points:
+                    for li, kp in enumerate(key_points[:4]):
+                        normalized_lessons.append({
+                            "id": f"{cid}-l{li + 1}",
+                            "teach": kp,
+                            "check": {
+                                "type": "true_false",
+                                "prompt": f"Stimmt das? {kp}",
+                                "options": ["Richtig", "Falsch"],
+                                "answer": "Richtig",
+                                "explanation": kp,
+                            },
+                        })
                 normalized_chapters.append({
                     "id": cid,
                     "title": title,
                     "summary": summary,
                     "key_points": key_points,
+                    "lessons": normalized_lessons,
                 })
             if not normalized_chapters:
                 raise Exception("Keine gültigen Kapitel erzeugt.")
