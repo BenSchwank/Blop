@@ -605,7 +605,7 @@ void NoteRadiantToolbar::rebuildTiles() {
     QColor tint;
   };
   const Spec inner[] = {
-      {"pi", ToolMode::Formula, -1, NoteToolTile::Tool, QColor()},
+      {"stickynote", ToolMode::StickyNote, -1, NoteToolTile::Tool, QColor()},
       {"text", ToolMode::Text, -1, NoteToolTile::Tool, QColor()},
       {"pen", ToolMode::Pen, -1, NoteToolTile::Tool, QColor()},
       {"lasso", ToolMode::Lasso, -1, NoteToolTile::Tool, QColor()},

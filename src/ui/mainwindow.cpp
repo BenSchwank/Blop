@@ -104,6 +104,7 @@
 #include <QEventLoop>
 #include <QQmlContext>
 #include <QEvent>
+#include <QContextMenuEvent>
 #include <QFile>
 #include <QFileInfo>
 #include <QFileSystemModel>
@@ -4456,17 +4457,69 @@ void MainWindow::closeNoteTab(int index) {
   closeEditorTabAt(index);
 }
 
+void MainWindow::flushEditorWidget(QWidget *w) {
+  if (!w)
+    return;
+  if (auto *ed = qobject_cast<NoteEditor *>(w)) {
+    if (ed->view()) {
+      ed->view()->flushStickyNoteSync();
+      ed->view()->persistViewState(
+          ed->view()->property("viewStateKey").toString());
+      // Push latest note into the debounce buffer so flushPendingA4SaveSync
+      // can write it — even if the 1.5s timer has not fired yet.
+      if (ed->onSaveRequested && ed->view()->note())
+        ed->onSaveRequested(ed->view()->note());
+    }
+    return;
+  }
+  if (auto *struktur = qobject_cast<StrukturNoteEditor *>(w)) {
+    struktur->saveNow();
+    return;
+  }
+  if (auto *md = qobject_cast<MarkdownEditor *>(w)) {
+    if (md->onSaveRequested)
+      md->onSaveRequested(md->text());
+    return;
+  }
+  if (auto *cv = qobject_cast<CanvasView *>(w)) {
+    cv->saveToFile();
+    return;
+  }
+  if (auto *cv = w->findChild<CanvasView *>())
+    cv->saveToFile();
+}
+
+void MainWindow::flushPendingA4SaveSync() {
+  if (!m_pendingA4SaveNote || m_pendingA4SavePath.isEmpty())
+    return;
+  if (m_a4SaveDebounce)
+    m_a4SaveDebounce->stop();
+  Note copy = *m_pendingA4SaveNote;
+  const QString p = m_pendingA4SavePath;
+  m_pendingA4SaveNote = nullptr;
+  m_pendingA4SavePath.clear();
+  if (!m_noteManager.saveNote(copy, p))
+    qWarning() << "A4 sync flush failed" << p;
+  else
+    mirrorNoteIfNeeded(p);
+}
+
+void MainWindow::flushAllOpenEditors() {
+  if (m_editorTabs) {
+    for (int i = 0; i < m_editorTabs->count(); ++i)
+      flushEditorWidget(m_editorTabs->widget(i));
+  }
+  flushPendingA4SaveSync();
+}
+
 void MainWindow::closeEditorTabAt(int index) {
   if (!m_editorTabs || index < 0 || index >= m_editorTabs->count())
     return;
   QWidget *w = m_editorTabs->widget(index);
-  if (auto *ed = qobject_cast<NoteEditor *>(w)) {
-    if (ed->view())
-      ed->view()->persistViewState(
-          ed->view()->property("viewStateKey").toString());
-  }
-  if (auto *struktur = qobject_cast<StrukturNoteEditor *>(w))
-    struktur->saveNow();
+  flushEditorWidget(w);
+  // Any pending A4 debounce (this tab or another) must hit disk before
+  // widgets are destroyed — sync, not async.
+  flushPendingA4SaveSync();
   m_editorTabs->removeTab(index);
   if (m_documentTabBar)
     m_documentTabBar->removeTab(index);
@@ -4910,6 +4963,8 @@ void MainWindow::setLibraryMidChromeVisible(bool visible) {
       n->setVisible(visible);
     if (auto *c = mid->findChild<QLabel *>(QStringLiteral("SidebarCloudHeader")))
       c->setVisible(visible);
+    if (auto *h = mid->findChild<QLabel *>(QStringLiteral("SidebarCloudHint")))
+      h->setVisible(visible);
   }
   if (m_settingsNavList)
     m_settingsNavList->setVisible(!visible);
@@ -10164,14 +10219,23 @@ void MainWindow::setupSidebar() {
   // Gap so the last NOTIZEN row never visually collides with CLOUD.
   midLay->addSpacing(UiScale::dp(10));
 
-  // CLOUD — between last-used notes (NOTIZEN) and the rest of the shell
-  // (library grid / stretch). All cloud providers stay reachable here.
+  // CLOUD — Web-Cloud-Browser (Drive/Nextcloud/…), kein Notiz-Datei-Sync.
   auto *cloudHeader = new QLabel(QStringLiteral("CLOUD"), mid);
   cloudHeader->setObjectName(QStringLiteral("SidebarCloudHeader"));
+  cloudHeader->setToolTip(
+      QStringLiteral("Web-Clouds öffnen (Drive, Nextcloud, …).\n"
+                     "Lokale Notizen werden hier nicht synchronisiert."));
   cloudHeader->setStyleSheet(QStringLiteral(
       "color: #6B7280; font-size: 10px; font-weight: 700; letter-spacing: 0.8px;"
       " background: transparent; padding: 6px 12px 4px 12px;"));
   midLay->addWidget(cloudHeader);
+  auto *cloudHint = new QLabel(QStringLiteral("Web · kein Notiz-Sync"), mid);
+  cloudHint->setObjectName(QStringLiteral("SidebarCloudHint"));
+  cloudHint->setToolTip(cloudHeader->toolTip());
+  cloudHint->setStyleSheet(QStringLiteral(
+      "color: #5C6370; font-size: 10px; font-weight: 500;"
+      " background: transparent; padding: 0 12px 4px 12px;"));
+  midLay->addWidget(cloudHint);
   m_sidebarCloudList = new QListWidget(mid);
   m_sidebarCloudList->setObjectName(QStringLiteral("SidebarCloudList"));
   m_sidebarCloudList->setFrameShape(QFrame::NoFrame);
@@ -10237,11 +10301,11 @@ void MainWindow::setupSidebar() {
   midLay->addWidget(m_sidebarCloudList);
   refreshSidebarCloudList();
 
-  // Tags — filter + manage in the charcoal nav (collapsed by default).
+  // Tags — filter + manage in the charcoal nav (expanded so tags are discoverable).
   m_libraryTagsPanel = new LibraryTagsPanel(mid);
   m_libraryTagsPanel->setSidebarMode(true);
   m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
-  m_libraryTagsPanel->setCollapsed(true);
+  m_libraryTagsPanel->setCollapsed(false);
   connect(m_libraryTagsPanel, &LibraryTagsPanel::filterChanged, this,
           [this](const QStringList &) { applyLibraryFilters(); });
   connect(m_libraryTagsPanel, &LibraryTagsPanel::catalogChanged, this,
@@ -11182,8 +11246,12 @@ void MainWindow::refreshSidebarCloudList() {
     if (!e.path.isEmpty() && StoragePrefs::isUsableFilesystemDir(e.path))
       item->setData(Qt::UserRole + 10, e.path);
     item->setToolTip(e.webConnected
-                         ? QStringLiteral("In der Cloud anmelden und Dateien öffnen")
-                         : QStringLiteral("Tippen zum Anmelden in der Cloud"));
+                         ? QStringLiteral(
+                               "Web-Cloud öffnen (Browser). "
+                               "Keine automatische Notiz-Synchronisation.")
+                         : QStringLiteral(
+                               "In der Web-Cloud anmelden. "
+                               "Lokale Notizen bleiben auf diesem Gerät."));
     item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
   }
   auto *addCloud = new QListWidgetItem(m_sidebarCloudList);
@@ -11872,21 +11940,44 @@ void MainWindow::openLoadedA4Note(const QString &path, const QString &fileName,
 }
 
 void MainWindow::applyStoragePrefsToLibrary() {
-  if (!m_fileModel)
-    return;
+  // Notes may live under a different root after mode/folder change — flush and
+  // close open tabs so we never keep editors bound to the previous tree.
+  flushAllOpenEditors();
+  if (m_editorTabs) {
+    while (m_editorTabs->count() > 0)
+      closeEditorTabAt(m_editorTabs->count() - 1);
+  }
+
   StoragePrefs::ensureLocalLibraryRoot();
+  m_rootPath = StoragePrefs::ensureLocalLibraryRoot();
+  StrukturDocument::migrateLegacyRootEmbeds(m_rootPath);
+
+  if (m_fileModel)
+    m_fileModel->setRootPath(m_rootPath);
+
+  setLibraryFavoritesMode(false);
+
+  QString browseRoot = m_rootPath;
   const StoragePrefs::Mode mode = StoragePrefs::mode();
   if (mode == StoragePrefs::Mode::CloudOnly) {
     const QString cloud = StoragePrefs::noteWriteRoot(m_rootPath);
-    if (!cloud.isEmpty()) {
-      navigateLibraryToPath(cloud);
-      refreshCloudSyncStatus();
-      return;
-    }
+    if (!cloud.isEmpty())
+      browseRoot = cloud;
   }
-  navigateLibraryToPath(m_rootPath);
+
+  if (m_fileListView && m_fileModel) {
+    navigateLibraryToPath(browseRoot);
+  } else {
+    // Early boot / rare path: at least keep model root coherent.
+    navigateLibraryToPath(m_rootPath);
+  }
+
+  refreshSidebarNotesList();
+  updateSidebarBadges();
+  updateLibraryHeader();
   refreshCloudSyncStatus();
   refreshSidebarCloudList();
+  applyLibraryFilters();
 }
 
 void MainWindow::mirrorNoteIfNeeded(const QString &notePath) {
@@ -12393,8 +12484,15 @@ void MainWindow::setupRightSidebar() {
   // --- Seiten-Optionen ---
   optLayout->addWidget(sectionLabel(QStringLiteral("SEITE"), optContent));
 
-  // Format (Infinite/A4) is fixed at note creation — hide the disabled
-  // toggles that looked like unfinished controls.
+  // Format is fixed at creation — show read-only status instead of dead toggles.
+  auto *formatHint = new QLabel(optContent);
+  formatHint->setObjectName(QStringLiteral("pageSettingsFormatHint"));
+  formatHint->setWordWrap(true);
+  formatHint->setStyleSheet(QStringLiteral(
+      "color: %1; font-size: 12px; background: transparent; padding: 2px 0 6px 0;")
+                                .arg(BlopStyle::paperInkMuted().name(
+                                    QColor::HexRgb)));
+  optLayout->addWidget(formatHint);
   m_btnFormatInfinite = new QPushButton(QStringLiteral("Unendlich"), optContent);
   m_btnFormatInfinite->setCheckable(true);
   m_btnFormatInfinite->setEnabled(false);
@@ -13883,6 +13981,30 @@ void MainWindow::syncPageSettingsPanelFromEditor() {
   NoteEditor *editor = qobject_cast<NoteEditor *>(current);
   const bool canvasNote = (cv != nullptr);
   const bool a4Note = (editor != nullptr);
+  const bool strukturNote =
+      qobject_cast<StrukturNoteEditor *>(current) != nullptr;
+
+  if (m_pageSettingsCard) {
+    if (auto *hint = m_pageSettingsCard->findChild<QLabel *>(
+            QStringLiteral("pageSettingsFormatHint"))) {
+      QString formatName;
+      if (a4Note)
+        formatName = QStringLiteral("DIN A4");
+      else if (strukturNote)
+        formatName = QStringLiteral("Struktur");
+      else if (cv)
+        formatName = cv->isInfinite() ? QStringLiteral("Unendlich")
+                                      : QStringLiteral("DIN A4");
+      else
+        formatName = QStringLiteral("—");
+      hint->setText(
+          QStringLiteral(
+              "Format: %1 — wird beim Anlegen festgelegt und kann hier nicht "
+              "geändert werden.")
+              .arg(formatName));
+      hint->setVisible(true);
+    }
+  }
 
   // Canvas-only page chrome looks unfinished on A4 notes (no-op buttons).
   auto setNamedVisible = [&](const char *objectName) {
@@ -14188,16 +14310,8 @@ void MainWindow::onTogglePageManager() {
       });
       m_pageManager->show();
       m_pageManager->refreshThumbnails();
-    } else {
-#ifdef Q_OS_ANDROID
-      showAndroidToast(this,
-                       QStringLiteral("Seitenmanager nur für A4-Notizen"));
-#else
-      QMessageBox::information(
-          this, "Nicht verfügbar",
-          "Der Seitenmanager ist nur für A4-Notizen verfügbar.");
-#endif
     }
+    // Non-A4 (infinite / Struktur): stay quiet — no dead-end "Nicht verfügbar".
   }
 }
 
@@ -14217,6 +14331,16 @@ void MainWindow::openNotePath(const QString &absolutePath) {
   if (absolutePath.isEmpty() || StoragePrefs::isNonFilesystemPath(absolutePath) ||
       !QFile::exists(absolutePath)) {
     qWarning() << "openNotePath: missing file" << absolutePath;
+    const QString name =
+        absolutePath.isEmpty()
+            ? QStringLiteral("(leer)")
+            : QFileInfo(absolutePath).fileName();
+    BlopDialogs::notify(
+        this, QStringLiteral("Notiz nicht gefunden"),
+        QStringLiteral(
+            "Die Datei „%1“ ist nicht mehr vorhanden oder der Pfad ist ungültig.\n"
+            "Sie wurde vielleicht verschoben, umbenannt oder gelöscht.")
+            .arg(name));
     return;
   }
   const QString abs = QFileInfo(absolutePath).absoluteFilePath();
@@ -14311,6 +14435,43 @@ void MainWindow::openNotePath(const QString &absolutePath) {
 #ifndef Q_OS_ANDROID
 namespace {
 
+QString thoughtLinksStorePath(const QString &hubPath) {
+  return QFileInfo(hubPath).absolutePath() +
+         QStringLiteral("/.Gedankenfäden-links.json");
+}
+
+QStringList loadThoughtLinks(const QString &hubPath) {
+  QFile f(thoughtLinksStorePath(hubPath));
+  if (!f.open(QIODevice::ReadOnly))
+    return {};
+  const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+  if (!doc.isObject())
+    return {};
+  const QJsonArray arr = doc.object().value(QStringLiteral("links")).toArray();
+  QStringList out;
+  for (const QJsonValue &v : arr) {
+    const QString p = QFileInfo(v.toString()).absoluteFilePath();
+    if (!p.isEmpty() && QFileInfo::exists(p) && !out.contains(p))
+      out.append(p);
+  }
+  return out;
+}
+
+void saveThoughtLinks(const QString &hubPath, const QStringList &paths) {
+  QJsonArray arr;
+  for (const QString &p : paths) {
+    const QString abs = QFileInfo(p).absoluteFilePath();
+    if (!abs.isEmpty())
+      arr.append(abs);
+  }
+  QJsonObject root;
+  root.insert(QStringLiteral("links"), arr);
+  QFile f(thoughtLinksStorePath(hubPath));
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    return;
+  f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+}
+
 class ThoughtThreadsGraphHost : public QWidget {
 public:
   explicit ThoughtThreadsGraphHost(MainWindow *mw, const QString &hubPath,
@@ -14319,7 +14480,37 @@ public:
     setMinimumSize(UiScale::dp(440), UiScale::dp(340));
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setCursor(Qt::ArrowCursor);
+    setContextMenuPolicy(Qt::DefaultContextMenu);
+    m_pinned = loadThoughtLinks(hubPath);
     rebuildNodes();
+  }
+
+  QStringList pinnedPaths() const { return m_pinned; }
+
+  bool addLink(const QString &path) {
+    const QString abs = QFileInfo(path).absoluteFilePath();
+    if (abs.isEmpty() || !QFileInfo::exists(abs) || QFileInfo(abs).isDir())
+      return false;
+    const QString hubAbs = QFileInfo(m_hubPath).absoluteFilePath();
+    if (QString::compare(abs, hubAbs, Qt::CaseInsensitive) == 0)
+      return false;
+    if (m_pinned.contains(abs))
+      return false;
+    m_pinned.append(abs);
+    saveThoughtLinks(m_hubPath, m_pinned);
+    rebuildNodes();
+    update();
+    return true;
+  }
+
+  bool removeLink(const QString &path) {
+    const QString abs = QFileInfo(path).absoluteFilePath();
+    if (!m_pinned.removeAll(abs))
+      return false;
+    saveThoughtLinks(m_hubPath, m_pinned);
+    rebuildNodes();
+    update();
+    return true;
   }
 
 protected:
@@ -14344,17 +14535,19 @@ protected:
     for (const Node &n : m_nodes) {
       if (n.isHub)
         continue;
+      p.setPen(QPen(n.pinned ? accent : line, n.pinned ? 2.0 : 1.5));
       p.drawLine(hub, n.rect.center());
     }
 
     auto drawNode = [&](const Node &n) {
       const QRectF r = n.rect;
-      p.setPen(QPen(n.isHub ? accent : line, n.isHub ? 2.0 : 1.0));
+      p.setPen(QPen(n.isHub ? accent : (n.pinned ? accent : line),
+                    n.isHub || n.pinned ? 2.0 : 1.0));
       p.setBrush(n.isHub ? accent.lighter(145) : BlopTheme::surfaceElevated());
       p.drawRoundedRect(r, UiScale::dp(12), UiScale::dp(12));
       p.setPen(n.isHub ? accent.darker(140) : ink);
       QFont f = font();
-      f.setBold(n.isHub);
+      f.setBold(n.isHub || n.pinned);
       f.setPixelSize(UiScale::dp(n.isHub ? 13 : 11));
       p.setFont(f);
       p.drawText(r.adjusted(UiScale::dp(8), UiScale::dp(4), -UiScale::dp(8),
@@ -14378,7 +14571,8 @@ protected:
     p.drawText(QRect(UiScale::dp(12), height() - UiScale::dp(28),
                      width() - UiScale::dp(24), UiScale::dp(20)),
                Qt::AlignCenter,
-               QStringLiteral("Klick öffnet die Notiz — Hub bleibt die Leinwand."));
+               QStringLiteral(
+                   "Klick öffnet · Rechtsklick löst Verknüpfung · Hub = Leinwand"));
   }
 
   void mousePressEvent(QMouseEvent *e) override {
@@ -14393,12 +14587,25 @@ protected:
     }
   }
 
+  void contextMenuEvent(QContextMenuEvent *e) override {
+    for (const Node &n : m_nodes) {
+      if (n.isHub || !n.pinned || !n.rect.contains(e->pos()))
+        continue;
+      QMenu menu(this);
+      QAction *rm = menu.addAction(QStringLiteral("Verknüpfung entfernen"));
+      if (menu.exec(e->globalPos()) == rm)
+        removeLink(n.path);
+      return;
+    }
+  }
+
 private:
   struct Node {
     QString path;
     QString title;
     QRectF rect;
     bool isHub{false};
+    bool pinned{false};
   };
 
   void rebuildNodes() {
@@ -14409,7 +14616,11 @@ private:
     hub.isHub = true;
     m_nodes.append(hub);
 
-    QStringList paths = LibraryOrgStore::favoritePaths();
+    QStringList paths = m_pinned;
+    for (const QString &f : LibraryOrgStore::favoritePaths()) {
+      if (!paths.contains(f))
+        paths.append(f);
+    }
     for (const QString &r : LibraryOrgStore::recentPaths(12)) {
       if (!paths.contains(r))
         paths.append(r);
@@ -14418,7 +14629,7 @@ private:
     const QString hubAbs = QFileInfo(m_hubPath).absoluteFilePath();
     int added = 0;
     for (const QString &raw : paths) {
-      if (added >= 10)
+      if (added >= 12)
         break;
       const QString abs = QFileInfo(raw).absoluteFilePath();
       if (abs.isEmpty() || !QFileInfo::exists(abs) || QFileInfo(abs).isDir())
@@ -14432,6 +14643,7 @@ private:
       n.title = QFileInfo(abs).completeBaseName();
       if (n.title.isEmpty())
         n.title = QFileInfo(abs).fileName();
+      n.pinned = m_pinned.contains(abs);
       m_nodes.append(n);
       ++added;
     }
@@ -14468,6 +14680,7 @@ private:
 
   MainWindow *m_mw{nullptr};
   QString m_hubPath;
+  QStringList m_pinned;
   QRectF m_hubRect;
   QVector<Node> m_nodes;
 };
@@ -14506,11 +14719,10 @@ void MainWindow::openThoughtThreadsCanvas() {
   if (m_libraryIconRail)
     m_libraryIconRail->setActiveId(QStringLiteral("network"));
 
-  // Minigraph: Favoriten + Zuletzt um den Hub — ersetzt den „demnächst“-Toast.
   QDialog dlg(this);
   dlg.setWindowTitle(QStringLiteral("Gedankenfäden"));
   dlg.setModal(true);
-  dlg.setMinimumSize(UiScale::dp(480), UiScale::dp(400));
+  dlg.setMinimumSize(UiScale::dp(520), UiScale::dp(420));
   auto *lay = new QVBoxLayout(&dlg);
   lay->setContentsMargins(UiScale::dp(12), UiScale::dp(12), UiScale::dp(12),
                           UiScale::dp(12));
@@ -14521,18 +14733,39 @@ void MainWindow::openThoughtThreadsCanvas() {
   lay->addWidget(title);
   auto *sub = new QLabel(
       QStringLiteral(
-          "Favoriten und zuletzt geöffnete Notizen — Klick springt zur Notiz."),
+          "Verknüpfte Notizen (gespeichert) plus Favoriten und Zuletzt — "
+          "Klick öffnet, Rechtsklick entfernt eine Verknüpfung."),
       &dlg);
   sub->setWordWrap(true);
   sub->setStyleSheet(QStringLiteral(
       "color: %1; font-size: 12px; background: transparent;")
                          .arg(BlopTheme::textSecondary().name(QColor::HexRgb)));
   lay->addWidget(sub);
-  lay->addWidget(new ThoughtThreadsGraphHost(this, abs, &dlg), 1);
-  auto *bbox =
-      new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
+  auto *graph = new ThoughtThreadsGraphHost(this, abs, &dlg);
+  lay->addWidget(graph, 1);
+
+  auto *row = new QHBoxLayout();
+  auto *btnAdd = new QPushButton(QStringLiteral("Notiz verknüpfen…"), &dlg);
+  btnAdd->setCursor(Qt::PointingHandCursor);
+  QObject::connect(btnAdd, &QPushButton::clicked, &dlg, [this, graph, &dlg]() {
+    const QString pick = QFileDialog::getOpenFileName(
+        &dlg, QStringLiteral("Notiz verknüpfen"), noteWriteDirectory(),
+        QStringLiteral("Blop-Notizen (*.bnote *.blop *.struct);;Alle Dateien (*)"));
+    if (pick.isEmpty())
+      return;
+    if (!graph->addLink(pick)) {
+      BlopDialogs::notify(
+          &dlg, QStringLiteral("Gedankenfäden"),
+          QStringLiteral("Notiz konnte nicht verknüpft werden "
+                         "(bereits verknüpft oder ungültig)."));
+    }
+  });
+  row->addWidget(btnAdd);
+  row->addStretch(1);
+  auto *bbox = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
   bbox->button(QDialogButtonBox::Close)->setText(QStringLiteral("Schließen"));
-  lay->addWidget(bbox);
+  row->addWidget(bbox);
+  lay->addLayout(row);
   QObject::connect(bbox, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
   QObject::connect(bbox, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
   BlopModal::execBlocking(this, &dlg);
@@ -18543,28 +18776,10 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   }
 #endif
   // Make sure no pending note changes are lost when the user closes the
-  // window directly from the editor. Flush the A4 debounced save synchronously;
+  // window directly from the editor. Flush every open tab (Struktur debounce,
+  // infinite canvas, A4 stickies) plus the A4 debounce buffer synchronously —
   // an async save could still be in flight when the process exits.
-  // Also flush any in-flight sticky-note text edits before the save copy is made.
-  if (m_editorTabs) {
-    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
-      if (auto *view = editor->view()) {
-        view->flushStickyNoteSync();
-      }
-    }
-  }
-  if (m_pendingA4SaveNote && !m_pendingA4SavePath.isEmpty()) {
-    if (m_a4SaveDebounce)
-      m_a4SaveDebounce->stop();
-    Note copy = *m_pendingA4SaveNote;
-    const QString p = m_pendingA4SavePath;
-    m_pendingA4SaveNote = nullptr;
-    m_pendingA4SavePath.clear();
-    if (!m_noteManager.saveNote(copy, p))
-      qWarning() << "Close A4 save failed" << p;
-    else
-      mirrorNoteIfNeeded(p);
-  }
+  flushAllOpenEditors();
   performAutoSave();
 
 #ifndef Q_OS_ANDROID

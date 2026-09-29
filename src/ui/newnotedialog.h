@@ -149,6 +149,7 @@ private:
     NewNoteFormatCard *m_btnFormatStruktur{nullptr};
     QWidget *m_layoutSection{nullptr};
     QWidget *m_paperSection{nullptr};
+    QLabel *m_strukturHint{nullptr};
     QButtonGroup *m_groupLayout{nullptr};
     QButtonGroup *m_formatChipGroup{nullptr};
     QListWidget *m_tagList{nullptr};

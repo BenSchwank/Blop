@@ -64,7 +64,7 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   addBtn(QStringLiteral("calendar"), QStringLiteral("calendar"),
          QStringLiteral("Kalender"), lay);
   addBtn(QStringLiteral("network"), QStringLiteral("network"),
-         QStringLiteral("Gedankenfäden — Notizen verknüpfen"), lay);
+         QStringLiteral("Gedankenfäden — verknüpfte Notizen & Übersicht"), lay);
   addBtn(QStringLiteral("apps"), QStringLiteral("apps"),
          QStringLiteral("Apps / Study"), lay);
 

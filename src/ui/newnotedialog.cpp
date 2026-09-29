@@ -545,6 +545,18 @@ void NewNoteDialog::setupUi()
     layoutSectionLay->addWidget(m_paperSection);
     bodyLay->addWidget(m_layoutSection);
 
+    m_strukturHint = new QLabel(
+        QStringLiteral(
+            "Struktur nutzt Text-Blöcke und Embeds — keine Papier-Vorlage."),
+        body);
+    m_strukturHint->setObjectName(QStringLiteral("NewNoteStrukturHint"));
+    m_strukturHint->setWordWrap(true);
+    m_strukturHint->setStyleSheet(QStringLiteral(
+        "color: %1; font-size: 12px; background: transparent; padding: 4px 0;")
+                                      .arg(tok.muted.name(QColor::HexRgb)));
+    m_strukturHint->hide();
+    bodyLay->addWidget(m_strukturHint);
+
     connect(m_paperSwatch, &QPushButton::clicked, this, [this]() {
         QWidget *host = window() ? window() : this;
         QColor c = m_paperColor;
@@ -1032,7 +1044,10 @@ void NewNoteDialog::collapseToDeck()
 
 void NewNoteDialog::setFormat(int formatId)
 {
-    setLayoutSectionVisible(formatId != 2, false);
+    const bool showPaper = formatId != 2;
+    setLayoutSectionVisible(showPaper, false);
+    if (m_strukturHint)
+        m_strukturHint->setVisible(!showPaper);
 }
 
 void NewNoteDialog::setLayoutSectionVisible(bool visible, bool animate)

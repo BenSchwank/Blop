@@ -342,6 +342,12 @@ private:
   void setupUi();
   void setupTools(); // Initialisiert und registriert Tools
   void flushPendingA4Save();
+  /// Synchronous save of the pending A4 debounce buffer (tab close / app exit).
+  void flushPendingA4SaveSync();
+  /// Persist one open editor tab (Struktur / A4 stickies / infinite canvas / md).
+  void flushEditorWidget(QWidget *w);
+  /// Flush every open editor tab, then the A4 debounce buffer.
+  void flushAllOpenEditors();
   void setupTitleBar();
   void setupSidebar();
   void setupRightSidebar();

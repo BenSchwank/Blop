@@ -2818,9 +2818,9 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnImage = new ToolbarBtn("image", this);
   btnHand = new ToolbarBtn("hand", this);
   btnFormula = new ToolbarBtn("pi", this);
-  btnFormula->setToolTip(tr("Formel"));
+  btnFormula->setToolTip(tr("Formel — demnächst"));
   btnMolecule = new ToolbarBtn("molecule", this);
-  btnMolecule->setToolTip(tr("Molekül"));
+  btnMolecule->setToolTip(tr("Molekül — demnächst"));
   btnUndo = new ToolbarBtn("undo", this);
   btnUndo->setToolTip(tr("Rückgängig"));
   btnRedo = new ToolbarBtn("redo", this);
@@ -2916,7 +2916,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
               ? QStringLiteral("Formel — demnächst verfügbar")
               : QStringLiteral("Molekül — demnächst verfügbar"),
           this);
-      // Still select so UI highlights honestly; canvas stubs do nothing.
+      // Stubs: do not select / highlight a non-working canvas tool.
+      return;
     }
     if (mode_ == m) {
 #ifndef Q_OS_ANDROID
@@ -3870,6 +3871,18 @@ void ModernToolbar::showToolPicker() {
     already.insert(s.mode);
   ToolPickerOverlay::present(
       host, m_accentColor, already, [this](ToolMode mode) {
+        if (mode == ToolMode::Formula || mode == ToolMode::Molecule) {
+          BlopDialogs::notify(
+              window() ? window() : this, QStringLiteral("Demnächst"),
+              mode == ToolMode::Formula
+                  ? QStringLiteral(
+                        "Formel-Werkzeug folgt später — noch nicht auf der "
+                        "Werkzeugleiste verfügbar.")
+                  : QStringLiteral(
+                        "Molekül-Werkzeug folgt später — noch nicht auf der "
+                        "Werkzeugleiste verfügbar."));
+          return;
+        }
         // Hand is unique; other tools may appear multiple times as presets.
         if (mode == ToolMode::Hand && railContains(ToolMode::Hand)) {
           for (int i = 0; i < m_railSlots.size(); ++i) {
@@ -5193,7 +5206,7 @@ ModernToolbar::toolsForCategory(MarkupCategory cat) const {
   case CatFreeform:
     return {btnPen, btnPencil, btnHighlighter};
   case CatShapes:
-    return {btnShape, btnRuler, btnFormula, btnMolecule};
+    return {btnShape, btnRuler};
   case CatReview:
     return {btnText};
   case CatInsert:
@@ -5867,9 +5880,11 @@ void ModernToolbar::loadRailTools() {
     case ToolMode::StickyNote:
     case ToolMode::Text:
     case ToolMode::Hand:
+      // Formel/Molekül: stubs — never on the default Favorites rail.
+      return true;
     case ToolMode::Formula:
     case ToolMode::Molecule:
-      return true;
+      return false;
     }
     return false;
   };
@@ -6301,6 +6316,8 @@ void ModernToolbar::addCurrentToolAsRailSlot() {
 }
 
 void ModernToolbar::addToolToRail(ToolMode mode) {
+  if (mode == ToolMode::Formula || mode == ToolMode::Molecule)
+    return;
   if (!getButtonForMode(mode) && mode != ToolMode::Hand)
     return;
   if (mode == ToolMode::Hand && railContains(ToolMode::Hand))

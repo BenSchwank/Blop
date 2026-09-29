@@ -1306,6 +1306,60 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             QStringLiteral("löschen delete confirm trash")));
     }
 
+#ifndef Q_OS_ANDROID
+    // ----- Card: Keyboard shortcuts (discoverability) -------------------
+    auto *cardShortcuts = new BlopSettingsCard(
+        QStringLiteral("Tastatur"),
+        QStringLiteral("Wichtige Kurzbefehle in Bibliothek und Notiz"),
+        contentWidget);
+    cardShortcuts->setSectionKeywords(
+        QStringLiteral("tastatur shortcuts hotkeys tastenkürzel kurzbefehl "
+                       "entf ctrl löschen suchen werkzeug"));
+    {
+      struct Row {
+        const char *keys;
+        const char *action;
+      };
+      const Row rows[] = {
+          {"Ctrl+K", "Bibliothek / Sidebar-Suche fokussieren"},
+          {"Entf / Backspace", "Auswahl in den Papierkorb (Bibliothek)"},
+          {"Ctrl+A", "Alle Notizen in der Bibliothek auswählen"},
+          {"Ctrl+Z", "Im Papierkorb: Auswahl wiederherstellen"},
+          {"P / E / V / T / H / M",
+           "Stift / Radierer / Lasso / Text / Hand / Marker"},
+          {"Ctrl+0 / Ctrl+1", "An Inhalt / an Breite anpassen"},
+          {"Ctrl+Shift+O", "Werkzeug-Eigenschaften öffnen"},
+          {"Ctrl+Shift+J", "Werkzeugleiste K ↔ J umschalten"},
+      };
+      const int n = int(sizeof(rows) / sizeof(rows[0]));
+      for (int i = 0; i < n; ++i) {
+        auto *actLbl =
+            new QLabel(QString::fromUtf8(rows[i].action), cardShortcuts);
+        actLbl->setWordWrap(true);
+        setLiteralQss(actLbl,
+                      QStringLiteral(
+                          "color: %1; font-size: 12px; background: transparent;")
+                          .arg(settingsInkMuted()));
+        cardShortcuts->addBodyWidget(makePropertyRow(
+            cardShortcuts, QString::fromUtf8(rows[i].keys), actLbl, i + 1 == n,
+            QStringLiteral("tastatur shortcut %1")
+                .arg(QString::fromUtf8(rows[i].keys).toLower())));
+      }
+      auto *foot = new QLabel(
+          QStringLiteral(
+              "Werkzeug-Tasten greifen nur in der offenen Notiz, nicht beim "
+              "Tippen in Textfeldern."),
+          cardShortcuts);
+      foot->setWordWrap(true);
+      setLiteralQss(foot,
+                    QStringLiteral(
+                        "color: %1; font-size: 11px; background: transparent;"
+                        "padding: 4px 0 0 0;")
+                        .arg(settingsInkMuted()));
+      cardShortcuts->addBodyWidget(foot);
+    }
+#endif
+
     // ----- Card: Profile (UI modes) ------------------------------------
     auto *cardBehavior = new BlopSettingsCard(
         QStringLiteral("Profile"),
@@ -1740,7 +1794,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         contentWidget);
     cardMore->setSectionKeywords(
         QStringLiteral("kalender calendar integration version diagnose "
-                       "trace debug entwickler erweiterte mehr"));
+                       "trace debug entwickler erweiterte mehr pdf webengine "
+                       "build fähigkeit sync cloud"));
     {
       auto *calStatusLbl = new QLabel(cardMore);
       calStatusLbl->hide(); // status text mirrored into named row
@@ -1825,6 +1880,55 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
           cardMore, QStringLiteral("Version"), info, false,
           QStringLiteral("version about über blop")));
 
+      // Honest build matrix: local MinGW often ships without WebEngine/Pdf.
+      {
+#ifdef BLOP_HAS_PDF
+        const bool hasPdf = true;
+#else
+        const bool hasPdf = false;
+#endif
+#ifdef BLOP_HAS_WEBENGINE
+        const bool hasWeb = true;
+#else
+        const bool hasWeb = false;
+#endif
+        auto makeCap = [cardMore](bool ok) {
+          auto *lbl = new QLabel(
+              ok ? QStringLiteral("Verfügbar")
+                 : QStringLiteral("Nicht in diesem Build"),
+              cardMore);
+          setLiteralQss(lbl,
+                        QStringLiteral(
+                            "color: %1; font-size: 12px; font-weight: 500;"
+                            "background: transparent;")
+                            .arg(ok ? settingsInkMuted()
+                                    : QStringLiteral("#B45309")));
+          return lbl;
+        };
+        cardMore->addBodyWidget(makePropertyRow(
+            cardMore, QStringLiteral("PDF Import/Export"), makeCap(hasPdf),
+            false,
+            QStringLiteral("pdf export import build fähigkeit capability")));
+        cardMore->addBodyWidget(makePropertyRow(
+            cardMore, QStringLiteral("Eingebettetes Study (WebEngine)"),
+            makeCap(hasWeb), false,
+            QStringLiteral("webengine study browser build fähigkeit")));
+        auto *syncHint = new QLabel(
+            QStringLiteral(
+                "Notiz-Cloud-Sync folgt später. CLOUD in der Sidebar öffnet "
+                "Web-Clouds (Drive, Nextcloud …), nicht den lokalen Notizordner."),
+            cardMore);
+        syncHint->setWordWrap(true);
+        setLiteralQss(syncHint,
+                      QStringLiteral(
+                          "color: %1; font-size: 11px; background: transparent;"
+                          "padding: 2px 0 4px 0;")
+                          .arg(settingsInkMuted()));
+        cardMore->addBodyWidget(makePropertyRow(
+            cardMore, QStringLiteral("Notiz-Sync"), syncHint, true,
+            QStringLiteral("cloud sync notizen onedrive drive build")));
+      }
+
       auto *btnTrace = makeQuietAction(cardMore, QStringLiteral("Aus"));
       btnTrace->setCheckable(true);
       btnTrace->setChecked(BlopDiag::sessionTraceActive());
@@ -1871,7 +1975,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     cardMore->setExpanded(true);
 
     const QList<BlopSettingsCard *> allCards = {
-        cardKonto, cardTheme, cardLook, cardBehavior, cardStorage, cardMore};
+        cardKonto, cardTheme, cardLook,
+#ifndef Q_OS_ANDROID
+        cardShortcuts,
+#endif
+        cardBehavior, cardStorage, cardMore};
 
 #ifndef Q_OS_ANDROID
     if (!phoneUi) {
