@@ -5797,8 +5797,8 @@ void ModernToolbar::applyStudioToolbarVariant() {
     }
     {
       const QList<ToolbarBtn *> grid = {
-          btnHand, btnPen, btnEraser, btnLasso, btnFormula, btnRuler,
-          btnMolecule, btnShape, btnImage, btnText, btnUndo, btnRedo};
+          btnHand, btnPen, btnEraser, btnLasso, btnRuler, btnShape,
+          btnImage, btnText, btnUndo, btnRedo};
       for (ToolbarBtn *b : grid) {
         if (!b)
           continue;
@@ -5809,6 +5809,11 @@ void ModernToolbar::applyStudioToolbarVariant() {
         b->setBtnCell(UiScale::dp(40), UiScale::dp(40));
         b->show();
       }
+      // Formel/Molekül bleiben im Tool-Picker, nicht in der Default-Rail.
+      if (btnFormula)
+        btnFormula->hide();
+      if (btnMolecule)
+        btnMolecule->hide();
     }
     if (btnPalette)
       btnPalette->show();

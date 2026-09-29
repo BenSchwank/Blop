@@ -265,17 +265,19 @@ DashboardWidgetSpec DashboardLayoutStore::defaultFor(const QString &id) {
 }
 
 QVector<DashboardWidgetSpec> DashboardLayoutStore::defaults() {
-  // Notion page stack: cover → title → calendar + lists (no separate Heute).
-  auto today = make(QStringLiteral("today"), 2, 3, 0, DashSizeClass::M);
+  // Cover → full-width title → aligned 6+6 content row → tasks.
+  auto today = make(QStringLiteral("today"), 99, 0, 0, DashSizeClass::M);
   today.visible = false;
+  auto shortcuts = make(QStringLiteral("shortcuts"), 99, 0, 0, DashSizeClass::L);
+  shortcuts.visible = false;
   return {
       make(QStringLiteral("banner"), 0, 0, 0, DashSizeClass::L),
       make(QStringLiteral("intro"), 1, 2, 0, DashSizeClass::Title),
       today,
       make(QStringLiteral("calendar"), 2, 3, 0, DashSizeClass::Tall),
-      make(QStringLiteral("todos"), 3, 3, 6, DashSizeClass::M),
-      make(QStringLiteral("recent"), 4, 6, 6, DashSizeClass::Tall),
-      make(QStringLiteral("shortcuts"), 5, 9, 0, DashSizeClass::L),
+      make(QStringLiteral("recent"), 3, 3, 6, DashSizeClass::Tall),
+      make(QStringLiteral("todos"), 4, 6, 0, DashSizeClass::M),
+      shortcuts,
   };
 }
 
@@ -531,6 +533,75 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
         mig.setValue(settingsKey(),
                      QJsonDocument(arr).toJson(QJsonDocument::Compact));
       }
+    }
+  }
+
+  // One-shot: Notion rhythm — intro full width, calendar+recent as 6+6.
+  {
+    QSettings mig(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    constexpr const char *kRhythm = "dashboard/layout.gridRhythmV1";
+    if (!mig.value(QLatin1String(kRhythm)).toBool()) {
+      mig.setValue(QLatin1String(kRhythm), true);
+      QHash<QString, bool> visibility;
+      QHash<QString, DashboardWidgetSpec> chrome;
+      for (const auto &s : out) {
+        visibility.insert(s.id, s.visible);
+        chrome.insert(s.id, s);
+      }
+      QVector<DashboardWidgetSpec> extras;
+      for (const auto &s : out) {
+        if (isBannerId(s.id) && s.id != QLatin1String("banner"))
+          extras.append(s);
+      }
+      out = defaults();
+      for (auto &s : out) {
+        if (visibility.contains(s.id))
+          s.visible = visibility.value(s.id);
+        if (chrome.contains(s.id)) {
+          const auto &c = chrome.value(s.id);
+          s.bgEnabled = c.bgEnabled;
+          s.borderEnabled = c.borderEnabled;
+          s.bgColor = c.bgColor;
+          s.borderColor = c.borderColor;
+        }
+        if (s.id == QLatin1String("intro") || s.id == QLatin1String("banner"))
+          s.visible = true;
+        if (s.id == QLatin1String("today") || s.id == QLatin1String("shortcuts"))
+          s.visible = false;
+      }
+      int maxBottom = 0;
+      for (const auto &x : out) {
+        if (!x.visible)
+          continue;
+        maxBottom = qMax(maxBottom, x.row + rowSpanFor(x.sizeClass));
+      }
+      for (DashboardWidgetSpec extra : extras) {
+        extra.row = maxBottom;
+        extra.col = 0;
+        extra.visible = true;
+        out.append(extra);
+        maxBottom += rowSpanFor(extra.sizeClass);
+      }
+      QJsonArray arr;
+      for (int i = 0; i < out.size(); ++i) {
+        const auto &s = out[i];
+        QJsonObject o;
+        o.insert(QStringLiteral("id"), s.id);
+        o.insert(QStringLiteral("visible"), s.visible);
+        o.insert(QStringLiteral("order"), i);
+        o.insert(QStringLiteral("row"), s.row);
+        o.insert(QStringLiteral("col"), s.col);
+        o.insert(QStringLiteral("sizeClass"), sizeClassToString(s.sizeClass));
+        o.insert(QStringLiteral("bgEnabled"), s.bgEnabled);
+        o.insert(QStringLiteral("borderEnabled"), s.borderEnabled);
+        if (!s.bgColor.isEmpty())
+          o.insert(QStringLiteral("bgColor"), s.bgColor);
+        if (!s.borderColor.isEmpty())
+          o.insert(QStringLiteral("borderColor"), s.borderColor);
+        arr.append(o);
+      }
+      mig.setValue(settingsKey(),
+                   QJsonDocument(arr).toJson(QJsonDocument::Compact));
     }
   }
 

@@ -78,6 +78,9 @@ CalendarDayView::CalendarDayView(QWidget *parent) : QWidget(parent) {
   modeLay->setSpacing(UiScale::dp(4));
 
   m_modeLabel = new QLabel(modeLabel(Mode::Day), m_modeBar);
+  m_modeLabel->setCursor(Qt::PointingHandCursor);
+  m_modeLabel->setToolTip(QStringLiteral("Ansicht wechseln"));
+  m_modeLabel->installEventFilter(this);
   m_modeLabel->setStyleSheet(
       QStringLiteral("color: %1; font-size: 12px; font-weight: 500;"
                      "background: transparent;")
@@ -93,6 +96,7 @@ CalendarDayView::CalendarDayView(QWidget *parent) : QWidget(parent) {
   modeLay->addWidget(m_btnAdd, 0, Qt::AlignVCenter);
   modeLay->addStretch(1);
 
+  // Full calendar only — compact board uses the mode label as the control.
   m_btnModeMore = new QPushButton(QStringLiteral("⋯"), m_modeBar);
   m_btnModeMore->setCursor(Qt::PointingHandCursor);
   m_btnModeMore->setFlat(true);
@@ -273,13 +277,19 @@ QString CalendarDayView::modeLabel(Mode mode) {
 }
 
 void CalendarDayView::syncModeLabel() {
-  if (m_modeLabel)
-    m_modeLabel->setText(modeLabel(m_mode));
+  if (m_modeLabel) {
+    // Compact: label is the only view control — hint with a quiet caret.
+    const QString base = modeLabel(m_mode);
+    m_modeLabel->setText(m_compact ? base + QStringLiteral(" ▾") : base);
+  }
   applyCompactChrome();
 }
 
 void CalendarDayView::showModeMenu() {
-  if (!m_btnModeMore)
+  QWidget *anchor = m_btnModeMore && m_btnModeMore->isVisible()
+                        ? static_cast<QWidget *>(m_btnModeMore)
+                        : static_cast<QWidget *>(m_modeLabel);
+  if (!anchor)
     return;
   QList<BlopInWindowMenu::Item> items;
   const Mode modes[] = {Mode::Day, Mode::Week, Mode::Month};
@@ -303,8 +313,7 @@ void CalendarDayView::showModeMenu() {
          refreshGoogleButton();
        }});
   BlopInWindowMenu::show(
-      this, m_btnModeMore->mapToGlobal(QPoint(0, m_btnModeMore->height())),
-      items);
+      this, anchor->mapToGlobal(QPoint(0, anchor->height())), items);
 }
 
 void CalendarDayView::requestCreate(const QDateTime &presetStart) {
@@ -346,6 +355,8 @@ void CalendarDayView::applyCompactChrome() {
             .arg(muted(), accent()));
   }
   if (m_btnModeMore) {
+    // Board tiles: no second ⋯ — mode label opens the menu.
+    m_btnModeMore->setVisible(!m_compact && !m_minimal);
     const int s = UiScale::dp(m_compact ? 26 : 30);
     m_btnModeMore->setFixedSize(s, s);
     m_btnModeMore->setStyleSheet(
@@ -465,6 +476,12 @@ void CalendarDayView::resizeEvent(QResizeEvent *event) {
 }
 
 bool CalendarDayView::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == m_modeLabel &&
+      event->type() == QEvent::MouseButtonRelease) {
+    showModeMenu();
+    return true;
+  }
+
   if (m_dayScroll && watched == m_dayScroll->viewport()) {
     if (event->type() == QEvent::MouseButtonPress) {
       auto *me = static_cast<QMouseEvent *>(event);
@@ -619,7 +636,7 @@ void CalendarDayView::rebuildDay() {
           QStringLiteral("color: %1; font-size: 13px; background: transparent;")
               .arg(muted()));
       m_dayAgendaLay->addWidget(empty);
-      if (m_minimal) {
+      if (m_compact || m_minimal) {
         auto *add = new QPushButton(QStringLiteral("＋ Termin"),
                                     m_dayAgendaLay->parentWidget());
         add->setFlat(true);
@@ -649,6 +666,16 @@ void CalendarDayView::rebuildDay() {
 
   if (!m_timeline || !m_dayScroll || m_minimal)
     return;
+
+  const auto dayEvents = CalendarService::instance().eventsForDay(m_date);
+  // Compact board tile with nothing on the day: skip the empty hour grid.
+  if (m_compact && dayEvents.isEmpty()) {
+    m_timeline->hide();
+    m_dayScroll->hide();
+    return;
+  }
+  m_dayScroll->show();
+  m_timeline->show();
 
   const QList<QWidget *> kids =
       m_timeline->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);

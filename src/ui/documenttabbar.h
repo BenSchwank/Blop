@@ -104,9 +104,11 @@ protected:
   void mousePressEvent(QMouseEvent *event) override;
   void enterEvent(QEnterEvent *event) override;
   void leaveEvent(QEvent *event) override;
+  bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
   void refreshTitleLabel();
+  void syncCloseButtonVisibility();
 
   QString m_title;
   QString m_iconName;

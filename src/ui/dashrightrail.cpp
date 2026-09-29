@@ -21,11 +21,12 @@
 namespace {
 constexpr const char *kOrderKey = "dashboard/rightRail.moduleOrder";
 constexpr const char *kHiddenKey = "dashboard/rightRail.hiddenModules";
-constexpr int kRailWidthDp = 168;
-/// Same charcoal as LibraryIconRail / desktop shell chrome.
+constexpr int kRailWidthDp = 132;
+/// Match LibraryIconRail / title-bar shell (warm charcoal, not cool gray).
 QString chromeBg() {
-  return BlopTheme::instance().isDark() ? QStringLiteral("#16181E")
-                                        : QStringLiteral("#F7F7F5");
+  return BlopTheme::instance().isDark()
+             ? BlopStyle::obsidianNav().name(QColor::HexRgb)
+             : BlopStyle::paperBg().name(QColor::HexRgb);
 }
 
 QString railInk() {
@@ -51,16 +52,53 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
 
   auto *root = new QVBoxLayout(this);
-  root->setContentsMargins(UiScale::dp(12), UiScale::dp(14), UiScale::dp(10),
-                           UiScale::dp(12));
-  root->setSpacing(UiScale::dp(6));
+  root->setContentsMargins(UiScale::dp(12), UiScale::dp(12), UiScale::dp(10),
+                           UiScale::dp(14));
+  root->setSpacing(UiScale::dp(10));
+
+  // Page controls live in the shell rail — never overlaid on the cover.
+  m_chrome = new QWidget(this);
+  m_chrome->setObjectName(QStringLiteral("DashRailChrome"));
+  m_chrome->setStyleSheet(QStringLiteral("background: transparent;"));
+  auto *chromeLay = new QHBoxLayout(m_chrome);
+  chromeLay->setContentsMargins(0, 0, 0, 0);
+  chromeLay->setSpacing(UiScale::dp(4));
+
+  m_btnCustomize = new QPushButton(QStringLiteral("Anpassen"), m_chrome);
+  m_btnCustomize->setCursor(Qt::PointingHandCursor);
+  m_btnCustomize->setFlat(true);
+  m_btnCustomize->setToolTip(QStringLiteral("Dashboard anpassen"));
+  connect(m_btnCustomize, &QPushButton::clicked, this,
+          &DashRightRail::customizeClicked);
+  chromeLay->addWidget(m_btnCustomize, 1);
+
+  m_btnUndo = new QPushButton(QStringLiteral("↶"), m_chrome);
+  m_btnUndo->setCursor(Qt::PointingHandCursor);
+  m_btnUndo->setFlat(true);
+  m_btnUndo->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  m_btnUndo->setVisible(false);
+  m_btnUndo->setEnabled(false);
+  m_btnUndo->setToolTip(QStringLiteral("Rückgängig"));
+  connect(m_btnUndo, &QPushButton::clicked, this, &DashRightRail::undoClicked);
+  chromeLay->addWidget(m_btnUndo, 0);
+
+  m_btnMore = new QPushButton(QStringLiteral("⋯"), m_chrome);
+  m_btnMore->setCursor(Qt::PointingHandCursor);
+  m_btnMore->setFlat(true);
+  m_btnMore->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  m_btnMore->setVisible(false);
+  m_btnMore->setToolTip(QStringLiteral("Blöcke & Layout"));
+  connect(m_btnMore, &QPushButton::clicked, this, &DashRightRail::moreClicked);
+  chromeLay->addWidget(m_btnMore, 0);
+  root->addWidget(m_chrome, 0);
 
   m_body = new QWidget(this);
   m_body->setStyleSheet(QStringLiteral("background: transparent;"));
   m_bodyLay = new QVBoxLayout(m_body);
   m_bodyLay->setContentsMargins(0, 0, 0, 0);
-  m_bodyLay->setSpacing(UiScale::dp(10));
-  root->addWidget(m_body, 1);
+  m_bodyLay->setSpacing(UiScale::dp(8));
+  root->addWidget(m_body, 0);
+  root->addStretch(1);
 
   m_btnAdd = new QPushButton(QStringLiteral("+ Widget"), this);
   m_btnAdd->setCursor(Qt::PointingHandCursor);
@@ -93,6 +131,17 @@ void DashRightRail::setEditMode(bool on) {
   applyChrome();
   rebuildModules();
 }
+
+void DashRightRail::setUndoAvailable(bool on, int stackDepth) {
+  if (!m_btnUndo)
+    return;
+  m_btnUndo->setVisible(m_editMode);
+  m_btnUndo->setEnabled(on && m_editMode);
+  m_btnUndo->setToolTip(on ? QStringLiteral("Rückgängig (%1)").arg(stackDepth)
+                           : QStringLiteral("Rückgängig"));
+}
+
+QWidget *DashRightRail::overflowAnchor() const { return m_btnMore; }
 
 void DashRightRail::refresh() { rebuildModules(); }
 
@@ -182,6 +231,42 @@ void DashRightRail::applyChrome() {
                              ? QStringLiteral("rgba(255,255,255,0.06)")
                              : QStringLiteral("rgba(15,23,42,0.08)")));
   const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
+  const QString quiet =
+      QStringLiteral("QPushButton {"
+                     "  color: %1; font-size: 11px; font-weight: 500;"
+                     "  background: transparent; border: none;"
+                     "  border-radius: %2px; padding: 4px 2px;"
+                     "}"
+                     "QPushButton:hover { color: %3; }"
+                     "QPushButton:disabled { color: %4; }")
+          .arg(railMuted(), QString::number(UiScale::dp(6)), acc,
+               BlopTheme::instance().isDark()
+                   ? QStringLiteral("rgba(255,255,255,0.25)")
+                   : QStringLiteral("rgba(55,53,47,0.28)"));
+  if (m_btnCustomize) {
+    m_btnCustomize->setText(m_editMode ? QStringLiteral("Fertig")
+                                       : QStringLiteral("Anpassen"));
+    m_btnCustomize->setStyleSheet(
+        QStringLiteral("QPushButton {"
+                       "  color: %1; font-size: 12px; font-weight: %2;"
+                       "  background: transparent; border: none;"
+                       "  border-radius: %3px; padding: 4px 2px;"
+                       "  text-align: left;"
+                       "}"
+                       "QPushButton:hover { color: %4; }")
+            .arg(m_editMode ? acc : railMuted(),
+                 m_editMode ? QStringLiteral("600") : QStringLiteral("500"),
+                 QString::number(UiScale::dp(6)), acc));
+  }
+  if (m_btnUndo) {
+    m_btnUndo->setStyleSheet(quiet);
+    m_btnUndo->setVisible(m_editMode);
+  }
+  if (m_btnMore) {
+    m_btnMore->setStyleSheet(quiet);
+    // Overflow only in edit — one entry point (Anpassen) otherwise.
+    m_btnMore->setVisible(m_editMode);
+  }
   m_btnAdd->setStyleSheet(
       QStringLiteral("QPushButton {"
                      "  color: %1; font-size: 11px; font-weight: 550;"
@@ -225,7 +310,6 @@ void DashRightRail::rebuildModules() {
     if (content)
       m_bodyLay->addWidget(makeSegment(id, title, content), 0);
   }
-  m_bodyLay->addStretch(1);
   applyChrome();
 }
 
@@ -301,19 +385,20 @@ QWidget *DashRightRail::buildWeatherContent() {
     auto *temp = new QLabel(
         QStringLiteral("%1°").arg(QString::number(snap.tempC, 'f', 0)), box);
     temp->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 22px; font-weight: 600;"
-                       "letter-spacing: -0.6px; background: transparent;")
+        QStringLiteral("color: %1; font-size: 20px; font-weight: 600;"
+                       "letter-spacing: -0.5px; background: transparent;")
             .arg(railInk()));
     lay->addWidget(temp);
     auto *sum = new QLabel(snap.summary, box);
+    sum->setWordWrap(true);
     sum->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 12px; background: transparent;")
+        QStringLiteral("color: %1; font-size: 11px; background: transparent;")
             .arg(railMuted()));
     lay->addWidget(sum);
     auto *place = new QLabel(snap.placeLabel, box);
     place->setWordWrap(true);
     place->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 11px; background: transparent;")
+        QStringLiteral("color: %1; font-size: 10px; background: transparent;")
             .arg(railMuted()));
     lay->addWidget(place);
   } else {

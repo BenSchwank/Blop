@@ -76,4 +76,9 @@ struct StrukturDocument {
   /// Store path relative to struktur dir when under same root.
   static QString storeNotePath(const QString &strukturPath,
                                const QString &absoluteNotePath);
+
+  /// One-shot: move root-level "Eingebettete Notiz*.bnote" into .blop-embeds/
+  /// and rewrite matching notePath entries in sibling .struct files.
+  /// Returns number of notes moved. Idempotent.
+  static int migrateLegacyRootEmbeds(const QString &libraryRoot);
 };

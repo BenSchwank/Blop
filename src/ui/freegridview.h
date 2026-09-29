@@ -26,6 +26,9 @@ signals:
 
 protected:
   void paintEvent(QPaintEvent *e) override;
+  void mousePressEvent(QMouseEvent *e) override;
+  void mouseMoveEvent(QMouseEvent *e) override;
+  void mouseReleaseEvent(QMouseEvent *e) override;
   void dragEnterEvent(QDragEnterEvent *e) override;
   void dragMoveEvent(QDragMoveEvent *e) override;
   void dragLeaveEvent(QDragLeaveEvent *e) override;
@@ -33,6 +36,8 @@ protected:
   void startDrag(Qt::DropActions supportedActions) override;
 
 private:
+  QPoint m_pressPos;
+  bool m_pressTracking{false};
   QRect m_ghostRect;
   QRect m_lastGhostRect; // v119: union'd with m_ghostRect for partial update
   bool m_showGhost;

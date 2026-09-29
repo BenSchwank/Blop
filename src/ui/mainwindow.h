@@ -358,6 +358,8 @@ private:
   void runStudyJavaScript(const QString &js);
   void setLibraryBusy(bool busy, const QString &text = QString());
   void switchToEditorChrome();
+  /// Same minimal title bar as A4, but without drawing toolbars.
+  void switchToStrukturChrome();
   void switchToWorkspaceChrome();
   void openSettingsWorkspace();
   void openSettingsShell();
@@ -391,9 +393,15 @@ private:
   void setLibraryFavoritesMode(bool on);
   bool libraryFavoritesMode() const { return m_libraryFavoritesMode; }
   QString movePathToTrash(const QString &absolutePath);
+  QString restorePathFromTrash(const QString &absolutePath);
   bool isLibraryTrashView() const;
+  bool isPathInLibraryTrash(const QString &absolutePath) const;
   void deleteSelectedLibraryItems();
+  void restoreSelectedLibraryItems();
+  void emptyLibraryTrash();
   QStringList selectedLibraryPaths() const;
+  QStringList libraryContextTargetPaths(const QString &clickedPath) const;
+  void assignTagsForNotePaths(const QStringList &paths);
 
   void updateGrid();
   void updateSidebarState();
@@ -458,6 +466,8 @@ private:
   /// "Zurück zu <Struktur>" pill while an embed's A4 page is open.
   void showStrukturBackPill(StrukturNoteEditor *source, const QString &notePath);
   void syncStrukturBackPill();
+  void styleStrukturBackPill();
+  void refreshEditorThemeToggle();
   void returnToStruktur();
   void applyNoteChromeTheme();
   void styleNoteHeaderChrome();
@@ -687,6 +697,7 @@ private:
   QPushButton *m_btnLibraryNewNote{nullptr};
   QPushButton *m_btnLibraryGrid{nullptr};
   QPushButton *m_btnLibraryList{nullptr};
+  QPushButton *m_btnEmptyTrash{nullptr};
   bool m_libraryListMode{false};
   QLabel *m_lblLibraryTitle{nullptr};
   QLabel *m_lblLibrarySubtitle{nullptr};
@@ -798,6 +809,8 @@ private:
 
   /// A4-Notiz: ⋯-Menü in der Desktop-Titelleiste (kein Floating-Button)
   ModernButton *m_btnEditorNoteOverflow{nullptr};
+  /// Open note: Hell/Dunkel without leaving the editor (sidebar stays Obsidian).
+  ModernButton *m_btnEditorThemeToggle{nullptr};
   ModernButton *m_btnTitleBarBell{nullptr};
   /// A4-Notiz: Seitenmanager (gleiche Rolle wie Android-Topbar-Button)
   ModernButton *m_btnTitleBarPageManager{nullptr};

@@ -451,9 +451,8 @@ void NoteBarToolbar::rebuildTiles() {
       {"pen", "Stift", ToolMode::Pen},
       {"eraser", "Radierer", ToolMode::Eraser},
       {"lasso", "Auswahl", ToolMode::Lasso},
-      {"pi", "Formel", ToolMode::Formula},
       {"ruler", "Messen", ToolMode::Ruler},
-      {"molecule", "Molekül", ToolMode::Molecule},
+      {"stickynote", "Notiz", ToolMode::StickyNote},
   };
   qreal x = UiScale::dp(kBarPad);
   const qreal y = (height() - UiScale::dp(kBarTileH)) / 2.0;
@@ -491,8 +490,8 @@ void NoteBarToolbar::paintSkin(QPainter &p) {
   p.setBrush(kBg);
   p.drawRoundedRect(rect(), UiScale::dp(12), UiScale::dp(12));
   // Thin separator before undo/redo.
-  if (m_tiles.size() > 7) {
-    const qreal sx = (m_tiles[6].rect.right() + m_tiles[7].rect.left()) / 2.0;
+  if (m_tiles.size() > 6) {
+    const qreal sx = (m_tiles[5].rect.right() + m_tiles[6].rect.left()) / 2.0;
     p.setPen(QPen(QColor(255, 255, 255, 34), 1));
     p.drawLine(QPointF(sx, UiScale::dp(16)), QPointF(sx, height() - UiScale::dp(16)));
   }
@@ -545,9 +544,8 @@ void NoteFloatToolbar::rebuildTiles() {
   add("image", ToolMode::Image);
   add("line", ToolMode::Shape, static_cast<int>(ShapeToolKind::Line));
   add("circle", ToolMode::Shape, static_cast<int>(ShapeToolKind::Circle));
-  add("pi", ToolMode::Formula);
-  add("molecule", ToolMode::Molecule);
   add("ruler", ToolMode::Ruler);
+  add("stickynote", ToolMode::StickyNote);
   x += UiScale::dp(kPillSep);
   add("undo", ToolMode::Pen, -1, NoteToolTile::Undo);
   add("dots_h", ToolMode::Pen, -1, NoteToolTile::More);
@@ -557,8 +555,8 @@ void NoteFloatToolbar::paintSkin(QPainter &p) {
   p.setPen(Qt::NoPen);
   p.setBrush(kBg);
   p.drawRoundedRect(rect(), UiScale::dp(14), UiScale::dp(14));
-  if (m_tiles.size() > 10) {
-    const qreal sx = (m_tiles[9].rect.right() + m_tiles[10].rect.left()) / 2.0;
+  if (m_tiles.size() > 9) {
+    const qreal sx = (m_tiles[8].rect.right() + m_tiles[9].rect.left()) / 2.0;
     p.setPen(QPen(QColor(255, 255, 255, 34), 1));
     p.drawLine(QPointF(sx, UiScale::dp(12)), QPointF(sx, height() - UiScale::dp(12)));
   }
@@ -749,15 +747,15 @@ void NoteScienceToolbar::rebuildTiles() {
        {"eraser", ToolMode::Eraser, -1, NoteToolTile::Tool, QColor()}},
       {{"lasso", ToolMode::Lasso, -1, NoteToolTile::Tool, QColor()},
        {"text", ToolMode::Text, -1, NoteToolTile::Tool, QColor()}},
-      {{"pi", ToolMode::Formula, -1, NoteToolTile::Tool, QColor()},
+      {{"stickynote", ToolMode::StickyNote, -1, NoteToolTile::Tool, QColor()},
        {"ruler", ToolMode::Ruler, -1, NoteToolTile::Tool, QColor()}},
-      {{"molecule", ToolMode::Molecule, -1, NoteToolTile::Tool, QColor()},
+      {{"hand", ToolMode::Hand, -1, NoteToolTile::Tool, QColor()},
        {"image", ToolMode::Image, -1, NoteToolTile::Tool, QColor()}},
       {{"line", ToolMode::Shape, static_cast<int>(ShapeToolKind::Line),
         NoteToolTile::Tool, QColor()},
        {"circle", ToolMode::Shape, static_cast<int>(ShapeToolKind::Circle),
         NoteToolTile::Tool, QColor()}},
-      {{"hand", ToolMode::Hand, -1, NoteToolTile::Tool, QColor()},
+      {{"undo", ToolMode::Pen, -1, NoteToolTile::Undo, QColor()},
        {"dots_h", ToolMode::Pen, -1, NoteToolTile::More, QColor()}},
   };
   const qreal tile = UiScale::dp(kRailTile);

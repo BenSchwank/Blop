@@ -1,6 +1,7 @@
 #include "dashcanvas.h"
 
 #include "blop_theme.h"
+#include "blopstyle.h"
 #include "dashpagescroll.h"
 #include "dashwidget.h"
 #include "phonechrome.h"
@@ -80,9 +81,9 @@ void DashCanvas::paintEvent(QPaintEvent *event) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing, true);
   const bool dark = BlopTheme::instance().isDark();
-  // Desk sits slightly below card sheets so elevation reads without drop-shadows.
+  // Desk matches shell content plate — cards (obsidianSheet) float above.
   const QColor desk =
-      dark ? QColor(0x12, 0x14, 0x1A) : QColor(0xF4, 0xF5, 0xF7);
+      dark ? BlopStyle::obsidianContent() : BlopStyle::paperBg();
   p.fillRect(rect(), desk);
 
   QRadialGradient vig(rect().center(),
@@ -334,20 +335,21 @@ void DashCanvas::removeBanner(const QString &id) {
 }
 
 int DashCanvas::rowUnit() const { return UiScale::dp(92); }
-int DashCanvas::hGap() const { return UiScale::dp(m_phone ? 12 : 14); }
-int DashCanvas::vGap() const { return UiScale::dp(m_phone ? 12 : 14); }
+int DashCanvas::hGap() const { return UiScale::dp(m_phone ? 10 : 12); }
+int DashCanvas::vGap() const { return UiScale::dp(m_phone ? 8 : 8); }
 
 QMargins DashCanvas::boardMargins() const {
-  const int left = UiScale::dp(m_phone ? 16 : 48);
+  const int left = UiScale::dp(m_phone ? 16 : 40);
   // When a right rail is present, keep only a quiet gutter — avoids a
   // Windows-looking dead strip + scrollbar gutter before the rail.
   const int right =
       m_phone ? left
-              : (m_besideRail ? UiScale::dp(8) : UiScale::dp(48));
-  const int top = UiScale::dp(m_phone ? 4 : 8);
+              : (m_besideRail ? UiScale::dp(8) : UiScale::dp(40));
+  // Tight top so cover sits close under the title bar / Anpassen overlay.
+  const int top = UiScale::dp(m_phone ? 2 : 4);
   const int bot =
       m_phone ? PhoneChrome::contentBottomInsetPx(const_cast<DashCanvas *>(this))
-              : UiScale::dp(48);
+              : UiScale::dp(40);
   return QMargins(left, top, right, bot);
 }
 

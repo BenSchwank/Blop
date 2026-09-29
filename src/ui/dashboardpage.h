@@ -15,7 +15,8 @@ class QTimer;
 class QVBoxLayout;
 class QWidget;
 
-/// Notion-paper widget board — shell + quiet overflow; layout lives in DashCanvas.
+/// Notion-paper widget board — customize lives in the right shell rail
+/// (phone keeps a minimal floating Anpassen).
 class DashboardPage : public QWidget {
   Q_OBJECT
 public:
@@ -39,9 +40,9 @@ protected:
 
 private:
   void applyChrome();
-  void buildHeader();
+  void buildPhoneChrome();
   void updateHeader();
-  void layoutFloatingHeader();
+  void layoutPhoneChrome();
   void toggleEditMode();
   void showOverflowMenu();
   void showBlocksMenu();
@@ -52,15 +53,16 @@ private:
   void undoLayout();
   void updateUndoButton();
   void syncRailFromBoard();
+  QWidget *overflowAnchor() const;
   static bool layoutsEqual(const QVector<DashboardWidgetSpec> &a,
                            const QVector<DashboardWidgetSpec> &b);
 
   QVBoxLayout *m_root{nullptr};
   QWidget *m_mainCol{nullptr};
-  QWidget *m_header{nullptr};
-  QPushButton *m_btnCustomize{nullptr};
-  QPushButton *m_btnUndo{nullptr};
-  QPushButton *m_btnMore{nullptr};
+  /// Phone-only floating Anpassen (desktop uses DashRightRail chrome).
+  QWidget *m_phoneChrome{nullptr};
+  QPushButton *m_btnPhoneCustomize{nullptr};
+  QPushButton *m_btnPhoneMore{nullptr};
   QWidget *m_bodyRow{nullptr};
   DashPageScroll *m_scroll{nullptr};
   DashCanvas *m_canvas{nullptr};

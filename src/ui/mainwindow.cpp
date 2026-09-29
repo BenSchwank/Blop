@@ -2460,6 +2460,20 @@ void MainWindow::applyThemeRefresh() {
       applyNoteChromeTheme();
     else
       refreshNoteTitleChrome(false);
+    // Keep under-stack editors in sync when Settings sits on top.
+    if (!inNote && m_editorTabs && m_editorTabs->count() > 0 &&
+        m_documentTabBar && m_documentTabBar->noteChromeMode()) {
+      refreshOpenEditorSceneBackgrounds();
+      if (m_editorCenterWidget) {
+        m_editorCenterWidget->setStyleSheet(
+            QStringLiteral("QWidget { background: %1; }")
+                .arg(NoteChrome::canvasBg().name(QColor::HexRgb)));
+      }
+      if (m_pageBookmarkRail)
+        m_pageBookmarkRail->refreshTheme();
+      styleStrukturBackPill();
+    }
+    refreshEditorThemeToggle();
   }
 #endif
 
@@ -3789,7 +3803,7 @@ void MainWindow::showAndroidStudyBootRetry() {
 void MainWindow::setupTitleBar() {
   m_titleBarWidget = new QWidget(this);
   m_titleBarWidget->setObjectName(QStringLiteral("TitleBar"));
-  m_titleBarWidget->setFixedHeight(52);
+  m_titleBarWidget->setFixedHeight(UiScale::dp(44));
   m_titleBarWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   m_titleBarWidget->setAttribute(Qt::WA_StyledBackground, true);
   m_titleBarWidget->setAutoFillBackground(true);
@@ -3886,8 +3900,8 @@ void MainWindow::setupTitleBar() {
       "  padding: 0 14px;"
       "}"
       "QPushButton:hover {"
-      "  background: rgba(124,92,252,0.16);"
-      "  border-color: rgba(124,92,252,0.40);"
+      "  background: rgba(91,157,255,0.16);"
+      "  border-color: rgba(91,157,255,0.40);"
       "  color: #FFFFFF;"
       "}"));
   connect(m_modeSelector, &QComboBox::currentIndexChanged,
@@ -3913,7 +3927,7 @@ void MainWindow::setupTitleBar() {
       "  font-size: 18px; font-weight: 600;"
       "}"
       "QPushButton:hover {"
-      "  background: rgba(124,92,252,0.22);"
+      "  background: rgba(91,157,255,0.22);"
       "}"));
   connect(m_btnAddWebBookmark, &QPushButton::clicked, this,
           &MainWindow::showAddWebBookmarkDialog);
@@ -3940,13 +3954,7 @@ void MainWindow::setupTitleBar() {
             if (editorTabIsWorkspace(w))
               switchToWorkspaceChrome();
             else if (qobject_cast<StrukturNoteEditor *>(w)) {
-              switchToApp(true);
-              if (m_documentTabBar)
-                m_documentTabBar->setNoteChromeMode(false);
-              if (m_floatingTools)
-                m_floatingTools->hide();
-              if (m_radialFab)
-                m_radialFab->hide();
+              switchToStrukturChrome();
               if (auto *se = qobject_cast<StrukturNoteEditor *>(w))
                 se->refreshAllEmbeds();
             } else
@@ -3973,7 +3981,7 @@ void MainWindow::setupTitleBar() {
       "  border-radius: 8px;"
       "}"
       "QPushButton:hover {"
-      "  background: rgba(124,92,252,0.18);"
+      "  background: rgba(91,157,255,0.18);"
       "}"));
   connect(m_btnNewTab, &QPushButton::clicked, this, &MainWindow::onNewPage);
 
@@ -4017,6 +4025,23 @@ void MainWindow::setupTitleBar() {
   navLayout->addWidget(m_btnTitleBarBell);
   navLayout->addSpacing(4);
 #endif
+
+  m_btnEditorThemeToggle = new ModernButton(m_topNavControls);
+  m_btnEditorThemeToggle->setText(QString());
+  m_btnEditorThemeToggle->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  m_btnEditorThemeToggle->setFixedSize(kTitleBarNavH, kTitleBarNavH);
+  m_btnEditorThemeToggle->setIconSize(
+      QSize(kTitleBarNavH - 4, kTitleBarNavH - 4));
+  m_btnEditorThemeToggle->setToolTip(QStringLiteral("Hell / Dunkel"));
+  m_btnEditorThemeToggle->setCursor(Qt::PointingHandCursor);
+  m_btnEditorThemeToggle->setStyleSheet(BlopStyle::quietIconButtonQss(8));
+  connect(m_btnEditorThemeToggle, &QAbstractButton::clicked, this, [this]() {
+    NoteChrome::toggleMode();
+    applyThemeRefresh();
+  });
+  m_btnEditorThemeToggle->hide();
+  navLayout->addWidget(m_btnEditorThemeToggle);
+  navLayout->addSpacing(2);
 
   m_btnEditorNoteOverflow = new ModernButton(m_topNavControls);
   m_btnEditorNoteOverflow->setIcon(
@@ -4877,8 +4902,8 @@ void MainWindow::setLibraryMidChromeVisible(bool visible) {
     m_sidebarNotesList->setVisible(visible);
   if (m_sidebarCloudList)
     m_sidebarCloudList->setVisible(visible);
-  if (m_libraryTagsPanel && visible)
-    m_libraryTagsPanel->hide(); // library keeps tags hidden by default
+  if (m_libraryTagsPanel)
+    m_libraryTagsPanel->setVisible(visible);
   QWidget *mid = m_sidebarMidScroll ? m_sidebarMidScroll->widget() : nullptr;
   if (mid) {
     if (auto *n = mid->findChild<QLabel *>(QStringLiteral("SidebarNotesHeader")))
@@ -6044,7 +6069,8 @@ void MainWindow::applyProfile(const UiProfile &profile) {
 #ifndef Q_OS_ANDROID
     // Desktop-Titelleiste: ⋯ + Seitenmanager — feste Maße aus setupTitleBar(),
     // nicht durch Profil-„Button-Größe“ überschreiben (war immer wieder winzig).
-    if (btn == m_btnEditorNoteOverflow || btn == m_btnTitleBarPageManager) {
+    if (btn == m_btnEditorNoteOverflow || btn == m_btnEditorThemeToggle ||
+        btn == m_btnTitleBarPageManager) {
       continue;
     }
 #endif
@@ -6321,6 +6347,8 @@ void MainWindow::createDefaultFolder() {
   // Always create the device-local library root (phone / laptop / Mac / …).
   // Cloud providers are optional overlays — see StoragePrefs + CloudStorageStore.
   m_rootPath = StoragePrefs::ensureLocalLibraryRoot();
+  // Hide legacy root-level embed notes that predate .blop-embeds/.
+  StrukturDocument::migrateLegacyRootEmbeds(m_rootPath);
 }
 
 void MainWindow::setupUi() {
@@ -7027,6 +7055,19 @@ void MainWindow::setupUi() {
   topBar->addWidget(m_btnLibraryList, 0, Qt::AlignVCenter);
   applyViewIcons(false);
 
+  m_btnEmptyTrash = new QPushButton(m_overviewContainer);
+  m_btnEmptyTrash->setFixedSize(viewBtn, viewBtn);
+  m_btnEmptyTrash->setCursor(Qt::PointingHandCursor);
+  m_btnEmptyTrash->setToolTip(QStringLiteral("Papierkorb leeren"));
+  m_btnEmptyTrash->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
+  m_btnEmptyTrash->setStyleSheet(BlopStyle::quietIconButtonQss(8, 32));
+  m_btnEmptyTrash->setIcon(
+      createModernIcon(QStringLiteral("trash"), QColor(0x6B, 0x72, 0x80)));
+  m_btnEmptyTrash->hide();
+  connect(m_btnEmptyTrash, &QPushButton::clicked, this,
+          &MainWindow::emptyLibraryTrash);
+  topBar->addWidget(m_btnEmptyTrash, 0, Qt::AlignVCenter);
+
   // Compact ⋯ overflow (sort) sits flush right after the view toggles.
   m_libraryOrgBar->placeSortInActionBar(topBar);
   if (QPushButton *sortBtn = m_libraryOrgBar->sortButton())
@@ -7125,8 +7166,8 @@ void MainWindow::setupUi() {
 #else
   if (m_libraryOrgBar) {
     m_libraryOrgBar->setParent(libraryMain);
-    // K Hauptmenü has no chip strip — smart views live in the sidebar.
-    m_libraryOrgBar->hide();
+    // Desktop: smart-view chips under the title row (Favoriten / Zuletzt / …).
+    m_libraryOrgBar->show();
   }
 #endif
   if (m_libraryOrgBar && m_libraryOrgBar->isVisible())
@@ -7136,9 +7177,13 @@ void MainWindow::setupUi() {
   m_fileListView->setModel(m_libraryProxy);
   m_fileListView->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_fileListView->setSelectionBehavior(QAbstractItemView::SelectItems);
-  // Drag starts only after a clear move; click / Ctrl+click select first.
-  m_fileListView->setDragDropMode(QAbstractItemView::DragOnly);
+  // DragDrop (not DragOnly): FreeGridView accepts reorders, and DragOnly
+  // ate double-clicks when the pointer moved between click and release.
+  m_fileListView->setDragDropMode(QAbstractItemView::DragDrop);
   m_fileListView->setDefaultDropAction(Qt::MoveAction);
+  m_fileListView->setDragDropOverwriteMode(false);
+  // Drag threshold lives in FreeGridView so a shaky double-click still opens
+  // and the rest of the app keeps the normal drag distance.
   // Prefer navigateLibraryToPath so fetchMore + directoryLoaded keep the grid
   // populated (bare mapFromSource often yields an empty view at first paint).
   navigateLibraryToPath(m_rootPath);
@@ -7218,8 +7263,13 @@ void MainWindow::setupUi() {
               return;
             }
             const QModelIndex src = mapToSource(index);
-            if (m_fileModel && src.isValid())
-              onFileDoubleClicked(src);
+            if (m_fileModel && src.isValid()) {
+              const QString path = m_fileModel->filePath(src);
+              if (!path.isEmpty() && QFileInfo(path).isFile())
+                openNotePath(path);
+              else
+                onFileDoubleClicked(src);
+            }
           });
   {
     auto *delSc = new QShortcut(QKeySequence::Delete, m_fileListView);
@@ -7235,6 +7285,14 @@ void MainWindow::setupUi() {
     connect(selAll, &QShortcut::activated, this, [this]() {
       if (m_fileListView)
         m_fileListView->selectAll();
+    });
+    // Ctrl+Z in trash restores selection (common expectation vs undo stack).
+    auto *restoreSc =
+        new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Z), m_fileListView);
+    restoreSc->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(restoreSc, &QShortcut::activated, this, [this]() {
+      if (isLibraryTrashView())
+        restoreSelectedLibraryItems();
     });
   }
   connect(m_fileListView, &FreeGridView::itemDropped, this,
@@ -7467,14 +7525,7 @@ void MainWindow::setupUi() {
     m_strukturBackPill->setCursor(Qt::PointingHandCursor);
     m_strukturBackPill->setFocusPolicy(Qt::NoFocus);
     m_strukturBackPill->setFixedHeight(UiScale::dp(34));
-    m_strukturBackPill->setStyleSheet(QStringLiteral(
-        "QPushButton#StrukturBackPill {"
-        "  background: #1F2229; color: #F2F4F8; border: none;"
-        "  border-radius: 17px; padding: 0 16px 0 14px;"
-        "  font-size: 13px; font-weight: 600;"
-        "}"
-        "QPushButton#StrukturBackPill:hover { background: #2B2F38; }"
-        "QPushButton#StrukturBackPill:pressed { background: #3A3F4B; }"));
+    styleStrukturBackPill();
     m_strukturBackPill->hide();
     connect(m_strukturBackPill, &QPushButton::clicked, this,
             &MainWindow::returnToStruktur);
@@ -7989,7 +8040,36 @@ void MainWindow::setupUi() {
           [this]() {
             updateNoteBottomChrome();
             positionNoteChrome();
+            if (m_allPagesOverlay && m_allPagesOverlay->isVisible())
+              m_allPagesOverlay->setNoteView(currentNoteView());
           });
+  connect(m_pageBookmarkRail, &PageBookmarkRail::allPagesRequested, this,
+          [this]() {
+            if (!m_allPagesOverlay || !m_editorCenterWidget)
+              return;
+            m_allPagesOverlay->setNoteView(currentNoteView());
+            m_allPagesOverlay->setGeometry(0, 0, m_editorCenterWidget->width(),
+                                           m_editorCenterWidget->height());
+            m_allPagesOverlay->present();
+          });
+  // Digits 1–9 jump to pages while an A4 note is open, even if the rail
+  // itself does not have keyboard focus (canvas / toolbars often do).
+  for (int d = 1; d <= 9; ++d) {
+    auto *sc = new QShortcut(QKeySequence(Qt::Key_0 + d), m_editorCenterWidget);
+    sc->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(sc, &QShortcut::activated, this, [this, d]() {
+      if (!m_pageBookmarkRail || !m_pageBookmarkRail->isVisible())
+        return;
+      QWidget *fw = QApplication::focusWidget();
+      if (qobject_cast<QLineEdit *>(fw) || qobject_cast<QTextEdit *>(fw) ||
+          qobject_cast<QPlainTextEdit *>(fw))
+        return;
+      if (auto *view = m_pageBookmarkRail->noteView()) {
+        if (d - 1 < view->pageCount())
+          m_pageBookmarkRail->jumpToPage(d - 1);
+      }
+    });
+  }
 #else
   {
     QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
@@ -10076,10 +10156,13 @@ void MainWindow::setupSidebar() {
               return;
             const QString path = item->data(Qt::UserRole).toString();
             if (!path.isEmpty() && QFileInfo(path).isFile())
-              onFileDoubleClicked(m_fileModel->index(path));
+              openNotePath(path);
           });
   midLay->addWidget(m_sidebarNotesList);
   refreshSidebarNotesList();
+
+  // Gap so the last NOTIZEN row never visually collides with CLOUD.
+  midLay->addSpacing(UiScale::dp(10));
 
   // CLOUD — between last-used notes (NOTIZEN) and the rest of the shell
   // (library grid / stretch). All cloud providers stay reachable here.
@@ -10087,7 +10170,7 @@ void MainWindow::setupSidebar() {
   cloudHeader->setObjectName(QStringLiteral("SidebarCloudHeader"));
   cloudHeader->setStyleSheet(QStringLiteral(
       "color: #6B7280; font-size: 10px; font-weight: 700; letter-spacing: 0.8px;"
-      " background: transparent; padding: 14px 12px 4px 12px;"));
+      " background: transparent; padding: 6px 12px 4px 12px;"));
   midLay->addWidget(cloudHeader);
   m_sidebarCloudList = new QListWidget(mid);
   m_sidebarCloudList->setObjectName(QStringLiteral("SidebarCloudList"));
@@ -10153,14 +10236,12 @@ void MainWindow::setupSidebar() {
           });
   midLay->addWidget(m_sidebarCloudList);
   refreshSidebarCloudList();
-#endif
-  midLay->addStretch(1);
-  updateSidebarBadges();
 
-  // Tags — Drawboard-style collapsible section in the left nav.
+  // Tags — filter + manage in the charcoal nav (collapsed by default).
   m_libraryTagsPanel = new LibraryTagsPanel(mid);
   m_libraryTagsPanel->setSidebarMode(true);
   m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
+  m_libraryTagsPanel->setCollapsed(true);
   connect(m_libraryTagsPanel, &LibraryTagsPanel::filterChanged, this,
           [this](const QStringList &) { applyLibraryFilters(); });
   connect(m_libraryTagsPanel, &LibraryTagsPanel::catalogChanged, this,
@@ -10168,14 +10249,32 @@ void MainWindow::setupSidebar() {
             applyLibraryFilters();
             rebuildPageSettingsTags();
           });
+  m_libraryTagsPanel->reload();
+  midLay->addWidget(m_libraryTagsPanel, 0);
+#endif
+  midLay->addStretch(1);
+  updateSidebarBadges();
+
 #ifndef Q_OS_ANDROID
-  // K mix: tags live outside the charcoal nav panel.
-  m_libraryTagsPanel->hide();
+  // Tags already wired above (desktop).
 #else
+  // Tags — Drawboard-style collapsible section in the left nav.
+  if (!m_libraryTagsPanel) {
+    m_libraryTagsPanel = new LibraryTagsPanel(mid);
+    m_libraryTagsPanel->setSidebarMode(true);
+    m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
+    connect(m_libraryTagsPanel, &LibraryTagsPanel::filterChanged, this,
+            [this](const QStringList &) { applyLibraryFilters(); });
+    connect(m_libraryTagsPanel, &LibraryTagsPanel::catalogChanged, this,
+            [this]() {
+              applyLibraryFilters();
+              rebuildPageSettingsTags();
+            });
+  }
   if (UiScale::isAndroidPhoneUi(this)) {
     m_libraryTagsPanel->hide();
   } else {
-    midLay->addWidget(m_libraryTagsPanel, 0);
+    midLay->insertWidget(midLay->count() - 1, m_libraryTagsPanel, 0);
   }
 #endif
   midScroll->setWidget(mid);
@@ -10431,6 +10530,8 @@ void MainWindow::updateLibraryHeader() {
       m_lblLibraryTitle->setText(atRoot ? QStringLiteral("Notizen")
                                         : fi.fileName());
   }
+  if (m_btnEmptyTrash)
+    m_btnEmptyTrash->setVisible(inTrash);
   if (m_lblLibrarySubtitle) {
     QDir dir(folderPath);
     const int count =
@@ -10535,6 +10636,43 @@ QString MainWindow::movePathToTrash(const QString &absolutePath) {
   if (m_fileModel) {
     m_fileModel->setRootPath(m_fileModel->rootPath());
   }
+  return dest;
+}
+
+bool MainWindow::isPathInLibraryTrash(const QString &absolutePath) const {
+  if (absolutePath.isEmpty() || m_rootPath.isEmpty())
+    return false;
+  const QString trash =
+      QFileInfo(QDir(m_rootPath).filePath(QStringLiteral(".Papierkorb")))
+          .absoluteFilePath();
+  const QString abs = QFileInfo(absolutePath).absoluteFilePath();
+  if (abs.isEmpty())
+    return false;
+  const QString prefix = trash + QLatin1Char('/');
+  return QString::compare(abs, trash, Qt::CaseInsensitive) == 0 ||
+         abs.startsWith(prefix, Qt::CaseInsensitive);
+}
+
+QString MainWindow::restorePathFromTrash(const QString &absolutePath) {
+  if (!isPathInLibraryTrash(absolutePath))
+    return {};
+  const QFileInfo src(absolutePath);
+  if (!src.exists())
+    return {};
+  QString dest = QDir(m_rootPath).filePath(src.fileName());
+  int n = 1;
+  while (QFileInfo::exists(dest)) {
+    const QString base = src.completeBaseName();
+    const QString suf = src.suffix();
+    dest = QDir(m_rootPath).filePath(
+        suf.isEmpty() ? QStringLiteral("%1 (%2)").arg(base).arg(n++)
+                      : QStringLiteral("%1 (%2).%3").arg(base).arg(n++).arg(suf));
+  }
+  if (!QFile::rename(absolutePath, dest))
+    return {};
+  LibraryOrgStore::setFavorite(absolutePath, false);
+  if (m_fileModel)
+    m_fileModel->setRootPath(m_fileModel->rootPath());
   return dest;
 }
 
@@ -10653,6 +10791,109 @@ void MainWindow::deleteSelectedLibraryItems() {
 
   if (m_libraryFavoritesMode)
     refreshFavoritesModel();
+  updateSidebarBadges();
+  applyLibraryFilters();
+  updateLibraryHeader();
+  if (m_fileListView) {
+    m_fileListView->clearSelection();
+    m_fileListView->viewport()->update();
+  }
+}
+
+QStringList MainWindow::libraryContextTargetPaths(
+    const QString &clickedPath) const {
+  QStringList paths = selectedLibraryPaths();
+  const QString clicked = QFileInfo(clickedPath).absoluteFilePath();
+  if (!clicked.isEmpty()) {
+    bool hit = false;
+    for (const QString &p : paths) {
+      if (QString::compare(QFileInfo(p).absoluteFilePath(), clicked,
+                           Qt::CaseInsensitive) == 0) {
+        hit = true;
+        break;
+      }
+    }
+    if (!hit)
+      paths = QStringList{clickedPath};
+  }
+  if (paths.isEmpty() && !clickedPath.isEmpty())
+    paths.append(clickedPath);
+  return paths;
+}
+
+void MainWindow::restoreSelectedLibraryItems() {
+  if (!m_fileListView || !m_fileListView->isVisible())
+    return;
+  if (m_rightStack && m_rightStack->currentWidget() != m_overviewContainer)
+    return;
+  if (!isLibraryTrashView())
+    return;
+
+  const QStringList paths = selectedLibraryPaths();
+  if (paths.isEmpty())
+    return;
+
+  int ok = 0;
+  for (const QString &path : paths) {
+    if (!restorePathFromTrash(path).isEmpty())
+      ++ok;
+  }
+  updateSidebarBadges();
+  applyLibraryFilters();
+  updateLibraryHeader();
+  if (m_fileListView) {
+    m_fileListView->clearSelection();
+    m_fileListView->viewport()->update();
+  }
+  if (ok > 0) {
+    // Stay in trash so the user sees remaining items; badges refresh count.
+  }
+  Q_UNUSED(ok);
+}
+
+void MainWindow::emptyLibraryTrash() {
+  if (m_rootPath.isEmpty())
+    return;
+  const QString trash =
+      QDir(m_rootPath).filePath(QStringLiteral(".Papierkorb"));
+  QDir trashDir(trash);
+  if (!trashDir.exists())
+    return;
+
+  const QFileInfoList entries =
+      trashDir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot |
+                             QDir::Hidden);
+  if (entries.isEmpty())
+    return;
+
+  if (!BlopDialogs::confirm(
+          this, QStringLiteral("Papierkorb leeren"),
+          QStringLiteral("%1 Einträge endgültig löschen? Das kann nicht "
+                         "rückgängig gemacht werden.")
+              .arg(entries.size()),
+          QStringLiteral("Leeren"), QStringLiteral("Abbrechen")))
+    return;
+
+  for (const QFileInfo &fi : entries) {
+    const QString path = fi.absoluteFilePath();
+    if (!fi.isDir())
+      StoragePrefs::removeCloudMirrorIfNeeded(path);
+    if (m_fileModel) {
+      const QModelIndex idx = m_fileModel->index(path);
+      if (idx.isValid())
+        m_fileModel->remove(idx);
+      else if (fi.isDir())
+        QDir(path).removeRecursively();
+      else
+        QFile::remove(path);
+    } else if (fi.isDir()) {
+      QDir(path).removeRecursively();
+    } else {
+      QFile::remove(path);
+    }
+    LibraryOrgStore::setFavorite(path, false);
+  }
+
   updateSidebarBadges();
   applyLibraryFilters();
   updateLibraryHeader();
@@ -10842,6 +11083,10 @@ void MainWindow::refreshSidebarNotesList() {
     const QFileInfo fi(path);
     if (!fi.exists() || !fi.isFile())
       continue;
+    const QString abs = fi.absoluteFilePath();
+    if (abs.contains(QLatin1String("/.blop-embeds/")) ||
+        abs.contains(QLatin1String("\\.blop-embeds\\")))
+      continue;
     QString title = fi.completeBaseName();
     QString dateStr;
     const QDateTime dt = fi.lastModified();
@@ -10914,8 +11159,7 @@ void MainWindow::refreshSidebarNotesList() {
     m_sidebarNotesList->setItemDelegate(new NotesRowDelegate(m_sidebarNotesList));
     m_sidebarNotesList->setProperty("kNotesDelegate", true);
   }
-  m_sidebarNotesList->setFixedHeight(
-      qMax(UiScale::dp(28), m_sidebarNotesList->count() * UiScale::dp(32)));
+  BlopScroll::makeListFitContents(m_sidebarNotesList);
 #endif
 }
 
@@ -10950,10 +11194,7 @@ void MainWindow::refreshSidebarCloudList() {
   addCloud->setData(Qt::UserRole + 11, QStringLiteral("cloud"));
   addCloud->setData(Qt::UserRole + 5, QStringLiteral("clouds_add"));
   addCloud->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-  // Row paint uses ~14px text + padding; keep enough height for every entry
-  // including "Eigene Cloud hinzufügen…".
-  m_sidebarCloudList->setFixedHeight(
-      qMax(UiScale::dp(28), m_sidebarCloudList->count() * UiScale::dp(36)));
+  BlopScroll::makeListFitContents(m_sidebarCloudList);
 #endif
 }
 
@@ -11469,6 +11710,36 @@ void MainWindow::setLibraryBusy(bool busy, const QString &text) {
   m_libraryBusyOverlay->setGeometry(m_overviewContainer->rect());
   m_libraryBusyOverlay->show();
   m_libraryBusyOverlay->raise();
+}
+
+void MainWindow::switchToStrukturChrome() {
+  switchToApp(true);
+  if (m_rightStack) {
+    const int editorIdx = m_rightStack->indexOf(m_editorContainer);
+#ifdef Q_OS_ANDROID
+    m_rightStack->setCurrentIndex(editorIdx);
+#else
+    crossfadeStackTo(m_rightStack, editorIdx);
+#endif
+  }
+  if (m_documentTabBar)
+    m_documentTabBar->setNoteChromeMode(true);
+  if (m_floatingTools)
+    m_floatingTools->hide();
+  if (m_radialFab)
+    m_radialFab->hide();
+  if (m_toolPropertiesPanel)
+    m_toolPropertiesPanel->hide();
+  if (m_noteToolbars)
+    m_noteToolbars->setVisible(false);
+#ifndef Q_OS_ANDROID
+  if (m_pageBookmarkRail)
+    m_pageBookmarkRail->hide();
+#endif
+  // Title bar / surfaces follow NoteChrome (= BlopTheme); no draw tools.
+  applyNoteChromeTheme();
+  updateSidebarState();
+  syncStrukturBackPill();
 }
 
 void MainWindow::switchToEditorChrome() {
@@ -13172,7 +13443,8 @@ void MainWindow::updateSidebarState() {
   const bool hasOpenNotes = m_editorTabs && m_editorTabs->count() > 0;
   const bool inEditorWithTabs = isEditor && hasOpenNotes;
   if (m_titleBarWidget)
-    m_titleBarWidget->setFixedHeight(dashboardHome ? UiScale::dp(40) : UiScale::dp(52));
+    m_titleBarWidget->setFixedHeight(dashboardHome ? UiScale::dp(40)
+                                                   : UiScale::dp(44));
   if (m_topNavControls)
     m_topNavControls->setVisible(true);
   if (m_titleBarSep)
@@ -13191,8 +13463,8 @@ void MainWindow::updateSidebarState() {
   }
   if (m_documentTabBar) {
     m_documentTabBar->setVisible(inEditorWithTabs && !m_authNavigationLocked);
-    // Always show Home while notes are open — that's the exit back to Übersicht.
-    m_documentTabBar->setHomeVisible(true);
+    // Hamburger already opens the sidebar / overview — hide redundant Home chip.
+    m_documentTabBar->setHomeVisible(false);
     if (inEditorWithTabs)
       m_documentTabBar->setHomeActive(false);
   }
@@ -13309,9 +13581,11 @@ void MainWindow::updateSidebarState() {
     }
     if (m_btnEditorNoteOverflow)
       m_btnEditorNoteOverflow->setVisible(inNotesMode && showNoteOverflow);
+    refreshEditorThemeToggle();
 #ifndef Q_OS_ANDROID
+    // Stub bell stays hidden until real notifications exist.
     if (m_btnTitleBarBell)
-      m_btnTitleBarBell->setVisible(inNotesMode && isEditor);
+      m_btnTitleBarBell->hide();
 #endif
     // Pages toggle lives on the left rail — hide redundant title-bar pill.
     if (m_btnTitleBarPageManager)
@@ -13659,7 +13933,8 @@ void MainWindow::syncPageSettingsPanelFromEditor() {
     m_btnFormatA4->setChecked(!inf);
     m_btnInputPen->setChecked(m_penOnlyMode);
     m_btnInputTouch->setChecked(!m_penOnlyMode);
-    bool isDark = (cv->pageColor() == UIStyles::SceneBackground);
+    // App theme (NoteChrome), not canvas paper — Hell lightens chrome + Struktur.
+    const bool isDark = NoteChrome::isDark();
     m_btnColorDark->setChecked(isDark);
     m_btnColorWhite->setChecked(!isDark);
     int styleId = (int)cv->pageStyle();
@@ -13674,7 +13949,18 @@ void MainWindow::syncPageSettingsPanelFromEditor() {
     m_btnFormatA4->setChecked(true);
     m_btnInputPen->setChecked(m_penOnlyMode);
     m_btnInputTouch->setChecked(!m_penOnlyMode);
+    const bool isDark = NoteChrome::isDark();
+    if (m_btnColorDark)
+      m_btnColorDark->setChecked(isDark);
+    if (m_btnColorWhite)
+      m_btnColorWhite->setChecked(!isDark);
     Q_UNUSED(a4Note);
+  } else {
+    const bool isDark = NoteChrome::isDark();
+    if (m_btnColorDark)
+      m_btnColorDark->setChecked(isDark);
+    if (m_btnColorWhite)
+      m_btnColorWhite->setChecked(!isDark);
   }
   ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
   if (tb) {
@@ -13915,6 +14201,18 @@ void MainWindow::onTogglePageManager() {
   }
 }
 
+namespace {
+bool sameNotePath(const QString &a, const QString &b) {
+  if (a.isEmpty() || b.isEmpty())
+    return false;
+  const QFileInfo fa(a);
+  const QFileInfo fb(b);
+  const QString ca = fa.exists() ? fa.canonicalFilePath() : fa.absoluteFilePath();
+  const QString cb = fb.exists() ? fb.canonicalFilePath() : fb.absoluteFilePath();
+  return ca.compare(cb, Qt::CaseInsensitive) == 0;
+}
+} // namespace
+
 void MainWindow::openNotePath(const QString &absolutePath) {
   if (absolutePath.isEmpty() || StoragePrefs::isNonFilesystemPath(absolutePath) ||
       !QFile::exists(absolutePath)) {
@@ -13933,7 +14231,7 @@ void MainWindow::openNotePath(const QString &absolutePath) {
         if (auto *cv = w->findChild<CanvasView *>())
           tabPath = cv->property("filePath").toString();
       }
-      if (QFileInfo(tabPath).absoluteFilePath() != abs)
+      if (!sameNotePath(tabPath, abs))
         continue;
       m_editorTabs->setCurrentIndex(i);
       if (m_documentTabBar)
@@ -13967,19 +14265,215 @@ void MainWindow::openNotePath(const QString &absolutePath) {
   // Ensure Notes mode + overview root can resolve the index.
   if (m_modeSelector && m_modeSelector->currentIndex() != 0)
     m_modeSelector->setCurrentIndex(0);
-  const QModelIndex idx = m_fileModel->index(absolutePath);
-  if (!idx.isValid()) {
-    // File may live outside current root — still open via temporary index.
-    m_fileModel->setRootPath(QFileInfo(absolutePath).absolutePath());
-  }
-  const QModelIndex openIdx = m_fileModel->index(absolutePath);
-  if (openIdx.isValid())
+  // Do not setRootPath here: that would retarget the library at .blop-embeds.
+  QModelIndex parentIdx =
+      m_fileModel->index(QFileInfo(abs).absolutePath());
+  if (parentIdx.isValid() && m_fileModel->canFetchMore(parentIdx))
+    m_fileModel->fetchMore(parentIdx);
+  QModelIndex openIdx = m_fileModel->index(abs);
+  if (!openIdx.isValid())
+    openIdx = m_fileModel->index(absolutePath);
+  if (openIdx.isValid()) {
     onFileDoubleClicked(openIdx);
-  else
-    qWarning() << "openNotePath: cannot resolve model index for" << absolutePath;
+    return;
+  }
+  // Hidden embed notes are often not in the model yet. Open .bnote directly.
+  if (QFileInfo(abs).suffix().compare(QLatin1String("bnote"),
+                                      Qt::CaseInsensitive) == 0) {
+    if (!m_openingNotePath.isEmpty())
+      return;
+    m_openingNotePath = abs;
+    setLibraryBusy(true, QStringLiteral("Notiz wird geladen…"));
+    QPointer<MainWindow> self(this);
+    const QString fileName = QFileInfo(abs).fileName();
+    m_noteManager.loadNoteAsync(
+        abs, [self, abs, fileName](bool ok, Note note) {
+          if (!self)
+            return;
+          self->m_openingNotePath.clear();
+          self->setLibraryBusy(false);
+          if (!ok) {
+            BlopDialogs::notify(
+                self, QStringLiteral("Notiz öffnen"),
+                QStringLiteral("Datei konnte nicht geladen werden:\n%1")
+                    .arg(abs));
+            return;
+          }
+          self->openLoadedA4Note(abs, fileName, std::move(note));
+          self->switchToEditorChrome();
+          self->syncStrukturBackPill();
+        });
+    return;
+  }
+  qWarning() << "openNotePath: cannot resolve model index for" << absolutePath;
 }
 
 #ifndef Q_OS_ANDROID
+namespace {
+
+class ThoughtThreadsGraphHost : public QWidget {
+public:
+  explicit ThoughtThreadsGraphHost(MainWindow *mw, const QString &hubPath,
+                                   QWidget *parent = nullptr)
+      : QWidget(parent), m_mw(mw), m_hubPath(hubPath) {
+    setMinimumSize(UiScale::dp(440), UiScale::dp(340));
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setCursor(Qt::ArrowCursor);
+    rebuildNodes();
+  }
+
+protected:
+  void resizeEvent(QResizeEvent *e) override {
+    QWidget::resizeEvent(e);
+    layoutNodes();
+  }
+
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const QColor ink = BlopTheme::textPrimary();
+    const QColor muted = BlopTheme::textSecondary();
+    const QColor accent = BlopTheme::accentPrimary();
+    const QColor soft = BlopTheme::surfaceMuted();
+    const QColor line = BlopTheme::borderSubtle();
+
+    p.fillRect(rect(), soft);
+
+    const QPointF hub = m_hubRect.center();
+    p.setPen(QPen(line, 1.5));
+    for (const Node &n : m_nodes) {
+      if (n.isHub)
+        continue;
+      p.drawLine(hub, n.rect.center());
+    }
+
+    auto drawNode = [&](const Node &n) {
+      const QRectF r = n.rect;
+      p.setPen(QPen(n.isHub ? accent : line, n.isHub ? 2.0 : 1.0));
+      p.setBrush(n.isHub ? accent.lighter(145) : BlopTheme::surfaceElevated());
+      p.drawRoundedRect(r, UiScale::dp(12), UiScale::dp(12));
+      p.setPen(n.isHub ? accent.darker(140) : ink);
+      QFont f = font();
+      f.setBold(n.isHub);
+      f.setPixelSize(UiScale::dp(n.isHub ? 13 : 11));
+      p.setFont(f);
+      p.drawText(r.adjusted(UiScale::dp(8), UiScale::dp(4), -UiScale::dp(8),
+                            -UiScale::dp(4)),
+                 Qt::AlignCenter | Qt::TextWordWrap, n.title);
+    };
+
+    for (const Node &n : m_nodes) {
+      if (!n.isHub)
+        drawNode(n);
+    }
+    for (const Node &n : m_nodes) {
+      if (n.isHub)
+        drawNode(n);
+    }
+
+    p.setPen(muted);
+    QFont hint = font();
+    hint.setPixelSize(UiScale::dp(11));
+    p.setFont(hint);
+    p.drawText(QRect(UiScale::dp(12), height() - UiScale::dp(28),
+                     width() - UiScale::dp(24), UiScale::dp(20)),
+               Qt::AlignCenter,
+               QStringLiteral("Klick öffnet die Notiz — Hub bleibt die Leinwand."));
+  }
+
+  void mousePressEvent(QMouseEvent *e) override {
+    if (!m_mw || e->button() != Qt::LeftButton)
+      return;
+    for (const Node &n : m_nodes) {
+      if (n.isHub || !n.rect.contains(e->position()))
+        continue;
+      if (!n.path.isEmpty())
+        m_mw->openNotePath(n.path);
+      return;
+    }
+  }
+
+private:
+  struct Node {
+    QString path;
+    QString title;
+    QRectF rect;
+    bool isHub{false};
+  };
+
+  void rebuildNodes() {
+    m_nodes.clear();
+    Node hub;
+    hub.title = QStringLiteral("Gedankenfäden");
+    hub.path = m_hubPath;
+    hub.isHub = true;
+    m_nodes.append(hub);
+
+    QStringList paths = LibraryOrgStore::favoritePaths();
+    for (const QString &r : LibraryOrgStore::recentPaths(12)) {
+      if (!paths.contains(r))
+        paths.append(r);
+    }
+
+    const QString hubAbs = QFileInfo(m_hubPath).absoluteFilePath();
+    int added = 0;
+    for (const QString &raw : paths) {
+      if (added >= 10)
+        break;
+      const QString abs = QFileInfo(raw).absoluteFilePath();
+      if (abs.isEmpty() || !QFileInfo::exists(abs) || QFileInfo(abs).isDir())
+        continue;
+      if (QString::compare(abs, hubAbs, Qt::CaseInsensitive) == 0)
+        continue;
+      if (QFileInfo(abs).fileName().startsWith(QLatin1String("Gedankenfäden")))
+        continue;
+      Node n;
+      n.path = abs;
+      n.title = QFileInfo(abs).completeBaseName();
+      if (n.title.isEmpty())
+        n.title = QFileInfo(abs).fileName();
+      m_nodes.append(n);
+      ++added;
+    }
+    layoutNodes();
+  }
+
+  void layoutNodes() {
+    if (m_nodes.isEmpty())
+      return;
+    const QRectF area = QRectF(rect()).adjusted(UiScale::dp(16), UiScale::dp(16),
+                                                -UiScale::dp(16),
+                                                -UiScale::dp(36));
+    const QPointF c = area.center();
+    const qreal hubW = UiScale::dp(128);
+    const qreal hubH = UiScale::dp(48);
+    m_hubRect = QRectF(c.x() - hubW / 2, c.y() - hubH / 2, hubW, hubH);
+    m_nodes[0].rect = m_hubRect;
+
+    const int satellites = m_nodes.size() - 1;
+    if (satellites <= 0)
+      return;
+    const qreal rx = qMax(qreal(UiScale::dp(110)), area.width() * 0.38);
+    const qreal ry = qMax(qreal(UiScale::dp(90)), area.height() * 0.34);
+    const qreal nw = UiScale::dp(104);
+    const qreal nh = UiScale::dp(44);
+    for (int i = 0; i < satellites; ++i) {
+      const qreal tau = 6.28318530717958647692; // 2π
+      const qreal ang = -1.57079632679489661923 + (tau * i) / qMax(1, satellites);
+      const QPointF pt(c.x() + rx * qCos(ang), c.y() + ry * qSin(ang));
+      m_nodes[i + 1].rect =
+          QRectF(pt.x() - nw / 2, pt.y() - nh / 2, nw, nh);
+    }
+  }
+
+  MainWindow *m_mw{nullptr};
+  QString m_hubPath;
+  QRectF m_hubRect;
+  QVector<Node> m_nodes;
+};
+
+} // namespace
+
 void MainWindow::openThoughtThreadsCanvas() {
   const QString dir = noteWriteDirectory();
   if (dir.isEmpty()) {
@@ -14007,15 +14501,41 @@ void MainWindow::openThoughtThreadsCanvas() {
     file.close();
     mirrorNoteIfNeeded(path);
   }
-  openNotePath(QFileInfo(path).absoluteFilePath());
+  const QString abs = QFileInfo(path).absoluteFilePath();
+  openNotePath(abs);
   if (m_libraryIconRail)
     m_libraryIconRail->setActiveId(QStringLiteral("network"));
-  BlopDialogs::notify(
-      this, QStringLiteral("Gedankenfäden"),
+
+  // Minigraph: Favoriten + Zuletzt um den Hub — ersetzt den „demnächst“-Toast.
+  QDialog dlg(this);
+  dlg.setWindowTitle(QStringLiteral("Gedankenfäden"));
+  dlg.setModal(true);
+  dlg.setMinimumSize(UiScale::dp(480), UiScale::dp(400));
+  auto *lay = new QVBoxLayout(&dlg);
+  lay->setContentsMargins(UiScale::dp(12), UiScale::dp(12), UiScale::dp(12),
+                          UiScale::dp(12));
+  lay->setSpacing(UiScale::dp(8));
+  auto *title = new QLabel(QStringLiteral("Dein Notiz-Graph"), &dlg);
+  title->setStyleSheet(QStringLiteral(
+      "font-size: 16px; font-weight: 700; background: transparent;"));
+  lay->addWidget(title);
+  auto *sub = new QLabel(
       QStringLiteral(
-          "Unendliche Leinwand für verknüpfte Notizen — wie Obsidian-Graph.\n\n"
-          "Verknüpfe Notizen visuell auf der Leinwand; die vollständige "
-          "Graph-Ansicht folgt demnächst."));
+          "Favoriten und zuletzt geöffnete Notizen — Klick springt zur Notiz."),
+      &dlg);
+  sub->setWordWrap(true);
+  sub->setStyleSheet(QStringLiteral(
+      "color: %1; font-size: 12px; background: transparent;")
+                         .arg(BlopTheme::textSecondary().name(QColor::HexRgb)));
+  lay->addWidget(sub);
+  lay->addWidget(new ThoughtThreadsGraphHost(this, abs, &dlg), 1);
+  auto *bbox =
+      new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
+  bbox->button(QDialogButtonBox::Close)->setText(QStringLiteral("Schließen"));
+  lay->addWidget(bbox);
+  QObject::connect(bbox, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+  QObject::connect(bbox, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+  BlopModal::execBlocking(this, &dlg);
 }
 #endif
 
@@ -14044,7 +14564,9 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
     navigateLibraryToPath(m_fileModel->filePath(index));
   } else {
     QString path = m_fileModel->filePath(index);
-    LibraryOrgStore::touchRecent(path);
+    if (!path.contains(QLatin1String("/.blop-embeds/")) &&
+        !path.contains(QLatin1String("\\.blop-embeds\\")))
+      LibraryOrgStore::touchRecent(path);
     QString fileName = index.data().toString();
     bool isBinary = false;
     {
@@ -14356,21 +14878,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               m_documentTabBar->setCurrentIndex(i);
             if (auto *se = qobject_cast<StrukturNoteEditor *>(w))
               se->refreshAllEmbeds();
-            switchToApp(true);
-            if (m_rightStack) {
-              const int editorIdx = m_rightStack->indexOf(m_editorContainer);
-              if (editorIdx >= 0)
-                m_rightStack->setCurrentIndex(editorIdx);
-            }
-            if (m_documentTabBar)
-              m_documentTabBar->setNoteChromeMode(false);
-            if (m_floatingTools)
-              m_floatingTools->hide();
-            if (m_radialFab)
-              m_radialFab->hide();
-            if (m_noteToolbars)
-              m_noteToolbars->setVisible(false);
-            syncStrukturBackPill();
+            switchToStrukturChrome();
             return;
           }
         }
@@ -14433,21 +14941,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
         m_editorTabs->addTab(editor, fileName);
         m_editorTabs->setCurrentWidget(editor);
         addNoteTab(QFileInfo(fileName).baseName());
-        switchToApp(true);
-        if (m_rightStack) {
-          const int editorIdx = m_rightStack->indexOf(m_editorContainer);
-          if (editorIdx >= 0)
-            m_rightStack->setCurrentIndex(editorIdx);
-        }
-        if (m_documentTabBar)
-          m_documentTabBar->setNoteChromeMode(false);
-        if (m_floatingTools)
-          m_floatingTools->hide();
-        if (m_radialFab)
-          m_radialFab->hide();
-        if (m_noteToolbars)
-          m_noteToolbars->setVisible(false);
-        syncStrukturBackPill();
+        switchToStrukturChrome();
         return;
       } else if (fi.suffix().toLower() == "md" || fi.suffix().toLower() == "txt") {
         MarkdownEditor *mdEditor = new MarkdownEditor(this);
@@ -14487,6 +14981,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               }
               self->openLoadedA4Note(path, fileName, std::move(note));
               self->switchToEditorChrome();
+              self->syncStrukturBackPill();
             });
         return;
       }
@@ -14542,23 +15037,36 @@ void MainWindow::onBackToOverview() {
 #endif
 }
 void MainWindow::assignTagsForNotePath(const QString &path) {
-  if (path.isEmpty())
+  assignTagsForNotePaths(QStringList{path});
+}
+
+void MainWindow::assignTagsForNotePaths(const QStringList &paths) {
+  if (paths.isEmpty())
     return;
+  const QString primary = paths.first();
   QStringList catalog = LibraryTagStore::catalog();
   if (catalog.isEmpty()) {
     LibraryTagStore::addTagToCatalog(QStringLiteral("Projekt"));
     LibraryTagStore::addTagToCatalog(QStringLiteral("Entwurf"));
     catalog = LibraryTagStore::catalog();
   }
-  const QStringList current = LibraryTagStore::tagsForPath(path);
+  const QStringList current = LibraryTagStore::tagsForPath(primary);
 
   QDialog dlg(this);
-  dlg.setWindowTitle(QStringLiteral("Tags zuweisen"));
+  dlg.setWindowTitle(paths.size() > 1
+                         ? QStringLiteral("Tags zuweisen (%1)").arg(paths.size())
+                         : QStringLiteral("Tags zuweisen"));
   dlg.setModal(true);
   dlg.setMinimumWidth(UiScale::dp(280));
   auto *lay = new QVBoxLayout(&dlg);
   auto *hint = new QLabel(
-      QStringLiteral("Hake Tags an, um sie an diese Notiz zu hängen."), &dlg);
+      paths.size() > 1
+          ? QStringLiteral(
+                "Hake Tags an — sie gelten für alle %1 ausgewählten Notizen.")
+                .arg(paths.size())
+          : QStringLiteral(
+                "Hake Tags an, um sie an diese Notiz zu hängen."),
+      &dlg);
   hint->setWordWrap(true);
   lay->addWidget(hint);
   QList<QCheckBox *> boxes;
@@ -14580,8 +15088,6 @@ void MainWindow::assignTagsForNotePath(const QString &path) {
   lay->addWidget(bbox);
   QObject::connect(bbox, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
   QObject::connect(bbox, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-  // Never QDialog::exec() here: on Android that allocates a top-level QWindow
-  // and aborts via the Qt 6.10 EGL deadlock protector.
   if (BlopModal::execBlocking(this, &dlg) != QDialog::Accepted)
     return;
   QStringList next;
@@ -14589,7 +15095,11 @@ void MainWindow::assignTagsForNotePath(const QString &path) {
     if (cb && cb->isChecked())
       next.append(cb->text());
   }
-  LibraryTagStore::setTagsForPath(path, next);
+  for (const QString &path : paths) {
+    if (path.isEmpty() || QFileInfo(path).isDir())
+      continue;
+    LibraryTagStore::setTagsForPath(path, next);
+  }
   if (m_libraryTagsPanel)
     m_libraryTagsPanel->reload();
   applyLibraryFilters();
@@ -14789,7 +15299,8 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     reply->deleteLater();
   };
 
-  const auto populateMenu = [this, persistent, doShareUser, doCreateLink, doImportLink](QMenu *menu) {
+  const auto populateMenu = [this, persistent, doShareUser, doCreateLink,
+                             doImportLink](QMenu *menu) {
     menu->addAction(QStringLiteral("Öffnen"), [this, persistent]() {
       if (!persistent.isValid()) return;
       onFileDoubleClicked(QModelIndex(persistent));
@@ -14801,19 +15312,97 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
 
     const QString path = m_fileModel->filePath(QModelIndex(persistent));
     const bool isDir = m_fileModel->isDir(QModelIndex(persistent));
+    const bool inTrash = isPathInLibraryTrash(path);
+    const QStringList targets = libraryContextTargetPaths(path);
+    const int n = targets.size();
+
+    if (inTrash) {
+      menu->addSeparator();
+      menu->addAction(
+          n > 1 ? QStringLiteral("Wiederherstellen (%1)").arg(n)
+                : QStringLiteral("Wiederherstellen"),
+          [this, targets]() {
+            for (const QString &p : targets)
+              restorePathFromTrash(p);
+            updateSidebarBadges();
+            applyLibraryFilters();
+            updateLibraryHeader();
+            if (m_fileListView) {
+              m_fileListView->clearSelection();
+              m_fileListView->viewport()->update();
+            }
+          });
+      menu->addAction(QStringLiteral("Papierkorb leeren\u2026"), this,
+                      &MainWindow::emptyLibraryTrash);
+      menu->addSeparator();
+      menu->addAction(
+          n > 1 ? QStringLiteral("Endgültig löschen (%1)").arg(n)
+                : QStringLiteral("Endgültig löschen"),
+          [this, targets]() {
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            const bool ask =
+                st.value(QStringLiteral("ui/confirmDelete"), true).toBool();
+            if (ask &&
+                !BlopDialogs::confirm(
+                    this, QStringLiteral("Endgültig löschen"),
+                    QStringLiteral("%1 Einträge dauerhaft löschen?")
+                        .arg(targets.size()),
+                    QStringLiteral("Löschen"), QStringLiteral("Abbrechen")))
+              return;
+            for (const QString &p : targets) {
+              if (p.isEmpty())
+                continue;
+              if (!QFileInfo(p).isDir())
+                StoragePrefs::removeCloudMirrorIfNeeded(p);
+              if (m_fileModel) {
+                const QModelIndex idx = m_fileModel->index(p);
+                if (idx.isValid())
+                  m_fileModel->remove(idx);
+                else if (QFileInfo(p).isDir())
+                  QDir(p).removeRecursively();
+                else
+                  QFile::remove(p);
+              }
+            }
+            updateSidebarBadges();
+            applyLibraryFilters();
+            updateLibraryHeader();
+            if (m_fileListView) {
+              m_fileListView->clearSelection();
+              m_fileListView->viewport()->update();
+            }
+          });
+      return;
+    }
+
     if (!isDir) {
       const bool fav = LibraryOrgStore::isFavorite(path);
-      menu->addAction(fav ? QStringLiteral("Aus Favoriten entfernen")
-                          : QStringLiteral("Zu Favoriten"),
-                      [this, persistent, path, fav]() {
-                        if (!persistent.isValid()) return;
-                        LibraryOrgStore::setFavorite(path, !fav);
-                        if (m_fileListView)
-                          m_fileListView->viewport()->update();
-                        applyLibraryFilters();
-                      });
+      const QStringList noteTargets = [&]() {
+        QStringList out;
+        for (const QString &p : targets) {
+          if (!p.isEmpty() && !QFileInfo(p).isDir())
+            out.append(p);
+        }
+        return out.isEmpty() ? QStringList{path} : out;
+      }();
+      const int nn = noteTargets.size();
+      menu->addAction(
+          nn > 1
+              ? (fav ? QStringLiteral("Aus Favoriten entfernen (%1)").arg(nn)
+                     : QStringLiteral("Zu Favoriten (%1)").arg(nn))
+              : (fav ? QStringLiteral("Aus Favoriten entfernen")
+                     : QStringLiteral("Zu Favoriten")),
+          [this, noteTargets, fav]() {
+            for (const QString &p : noteTargets)
+              LibraryOrgStore::setFavorite(p, !fav);
+            if (m_fileListView)
+              m_fileListView->viewport()->update();
+            applyLibraryFilters();
+          });
 
-      QMenu *colorMenu = menu->addMenu(QStringLiteral("Farb-Label"));
+      QMenu *colorMenu = menu->addMenu(
+          nn > 1 ? QStringLiteral("Farb-Label (%1)").arg(nn)
+                 : QStringLiteral("Farb-Label"));
       const LibraryOrgStore::ColorLabel current =
           LibraryOrgStore::colorLabel(path);
       auto addColor = [&](LibraryOrgStore::ColorLabel label) {
@@ -14821,9 +15410,9 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
         a->setCheckable(true);
         a->setChecked(current == label);
         QObject::connect(a, &QAction::triggered, this,
-                         [this, persistent, path, label]() {
-                           if (!persistent.isValid()) return;
-                           LibraryOrgStore::setColorLabel(path, label);
+                         [this, noteTargets, label]() {
+                           for (const QString &p : noteTargets)
+                             LibraryOrgStore::setColorLabel(p, label);
                            if (m_fileListView)
                              m_fileListView->viewport()->update();
                          });
@@ -14836,47 +15425,49 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
       addColor(LibraryOrgStore::ColorLabel::Violet);
       addColor(LibraryOrgStore::ColorLabel::Slate);
 
-      menu->addAction(QStringLiteral("Tags zuweisen\u2026"),
-                      [this, path]() { assignTagsForNotePath(path); });
+      menu->addAction(
+          nn > 1 ? QStringLiteral("Tags zuweisen\u2026 (%1)").arg(nn)
+                 : QStringLiteral("Tags zuweisen\u2026"),
+          [this, noteTargets]() { assignTagsForNotePaths(noteTargets); });
     }
 
     menu->addSeparator();
     menu->addAction(QStringLiteral("Mit Username teilen\u2026"), doShareUser);
     menu->addAction(QStringLiteral("Share-Link erstellen\u2026"), doCreateLink);
     menu->addAction(QStringLiteral("Datei aus Link importieren\u2026"), doImportLink);
-    menu->addAction(QStringLiteral("Löschen"), [this, persistent]() {
-      if (!persistent.isValid()) return;
-      QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-      const bool ask =
-          st.value(QStringLiteral("ui/confirmDelete"), true).toBool();
-      if (ask &&
-          !BlopDialogs::confirm(
-              this, QStringLiteral("Notiz löschen"),
-              QStringLiteral("Notiz in den Papierkorb verschieben?"),
-              QStringLiteral("In Papierkorb"), QStringLiteral("Abbrechen")))
-        return;
-      const QString notePath = m_fileModel->filePath(QModelIndex(persistent));
-      // Permanent delete only when already inside trash.
-      const bool inTrash =
-          notePath.contains(QStringLiteral("/.Papierkorb")) ||
-          notePath.contains(QStringLiteral("\\.Papierkorb"));
-      if (inTrash) {
-        if (!m_fileModel->isDir(QModelIndex(persistent)))
-          StoragePrefs::removeCloudMirrorIfNeeded(notePath);
-        m_fileModel->remove(QModelIndex(persistent));
-        return;
-      }
-      if (!m_fileModel->isDir(QModelIndex(persistent)))
-        StoragePrefs::removeCloudMirrorIfNeeded(notePath);
-      if (movePathToTrash(notePath).isEmpty())
-        m_fileModel->remove(QModelIndex(persistent));
-      else {
-        updateSidebarBadges();
-        applyLibraryFilters();
-        if (m_fileListView)
-          m_fileListView->viewport()->update();
-      }
-    });
+    menu->addAction(
+        n > 1 ? QStringLiteral("In Papierkorb (%1)").arg(n)
+              : QStringLiteral("Löschen"),
+        [this, targets]() {
+          QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+          const bool ask =
+              st.value(QStringLiteral("ui/confirmDelete"), true).toBool();
+          if (ask &&
+              !BlopDialogs::confirm(
+                  this, QStringLiteral("In Papierkorb"),
+                  QStringLiteral("%1 Einträge in den Papierkorb verschieben?")
+                      .arg(targets.size()),
+                  QStringLiteral("In Papierkorb"), QStringLiteral("Abbrechen")))
+            return;
+          for (const QString &notePath : targets) {
+            if (notePath.isEmpty())
+              continue;
+            if (!QFileInfo(notePath).isDir())
+              StoragePrefs::removeCloudMirrorIfNeeded(notePath);
+            if (movePathToTrash(notePath).isEmpty() && m_fileModel) {
+              const QModelIndex idx = m_fileModel->index(notePath);
+              if (idx.isValid())
+                m_fileModel->remove(idx);
+            }
+          }
+          updateSidebarBadges();
+          applyLibraryFilters();
+          updateLibraryHeader();
+          if (m_fileListView) {
+            m_fileListView->clearSelection();
+            m_fileListView->viewport()->update();
+          }
+        });
   };
 
 #ifdef Q_OS_ANDROID
@@ -14899,22 +15490,95 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                 }, false, false});
   {
     const QString path = m_fileModel->filePath(QModelIndex(persistent));
+    const bool inTrash = isPathInLibraryTrash(path);
+    const QStringList targets = libraryContextTargetPaths(path);
+    const int n = targets.size();
+    if (inTrash) {
+      items.append({QString(), QIcon(), {}, false, true});
+      items.append(
+          {n > 1 ? QStringLiteral("Wiederherstellen (%1)").arg(n)
+                 : QStringLiteral("Wiederherstellen"),
+           QIcon(),
+           [this, targets]() {
+             for (const QString &p : targets)
+               restorePathFromTrash(p);
+             updateSidebarBadges();
+             applyLibraryFilters();
+             updateLibraryHeader();
+             if (m_fileListView) {
+               m_fileListView->clearSelection();
+               m_fileListView->viewport()->update();
+             }
+           },
+           false, false});
+      items.append({QStringLiteral("Papierkorb leeren\u2026"), QIcon(),
+                    [this]() { emptyLibraryTrash(); }, false, false});
+      items.append({QString(), QIcon(), {}, false, true});
+      items.append(
+          {n > 1 ? QStringLiteral("Endgültig löschen (%1)").arg(n)
+                 : QStringLiteral("Endgültig löschen"),
+           QIcon(),
+           [this, targets]() {
+             if (!BlopDialogs::confirm(
+                     this, QStringLiteral("Endgültig löschen"),
+                     QStringLiteral("%1 Einträge dauerhaft löschen?")
+                         .arg(targets.size()),
+                     QStringLiteral("Löschen"), QStringLiteral("Abbrechen")))
+               return;
+             for (const QString &p : targets) {
+               if (p.isEmpty())
+                 continue;
+               if (!QFileInfo(p).isDir())
+                 StoragePrefs::removeCloudMirrorIfNeeded(p);
+               if (m_fileModel) {
+                 const QModelIndex idx = m_fileModel->index(p);
+                 if (idx.isValid())
+                   m_fileModel->remove(idx);
+                 else if (QFileInfo(p).isDir())
+                   QDir(p).removeRecursively();
+                 else
+                   QFile::remove(p);
+               }
+             }
+             updateSidebarBadges();
+             applyLibraryFilters();
+             updateLibraryHeader();
+           },
+           true, false});
+      BlopInWindowMenu::show(this, globalPos, items);
+      return;
+    }
     if (!m_fileModel->isDir(QModelIndex(persistent))) {
+      QStringList noteTargets;
+      for (const QString &p : targets) {
+        if (!p.isEmpty() && !QFileInfo(p).isDir())
+          noteTargets.append(p);
+      }
+      if (noteTargets.isEmpty())
+        noteTargets.append(path);
+      const int nn = noteTargets.size();
       const bool fav = LibraryOrgStore::isFavorite(path);
-      items.append({fav ? QStringLiteral("Aus Favoriten entfernen")
-                        : QStringLiteral("Zu Favoriten"),
-                    QIcon(),
-                    [this, persistent, path, fav]() {
-                      if (!persistent.isValid()) return;
-                      LibraryOrgStore::setFavorite(path, !fav);
-                      if (m_fileListView)
-                        m_fileListView->viewport()->update();
-                      applyLibraryFilters();
-                    },
-                    false, false});
-      items.append({QStringLiteral("Tags zuweisen\u2026"), QIcon(),
-                    [this, path]() { assignTagsForNotePath(path); },
-                    false, false});
+      items.append(
+          {nn > 1
+               ? (fav ? QStringLiteral("Aus Favoriten entfernen (%1)").arg(nn)
+                      : QStringLiteral("Zu Favoriten (%1)").arg(nn))
+               : (fav ? QStringLiteral("Aus Favoriten entfernen")
+                      : QStringLiteral("Zu Favoriten")),
+           QIcon(),
+           [this, noteTargets, fav]() {
+             for (const QString &p : noteTargets)
+               LibraryOrgStore::setFavorite(p, !fav);
+             if (m_fileListView)
+               m_fileListView->viewport()->update();
+             applyLibraryFilters();
+           },
+           false, false});
+      items.append(
+          {nn > 1 ? QStringLiteral("Tags zuweisen\u2026 (%1)").arg(nn)
+                  : QStringLiteral("Tags zuweisen\u2026"),
+           QIcon(),
+           [this, noteTargets]() { assignTagsForNotePaths(noteTargets); },
+           false, false});
     }
   }
   items.append({QString(), QIcon(), {}, false, true});
@@ -14922,28 +15586,38 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   items.append({QStringLiteral("Share-Link erstellen\u2026"), QIcon(), doCreateLink, false, false});
   items.append({QStringLiteral("Datei aus Link importieren\u2026"), QIcon(), doImportLink, false, false});
   items.append({QString(), QIcon(), {}, false, true});
-  items.append({QStringLiteral("Löschen"), QIcon(),
-                [this, persistent]() {
-                  if (!persistent.isValid()) return;
-                  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-                  const bool ask =
-                      st.value(QStringLiteral("ui/confirmDelete"), true)
-                          .toBool();
-                  if (ask &&
-                      !BlopDialogs::confirm(
-                          this, QStringLiteral("Notiz löschen"),
-                          QStringLiteral(
-                              "Diese Notiz wirklich löschen? Das kann nicht "
-                              "rückgängig gemacht werden."),
-                          QStringLiteral("Löschen"),
-                          QStringLiteral("Abbrechen")))
-                    return;
-                  const QString notePath =
-                      m_fileModel->filePath(QModelIndex(persistent));
-                  if (!m_fileModel->isDir(QModelIndex(persistent)))
-                    StoragePrefs::removeCloudMirrorIfNeeded(notePath);
-                  m_fileModel->remove(QModelIndex(persistent));
-                }, true, false});
+  {
+    const QString path = m_fileModel->filePath(QModelIndex(persistent));
+    const QStringList targets = libraryContextTargetPaths(path);
+    const int n = targets.size();
+    items.append(
+        {n > 1 ? QStringLiteral("In Papierkorb (%1)").arg(n)
+               : QStringLiteral("Löschen"),
+         QIcon(),
+         [this, targets]() {
+           if (!BlopDialogs::confirm(
+                   this, QStringLiteral("In Papierkorb"),
+                   QStringLiteral("%1 Einträge in den Papierkorb verschieben?")
+                       .arg(targets.size()),
+                   QStringLiteral("In Papierkorb"), QStringLiteral("Abbrechen")))
+             return;
+           for (const QString &notePath : targets) {
+             if (notePath.isEmpty())
+               continue;
+             if (!QFileInfo(notePath).isDir())
+               StoragePrefs::removeCloudMirrorIfNeeded(notePath);
+             if (movePathToTrash(notePath).isEmpty() && m_fileModel) {
+               const QModelIndex idx = m_fileModel->index(notePath);
+               if (idx.isValid())
+                 m_fileModel->remove(idx);
+             }
+           }
+           updateSidebarBadges();
+           applyLibraryFilters();
+           updateLibraryHeader();
+         },
+         true, false});
+  }
   BlopInWindowMenu::show(this, globalPos, items);
 #else
   QMenu menu(this);
@@ -16562,10 +17236,65 @@ void MainWindow::applyNoteChromeTheme() {
   }
   refreshOpenEditorSceneBackgrounds();
   positionNoteChrome();
+  styleStrukturBackPill();
+  refreshEditorThemeToggle();
 #endif
   styleNoteHeaderChrome();
   refreshTopNavChrome();
   refreshPageSettingsTheme();
+}
+
+void MainWindow::styleStrukturBackPill() {
+  if (!m_strukturBackPill)
+    return;
+  const bool dark = NoteChrome::isDark();
+  const QString bg = dark ? QStringLiteral("#1F2229")
+                          : NoteChrome::panelElevated().name(QColor::HexRgb);
+  const QString fg = NoteChrome::textPrimary().name(QColor::HexRgb);
+  const QString hover =
+      dark ? QStringLiteral("#2B2F38")
+           : NoteChrome::accentSoft().name(QColor::HexArgb);
+  const QString pressed =
+      dark ? QStringLiteral("#3A3F4B")
+           : NoteChrome::borderSoft().name(QColor::HexRgb);
+  const QString border = NoteChrome::borderSoft().name(QColor::HexRgb);
+  m_strukturBackPill->setStyleSheet(
+      QStringLiteral("QPushButton#StrukturBackPill {"
+                     "  background: %1; color: %2;"
+                     "  border: 1px solid %3; border-radius: 17px;"
+                     "  padding: 0 16px 0 14px;"
+                     "  font-size: 13px; font-weight: 600;"
+                     "}"
+                     "QPushButton#StrukturBackPill:hover { background: %4; }"
+                     "QPushButton#StrukturBackPill:pressed { background: %5; }")
+          .arg(bg, fg, border, hover, pressed));
+}
+
+void MainWindow::refreshEditorThemeToggle() {
+  if (!m_btnEditorThemeToggle)
+    return;
+  const bool onDashboard =
+      m_shellStack && m_shellStack->currentIndex() == 0;
+  const bool inEditor =
+      m_rightStack && m_rightStack->currentWidget() == m_editorContainer &&
+      !onDashboard;
+  const bool notesMode =
+      m_modeSelector && m_modeSelector->currentIndex() == 0;
+  const bool hasOpen =
+      m_editorTabs && m_editorTabs->count() > 0 &&
+      m_documentTabBar && m_documentTabBar->noteChromeMode();
+  const bool show =
+      notesMode && inEditor && hasOpen && !m_authNavigationLocked;
+  m_btnEditorThemeToggle->setVisible(show);
+  if (!show)
+    return;
+  const QColor ink = NoteChrome::textSecondary();
+  m_btnEditorThemeToggle->setIcon(
+      createModernIcon(QStringLiteral("palette"), ink));
+  m_btnEditorThemeToggle->setToolTip(
+      NoteChrome::isDark() ? QStringLiteral("Hell")
+                           : QStringLiteral("Dunkel"));
+  m_btnEditorThemeToggle->setStyleSheet(BlopStyle::quietIconButtonQss(8));
 }
 
 void MainWindow::refreshTopNavChrome() {
@@ -17501,7 +18230,7 @@ void MainWindow::syncStrukturBackPill() {
       qobject_cast<NoteEditor *>(cur)) {
     const QString tabPath =
         QFileInfo(cur->property("filePath").toString()).absoluteFilePath();
-    if (tabPath == m_strukturReturnPath)
+    if (sameNotePath(tabPath, m_strukturReturnPath))
       m_strukturReturnNote = cur;
   }
   const bool editorShown =
@@ -17512,6 +18241,7 @@ void MainWindow::syncStrukturBackPill() {
     m_strukturBackPill->hide();
     return;
   }
+  styleStrukturBackPill();
   m_strukturBackPill->show();
   positionNoteToolbars();
 }
@@ -17616,17 +18346,7 @@ void MainWindow::onTabChanged(int index) {
   if (editorTabIsWorkspace(current)) {
     switchToWorkspaceChrome();
   } else if (auto *struktur = qobject_cast<StrukturNoteEditor *>(current)) {
-    switchToApp(true);
-    if (m_documentTabBar)
-      m_documentTabBar->setNoteChromeMode(false);
-    if (m_floatingTools)
-      m_floatingTools->hide();
-    if (m_radialFab)
-      m_radialFab->hide();
-    if (m_toolPropertiesPanel)
-      m_toolPropertiesPanel->hide();
-    if (m_noteToolbars)
-      m_noteToolbars->setVisible(false);
+    switchToStrukturChrome();
     struktur->refreshAllEmbeds();
   } else if (index >= 0 && current && m_rightStack &&
              m_rightStack->currentWidget() == m_editorContainer) {

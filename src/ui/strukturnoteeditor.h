@@ -56,7 +56,8 @@ private:
   void harvestIntoDoc();
   void insertParagraphAfter(int blockIndex, const QString &initialText = QString(),
                             const QString &kind = QString());
-  void insertEmbed(const StrukturEmbedBlock &embed, int afterIndex = -1);
+  void insertEmbed(const StrukturEmbedBlock &embed, int afterIndex = -1,
+                 bool forceNewGrid = false);
   void showInsertMenu();
   void showInsertMenuAt(int afterBlockIndex, const QPoint &globalPos);
   int blockIndexOfWidget(QWidget *w) const;
@@ -70,7 +71,7 @@ private:
   void removeEmptyParagraph(QWidget *row);
   void focusSiblingParagraph(QWidget *row, int direction);
   void focusFirstParagraph();
-  void promptLinkedNoteTitle(int afterBlockIndex);
+  void promptLinkedNoteTitle(int afterBlockIndex, bool forceNewGrid = false);
   void pickExistingNote(int afterBlockIndex, bool appendPage);
   int insertIndex(int desired) const;
   QWidget *blockWidgetAt(int index) const;

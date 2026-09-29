@@ -2,7 +2,8 @@
 
 // Digital register tabs for A4 notes: one slim tab per page along the left
 // canvas edge (page number + optional bookmark name). Click jumps, hover shows
-// a mini preview card, wheel / arrow keys step pages, right-click manages.
+// a mini preview card, wheel / arrow keys / 1–9 step pages, drag reorders,
+// right-click manages. Footer: Alle Seiten + neue Seite.
 
 #include <QPixmap>
 #include <QPointer>
@@ -22,6 +23,8 @@ public:
   /// Places the rail in its parent: left edge `x`, available band [top, bottom).
   void placeIn(int x, int top, int bottom);
   void refreshTheme();
+  /// Jump to 0-based page index (no-op if out of range).
+  void jumpToPage(int pageIndex);
 
 public slots:
   void rebuild();
@@ -30,19 +33,24 @@ public slots:
 signals:
   void pageActivated(int pageIndex);
   void pagesMutated();
+  void allPagesRequested();
 
 protected:
   void paintEvent(QPaintEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
+  void mouseReleaseEvent(QMouseEvent *event) override;
   void leaveEvent(QEvent *event) override;
   void wheelEvent(QWheelEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
   void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
+  enum class TabKind { Page, Add, AllPages };
+
   struct Tab {
-    int page{-1}; // -1 = "+" tab
+    TabKind kind{TabKind::Page};
+    int page{-1}; // valid when kind == Page
     QString label;
     bool bookmarked{false};
     QRect rect; // content coordinates (before scroll offset)
@@ -58,6 +66,8 @@ private:
   void showPreview(int tabIndex);
   void hidePreview();
   void showTabMenu(int page, const QPoint &globalPos);
+  int pageDropIndex(const QPoint &pos) const;
+  void finishDrag(const QPoint &pos);
 
   QPointer<MultiPageNoteView> m_view;
   QVector<Tab> m_tabs;
@@ -72,4 +82,12 @@ private:
   QTimer *m_previewTimer{nullptr};
   QTimer *m_syncTimer{nullptr};
   int m_previewEpoch{0};
+
+  // Drag-reorder
+  bool m_pressing{false};
+  bool m_dragging{false};
+  int m_dragFrom{-1}; // page index
+  int m_dragTab{-1};  // tab index in m_tabs
+  QPoint m_pressPos;
+  int m_dropBefore{-1}; // page index to insert before (-1 = end)
 };

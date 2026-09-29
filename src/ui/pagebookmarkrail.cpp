@@ -7,6 +7,7 @@
 #include "uiscale.h"
 
 #include <QContextMenuEvent>
+#include <QCursor>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -129,7 +130,7 @@ PageBookmarkRail::PageBookmarkRail(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("PageBookmarkRail"));
   setAttribute(Qt::WA_TranslucentBackground, true);
   setMouseTracking(true);
-  setFocusPolicy(Qt::ClickFocus);
+  setFocusPolicy(Qt::StrongFocus);
   setToolTip(QString());
 
   m_preview = new BookmarkPreviewCard(parent);
@@ -184,13 +185,19 @@ void PageBookmarkRail::rebuild() {
     const int n = m_view->pageCount();
     for (int i = 0; i < n; ++i) {
       Tab t;
+      t.kind = TabKind::Page;
       t.page = i;
       t.bookmarked = m_view->isPageBookmarked(i);
       if (t.bookmarked)
         t.label = m_view->pageTitle(i).trimmed();
       m_tabs.push_back(t);
     }
+    Tab all;
+    all.kind = TabKind::AllPages;
+    all.page = -2;
+    m_tabs.push_back(all);
     Tab add;
+    add.kind = TabKind::Add;
     add.page = -1;
     m_tabs.push_back(add);
   }
@@ -205,7 +212,7 @@ void PageBookmarkRail::layoutTabs() {
   int y = 0;
   for (Tab &t : m_tabs) {
     int w = tabW();
-    int h = t.page < 0 ? addTabH() : tabH();
+    int h = (t.kind == TabKind::Page) ? tabH() : addTabH();
     if (!t.label.isEmpty())
       w = qMin(maxTabW(), tabW() + fmName.horizontalAdvance(t.label) +
                               UiScale::dp(10));
@@ -254,7 +261,7 @@ void PageBookmarkRail::setScroll(int y) {
 
 void PageBookmarkRail::ensureVisible(int page) {
   for (const Tab &t : m_tabs) {
-    if (t.page != page)
+    if (t.kind != TabKind::Page || t.page != page)
       continue;
     const int pad = tabGap();
     if (t.rect.top() - pad < m_scroll)
@@ -276,12 +283,15 @@ void PageBookmarkRail::syncCurrentPage() {
   update();
 }
 
+void PageBookmarkRail::jumpToPage(int pageIndex) { activate(pageIndex); }
+
 void PageBookmarkRail::activate(int page) {
   if (!m_view || page < 0 || page >= m_view->pageCount())
     return;
   m_current = page;
   ensureVisible(page);
   update();
+  setFocus(Qt::OtherFocusReason);
   m_view->scrollToPage(page, true);
   emit pageActivated(page);
 }
@@ -307,17 +317,19 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
 
   for (int i = 0; i < m_tabs.size(); ++i) {
     const Tab &t = m_tabs[i];
+    if (m_dragging && t.kind == TabKind::Page && t.page == m_dragFrom)
+      continue; // dragged tab drawn as ghost at cursor
     QRect r = visualRect(t);
     if (r.bottom() < 0 || r.top() > height())
       continue;
-    const bool hovered = (i == m_hover);
-    const bool active = (t.page >= 0 && t.page == m_current);
+    const bool hovered = (i == m_hover) && !m_dragging;
+    const bool active = (t.kind == TabKind::Page && t.page == m_current);
     if (hovered || active)
       r.setRight(r.right() + hoverPop());
     const QRectF rf = QRectF(r).adjusted(0, 0.5, -0.5, -0.5);
     const QPainterPath path = registerTabPath(rf, tabRadius());
 
-    if (t.page < 0) {
+    if (t.kind == TabKind::Add || t.kind == TabKind::AllPages) {
       QColor bg = idleBg;
       bg.setAlpha(hovered ? 255 : 150);
       p.fillPath(path, bg);
@@ -327,9 +339,23 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
       p.setPen(QPen(hovered ? accent : fg, UiScale::dp(2) * 0.8,
                     Qt::SolidLine, Qt::RoundCap));
       const QPointF c(r.left() + tabW() / 2.0, r.center().y() + 0.5);
-      const qreal a = UiScale::dp(5);
-      p.drawLine(QPointF(c.x() - a, c.y()), QPointF(c.x() + a, c.y()));
-      p.drawLine(QPointF(c.x(), c.y() - a), QPointF(c.x(), c.y() + a));
+      if (t.kind == TabKind::Add) {
+        const qreal a = UiScale::dp(5);
+        p.drawLine(QPointF(c.x() - a, c.y()), QPointF(c.x() + a, c.y()));
+        p.drawLine(QPointF(c.x(), c.y() - a), QPointF(c.x(), c.y() + a));
+      } else {
+        // Mini 2x2 grid for „Alle Seiten“.
+        const qreal s = UiScale::dp(3.5);
+        const qreal g = UiScale::dp(2);
+        p.setBrush(hovered ? accent : fg);
+        p.setPen(Qt::NoPen);
+        for (int row = 0; row < 2; ++row)
+          for (int col = 0; col < 2; ++col)
+            p.drawRoundedRect(
+                QRectF(c.x() - s - g / 2 + col * (s + g),
+                       c.y() - s - g / 2 + row * (s + g), s, s),
+                1.5, 1.5);
+      }
       continue;
     }
 
@@ -366,7 +392,6 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
                  QFontMetrics(fName).elidedText(t.label, Qt::ElideRight,
                                                 nameRect.width()));
     } else if (t.bookmarked) {
-      // Unnamed bookmark: small ribbon notch on the tab's right edge.
       const qreal rw = UiScale::dp(5);
       const qreal rh = UiScale::dp(9);
       const qreal x0 = r.right() - UiScale::dp(9);
@@ -381,16 +406,71 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
       p.fillPath(ribbon, active ? QColor(255, 255, 255, 220) : accent);
     }
   }
+
+  // Drop indicator while reordering.
+  if (m_dragging && m_dropBefore >= 0) {
+    for (const Tab &t : m_tabs) {
+      if (t.kind != TabKind::Page || t.page != m_dropBefore)
+        continue;
+      const QRect r = visualRect(t);
+      p.setPen(QPen(accent, 2));
+      p.drawLine(r.left(), r.top() - 1, r.left() + tabW() + hoverPop(),
+                 r.top() - 1);
+      break;
+    }
+  } else if (m_dragging && m_dropBefore < 0) {
+    // After last page tab.
+    for (int i = m_tabs.size() - 1; i >= 0; --i) {
+      if (m_tabs[i].kind != TabKind::Page)
+        continue;
+      const QRect r = visualRect(m_tabs[i]);
+      p.setPen(QPen(accent, 2));
+      p.drawLine(r.left(), r.bottom() + 1, r.left() + tabW() + hoverPop(),
+                 r.bottom() + 1);
+      break;
+    }
+  }
+
+  if (m_dragging && m_dragTab >= 0 && m_dragTab < m_tabs.size()) {
+    const Tab &t = m_tabs[m_dragTab];
+    QRect r = t.rect;
+    r.moveTop(mapFromGlobal(QCursor::pos()).y() - r.height() / 2);
+    r.setWidth(tabW() + hoverPop());
+    QColor ghost = accent;
+    ghost.setAlpha(180);
+    p.fillPath(registerTabPath(QRectF(r).adjusted(0, 0.5, -0.5, -0.5),
+                                tabRadius()),
+               ghost);
+    p.setPen(Qt::white);
+    p.setFont(fNum);
+    p.drawText(r, Qt::AlignCenter, QString::number(t.page + 1));
+  }
 }
 
 void PageBookmarkRail::mouseMoveEvent(QMouseEvent *event) {
-  const int hit = tabAt(event->position().toPoint());
-  if (hit == m_hover)
+  const QPoint pos = event->position().toPoint();
+  if (m_pressing && !m_dragging && m_dragFrom >= 0) {
+    if ((pos - m_pressPos).manhattanLength() >= UiScale::dp(8)) {
+      m_dragging = true;
+      hidePreview();
+      m_previewTimer->stop();
+      setCursor(Qt::ClosedHandCursor);
+    }
+  }
+  if (m_dragging) {
+    m_dropBefore = pageDropIndex(pos);
+    update();
+    event->accept();
     return;
-  m_hover = hit;
-  setCursor(hit >= 0 ? Qt::PointingHandCursor : Qt::ArrowCursor);
-  update();
-  if (hit >= 0 && m_tabs[hit].page >= 0) {
+  }
+
+  const int hit = tabAt(pos);
+  if (hit != m_hover) {
+    m_hover = hit;
+    setCursor(hit >= 0 ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    update();
+  }
+  if (hit >= 0 && m_tabs[hit].kind == TabKind::Page) {
     if (m_preview && m_preview->isVisible())
       showPreview(hit);
     else
@@ -403,6 +483,8 @@ void PageBookmarkRail::mouseMoveEvent(QMouseEvent *event) {
 
 void PageBookmarkRail::leaveEvent(QEvent *event) {
   QWidget::leaveEvent(event);
+  if (m_dragging)
+    return;
   m_hover = -1;
   m_previewTimer->stop();
   hidePreview();
@@ -421,7 +503,7 @@ void PageBookmarkRail::mousePressEvent(QMouseEvent *event) {
   }
   hidePreview();
   const Tab &t = m_tabs[hit];
-  if (t.page < 0) {
+  if (t.kind == TabKind::Add) {
     if (!m_view)
       return;
     m_view->addNewPage();
@@ -431,10 +513,73 @@ void PageBookmarkRail::mousePressEvent(QMouseEvent *event) {
     emit pagesMutated();
     return;
   }
+  if (t.kind == TabKind::AllPages) {
+    emit allPagesRequested();
+    return;
+  }
+  m_pressing = true;
+  m_dragging = false;
+  m_dragFrom = t.page;
+  m_dragTab = hit;
+  m_pressPos = event->position().toPoint();
+  m_dropBefore = -1;
   activate(t.page);
   event->accept();
 }
 
+void PageBookmarkRail::mouseReleaseEvent(QMouseEvent *event) {
+  if (event->button() != Qt::LeftButton) {
+    QWidget::mouseReleaseEvent(event);
+    return;
+  }
+  if (m_dragging) {
+    finishDrag(event->position().toPoint());
+    event->accept();
+    return;
+  }
+  m_pressing = false;
+  m_dragFrom = -1;
+  m_dragTab = -1;
+  QWidget::mouseReleaseEvent(event);
+}
+
+int PageBookmarkRail::pageDropIndex(const QPoint &pos) const {
+  for (const Tab &t : m_tabs) {
+    if (t.kind != TabKind::Page)
+      continue;
+    const QRect r = visualRect(t);
+    if (pos.y() < r.center().y())
+      return t.page;
+  }
+  return -1;
+}
+
+void PageBookmarkRail::finishDrag(const QPoint &pos) {
+  const int from = m_dragFrom;
+  const int before = pageDropIndex(pos);
+  m_pressing = false;
+  m_dragging = false;
+  m_dragFrom = -1;
+  m_dragTab = -1;
+  m_dropBefore = -1;
+  setCursor(Qt::ArrowCursor);
+  update();
+  if (!m_view || from < 0)
+    return;
+  int to = 0;
+  if (before < 0)
+    to = m_view->pageCount() - 1;
+  else if (before > from)
+    to = before - 1;
+  else
+    to = before;
+  if (to == from)
+    return;
+  m_view->movePage(from, to);
+  rebuild();
+  activate(to);
+  emit pagesMutated();
+}
 void PageBookmarkRail::wheelEvent(QWheelEvent *event) {
   static int accum = 0;
   accum += event->angleDelta().y();
@@ -450,6 +595,12 @@ void PageBookmarkRail::wheelEvent(QWheelEvent *event) {
 }
 
 void PageBookmarkRail::keyPressEvent(QKeyEvent *event) {
+  // Digits 1–9 jump to pages 1–9 (index 0–8).
+  if (event->key() >= Qt::Key_1 && event->key() <= Qt::Key_9) {
+    activate(event->key() - Qt::Key_1);
+    event->accept();
+    return;
+  }
   switch (event->key()) {
   case Qt::Key_Up:
   case Qt::Key_Left:
@@ -477,7 +628,7 @@ void PageBookmarkRail::keyPressEvent(QKeyEvent *event) {
 
 void PageBookmarkRail::contextMenuEvent(QContextMenuEvent *event) {
   const int hit = tabAt(event->pos());
-  if (hit < 0 || m_tabs[hit].page < 0)
+  if (hit < 0 || m_tabs[hit].kind != TabKind::Page)
     return;
   hidePreview();
   showTabMenu(m_tabs[hit].page, event->globalPos());
@@ -488,7 +639,7 @@ void PageBookmarkRail::showPreview(int tabIndex) {
   if (!m_view || !m_preview || tabIndex < 0 || tabIndex >= m_tabs.size())
     return;
   const Tab &t = m_tabs[tabIndex];
-  if (t.page < 0)
+  if (t.kind != TabKind::Page)
     return;
   auto *card = static_cast<BookmarkPreviewCard *>(m_preview);
   const QString title =

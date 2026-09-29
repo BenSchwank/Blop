@@ -26,6 +26,9 @@ public:
 
   /// Compact sidebar chrome (no huge right shelf).
   void setSidebarMode(bool on);
+  /// Start collapsed so the charcoal nav stays short until the user opens Tags.
+  void setCollapsed(bool on);
+  bool isCollapsed() const { return m_collapsed; }
 
 signals:
   void filterChanged(const QStringList &selectedTags);

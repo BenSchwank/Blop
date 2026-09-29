@@ -54,7 +54,7 @@ BlopWindowControls::BlopWindowControls(QWidget *parent) : QWidget(parent) {
   setMouseTracking(true);
   setCursor(Qt::ArrowCursor);
   setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-  setFixedSize(UiScale::dp(124), UiScale::dp(38));
+  setFixedSize(UiScale::dp(118), UiScale::dp(32));
 }
 
 void BlopWindowControls::setChrome(const QColor &foreground, bool lightTitleBar) {
@@ -71,7 +71,7 @@ void BlopWindowControls::setMaximized(bool max) {
 }
 
 QSize BlopWindowControls::sizeHint() const {
-  return QSize(UiScale::dp(124), UiScale::dp(38));
+  return QSize(UiScale::dp(118), UiScale::dp(32));
 }
 
 QRect BlopWindowControls::pillRect() const {
@@ -181,18 +181,10 @@ void BlopWindowControls::paintEvent(QPaintEvent *event) {
   p.setRenderHint(QPainter::Antialiasing, true);
 
   const QRect pill = pillRect();
-  const qreal radius = UiScale::dp(10);
+  const qreal radius = UiScale::dp(8);
 
-  // Soft drop shadow — floats above the title bar.
+  // Flat capsule — no drop shadow (quieter title chrome).
   p.setPen(Qt::NoPen);
-  for (int layer = 0; layer < 3; ++layer) {
-    QPainterPath shadow;
-    const int spread = layer + 1;
-    shadow.addRoundedRect(
-        QRectF(pill.adjusted(-spread, spread, spread, spread + 2)),
-        radius + spread, radius + spread);
-    p.fillPath(shadow, QColor(0, 0, 0, 6 + layer * 7));
-  }
 
   QColor darkShell = BlopStyle::obsidianSheet();
   darkShell.setAlpha(220);

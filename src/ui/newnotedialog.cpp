@@ -32,10 +32,10 @@
 
 namespace {
 
-constexpr int kPickWidthDp = 560;
-constexpr qreal kPickHeightFrac = 0.58;
-constexpr int kExpandWidthDp = 760;
-constexpr qreal kExpandHeightFrac = 0.78;
+constexpr int kPickWidthDp = 620;
+constexpr qreal kPickHeightFrac = 0.48;
+constexpr int kExpandWidthDp = 720;
+constexpr qreal kExpandHeightFrac = 0.72;
 
 QIcon pageTemplateIcon(int backgroundType, int w, int h, const QColor &paper)
 {
@@ -49,7 +49,7 @@ QIcon pageTemplateIcon(int backgroundType, int w, int h, const QColor &paper)
         return {};
     if (src.size() == QSize(w, h))
         return QIcon(src);
-    return QIcon(src.scaled(w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    return QIcon(src.scaled(w, h, Qt::KeepAspectRatio, Qt::FastTransformation));
 }
 
 } // namespace
@@ -75,7 +75,7 @@ NewNoteFormatCard::NewNoteFormatCard(int formatId, const QString &title,
     m_icon = new QLabel(this);
     m_icon->setObjectName(QStringLiteral("NewNoteCardIcon"));
     m_icon->setAlignment(Qt::AlignCenter);
-    m_icon->setFixedHeight(UiScale::dp(88));
+    m_icon->setFixedHeight(UiScale::dp(64));
     m_icon->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     lay->addWidget(m_icon);
 
@@ -115,9 +115,9 @@ void NewNoteFormatCard::setPreview(const QPixmap &pm)
         m_icon->clear();
         return;
     }
-    const int side = UiScale::dp(80);
+    const int side = UiScale::dp(56);
     m_icon->setPixmap(pm.scaled(side, side, Qt::KeepAspectRatio,
-                                Qt::SmoothTransformation));
+                                Qt::FastTransformation));
 }
 
 void NewNoteFormatCard::applyChrome(const QString &surface, const QString &ink,
@@ -303,7 +303,7 @@ void NewNoteDialog::setupUi()
     pickLay->addWidget(m_deckHint);
 
     m_deckSubhint = new QLabel(
-        QStringLiteral("Format wählen — danach Titel, Vorlage und Tags."),
+        QStringLiteral("Tippe ein Format — Titel und Details folgen."),
         m_pickPage);
     m_deckSubhint->setObjectName(QStringLiteral("NewNoteDeckSubhint"));
     m_deckSubhint->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
@@ -318,13 +318,13 @@ void NewNoteDialog::setupUi()
 
     m_btnFormatInfinite = makeDeckCard(
         0, QStringLiteral("Unendlich"), QStringLiteral("Freie Leinwand"),
-        QStringLiteral("Ohne Ränder zeichnen — Skizzen & Brainstorming."));
+        QStringLiteral("Skizzen ohne Seitenränder."));
     m_btnFormatA4 = makeDeckCard(
         1, QStringLiteral("DIN A4"), QStringLiteral("Klassisches Heft"),
-        QStringLiteral("Feste Seiten — Vorlesung, Hausaufgaben, Export."));
+        QStringLiteral("Feste Seiten für Notizen & Export."));
     m_btnFormatStruktur = makeDeckCard(
         2, QStringLiteral("Struktur"), QStringLiteral("Outline & Blöcke"),
-        QStringLiteral("Hierarchisch — Pläne, Essays, Konzepte."));
+        QStringLiteral("Hierarchisch planen und schreiben."));
 
     m_pickRow->addWidget(m_btnFormatInfinite, 1);
     m_pickRow->addWidget(m_btnFormatA4, 1);
@@ -675,7 +675,7 @@ void NewNoteDialog::applyHostModalSize(bool expanded, bool animate)
     const qreal h = expanded ? kExpandHeightFrac : kPickHeightFrac;
     if (animate) {
         modal->preparePreferredSize(w, h);
-        modal->animateCardToPreferred(220);
+        modal->animateCardToPreferred(140);
     } else {
         modal->setPreferredCardWidth(w);
         modal->setPreferredCardHeightFrac(h);
@@ -932,7 +932,7 @@ void NewNoteDialog::refreshDeckPreviews()
         if (!c)
             continue;
         const int id = c->formatId();
-        const int px = UiScale::dp(80);
+        const int px = UiScale::dp(56);
         NotePreviewIcon::Spec spec;
         if (id == 0) {
             spec.kind = NotePreviewIcon::Kind::Infinite;

@@ -80,6 +80,7 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
     closeBtn->setObjectName(QStringLiteral("DocumentTabClose"));
     closeBtn->setFixedSize(UiScale::dp(18), UiScale::dp(18));
     closeBtn->setCursor(Qt::PointingHandCursor);
+    closeBtn->setFocusPolicy(Qt::NoFocus);
     closeBtn->setStyleSheet(
         QStringLiteral("QPushButton {"
                        "  background-color: transparent;"
@@ -93,6 +94,9 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
                        "  color: white;"
                        "}"));
     connect(closeBtn, &QPushButton::clicked, this, [this]() { emit closeClicked(); });
+    // Quiet title bar: close only on tab hover (less X next to window close).
+    closeBtn->hide();
+    closeBtn->installEventFilter(this);
     lay->addWidget(closeBtn);
   }
 
@@ -192,6 +196,8 @@ void DocumentTab::refreshChromeStyle() {
                        "  background-color: %3; color: %2;"
                        "}")
             .arg(idle, hoverFg, hoverBg));
+    // Keep hover-only visibility when chrome refreshes.
+    closeBtn->setVisible(m_hovered || closeBtn->underMouse());
   }
 }
 
@@ -364,16 +370,37 @@ void DocumentTab::mousePressEvent(QMouseEvent *event) {
     emit clicked();
 }
 
+void DocumentTab::syncCloseButtonVisibility() {
+  auto *closeBtn = findChild<QPushButton *>(QStringLiteral("DocumentTabClose"));
+  if (!closeBtn)
+    return;
+  const bool show = m_hovered || closeBtn->underMouse();
+  if (closeBtn->isVisible() == show)
+    return;
+  closeBtn->setVisible(show);
+  setFixedWidth(sizeHint().width());
+}
+
 void DocumentTab::enterEvent(QEnterEvent *event) {
   Q_UNUSED(event)
   m_hovered = true;
+  syncCloseButtonVisibility();
   update();
 }
 
 void DocumentTab::leaveEvent(QEvent *event) {
   Q_UNUSED(event)
   m_hovered = false;
+  syncCloseButtonVisibility();
   update();
+}
+
+bool DocumentTab::eventFilter(QObject *watched, QEvent *event) {
+  if (watched && watched->objectName() == QLatin1String("DocumentTabClose") &&
+      (event->type() == QEvent::Enter || event->type() == QEvent::Leave)) {
+    syncCloseButtonVisibility();
+  }
+  return QWidget::eventFilter(watched, event);
 }
 
 // -----------------------------------------------------------------------------

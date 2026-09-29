@@ -188,7 +188,13 @@ void LibraryTagsPanel::clearSelection() {
 }
 
 void LibraryTagsPanel::onToggleCollapsed() {
-  m_collapsed = !m_collapsed;
+  setCollapsed(!m_collapsed);
+}
+
+void LibraryTagsPanel::setCollapsed(bool on) {
+  if (m_collapsed == on)
+    return;
+  m_collapsed = on;
   applyCollapsed();
 }
 

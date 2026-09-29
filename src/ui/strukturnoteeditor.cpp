@@ -4,11 +4,13 @@
 #include "blop_inwindow_menu.h"
 #include "blop_modal.h"
 #include "blop_theme.h"
+#include "notechrome.h"
 #include "notemanager.h"
 #include "notepagerenderer.h"
 #include "uiscale.h"
 
 #include <QCursor>
+#include <QContextMenuEvent>
 #include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -34,6 +36,7 @@
 #include <QShowEvent>
 #include <QTextCursor>
 #include <QTimer>
+#include <QGridLayout>
 #include <QVBoxLayout>
 
 /// Struktur page palette: light paper by default, follows BlopTheme dark mode.
@@ -646,9 +649,11 @@ public:
     auto *btnOpen = makeGhost(QStringLiteral("Öffnen"));
     m_btnCrop = makeGhost(QStringLiteral("Zuschneiden"));
     m_btnPage = makeGhost(QStringLiteral("Ganzseite"));
+    m_btnRemove = makeGhost(QStringLiteral("Entfernen"));
     barLay->addWidget(btnOpen);
     barLay->addWidget(m_btnCrop);
     barLay->addWidget(m_btnPage);
+    barLay->addWidget(m_btnRemove);
     bar->hide();
     bar->raise();
 
@@ -711,6 +716,8 @@ public:
       refreshPreview();
       emit embedChanged(m_embed);
     });
+    connect(m_btnRemove, &QPushButton::clicked, this,
+            [this]() { emit removeRequested(); });
   }
 
   StrukturEmbedBlock embed() const { return m_embed; }
@@ -756,15 +763,26 @@ public:
     }
     const int idx = qBound(0, m_embed.pageIndex, note.pages.size() - 1);
     m_embed.pageIndex = idx;
-    // Render at the card's actual preview size (grid owns the geometry).
+    // Fill the card: cover-scale into the preview area (no empty letterbox).
     const QSize area = m_preview->size();
-    const QSize fit(qMax(UiScale::dp(60), area.width() - UiScale::dp(8)),
-                    qMax(UiScale::dp(40), area.height() - UiScale::dp(8)));
+    const int w = qMax(UiScale::dp(60), area.width());
+    const int h = qMax(UiScale::dp(40), area.height());
+    const QSize fit(w, h);
     const QRectF crop = m_embed.cropRect ? *m_embed.cropRect : QRectF();
-    const QImage img =
-        NotePageRenderer::renderPreview(note.pages[idx], fit, crop);
+    // Render larger than the cell, then cover-crop so the page fills the card.
+    const QSize renderAt(w * 2, h * 2);
+    QImage img = NotePageRenderer::renderPreview(note.pages[idx], renderAt, crop);
+    if (!img.isNull()) {
+      const QSize cover =
+          img.size().scaled(fit, Qt::KeepAspectRatioByExpanding);
+      img = img.scaled(cover, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+      const int x = qMax(0, (img.width() - w) / 2);
+      const int y = qMax(0, (img.height() - h) / 2);
+      img = img.copy(x, y, qMin(w, img.width()), qMin(h, img.height()));
+    }
     m_fullPm = QPixmap::fromImage(
         NotePageRenderer::renderFullPage(note.pages[idx]));
+    m_preview->setText(QString());
     m_preview->setPixmap(QPixmap::fromImage(img));
   }
 
@@ -777,17 +795,50 @@ signals:
   void openRequested();
   void embedChanged(const StrukturEmbedBlock &embed);
   void spanRequested(int colSpan);
+  void removeRequested();
 
 protected:
   bool eventFilter(QObject *obj, QEvent *ev) override {
     if (ev->type() == QEvent::Enter || ev->type() == QEvent::Leave)
       QTimer::singleShot(0, this, [this]() { syncActionHover(); });
-    if (obj == m_preview && ev->type() == QEvent::MouseButtonRelease) {
-      auto *me = static_cast<QMouseEvent *>(ev);
-      if (me->button() == Qt::LeftButton && !m_cropping) {
-        emit openRequested();
-        return true;
+    // QLabel ignores mouse presses, so a release never comes back and the
+    // card stays a gallery. Accept the press on the preview, caption, and
+    // card padding, then open on release if it was not a drag.
+    const bool openSurface =
+        obj == m_preview || obj == m_caption || obj == m_card || obj == this;
+    if (openSurface && !m_cropping) {
+      if (ev->type() == QEvent::MouseButtonPress ||
+          ev->type() == QEvent::MouseButtonDblClick) {
+        auto *me = static_cast<QMouseEvent *>(ev);
+        if (me->button() == Qt::LeftButton) {
+          m_openPress = true;
+          m_openPressPos = me->globalPosition().toPoint();
+          if (ev->type() == QEvent::MouseButtonDblClick)
+            emit openRequested();
+          return true;
+        }
       }
+      if (ev->type() == QEvent::MouseButtonRelease) {
+        auto *me = static_cast<QMouseEvent *>(ev);
+        if (me->button() == Qt::LeftButton && m_openPress) {
+          m_openPress = false;
+          const int moved =
+              (me->globalPosition().toPoint() - m_openPressPos).manhattanLength();
+          if (moved < 18)
+            emit openRequested();
+          return true;
+        }
+      }
+    }
+    if (ev->type() == QEvent::ContextMenu) {
+      auto *ce = static_cast<QContextMenuEvent *>(ev);
+      QList<BlopInWindowMenu::Item> items;
+      items.push_back({QStringLiteral("Öffnen"), QIcon(),
+                       [this]() { emit openRequested(); }});
+      items.push_back({QStringLiteral("Entfernen"), QIcon(),
+                       [this]() { emit removeRequested(); }, true});
+      BlopInWindowMenu::show(this, ce->globalPos(), items);
+      return true;
     }
     return QWidget::eventFilter(obj, ev);
   }
@@ -871,6 +922,8 @@ private:
       m_btnCrop->setVisible(!narrow);
     if (m_btnPage)
       m_btnPage->setVisible(!narrow);
+    if (m_btnRemove)
+      m_btnRemove->setVisible(true);
     m_actions->adjustSize();
     const int margin = UiScale::dp(10);
     const int maxW = qMax(UiScale::dp(40), m_card->width() - 2 * margin);
@@ -896,12 +949,15 @@ private:
   QList<QPushButton *> m_sizeButtons;
   QPushButton *m_btnCrop{nullptr};
   QPushButton *m_btnPage{nullptr};
+  QPushButton *m_btnRemove{nullptr};
   QTimer *m_refreshTimer{nullptr};
   QLabel *m_preview{nullptr};
   QLabel *m_caption{nullptr};
   QPixmap m_fullPm;
   bool m_cropping{false};
   bool m_actionsShown{false};
+  bool m_openPress{false};
+  QPoint m_openPressPos;
 };
 
 /// Hover handle on a grid card: 6-dot move grip or bottom-right resize corner.
@@ -997,6 +1053,37 @@ private:
   bool m_down{false};
 };
 
+/// Soft snap target — same language as DashSnapGhost (solid fill + accent rim).
+class StrukturSnapGhost : public QWidget {
+public:
+  explicit StrukturSnapGhost(QWidget *parent) : QWidget(parent) {
+    setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    setAttribute(Qt::WA_TranslucentBackground, true);
+    hide();
+  }
+  void showAt(const QRect &r) {
+    setGeometry(r);
+    show();
+    raise();
+    update();
+  }
+  void clear() { hide(); }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QColor pen = NoteChrome::accent();
+    pen.setAlpha(170);
+    QColor brush = NoteChrome::accent();
+    brush.setAlpha(42);
+    p.setPen(QPen(pen, 2));
+    p.setBrush(brush);
+    p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), UiScale::dp(14),
+                      UiScale::dp(14));
+  }
+};
+
 /// Notion/Dashboard-style embed board: 4 columns across the page, cards snap
 /// to cells, dragging pushes colliding cards down, the grid grows as needed.
 class StrukturEmbedGrid : public QWidget {
@@ -1007,19 +1094,18 @@ public:
     setAttribute(Qt::WA_StyledBackground, true);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
-    m_ghost = new QWidget(this);
-    m_ghost->setObjectName(QStringLiteral("StrukturGridGhost"));
-    m_ghost->setAttribute(Qt::WA_StyledBackground, true);
-    m_ghost->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-    QColor acc = BlopTheme::accentPrimary();
-    QColor fill = acc;
-    fill.setAlpha(46);
-    m_ghost->setStyleSheet(
-        QStringLiteral("QWidget#StrukturGridGhost { background: %1;"
-                       "  border: 2px dashed %2; border-radius: %3px; }")
-            .arg(fill.name(QColor::HexArgb), acc.name(QColor::HexRgb))
-            .arg(UiScale::dp(14)));
-    m_ghost->hide();
+    m_ghost = new StrukturSnapGhost(this);
+
+    m_longPress = new QTimer(this);
+    m_longPress->setSingleShot(true);
+    m_longPress->setInterval(380);
+    connect(m_longPress, &QTimer::timeout, this, [this]() {
+      if (m_pressIndex < 0 || m_pressIndex >= m_cards.size())
+        return;
+      m_hover = m_pressIndex;
+      m_gripsPinned = true;
+      showGripsFor(m_hover);
+    });
 
     m_moveGrip = new GridGrip(GridGrip::Kind::Move, this);
     m_sizeGrip = new GridGrip(GridGrip::Kind::Resize, this);
@@ -1086,6 +1172,8 @@ public:
     w->installEventFilter(this);
     connect(w, &StrukturEmbedWidget::spanRequested, this,
             [this, w](int span) { setSpan(indexOf(w), span); });
+    connect(w, &StrukturEmbedWidget::removeRequested, this,
+            [this, w]() { removeCard(indexOf(w)); });
     w->setActiveSpan(c.item.colSpan);
     w->show();
     QVector<StrukturGridItem> its = currentItems();
@@ -1132,8 +1220,34 @@ public:
         c.widget->refreshPreview();
   }
 
+  void removeCard(int index) {
+    if (index < 0 || index >= m_cards.size())
+      return;
+    StrukturEmbedWidget *w = m_cards[index].widget;
+    m_cards.removeAt(index);
+    if (w) {
+      w->hide();
+      w->deleteLater();
+    }
+    m_hover = -1;
+    m_moveGrip->hide();
+    m_sizeGrip->hide();
+    if (m_cards.isEmpty()) {
+      setFixedHeight(0);
+      hide();
+      emit emptied();
+      emit layoutChanged();
+      return;
+    }
+    QVector<StrukturGridItem> its = currentItems();
+    StrukturGrid::resolve(its);
+    applyItems(its, true);
+    emit layoutChanged();
+  }
+
 signals:
   void layoutChanged();
+  void emptied();
 
 protected:
   void resizeEvent(QResizeEvent *e) override {
@@ -1169,14 +1283,54 @@ protected:
 
   void leaveEvent(QEvent *e) override {
     QWidget::leaveEvent(e);
-    if (!m_active)
+    if (!m_active) {
+      m_gripsPinned = false;
       QTimer::singleShot(0, this, [this]() { syncHover(); });
+    }
+  }
+
+  void mousePressEvent(QMouseEvent *e) override {
+    // Empty cell tap clears touch-pinned grips.
+    if (e->button() == Qt::LeftButton && m_gripsPinned) {
+      m_gripsPinned = false;
+      m_hover = -1;
+      showGripsFor(-1);
+    }
+    QWidget::mousePressEvent(e);
   }
 
   bool eventFilter(QObject *obj, QEvent *ev) override {
+    auto *card = qobject_cast<StrukturEmbedWidget *>(obj);
+    if (!card)
+      return QWidget::eventFilter(obj, ev);
+
     if (ev->type() == QEvent::Enter || ev->type() == QEvent::Leave) {
-      if (qobject_cast<StrukturEmbedWidget *>(obj) && !m_active)
+      if (!m_active)
         QTimer::singleShot(0, this, [this]() { syncHover(); });
+    } else if (ev->type() == QEvent::MouseButtonPress) {
+      auto *me = static_cast<QMouseEvent *>(ev);
+      if (me->button() == Qt::LeftButton) {
+        m_pressIndex = indexOf(card);
+        m_pressPos = me->globalPosition().toPoint();
+        if (m_longPress)
+          m_longPress->start();
+      }
+    } else if (ev->type() == QEvent::MouseMove) {
+      auto *me = static_cast<QMouseEvent *>(ev);
+      if (m_longPress && m_longPress->isActive()) {
+        const QPoint d = me->globalPosition().toPoint() - m_pressPos;
+        if (d.manhattanLength() > UiScale::dp(10))
+          m_longPress->stop();
+      }
+    } else if (ev->type() == QEvent::MouseButtonRelease) {
+      if (m_longPress)
+        m_longPress->stop();
+      // Tap elsewhere clears a touch-pinned grip so the card stays openable.
+      if (!m_active && m_gripsPinned) {
+        const int idx = indexOf(card);
+        if (idx != m_hover)
+          m_gripsPinned = false;
+      }
     }
     return QWidget::eventFilter(obj, ev);
   }
@@ -1256,9 +1410,29 @@ private:
     setFixedHeight(qMax(heightForRows(1), heightForRows(rows)));
   }
 
+  void showGripsFor(int hit) {
+    if (hit < 0 || hit >= m_cards.size() || !m_cards[hit].widget) {
+      m_moveGrip->hide();
+      m_sizeGrip->hide();
+      return;
+    }
+    const QRect r = m_cards[hit].widget->geometry();
+    m_moveGrip->move(r.left() + UiScale::dp(8), r.top() + UiScale::dp(7));
+    m_sizeGrip->move(r.right() - m_sizeGrip->width() - UiScale::dp(2),
+                     r.bottom() - m_sizeGrip->height() - UiScale::dp(2));
+    m_moveGrip->show();
+    m_sizeGrip->show();
+    m_moveGrip->raise();
+    m_sizeGrip->raise();
+  }
+
   void syncHover() {
     if (m_active)
       return;
+    if (m_gripsPinned && m_hover >= 0 && m_hover < m_cards.size()) {
+      showGripsFor(m_hover);
+      return;
+    }
     const QPoint local = mapFromGlobal(QCursor::pos());
     int hit = -1;
     if (rect().contains(local)) {
@@ -1275,14 +1449,7 @@ private:
       m_sizeGrip->hide();
       return;
     }
-    const QRect r = m_cards[hit].widget->geometry();
-    m_moveGrip->move(r.left() + UiScale::dp(8), r.top() + UiScale::dp(7));
-    m_sizeGrip->move(r.right() - m_sizeGrip->width() - UiScale::dp(2),
-                     r.bottom() - m_sizeGrip->height() - UiScale::dp(2));
-    m_moveGrip->show();
-    m_sizeGrip->show();
-    m_moveGrip->raise();
-    m_sizeGrip->raise();
+    showGripsFor(hit);
   }
 
   QScrollArea *scrollArea() const {
@@ -1308,6 +1475,9 @@ private:
   void beginInteraction(bool resize, const QPoint &globalPos) {
     if (m_hover < 0 || m_hover >= m_cards.size())
       return;
+    if (m_longPress)
+      m_longPress->stop();
+    m_gripsPinned = false;
     m_active = true;
     m_resizing = resize;
     m_dragIndex = m_hover;
@@ -1315,8 +1485,7 @@ private:
     m_pressOffset = w->mapFromGlobal(globalPos);
     m_preview = currentItems();
     w->raise();
-    m_ghost->setGeometry(cellRect(m_cards[m_dragIndex].item));
-    m_ghost->show();
+    m_ghost->showAt(cellRect(m_cards[m_dragIndex].item));
     m_ghost->stackUnder(w);
     (m_resizing ? m_moveGrip : m_sizeGrip)->hide();
     applyItems(m_preview, false, m_dragIndex);
@@ -1362,7 +1531,8 @@ private:
     m_pending = its;
     const QRect ghost = cellRect(its[m_dragIndex]);
     if (m_ghost->geometry() != ghost)
-      m_ghost->setGeometry(ghost);
+      m_ghost->showAt(ghost);
+    m_ghost->stackUnder(w);
     applyItems(its, true, m_dragIndex);
     // Keep the grid tall enough for the card following the pointer.
     const int needed = w->geometry().bottom() + gap();
@@ -1390,7 +1560,7 @@ private:
     m_dragIndex = -1;
     m_pending.clear();
     m_preview.clear();
-    m_ghost->hide();
+    m_ghost->clear();
     applyItems(finalItems, true);
     if (StrukturEmbedWidget *w = embedAt(idx))
       w->setActiveSpan(m_cards[idx].item.colSpan);
@@ -1416,10 +1586,14 @@ private:
   }
 
   QVector<Card> m_cards;
-  QWidget *m_ghost{nullptr};
+  StrukturSnapGhost *m_ghost{nullptr};
   GridGrip *m_moveGrip{nullptr};
   GridGrip *m_sizeGrip{nullptr};
+  QTimer *m_longPress{nullptr};
   int m_hover{-1};
+  int m_pressIndex{-1};
+  QPoint m_pressPos;
+  bool m_gripsPinned{false};
   bool m_active{false};
   bool m_resizing{false};
   int m_dragIndex{-1};
@@ -1715,9 +1889,13 @@ int StrukturNoteEditor::insertIndex(int desired) const {
 
 void StrukturNoteEditor::wireParagraphRow(QWidget *row, QPlainTextEdit *plain) {
   auto *edit = static_cast<NotionTextEdit *>(plain);
-  connect(edit, &QPlainTextEdit::textChanged, this, [this, edit]() {
+  connect(edit, &QPlainTextEdit::textChanged, this, [this, row, edit]() {
     edit->updateHeight();
     scheduleSave();
+    if (auto *chips =
+            row->findChild<QWidget *>(QStringLiteral("StrukturEmptyActions")))
+      chips->setVisible(edit->toPlainText().trimmed().isEmpty() &&
+                        edit->blockKind().isEmpty());
   });
   connect(edit, &NotionTextEdit::enterPressed, this,
           [this, row, edit](int cursorPos) {
@@ -1770,6 +1948,18 @@ void StrukturNoteEditor::wireParagraphRow(QWidget *row, QPlainTextEdit *plain) {
       fadeGutterButton(btn, on || btn->property("rowHover").toBool());
     });
   }
+  if (auto *btnEmbed = row->findChild<QPushButton *>(
+          QStringLiteral("StrukturEmbedNote"))) {
+    connect(btnEmbed, &QPushButton::clicked, this, [this, row]() {
+      promptLinkedNoteTitle(blockIndexOfWidget(row), false);
+    });
+  }
+  if (auto *btnGrid =
+          row->findChild<QPushButton *>(QStringLiteral("StrukturNewGrid"))) {
+    connect(btnGrid, &QPushButton::clicked, this, [this, row]() {
+      promptLinkedNoteTitle(blockIndexOfWidget(row), true);
+    });
+  }
 }
 
 QWidget *StrukturNoteEditor::makeParagraphRow(const QString &text,
@@ -1780,9 +1970,10 @@ QWidget *StrukturNoteEditor::makeParagraphRow(const QString &text,
   auto *row = new QWidget(parent);
   row->setObjectName(QStringLiteral("StrukturParagraphRow"));
   row->setProperty("blockKind", kind);
-  auto *lay = new QHBoxLayout(row);
+  auto *lay = new QGridLayout(row);
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(UiScale::dp(4));
+  lay->setHorizontalSpacing(UiScale::dp(4));
+  lay->setVerticalSpacing(UiScale::dp(2));
 
   auto *btnPlus = new QPushButton(QStringLiteral("+"), row);
   btnPlus->setObjectName(QStringLiteral("StrukturLinePlus"));
@@ -1804,14 +1995,14 @@ QWidget *StrukturNoteEditor::makeParagraphRow(const QString &text,
   eff->setOpacity(0);
   btnPlus->setGraphicsEffect(eff);
   btnPlus->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-  lay->addWidget(btnPlus, 0, Qt::AlignTop);
+  lay->addWidget(btnPlus, 0, 0, Qt::AlignTop);
 
   // Kind gutter (bullet, checkbox, quote bar); rebuilt by applyRowKind.
   auto *gutter = new QWidget(row);
   gutter->setObjectName(QStringLiteral("StrukturKindGutter"));
   gutter->setFixedWidth(0);
   gutter->hide();
-  lay->addWidget(gutter, 0);
+  lay->addWidget(gutter, 0, 1, Qt::AlignTop);
 
   auto *edit = new NotionTextEdit(row);
   QString initial = text;
@@ -1821,7 +2012,38 @@ QWidget *StrukturNoteEditor::makeParagraphRow(const QString &text,
     initial.remove(0, 2);
   edit->setPlainText(initial);
   QTimer::singleShot(0, edit, [edit]() { edit->updateHeight(); });
-  lay->addWidget(edit, 1);
+  lay->addWidget(edit, 0, 2);
+  lay->setColumnStretch(2, 1);
+
+  auto *chips = new QWidget(row);
+  chips->setObjectName(QStringLiteral("StrukturEmptyActions"));
+  auto *chipLay = new QHBoxLayout(chips);
+  chipLay->setContentsMargins(UiScale::dp(32), 0, 0, UiScale::dp(6));
+  chipLay->setSpacing(UiScale::dp(8));
+  auto styleChip = [](QPushButton *b) {
+    b->setCursor(Qt::PointingHandCursor);
+    b->setFocusPolicy(Qt::NoFocus);
+    b->setMinimumHeight(UiScale::dp(32));
+    b->setStyleSheet(QStringLiteral(
+        "QPushButton {"
+        "  background: transparent; color: %1;"
+        "  border: 1px solid %2; border-radius: 8px;"
+        "  padding: 4px 12px; font-size: 12px; font-weight: 600;"
+        "}"
+        "QPushButton:hover { background: %3; color: %4; }")
+                         .arg(sp::hex(sp::muted()), sp::cardBorder(),
+                              sp::hex(sp::hover()), sp::hex(sp::ink())));
+  };
+  auto *btnEmbed = new QPushButton(QStringLiteral("Notiz einbetten"), chips);
+  btnEmbed->setObjectName(QStringLiteral("StrukturEmbedNote"));
+  auto *btnGrid = new QPushButton(QStringLiteral("Neues Raster"), chips);
+  btnGrid->setObjectName(QStringLiteral("StrukturNewGrid"));
+  styleChip(btnEmbed);
+  styleChip(btnGrid);
+  chipLay->addWidget(btnEmbed);
+  chipLay->addWidget(btnGrid);
+  chipLay->addStretch(1);
+  lay->addWidget(chips, 1, 0, 1, 3);
 
   auto *hover = new RowHoverWatch(row, btnPlus, row);
   hover->watch(row);
@@ -1910,6 +2132,9 @@ void StrukturNoteEditor::applyRowKind(QWidget *row, const QString &kind) {
     gutter->setFixedWidth(0);
     gutter->hide();
   }
+  if (auto *chips =
+          row->findChild<QWidget *>(QStringLiteral("StrukturEmptyActions")))
+    chips->setVisible(edit->toPlainText().trimmed().isEmpty() && kind.isEmpty());
 }
 
 StrukturEmbedWidget *
@@ -1954,6 +2179,13 @@ StrukturNoteEditor::makeEmbedGrid(const QVector<StrukturGridItem> &items) {
     grid->addCard(makeEmbedWidget(it.embed, grid), it);
   connect(grid, &StrukturEmbedGrid::layoutChanged, this,
           [this]() { scheduleSave(); });
+  connect(grid, &StrukturEmbedGrid::emptied, this, [this, grid]() {
+    if (!m_blocksLay)
+      return;
+    m_blocksLay->removeWidget(grid);
+    grid->deleteLater();
+    scheduleSave();
+  });
   return grid;
 }
 
@@ -1990,7 +2222,7 @@ void StrukturNoteEditor::insertParagraphAfter(int blockIndex,
 }
 
 void StrukturNoteEditor::insertEmbed(const StrukturEmbedBlock &embed,
-                                     int afterIndex) {
+                                     int afterIndex, bool forceNewGrid) {
   StrukturEmbedBlock e = embed;
   e.halfWidth = false;
 
@@ -2001,9 +2233,12 @@ void StrukturNoteEditor::insertEmbed(const StrukturEmbedBlock &embed,
   NotionTextEdit *anchorEdit = paragraphEdit(anchorW);
   const bool anchorEmptyPara =
       anchorEdit && anchorEdit->toPlainText().trimmed().isEmpty();
-  StrukturEmbedGrid *grid = qobject_cast<StrukturEmbedGrid *>(anchorW);
-  if (!grid && anchorEmptyPara)
-    grid = qobject_cast<StrukturEmbedGrid *>(blockWidgetAt(anchor - 1));
+  StrukturEmbedGrid *grid = nullptr;
+  if (!forceNewGrid) {
+    grid = qobject_cast<StrukturEmbedGrid *>(anchorW);
+    if (!grid && anchorEmptyPara)
+      grid = qobject_cast<StrukturEmbedGrid *>(blockWidgetAt(anchor - 1));
+  }
   if (grid) {
     StrukturGridItem it = grid->suggestSlot(2, 2);
     if (it.row >= StrukturGrid::rowCount(grid->items()))
@@ -2135,23 +2370,28 @@ void StrukturNoteEditor::showInsertMenuAt(int afterBlockIndex,
        {QStringLiteral("Code"), QIcon(),
         [place]() { place(QStringLiteral("code")); }},
        sep,
-       {QStringLiteral("Neue A4-Notiz anlegen"), QIcon(),
-        [this, after]() { promptLinkedNoteTitle(after); }},
+       {QStringLiteral("Notiz einbetten"), QIcon(),
+        [this, after]() { promptLinkedNoteTitle(after, false); }},
+       {QStringLiteral("Neues Raster"), QIcon(),
+        [this, after]() { promptLinkedNoteTitle(after, true); }},
        {QStringLiteral("Bestehende Notiz wählen…"), QIcon(),
         [this, after]() { pickExistingNote(after, false); }},
        {QStringLiteral("Neue Seite in bestehender Notiz…"), QIcon(),
         [this, after]() { pickExistingNote(after, true); }}});
 }
 
-void StrukturNoteEditor::promptLinkedNoteTitle(int afterBlockIndex) {
+void StrukturNoteEditor::promptLinkedNoteTitle(int afterBlockIndex,
+                                                bool forceNewGrid) {
   auto *form = new QWidget;
   auto *lay = new QVBoxLayout(form);
   lay->setContentsMargins(UiScale::dp(18), UiScale::dp(16), UiScale::dp(18),
                           UiScale::dp(16));
   lay->setSpacing(UiScale::dp(12));
 
-  auto *hint =
-      new QLabel(QStringLiteral("Titel der eingebetteten A4-Notiz"), form);
+  auto *hint = new QLabel(
+      forceNewGrid ? QStringLiteral("Erste Notiz im neuen Raster")
+                   : QStringLiteral("Titel der eingebetteten A4-Notiz"),
+      form);
   // The modal card follows BlopTheme surfaces (dark in dark mode), not the
   // paper palette of the Struktur sheet.
   hint->setStyleSheet(QStringLiteral(
@@ -2190,9 +2430,11 @@ void StrukturNoteEditor::promptLinkedNoteTitle(int afterBlockIndex) {
   lay->addWidget(edit);
   lay->addLayout(row);
 
-  auto *modal = BlopModal::present(this, form, BlopModal::Mode::Card,
-                                   QStringLiteral("Neue Notiz"),
-                                   UiScale::dp(380));
+  auto *modal = BlopModal::present(
+      this, form, BlopModal::Mode::Card,
+      forceNewGrid ? QStringLiteral("Neues Raster")
+                   : QStringLiteral("Neue Notiz"),
+      UiScale::dp(380));
   if (!modal) {
     form->deleteLater();
     return;
@@ -2200,7 +2442,7 @@ void StrukturNoteEditor::promptLinkedNoteTitle(int afterBlockIndex) {
   connect(modal, &BlopModal::dismissed, form, &QObject::deleteLater);
   connect(cancel, &QPushButton::clicked, modal, &BlopModal::dismiss);
 
-  auto submit = [this, form, edit, modal, afterBlockIndex]() {
+  auto submit = [this, form, edit, modal, afterBlockIndex, forceNewGrid]() {
     if (form->property("submitted").toBool())
       return;
     form->setProperty("submitted", true);
@@ -2216,7 +2458,7 @@ void StrukturNoteEditor::promptLinkedNoteTitle(int afterBlockIndex) {
     StrukturEmbedBlock emb;
     emb.notePath = StrukturDocument::storeNotePath(m_path, path);
     emb.pageIndex = 0;
-    insertEmbed(emb, afterBlockIndex);
+    insertEmbed(emb, afterBlockIndex, forceNewGrid);
   };
   connect(ok, &QPushButton::clicked, form, submit);
   connect(edit, &QLineEdit::returnPressed, form, submit);

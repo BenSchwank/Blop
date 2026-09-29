@@ -88,7 +88,7 @@ protected:
   QVariantAnimation *m_pressAnim{nullptr};
 };
 
-/// Dark labeled bar (Hand, Stift, Radierer, Auswahl, Formel, Messen, Molekül).
+/// Dark labeled bar (Hand, Stift, Radierer, Auswahl, Messen, Sticky).
 class NoteBarToolbar : public NoteToolbarBase {
   Q_OBJECT
 public:

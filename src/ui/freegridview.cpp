@@ -1,7 +1,9 @@
 #include "freegridview.h"
 #include "overlayscrollindicator.h"
+#include <QApplication>
 #include <QDrag>
 #include <QMimeData>
+#include <QMouseEvent>
 #include <QScrollBar>
 #include <cmath>
 
@@ -143,6 +145,33 @@ void FreeGridView::dropEvent(QDropEvent *e) {
 
   QListView::dropEvent(e);
   viewport()->update();
+}
+
+void FreeGridView::mousePressEvent(QMouseEvent *e) {
+  if (e->button() == Qt::LeftButton) {
+    m_pressPos = e->position().toPoint();
+    m_pressTracking = true;
+  }
+  QListView::mousePressEvent(e);
+}
+
+void FreeGridView::mouseMoveEvent(QMouseEvent *e) {
+  // QListView starts a drag as soon as the pointer jitters past
+  // startDragDistance. That drag is modal and swallows the second click
+  // of a double-click, so notes in the library grid never open.
+  // Hold moves until the gesture is clearly a drag.
+  if (m_pressTracking && (e->buttons() & Qt::LeftButton)) {
+    const int threshold = qMax(12, QApplication::startDragDistance() * 2);
+    if ((e->position().toPoint() - m_pressPos).manhattanLength() < threshold)
+      return;
+    m_pressTracking = false;
+  }
+  QListView::mouseMoveEvent(e);
+}
+
+void FreeGridView::mouseReleaseEvent(QMouseEvent *e) {
+  m_pressTracking = false;
+  QListView::mouseReleaseEvent(e);
 }
 
 void FreeGridView::startDrag(Qt::DropActions supportedActions) {

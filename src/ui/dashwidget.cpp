@@ -454,8 +454,8 @@ void DashWidget::rebuildBody() {
 QWidget *DashWidget::buildIntro() {
   auto *body = new QWidget();
   auto *lay = new QVBoxLayout(body);
-  lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(UiScale::dp(4));
+  lay->setContentsMargins(0, 0, 0, UiScale::dp(14));
+  lay->setSpacing(UiScale::dp(6));
 
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   const QString custom =

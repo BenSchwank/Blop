@@ -1,6 +1,8 @@
 #include "strukturdocument.h"
 
+#include <QDebug>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -323,4 +325,90 @@ QString StrukturDocument::storeNotePath(const QString &strukturPath,
   if (rel.startsWith(QLatin1String("..")))
     return noteFi.absoluteFilePath();
   return rel;
+}
+
+int StrukturDocument::migrateLegacyRootEmbeds(const QString &libraryRoot) {
+  if (libraryRoot.isEmpty())
+    return 0;
+  QDir root(libraryRoot);
+  if (!root.exists())
+    return 0;
+
+  const QString embedsDirName = QStringLiteral(".blop-embeds");
+  const QString embedsPath = root.filePath(embedsDirName);
+  QDir().mkpath(embedsPath);
+
+  // Collect root-level "Eingebettete Notiz*.bnote" (legacy unhidden embeds).
+  QStringList movedNames;
+  const QFileInfoList candidates = root.entryInfoList(
+      {QStringLiteral("Eingebettete Notiz*.bnote")}, QDir::Files);
+  auto clearReadonly = [](const QString &p) {
+    QFile f(p);
+    const QFileDevice::Permissions perms = f.permissions();
+    if (!(perms & QFileDevice::WriteUser))
+      f.setPermissions(perms | QFileDevice::WriteOwner | QFileDevice::WriteUser);
+  };
+  for (const QFileInfo &fi : candidates) {
+    const QString dest = QDir(embedsPath).filePath(fi.fileName());
+    if (QFileInfo::exists(dest)) {
+      // Already mirrored — drop the visible root copy.
+      clearReadonly(fi.absoluteFilePath());
+      if (!QFile::remove(fi.absoluteFilePath()))
+        qWarning() << "migrateLegacyRootEmbeds: could not remove"
+                   << fi.absoluteFilePath();
+      movedNames.append(fi.fileName());
+      continue;
+    }
+    clearReadonly(fi.absoluteFilePath());
+    if (QFile::rename(fi.absoluteFilePath(), dest))
+      movedNames.append(fi.fileName());
+    else
+      qWarning() << "migrateLegacyRootEmbeds: could not move"
+                 << fi.absoluteFilePath() << "->" << dest;
+  }
+  if (movedNames.isEmpty())
+    return 0;
+
+  auto rewritePath = [&](QString &notePath) {
+    if (notePath.isEmpty())
+      return false;
+    const QFileInfo np(notePath);
+    const QString base = np.fileName();
+    if (!movedNames.contains(base))
+      return false;
+    // Already pointing into embeds?
+    if (notePath.contains(embedsDirName))
+      return false;
+    notePath = embedsDirName + QLatin1Char('/') + base;
+    return true;
+  };
+
+  int structsTouched = 0;
+  QDirIterator it(libraryRoot, {QStringLiteral("*.struct")}, QDir::Files,
+                  QDirIterator::Subdirectories);
+  while (it.hasNext()) {
+    const QString path = it.next();
+    // Skip anything under .Papierkorb
+    if (path.contains(QStringLiteral(".Papierkorb")))
+      continue;
+    StrukturDocument doc;
+    if (!load(path, doc))
+      continue;
+    bool dirty = false;
+    for (StrukturBlock &b : doc.blocks) {
+      if (b.type == StrukturBlock::Type::EmbedGrid) {
+        for (StrukturGridItem &item : b.items)
+          dirty = rewritePath(item.embed.notePath) || dirty;
+      } else if (b.type == StrukturBlock::Type::Embed) {
+        dirty = rewritePath(b.embed.notePath) || dirty;
+      } else if (b.type == StrukturBlock::Type::Columns) {
+        for (StrukturEmbedBlock &e : b.columns)
+          dirty = rewritePath(e.notePath) || dirty;
+      }
+    }
+    if (dirty && save(doc, path))
+      ++structsTouched;
+  }
+  Q_UNUSED(structsTouched);
+  return movedNames.size();
 }

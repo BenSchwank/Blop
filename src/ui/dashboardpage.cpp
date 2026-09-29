@@ -1,6 +1,5 @@
 #include "dashboardpage.h"
 
-#include "blop_dialogs.h"
 #include "blop_inwindow_menu.h"
 #include "blop_modal.h"
 #include "blop_theme.h"
@@ -12,11 +11,11 @@
 #include "dashpagescroll.h"
 #include "dashrightrail.h"
 #include "overlayscrollindicator.h"
-#include "phonechrome.h"
 #include "uiscale.h"
 
 #include <QDate>
 #include <QDateTime>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QKeySequence>
 #include <QPushButton>
@@ -29,7 +28,7 @@ namespace {
 QString pageBg() {
   return BlopTheme::instance().isDark()
              ? BlopStyle::obsidianContent().name(QColor::HexRgb)
-             : QStringLiteral("#F4F5F7");
+             : BlopStyle::paperBg().name(QColor::HexRgb);
 }
 
 QString muted() {
@@ -38,7 +37,7 @@ QString muted() {
              : BlopStyle::paperInkMuted().name(QColor::HexRgb);
 }
 
-QString dashPillQss(bool accented) {
+QString phonePillQss(bool accented) {
   const int rad = UiScale::dp(BlopStyle::radiusMdDp());
   const int minH = UiScale::dp(BlopStyle::touchTargetMinDp() - 4);
   const QColor accC = BlopTheme::accentPrimary();
@@ -57,66 +56,6 @@ QString dashPillQss(bool accented) {
                "  border-radius: %4px; padding: 0 12px; font-weight: 600;"
                "  font-size: 12px; min-height: %5px;"
                "}"
-               "QPushButton:hover { background: %6; }"
-               "QPushButton:disabled { color: %7; border-color: transparent;"
-               "  background: transparent; }")
-        .arg(rgba(accC, BlopTheme::instance().isDark() ? 0.16 : 0.10),
-             accC.name(QColor::HexRgb),
-             rgba(accC, BlopTheme::instance().isDark() ? 0.40 : 0.35),
-             QString::number(rad), QString::number(minH),
-             rgba(accC, BlopTheme::instance().isDark() ? 0.24 : 0.16),
-             muted());
-  }
-  if (BlopTheme::instance().isDark()) {
-    return QStringLiteral(
-               "QPushButton {"
-               "  background: transparent; color: rgba(255,255,255,0.62);"
-               "  border: 1px solid rgba(255,255,255,0.10); border-radius: %1px;"
-               "  padding: 0 12px; font-weight: 550; font-size: 12px;"
-               "  min-height: %2px;"
-               "}"
-               "QPushButton:hover { background: rgba(255,255,255,0.06);"
-               "  color: rgba(255,255,255,0.92); }"
-               "QPushButton:disabled { color: rgba(255,255,255,0.28);"
-               "  border-color: transparent; }")
-        .arg(rad)
-        .arg(minH);
-  }
-  return QStringLiteral(
-             "QPushButton {"
-             "  background: transparent; color: %1;"
-             "  border: 1px solid rgba(15,23,42,0.10); border-radius: %2px;"
-             "  padding: 0 12px; font-weight: 550; font-size: 12px;"
-             "  min-height: %3px;"
-             "}"
-             "QPushButton:hover { background: rgba(15,23,42,0.05);"
-             "  color: %4; }"
-             "QPushButton:disabled { color: rgba(15,23,42,0.28);"
-             "  border-color: transparent; }")
-      .arg(muted(), QString::number(rad), QString::number(minH),
-           BlopStyle::paperInk().name(QColor::HexRgb));
-}
-
-/// Quiet icon-only overflow — Notion-style, no admin chrome.
-QString dashMoreBtnQss(bool editing) {
-  const int rad = UiScale::dp(BlopStyle::radiusMdDp());
-  const int minH = UiScale::dp(BlopStyle::touchTargetMinDp() - 4);
-  const QColor accC = BlopTheme::accentPrimary();
-  auto rgba = [](const QColor &base, qreal a) {
-    return QStringLiteral("rgba(%1,%2,%3,%4)")
-        .arg(base.red())
-        .arg(base.green())
-        .arg(base.blue())
-        .arg(QString::number(a, 'f', 2));
-  };
-  if (editing) {
-    return QStringLiteral(
-               "QPushButton {"
-               "  background: %1; color: %2;"
-               "  border: 1px solid %3;"
-               "  border-radius: %4px; padding: 0; font-weight: 700;"
-               "  font-size: 18px; min-width: %5px; min-height: %5px;"
-               "}"
                "QPushButton:hover { background: %6; }")
         .arg(rgba(accC, BlopTheme::instance().isDark() ? 0.16 : 0.10),
              accC.name(QColor::HexRgb),
@@ -124,30 +63,15 @@ QString dashMoreBtnQss(bool editing) {
              QString::number(rad), QString::number(minH),
              rgba(accC, BlopTheme::instance().isDark() ? 0.24 : 0.16));
   }
-  if (BlopTheme::instance().isDark()) {
-    return QStringLiteral(
-               "QPushButton {"
-               "  background: transparent; color: rgba(255,255,255,0.55);"
-               "  border: 1px solid transparent; border-radius: %1px;"
-               "  padding: 0; font-weight: 700; font-size: 18px;"
-               "  min-width: %2px; min-height: %2px;"
-               "}"
-               "QPushButton:hover { background: rgba(255,255,255,0.06);"
-               "  color: rgba(255,255,255,0.92); }")
-        .arg(rad)
-        .arg(minH);
-  }
   return QStringLiteral(
              "QPushButton {"
-             "  background: transparent; color: %1;"
-             "  border: 1px solid transparent; border-radius: %2px;"
-             "  padding: 0; font-weight: 700; font-size: 18px;"
-             "  min-width: %3px; min-height: %3px;"
+             "  background: rgba(255,255,255,0.78); color: %1;"
+             "  border: 1px solid rgba(15,23,42,0.08); border-radius: %2px;"
+             "  padding: 0 10px; font-weight: 500; font-size: 11px;"
+             "  min-height: %3px;"
              "}"
-             "QPushButton:hover { background: rgba(15,23,42,0.05);"
-             "  color: %4; }")
-      .arg(muted(), QString::number(rad), QString::number(minH),
-           BlopStyle::paperInk().name(QColor::HexRgb));
+             "QPushButton:hover { background: rgba(255,255,255,0.95); }")
+      .arg(muted(), QString::number(rad), QString::number(minH));
 }
 } // namespace
 
@@ -159,7 +83,6 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   m_root->setContentsMargins(0, 0, 0, 0);
   m_root->setSpacing(0);
 
-  // Shell row: board column | charcoal right rail (matches left icon rail).
   m_bodyRow = new QWidget(this);
   auto *shellLay = new QHBoxLayout(m_bodyRow);
   shellLay->setContentsMargins(0, 0, 0, 0);
@@ -186,18 +109,22 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
   m_canvas = new DashCanvas(m_scroll);
   m_scroll->setWidget(m_canvas);
   mainLay->addWidget(m_scroll, 1);
-
-  // Floating controls — no dedicated gray header strip above the banner.
-  buildHeader();
-  m_header->setParent(m_mainCol);
-  m_header->raise();
   shellLay->addWidget(m_mainCol, 1);
 
   m_rightRail = new DashRightRail(m_bodyRow);
   connect(m_rightRail, &DashRightRail::openNotePath, this,
           &DashboardPage::openNotePath);
+  connect(m_rightRail, &DashRightRail::customizeClicked, this,
+          &DashboardPage::toggleEditMode);
+  connect(m_rightRail, &DashRightRail::moreClicked, this,
+          &DashboardPage::showOverflowMenu);
+  connect(m_rightRail, &DashRightRail::undoClicked, this,
+          &DashboardPage::undoLayout);
   shellLay->addWidget(m_rightRail, 0);
   m_root->addWidget(m_bodyRow, 1);
+
+  // Phone fallback when the shell rail is hidden.
+  buildPhoneChrome();
 
   connect(m_canvas, &DashCanvas::openNotePath, this, &DashboardPage::openNotePath);
   connect(m_canvas, &DashCanvas::newNoteRequested, this,
@@ -212,8 +139,6 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
           &DashboardPage::showCalendarMaximized);
   connect(m_canvas, &DashCanvas::specsChanged, this,
           [this](const QVector<DashboardWidgetSpec> &specs) {
-            // Undo records the previous committed board whenever a new layout
-            // is published during edit mode (does not rely on about-to-change).
             if (m_editMode && !m_undoRestoring &&
                 !layoutsEqual(m_committed, specs)) {
               m_undoStack.append(m_committed);
@@ -267,30 +192,16 @@ bool DashboardPage::usePhone() const {
 }
 
 void DashboardPage::applyChrome() {
-  setStyleSheet(QStringLiteral(
-                    "QWidget#DashboardPage { background: %1; }"
-                    "QWidget#DashHeader {"
-                    "  background: transparent;"
-                    "  border: none;"
-                    "}")
+  setStyleSheet(QStringLiteral("QWidget#DashboardPage { background: %1; }")
                     .arg(pageBg()));
-  if (m_btnCustomize)
-    m_btnCustomize->setStyleSheet(dashPillQss(m_editMode));
-  if (m_btnUndo)
-    m_btnUndo->setStyleSheet(dashPillQss(false));
-  if (m_btnMore)
-    m_btnMore->setStyleSheet(dashMoreBtnQss(m_editMode));
+  if (m_btnPhoneCustomize)
+    m_btnPhoneCustomize->setStyleSheet(phonePillQss(m_editMode));
+  if (m_btnPhoneMore)
+    m_btnPhoneMore->setStyleSheet(phonePillQss(m_editMode));
 }
 
 void DashboardPage::applyDensity() {
   const bool phone = usePhone();
-  if (m_header) {
-    if (auto *lay = qobject_cast<QBoxLayout *>(m_header->layout())) {
-      lay->setContentsMargins(UiScale::dp(8), UiScale::dp(8), UiScale::dp(10),
-                              UiScale::dp(8));
-      lay->setSpacing(UiScale::dp(6));
-    }
-  }
   if (m_bodyRow) {
     if (auto *lay = qobject_cast<QBoxLayout *>(m_bodyRow->layout())) {
       lay->setContentsMargins(0, 0, 0, 0);
@@ -306,79 +217,74 @@ void DashboardPage::applyDensity() {
   } else if (m_canvas) {
     m_canvas->setBesideRail(false);
   }
-  layoutFloatingHeader();
+  if (m_phoneChrome)
+    m_phoneChrome->setVisible(phone);
+  layoutPhoneChrome();
 }
 
-void DashboardPage::buildHeader() {
-  m_header = new QWidget(m_mainCol ? m_mainCol : this);
-  m_header->setObjectName(QStringLiteral("DashHeader"));
-  m_header->setAttribute(Qt::WA_StyledBackground, true);
-  auto *lay = new QHBoxLayout(m_header);
-  lay->setSpacing(UiScale::dp(6));
+void DashboardPage::buildPhoneChrome() {
+  m_phoneChrome = new QWidget(m_mainCol);
+  m_phoneChrome->setObjectName(QStringLiteral("DashPhoneChrome"));
+  m_phoneChrome->setAttribute(Qt::WA_StyledBackground, true);
+  m_phoneChrome->setStyleSheet(QStringLiteral("background: transparent;"));
+  auto *lay = new QHBoxLayout(m_phoneChrome);
   lay->setContentsMargins(UiScale::dp(8), UiScale::dp(8), UiScale::dp(10),
                           UiScale::dp(8));
+  lay->setSpacing(UiScale::dp(6));
 
-  m_btnUndo = new QPushButton(QStringLiteral("Rückgängig"), m_header);
-  m_btnUndo->setCursor(Qt::PointingHandCursor);
-  m_btnUndo->setToolTip(QStringLiteral("Letzte Layout-Änderung rückgängig"));
-  m_btnUndo->setVisible(false);
-  m_btnUndo->setEnabled(false);
-  m_btnUndo->setStyleSheet(dashPillQss(false));
-  connect(m_btnUndo, &QPushButton::clicked, this, &DashboardPage::undoLayout);
-  lay->addWidget(m_btnUndo, 0, Qt::AlignTop);
-
-  m_btnCustomize = new QPushButton(QStringLiteral("Anpassen"), m_header);
-  m_btnCustomize->setCursor(Qt::PointingHandCursor);
-  m_btnCustomize->setToolTip(QStringLiteral("Dashboard anpassen"));
-  m_btnCustomize->setStyleSheet(dashPillQss(false));
-  connect(m_btnCustomize, &QPushButton::clicked, this,
+  m_btnPhoneCustomize = new QPushButton(QStringLiteral("Anpassen"), m_phoneChrome);
+  m_btnPhoneCustomize->setCursor(Qt::PointingHandCursor);
+  m_btnPhoneCustomize->setStyleSheet(phonePillQss(false));
+  connect(m_btnPhoneCustomize, &QPushButton::clicked, this,
           &DashboardPage::toggleEditMode);
-  lay->addWidget(m_btnCustomize, 0, Qt::AlignTop);
+  lay->addWidget(m_btnPhoneCustomize, 0, Qt::AlignTop);
 
-  m_btnMore = new QPushButton(QStringLiteral("⋯"), m_header);
-  m_btnMore->setCursor(Qt::PointingHandCursor);
-  m_btnMore->setToolTip(QStringLiteral("Mehr"));
-  m_btnMore->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp() - 4),
-                          UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
-  m_btnMore->setStyleSheet(dashMoreBtnQss(false));
-  connect(m_btnMore, &QPushButton::clicked, this,
+  m_btnPhoneMore = new QPushButton(QStringLiteral("⋯"), m_phoneChrome);
+  m_btnPhoneMore->setCursor(Qt::PointingHandCursor);
+  m_btnPhoneMore->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp() - 4),
+                               UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
+  m_btnPhoneMore->setVisible(false);
+  m_btnPhoneMore->setStyleSheet(phonePillQss(false));
+  connect(m_btnPhoneMore, &QPushButton::clicked, this,
           &DashboardPage::showOverflowMenu);
-  lay->addWidget(m_btnMore, 0, Qt::AlignTop);
+  lay->addWidget(m_btnPhoneMore, 0, Qt::AlignTop);
 
-  m_header->adjustSize();
-  m_header->raise();
+  m_phoneChrome->adjustSize();
+  m_phoneChrome->setVisible(false);
+  m_phoneChrome->raise();
 }
 
-void DashboardPage::layoutFloatingHeader() {
-  if (!m_header || !m_mainCol)
+void DashboardPage::layoutPhoneChrome() {
+  if (!m_phoneChrome || !m_mainCol || !m_phoneChrome->isVisible())
     return;
-  m_header->adjustSize();
-  const int w = m_header->sizeHint().width();
-  const int h = m_header->sizeHint().height();
+  m_phoneChrome->adjustSize();
+  const int w = m_phoneChrome->sizeHint().width();
+  const int h = m_phoneChrome->sizeHint().height();
   const int x = qMax(0, m_mainCol->width() - w - UiScale::dp(4));
   const int y = UiScale::dp(2);
-  m_header->setGeometry(x, y, w, h);
-  m_header->raise();
+  m_phoneChrome->setGeometry(x, y, w, h);
+  m_phoneChrome->raise();
 }
 
 void DashboardPage::resizeEvent(QResizeEvent *event) {
   QWidget::resizeEvent(event);
-  layoutFloatingHeader();
+  layoutPhoneChrome();
 }
 
 void DashboardPage::updateHeader() {
-  // Greeting/metrics live in the intro board widget; keep board + rail fresh.
   if (m_canvas)
     m_canvas->refreshAll();
   if (m_rightRail)
     m_rightRail->refresh();
-  if (m_btnCustomize) {
-    m_btnCustomize->setText(m_editMode ? QStringLiteral("Fertig")
-                                       : QStringLiteral("Anpassen"));
-    m_btnCustomize->setStyleSheet(dashPillQss(m_editMode));
+  if (m_btnPhoneCustomize) {
+    m_btnPhoneCustomize->setText(m_editMode ? QStringLiteral("Fertig")
+                                            : QStringLiteral("Anpassen"));
+    m_btnPhoneCustomize->setStyleSheet(phonePillQss(m_editMode));
   }
-  if (m_btnMore)
-    m_btnMore->setStyleSheet(dashMoreBtnQss(m_editMode));
+  if (m_btnPhoneMore) {
+    m_btnPhoneMore->setVisible(m_editMode && usePhone());
+    m_btnPhoneMore->setStyleSheet(phonePillQss(m_editMode));
+  }
   updateUndoButton();
 }
 
@@ -399,13 +305,13 @@ void DashboardPage::setEditMode(bool on) {
   if (m_editMode == on)
     return;
   m_editMode = on;
-  if (m_btnCustomize) {
-    m_btnCustomize->setText(on ? QStringLiteral("Fertig")
-                               : QStringLiteral("Anpassen"));
-    m_btnCustomize->setStyleSheet(dashPillQss(on));
+  if (m_btnPhoneCustomize) {
+    m_btnPhoneCustomize->setText(on ? QStringLiteral("Fertig")
+                                    : QStringLiteral("Anpassen"));
+    m_btnPhoneCustomize->setStyleSheet(phonePillQss(on));
   }
-  if (m_btnMore)
-    m_btnMore->setStyleSheet(dashMoreBtnQss(on));
+  if (m_btnPhoneMore)
+    m_btnPhoneMore->setVisible(on && usePhone());
   m_undoStack.clear();
   if (on && m_canvas)
     m_committed = m_canvas->specs();
@@ -415,6 +321,7 @@ void DashboardPage::setEditMode(bool on) {
   if (m_rightRail)
     m_rightRail->setEditMode(on);
   emit customizeToggled(on);
+  layoutPhoneChrome();
 }
 
 void DashboardPage::toggleEditMode() { setEditMode(!m_editMode); }
@@ -453,16 +360,10 @@ void DashboardPage::undoLayout() {
 }
 
 void DashboardPage::updateUndoButton() {
-  const bool show = m_editMode;
-  const bool can = show && !m_undoStack.isEmpty();
-  if (m_btnUndo) {
-    m_btnUndo->setVisible(show);
-    m_btnUndo->setEnabled(can);
-    m_btnUndo->setText(can ? QStringLiteral("Rückgängig (%1)")
-                                 .arg(m_undoStack.size())
-                           : QStringLiteral("Rückgängig"));
-  }
-  layoutFloatingHeader();
+  const bool can = m_editMode && !m_undoStack.isEmpty();
+  if (m_rightRail)
+    m_rightRail->setUndoAvailable(can, m_undoStack.size());
+  layoutPhoneChrome();
 }
 
 void DashboardPage::syncRailFromBoard() {
@@ -488,8 +389,21 @@ void DashboardPage::resetLayout() {
   persistAndApply(DashboardLayoutStore::defaults());
 }
 
+QWidget *DashboardPage::overflowAnchor() const {
+  if (m_rightRail && m_rightRail->isVisible()) {
+    if (QWidget *a = m_rightRail->overflowAnchor())
+      return a;
+  }
+  if (m_btnPhoneMore && m_btnPhoneMore->isVisible())
+    return m_btnPhoneMore;
+  if (m_btnPhoneCustomize)
+    return m_btnPhoneCustomize;
+  return const_cast<DashboardPage *>(this);
+}
+
 void DashboardPage::showOverflowMenu() {
-  if (!m_btnMore)
+  QWidget *anchor = overflowAnchor();
+  if (!anchor)
     return;
   QList<BlopInWindowMenu::Item> items;
   items.push_back(
@@ -502,12 +416,13 @@ void DashboardPage::showOverflowMenu() {
                      [this]() { resetLayout(); }, true});
   }
   BlopInWindowMenu::show(
-      this, m_btnMore->mapToGlobal(QPoint(0, m_btnMore->height())), items);
+      this, anchor->mapToGlobal(QPoint(0, anchor->height())), items);
 }
 
 void DashboardPage::showBlocksMenu() {
-  if (!m_canvas || !m_btnMore)
+  if (!m_canvas)
     return;
+  QWidget *anchor = overflowAnchor();
   auto specs = m_canvas->specs();
   QList<BlopInWindowMenu::Item> items;
   for (const QString &id : DashboardLayoutStore::knownIds()) {
@@ -538,7 +453,7 @@ void DashboardPage::showBlocksMenu() {
   };
   items.push_back(addBanner);
   BlopInWindowMenu::show(
-      this, m_btnMore->mapToGlobal(QPoint(0, m_btnMore->height())), items);
+      this, anchor->mapToGlobal(QPoint(0, anchor->height())), items);
 }
 
 void DashboardPage::showCalendarMaximized() {
@@ -554,14 +469,12 @@ void DashboardPage::showCalendarMaximized() {
   day->setMinimumSize(UiScale::dp(720), UiScale::dp(520));
   day->refresh();
 
-  connect(day, &CalendarDayView::dateChanged, this, [this](const QDate &) {
-    updateHeader();
-  });
+  connect(day, &CalendarDayView::dateChanged, this,
+          [this](const QDate &) { updateHeader(); });
 
   m_calModal = BlopModal::present(this, day, BlopModal::Mode::Card,
                                   QStringLiteral("Kalender"),
                                   UiScale::dp(880));
-  connect(m_calModal, &BlopModal::dismissed, this, [this]() {
-    m_calModal = nullptr;
-  });
+  connect(m_calModal, &BlopModal::dismissed, this,
+          [this]() { m_calModal = nullptr; });
 }
