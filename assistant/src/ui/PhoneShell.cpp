@@ -1,6 +1,7 @@
 #include "PhoneShell.h"
 
 #include "AccountDialog.h"
+#include "AssistantLogo.h"
 #include "platform/SpeechInput.h"
 
 #include <QHBoxLayout>
@@ -20,9 +21,16 @@ PhoneShell::PhoneShell(QWidget *parent) : QWidget(parent) {
     root->setContentsMargins(16, 18, 16, 16);
     root->setSpacing(12);
 
+    auto *titleRow = new QHBoxLayout;
+    titleRow->setSpacing(10);
+    auto *mark = new QLabel(this);
+    mark->setPixmap(assistantLogoPixmap(28));
+    mark->setFixedSize(28, 28);
+    titleRow->addWidget(mark);
     auto *title = new QLabel(QStringLiteral("Blop Assistent"), this);
     title->setObjectName(QStringLiteral("title"));
-    root->addWidget(title);
+    titleRow->addWidget(title, 1);
+    root->addLayout(titleRow);
 
     auto *bar = new QWidget(this);
     bar->setObjectName(QStringLiteral("bar"));

@@ -131,8 +131,8 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
     railLayout->setContentsMargins(0, 14, 0, 14);
     railLayout->setSpacing(6);
     auto *logo = new QLabel(rail);
-    logo->setPixmap(assistantLogoPixmap(32));
-    logo->setFixedSize(36, 36);
+    logo->setPixmap(assistantLogoPixmap(40));
+    logo->setFixedSize(40, 40);
     logo->setAlignment(Qt::AlignCenter);
     railLayout->addWidget(logo, 0, Qt::AlignHCenter);
     railLayout->addSpacing(8);

@@ -8,6 +8,7 @@
 
 class QEnterEvent;
 class QKeyEvent;
+class QShowEvent;
 class QLabel;
 class QLineEdit;
 class QMouseEvent;
@@ -29,6 +30,7 @@ signals:
     void settingsRequested();
 
 protected:
+    void showEvent(QShowEvent *event) override;
     void enterEvent(QEnterEvent *event) override;
     void leaveEvent(QEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
@@ -50,6 +52,7 @@ private:
     CommandEngine m_engine;
     ActionRunner m_runner;
     SpeechInput *m_speech = nullptr;
+    QLabel *m_mark = nullptr;
     QLabel *m_status = nullptr;
     QLineEdit *m_edit = nullptr;
     QPushButton *m_gear = nullptr;

@@ -1,0 +1,7 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+<qresource prefix="/assistant">
+    <file alias="logo-full.jpg">assets/logo-full.jpg</file>
+    <file alias="logo-mark.png">assets/logo-mark.png</file>
+</qresource>
+</RCC>

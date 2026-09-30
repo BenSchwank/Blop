@@ -20,6 +20,7 @@ qt_add_executable(BlopAssistent
     src/platform/SpeechInput.cpp
     src/ui/NotchWindow.cpp
     src/ui/PhoneShell.cpp
+    assets.qrc
     src/ui/AccountDialog.cpp
     src/ui/SetupWindow.cpp
 )
@@ -36,6 +37,7 @@ set_target_properties(BlopAssistent PROPERTIES
 
 if(WIN32)
     set_target_properties(BlopAssistent PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_sources(BlopAssistent PRIVATE app.rc)
     target_link_libraries(BlopAssistent PRIVATE user32)
     add_custom_command(TARGET BlopAssistent POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

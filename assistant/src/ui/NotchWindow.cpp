@@ -1,5 +1,6 @@
 #include "NotchWindow.h"
 
+#include "AssistantLogo.h"
 #include "core/SettingsSync.h"
 #include "platform/SpeechInput.h"
 
@@ -16,6 +17,7 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QScreen>
+#include <QShowEvent>
 #include <QStyle>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -93,7 +95,8 @@ bool winHotkey(const QKeySequence &sequence, UINT *mods, UINT *vk) {
 NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("notch"));
     setWindowTitle(QStringLiteral("Blop Assistent"));
-    setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool |
+    setWindowIcon(assistantLogoIcon());
+    setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint |
                    Qt::NoDropShadowWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_Hover);
@@ -108,6 +111,11 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     auto *row = new QHBoxLayout;
     row->setContentsMargins(12, 4, 8, 0);
     row->setSpacing(8);
+    m_mark = new QLabel(this);
+    m_mark->setPixmap(assistantLogoPixmap(22));
+    m_mark->setFixedSize(22, 22);
+    m_mark->setAlignment(Qt::AlignCenter);
+    row->addWidget(m_mark);
     row->addStretch(1);
 
     m_gear = new QPushButton(QString(QChar(0x2699)), this);
@@ -196,6 +204,18 @@ bool NotchWindow::nativeEventFilter(const QByteArray &eventType, void *message, 
     return false;
 }
 
+void NotchWindow::showEvent(QShowEvent *event) {
+    QWidget::showEvent(event);
+#if defined(Q_OS_WIN)
+    HWND hwnd = reinterpret_cast<HWND>(winId());
+    LONG_PTR style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    style = (style & ~WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW;
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, style);
+    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+#endif
+}
+
 void NotchWindow::reveal() {
     show();
     expand();
@@ -226,6 +246,8 @@ void NotchWindow::applyChrome() {
     const bool open = surfaceOpen();
     m_edit->setVisible(open);
     m_gear->setVisible(open);
+    if (m_mark)
+        m_mark->setVisible(open);
     const bool showStatus = open && !m_status->text().isEmpty();
     m_status->setVisible(showStatus);
     setProperty("resting", !open);
