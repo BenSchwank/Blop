@@ -1921,6 +1921,11 @@ void ModernButton::leaveEvent(QEvent *event) {
   m_anim->start();
   QToolButton::leaveEvent(event);
 }
+
+bool ModernButton::hitButton(const QPoint &pos) const {
+  return rect().contains(pos);
+}
+
 void ModernButton::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
