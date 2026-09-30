@@ -246,9 +246,11 @@ int main(int argc, char *argv[]) {
       !pos.first().startsWith(QStringLiteral("blop:"), Qt::CaseInsensitive))
     openPath = QFileInfo(pos.first()).absoluteFilePath();
 
-  // Restore previous window size/position, or default to maximized/fullscreen
+  // restoreWindowState() already shows the window. A second show() on the
+  // frameless shell drops the first-run size back to the default half window.
   w->restoreWindowState();
-  w->show(); // ensure it's visible
+  if (!w->isVisible())
+    w->show();
 
   if (!openPath.isEmpty() && QFileInfo::exists(openPath)) {
     QTimer::singleShot(0, w, [w, openPath]() { w->openNotePath(openPath); });

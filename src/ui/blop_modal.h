@@ -108,6 +108,7 @@ private:
   void applyTheme();
   void onParentResized();
   void dismissFromOutsideTap(const QPoint &pos);
+  bool dismissLocked() const;
   Mode resolveMode(Mode requested) const;
   void installBlurBackdrop();
   void layoutBlurLayers();

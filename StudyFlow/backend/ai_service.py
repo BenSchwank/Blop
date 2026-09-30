@@ -2,20 +2,20 @@ import os
 from genai_warnings import suppress_known_google_warnings
 
 suppress_known_google_warnings()
-import google.generativeai as genai
+import openrouter_genai as genai
 import json
 import time
 from typing import List, Dict, Any, Optional, Tuple
 
-from google.generativeai.types.helper_types import RequestOptions
+from openrouter_genai import RequestOptions
 
-# Configure GenAI
-api_key = os.environ.get("GOOGLE_API_KEY")
+# Text models go through OpenRouter. The key is also read again on each request.
+api_key = os.environ.get("OPENROUTER_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 
 
-# Deprecated IDs still stored in settings / old code paths → current stable IDs (Google AI API).
+# Deprecated IDs still stored in settings / old code paths → current stable ids (mapped in openrouter_genai).
 _DEPRECATED_MODEL_ALIASES = {
     "gemini-2.0-flash": "gemini-2.5-flash",
     "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
@@ -25,20 +25,60 @@ def _resolve_model_preference(model_preference: str) -> str:
     return _DEPRECATED_MODEL_ALIASES.get(model_preference, model_preference)
 
 
-# Priority list of preferred models (newest/best first)
+# Auto order if a task has no dedicated pick.
 _PREFERRED_MODELS = [
-    "gemini-2.5-pro",
-    "gemini-2.0-pro-exp",
+    "gemini-3.7-flash",
+    "claude-sonnet-5.5",
+    "gpt-6.1-sol",
+    "gemini-3-flash",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-1.5-pro",
+    "gemini-3.1-pro",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash",
     "gemini-1.5-flash",
     "gemini-1.5-flash-8b",
+    "gemini-2.0-pro-exp",
+    "gemini-1.5-pro",
     "gemini-pro",
 ]
 
+# Automatisch: best combined quality, speed, and cost on OpenRouter (Sept 2026).
+# Claude Sonnet 5.5 writes long study text fast and reads PDFs and images.
+# GPT-6.1 Sol is stricter on facts and short math, and also reads PDFs and images.
+# Gemini 3.7 Flash is the fast multimodal model and the one that can hear audio.
+_TASK_MODELS = {
+    "chat": "gemini-3.7-flash",
+    "summary": "claude-sonnet-5.5",
+    "quiz": "gpt-6.1-sol",
+    "flashcards": "gpt-6.1-sol",
+    "plan": "claude-sonnet-5.5",
+    "smart_learning": "claude-sonnet-5.5",
+    "podcast": "claude-sonnet-5.5",
+    "learning_video": "gemini-3.7-flash",
+    "audio": "gemini-3.7-flash",
+    "image": "claude-sonnet-5.5",
+    "selection_edit": "claude-sonnet-5.5",
+    "document_patch": "claude-sonnet-5.5",
+    "artifact_refine": "gpt-6.1-sol",
+    "marketing": "claude-sonnet-5.5",
+    "elaboration": "claude-sonnet-5.5",
+    "repetition": "gpt-6.1-sol",
+    "task_help": "gpt-6.1-sol",
+    "handwriting": "gpt-6.1-sol",
+}
+
+
+def model_for_task(task: str, model_preference: str = None) -> str:
+    """Explicit UI/settings choice wins. Otherwise the task default."""
+    chosen = (model_preference or "").strip()
+    if chosen:
+        return _resolve_model_preference(chosen)
+    return _TASK_MODELS.get(task, "gemini-3.7-flash")
+
+
 def get_best_model(model_preference: str = None) -> str:
-    """Dynamically detect the best available Gemini model for this API key."""
+    """Pick a model id. Explicit choice wins; otherwise the Flash workhorse."""
     if model_preference:
         return _resolve_model_preference(model_preference)
         
@@ -62,7 +102,7 @@ def get_best_model(model_preference: str = None) -> str:
     except Exception as e:
         print(f"Could not list models: {e}")
 
-    return "gemini-1.5-flash"  # last resort fallback
+    return "gemini-3.7-flash"
 
 
 # Safety Settings - Allow all content to prevent blocking of valid study materials
@@ -135,10 +175,9 @@ def _learning_video_storyboard_model_candidates(model_preference: Optional[str])
         resolved = _resolve_model_preference(env_first)
         pool: List[str] = [resolved]
         for m in (
+            "gemini-3.7-flash",
+            "claude-sonnet-5.5",
             "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-1.5-flash",
-            "gemini-2.5-pro",
         ):
             if m not in pool:
                 pool.append(m)
@@ -148,13 +187,13 @@ def _learning_video_storyboard_model_candidates(model_preference: Optional[str])
     if mp:
         primary = _resolve_model_preference(mp)
         pool = [primary]
-        for m in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"):
+        for m in ("gemini-3.7-flash", "claude-sonnet-5.5", "gemini-2.5-flash"):
             if m not in pool:
                 pool.append(m)
         return pool
 
     pool: List[str] = []
-    for m in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"):
+    for m in ("gemini-3.7-flash", "claude-sonnet-5.5", "gemini-2.5-flash"):
         pool.append(m)
     primary = get_best_model(None)
     if primary not in pool:
@@ -417,7 +456,7 @@ Setze NAHTLOS fort:
                 print(f"Could not validate preferred model '{preferred}': {e}")
 
         if fast_only:
-            for candidate in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b"):
+            for candidate in ("gemini-3.7-flash", "claude-sonnet-5.5", "gemini-2.5-flash", "gemini-2.5-flash-lite"):
                 picked = get_best_model(candidate)
                 if picked == candidate:
                     return picked
@@ -431,9 +470,10 @@ Setze NAHTLOS fort:
             if picked == _resolve_model_preference(preferred):
                 return picked
         strong_candidates = (
+            "claude-sonnet-5.5",
+            "gpt-6.1-sol",
+            "gemini-3.1-pro",
             "gemini-2.5-pro",
-            "gemini-2.0-pro-exp",
-            "gemini-1.5-pro",
         )
         for candidate in strong_candidates:
             picked = AIService._pick_available_model(preferred=candidate, fast_only=False)
@@ -445,7 +485,7 @@ Setze NAHTLOS fort:
     def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal", return_meta: bool = False) -> Any:
         """Generates a comprehensive summary from text or multimodal content."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference))
+            model = genai.GenerativeModel(model_for_task("summary", model_preference))
 
             # --- Learning Mode Preamble ---
             if learning_mode == "exercise":
@@ -551,7 +591,7 @@ Erstelle jetzt die vollständige, detaillierte Zusammenfassung basierend auf dem
     ) -> Any:
         """Generates a comprehensive quiz from multimodal content."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(model_for_task("quiz", model_preference), generation_config={"response_mime_type": "application/json"})
             prompt = f"""
 Du bist ein erfahrener Lehrer. Erstelle ein anspruchsvolles Quiz mit {question_count} Fragen basierend auf dem Lernmaterial.
 
@@ -614,7 +654,7 @@ Erstelle das Quiz für das folgende Material:
     ) -> Any:
         """Generates comprehensive flashcards from multimodal content."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(model_for_task("flashcards", model_preference), generation_config={"response_mime_type": "application/json"})
             prompt = f"""
 Du bist ein erfahrener Tutor. Erstelle {cards_count} hochwertige Karteikarten aus dem Lernmaterial.
 
@@ -668,7 +708,7 @@ Erstelle die Karteikarten für das folgende Material:
     def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None, active_days: list[int] = None, learning_mode: str = "normal", return_meta: bool = False) -> Any:
         """Generates a detailed, actionable study plan from multimodal content."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(model_for_task("plan", model_preference), generation_config={"response_mime_type": "application/json"})
             total_hours = duration_days * hours_per_day
 
             # Map the active_days array to a string of weekday names for the prompt
@@ -776,7 +816,7 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
         """Builds a Lumivara-style smart learning journey (chapters + readiness shell) from folder material."""
         try:
             model = genai.GenerativeModel(
-                get_best_model(model_preference),
+                model_for_task("smart_learning", model_preference),
                 generation_config={"response_mime_type": "application/json"},
             )
             focus_line = (focus or "").strip() or "Gesamtes Material prüfungsrelevant aufbereiten"
@@ -792,9 +832,9 @@ FOKUS: {focus_line}
 {MATH_ACCURACY_INSTRUCTIONS}
 
 ANFORDERUNGEN:
-1. 4–8 Kapitel in sinnvoller Lernreihenfolge (Fundament → Anwendung).
-2. Jedes Kapitel: Titel, summary (3–6 Sätze), 3–5 key_points.
-3. Zusätzlich 2–4 lessons pro Kapitel. Jede Lesson:
+1. 3–5 Kapitel in sinnvoller Lernreihenfolge (Fundament → Anwendung). Nicht mehr.
+2. Jedes Kapitel: Titel, summary (2–4 Sätze), 3 key_points.
+3. Genau 2 lessons pro Kapitel. Jede Lesson:
    - teach: 2–5 Sätze Erklärung (klar, prüfungsnah)
    - check: Sofort-Test (type "mc" oder "true_false") mit prompt, 2–4 options, answer, explanation
 4. Titel der Lernreise: prüfungsnah und konkret.
@@ -1036,7 +1076,7 @@ Ausgabe: JSON-Array von Tag-Objekten (gleiche Struktur wie generate_study_plan):
 
             existing = json.dumps(data, ensure_ascii=False)
             model = genai.GenerativeModel(
-                get_best_model(model_preference),
+                model_for_task("artifact_refine", model_preference),
                 generation_config={"response_mime_type": "application/json"},
             )
             prompt = f"""Du passt ein bestehendes Lern-Artefakt (Typ: {at}) an.
@@ -1081,7 +1121,7 @@ Bestehendes JSON:
     def generate_task_help(content: List[Any], task_description: str, model_preference: str = None, return_meta: bool = False) -> Any:
         """Generates a concise, context-aware explanation/help text for a specific study plan task."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference))
+            model = genai.GenerativeModel(model_for_task("task_help", model_preference))
             
             prompt = f"""
 Du bist ein hilfreicher Lern-Kompagnon. 
@@ -1126,14 +1166,24 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
     @staticmethod
     def generate_podcast_script(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
         """Plain German narration text for TTS (no markdown headings)."""
-        try:
-            model = genai.GenerativeModel(
-                get_best_model(model_preference),
-                generation_config={"temperature": 0.45, "max_output_tokens": 8192},
-            )
-            prompt = """
+        primary = model_for_task("podcast", model_preference)
+        candidates = [primary]
+        if "gemini-3.7-flash" not in candidates:
+            candidates.append("gemini-3.7-flash")
+        last_exc: Optional[BaseException] = None
+        for model_name in candidates:
+            try:
+                model = genai.GenerativeModel(
+                    model_name,
+                    generation_config={
+                        "temperature": 0.45,
+                        "max_output_tokens": 12000,
+                        "reasoning_effort": "low",
+                    },
+                )
+                prompt = """
 Du bist Redakteur für einen Lern-Podcast auf Deutsch.
-Erstelle aus dem folgenden Material einen zusammenhängenden, gut verständlichen **reinen Vorlesetext** (ein Sprecher / Monolog) für die Sprachausgabe.
+Erstelle aus dem folgenden Material einen zusammenhängenden, gut verständlichen reinen Vorlesetext (ein Sprecher / Monolog) für die Sprachausgabe.
 
 Regeln:
 - Keine Sprecherlabels wie „Moderator:“ oder „Host:“.
@@ -1144,25 +1194,26 @@ Regeln:
 
 Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art „Hier ist der Podcast“.
 """
-            input_parts = [prompt]
-            if isinstance(content, list):
-                input_parts.extend(content)
-            else:
-                input_parts.append(content)
-            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
-            if not response.text:
-                raise Exception("Leere Antwort vom Modell erhalten.")
-            text = response.text.strip()
-            if not return_meta:
-                return text
-            return {
-                "text": text,
-                "usage": AIService._extract_usage(response),
-                "used_model": str(getattr(model, "model_name", "") or ""),
-            }
-        except Exception as e:
-            print(f"Podcast script error: {e}")
-            raise Exception(f"Podcast-Skript fehlgeschlagen: {str(e)}")
+                input_parts = [prompt]
+                if isinstance(content, list):
+                    input_parts.extend(content)
+                else:
+                    input_parts.append(content)
+                response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+                text = (response.text or "").strip()
+                if not text:
+                    raise Exception("Leere Antwort vom Modell erhalten.")
+                if not return_meta:
+                    return text
+                return {
+                    "text": text,
+                    "usage": AIService._extract_usage(response),
+                    "used_model": str(getattr(model, "model_name", "") or ""),
+                }
+            except Exception as e:
+                last_exc = e
+                print(f"Podcast script {model_name} failed: {e}")
+        raise Exception(f"Podcast-Skript fehlgeschlagen: {last_exc}")
 
     @staticmethod
     def edit_selected_text(
@@ -1175,7 +1226,7 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
         """Edits only the selected text span and returns replacement text."""
         try:
             model = genai.GenerativeModel(
-                get_best_model(model_preference),
+                model_for_task("selection_edit", model_preference),
                 generation_config={"temperature": 0.25, "max_output_tokens": 2048},
             )
             prompt = f"""
@@ -1470,7 +1521,7 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
     def transcribe_audio(audio_file_path: str, model_preference: str = None, return_meta: bool = False) -> Any:
         """Transcribes an audio file using Gemini's multimodal capabilities."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(model_for_task("audio", model_preference), generation_config={"response_mime_type": "application/json"})
             
             # Upload the file to Gemini API temporarily
             print(f"Uploading audio to Gemini: {audio_file_path}")
@@ -1552,7 +1603,7 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
   "content": "Die vollständige Mitschrift als Markdown-Text"
 }
 """
-            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(model_for_task("audio", model_preference), generation_config={"response_mime_type": "application/json"})
             response = model.generate_content([prompt, uploaded_file], safety_settings=SAFETY_SETTINGS)
             
             # Cleanup the file from Google's servers
@@ -1589,18 +1640,33 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
                 "temperature": 0.4,
             }
             model = genai.GenerativeModel(
-                get_best_model(model_preference),
+                model_for_task("elaboration", model_preference),
                 generation_config=elaboration_generation_config,
             )
+            level_key = (detail_level or "Normal").strip()
+            compact = level_key in {"Kurz", "Normal"}
+            max_followups = 1 if compact else (6 if level_key == "Sehr detailliert" else 4)
+            if compact:
+                elaboration_generation_config["max_output_tokens"] = 8192
             detail_hint = {
-                "Kurz": "Kompakt, aber immer noch substanziell.",
-                "Normal": "Ausführlich und tiefgehend.",
+                "Kurz": "Kompakt, aber immer noch substanziell. Nicht künstlich in die Länge ziehen.",
+                "Normal": "Vollständig und klar, ohne Wiederholungen. Nicht künstlich in die Länge ziehen.",
                 "Detailliert": "Sehr detailliert mit vielen Erklärungen, Beispielen und Transfer.",
                 "Sehr detailliert": "Maximal ausführlich, mehrseitig und didaktisch aufgebaut.",
-            }.get(detail_level, f"Vom Nutzer gewünscht: {detail_level}. Interpretiere dies als hohe Detailtiefe.")
+            }.get(level_key, f"Vom Nutzer gewünscht: {detail_level}. Interpretiere dies als hohe Detailtiefe.")
+            umfang = (
+                """UMFANG:
+- Arbeite das Material vollständig durch, auch Schlussaufgaben und Anhänge.
+- Zieh den Text nicht künstlich in die Länge. Lieber klar und prüfbar als seitenlang wiederholt.
+- Hauptteil in wenige Unterkapitel gliedern."""
+                if compact
+                else """UMFANG (verbindlich):
+- Schreibe eine lange, substanzielle Ausarbeitung (mindestens Umfang mehrerer DIN-A4-Seiten, wenn das Material groß ist).
+- Hauptteil soll den größten Anteil haben und in mehrere Unterkapitel gegliedert sein."""
+            )
 
             prompt = f"""
-Du bist ein akademischer Autor und Tutor. Erstelle eine LANGFORM-AUSARBEITUNG (Essay/Hausarbeit-Entwurf) auf Deutsch, die als vollständiges Lern- und Arbeitsdokument taugt.
+Du bist ein akademischer Autor und Tutor. Erstelle eine Ausarbeitung auf Deutsch, die als Lern- und Arbeitsdokument taugt.
 
 Detailgrad-Vorgabe: {detail_level}
 Interpretation: {detail_hint}
@@ -1613,9 +1679,7 @@ VOLLSTÄNDIGKEIT (kritisch):
 - Typischer Fehler: letzte Aufgaben/Projektteile werden ausgelassen. Das ist hier NICHT erlaubt.
 - Decke ausdrücklich auch Schlussabschnitte, hohe Aufgabennummern und Anhänge ab, sofern relevant.
 
-UMFANG (verbindlich):
-- Schreibe eine lange, substanzielle Ausarbeitung (mindestens Umfang mehrerer DIN-A4-Seiten, wenn das Material groß ist).
-- Hauptteil soll den größten Anteil haben und in mehrere Unterkapitel gegliedert sein.
+{umfang}
 
 WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
 Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
@@ -1654,7 +1718,7 @@ Hier ist das Quellenmaterial:
                     model=model,
                     input_parts=input_parts,
                     continuation_prompt=AIService._ELABORATION_CONTINUATION_PROMPT,
-                    max_followups=6,
+                    max_followups=max_followups,
                     log_prefix="Elaboration",
                     return_meta=return_meta,
                 )
@@ -1702,7 +1766,7 @@ Hier ist das Quellenmaterial:
     ) -> Dict[str, Any]:
         """Return a patch proposal for interactive document editing."""
         try:
-            selected_model = AIService._pick_strong_model(model_preference)
+            selected_model = model_for_task("document_patch", model_preference)
             doc_patch_gen_cfg = {
                 "response_mime_type": "application/json",
                 "max_output_tokens": 8192,
@@ -1740,7 +1804,7 @@ Antworte nur als JSON im Format:
             except Exception as first_err:
                 err_msg = str(first_err)
                 if "model is not found" in err_msg.lower() or "404" in err_msg:
-                    fallback_model = AIService._pick_strong_model(None)
+                    fallback_model = model_for_task("document_patch", None)
                     print(f"Document chat model fallback: '{selected_model}' -> '{fallback_model}'")
                     model = genai.GenerativeModel(
                         model_name=fallback_model,
@@ -1786,7 +1850,7 @@ Antworte nur als JSON im Format:
                 "temperature": 0.45,
             }
             model = genai.GenerativeModel(
-                get_best_model(model_preference),
+                model_for_task("repetition", model_preference),
                 generation_config=repetition_generation_config,
             )
 
@@ -1930,6 +1994,8 @@ Hier ist das Quellenmaterial:
                 file_content_str = json.dumps(file_content, ensure_ascii=False, indent=2)
             else:
                 file_content_str = str(file_content)
+            if len(file_content_str) > 8000:
+                file_content_str = file_content_str[:8000] + "\n[… gekürzt …]"
             system_instruction += (
                 f"WICHTIGE OPERATION (DOKUMENTEN-BEARBEITUNG):\n"
                 f"Der Nutzer hat aktuell folgende Datei geöffnet:\n"
@@ -1943,7 +2009,7 @@ Hier ist das Quellenmaterial:
             )
 
         model = genai.GenerativeModel(
-            model_name=get_best_model(model_preference),
+            model_name=model_for_task("chat", model_preference),
             system_instruction=system_instruction,
         )
 
@@ -2012,6 +2078,8 @@ Hier ist das Quellenmaterial:
                     file_content_str = json.dumps(file_content, ensure_ascii=False, indent=2)
                 else:
                     file_content_str = str(file_content)
+                if len(file_content_str) > 8000:
+                    file_content_str = file_content_str[:8000] + "\n[… gekürzt …]"
 
                 system_instruction += (
                     f"WICHTIGE OPERATION (DOKUMENTEN-BEARBEITUNG):\n"
@@ -2035,7 +2103,7 @@ Hier ist das Quellenmaterial:
 
             # Initialize model with the system instruction
             model = genai.GenerativeModel(
-                model_name=get_best_model(model_preference),
+                model_name=model_for_task("chat", model_preference),
                 system_instruction=system_instruction
             )
 

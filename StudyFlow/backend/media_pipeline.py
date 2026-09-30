@@ -1,5 +1,5 @@
 """
-TTS (OpenAI), slide images (Pillow), ffmpeg slideshow video. Optional OPENAI_API_KEY, PEXELS_API_KEY.
+TTS (OpenRouter speech, OpenAI as fallback), slide images (Pillow), ffmpeg slideshow video.
 """
 import os
 import re
@@ -16,6 +16,54 @@ from study_slide_render import render_scene_slides_weighted
 TTS_CHUNK_CHARS = 3800
 
 OPENAI_TTS_VOICES = frozenset({"alloy", "echo", "fable", "onyx", "nova", "shimmer"})
+
+# UI still stores the old OpenAI voice names. OpenRouter Gemini TTS uses its own ids.
+_OR_TTS_MODEL = "google/gemini-3.8-flash-tts"
+_OR_TTS_VOICE = {
+    "alloy": "Kore",
+    "echo": "Charon",
+    "fable": "Aoede",
+    "onyx": "Fenrir",
+    "nova": "Leda",
+    "shimmer": "Zephyr",
+}
+
+
+def _audio_response_ok(response: requests.Response) -> bool:
+    if not response.ok or not response.content:
+        return False
+    ctype = (response.headers.get("Content-Type") or "").lower()
+    if "json" in ctype or response.content[:1] in (b"{", b"["):
+        return False
+    return "audio" in ctype or "octet-stream" in ctype or response.content.startswith(b"ID3") or response.content[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")
+
+
+def _openrouter_tts_mp3(text: str, voice: str) -> Optional[bytes]:
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not key:
+        return None
+    mapped = _OR_TTS_VOICE.get(voice, "Kore")
+    response = requests.post(
+        "https://openrouter.ai/api/v1/audio/speech",
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": os.environ.get("OPENROUTER_HTTP_REFERER", "https://www.blop-study.com"),
+            "X-Title": os.environ.get("OPENROUTER_APP_TITLE", "Blop Study"),
+        },
+        json={
+            "model": _OR_TTS_MODEL,
+            "input": text,
+            "voice": mapped,
+            "response_format": "mp3",
+        },
+        timeout=120,
+    )
+    if _audio_response_ok(response):
+        return response.content
+    snippet = (response.text or "").strip()[:400]
+    print(f"OpenRouter TTS failure status={response.status_code} body={snippet}")
+    raise RuntimeError(f"OpenRouter TTS {response.status_code}: {snippet}")
 
 def _lv_int(name: str, default: int, lo: int, hi: int) -> int:
     raw = os.environ.get(name, "").strip()
@@ -47,10 +95,11 @@ def _openai_tts_failure_message(response: requests.Response) -> str:
 
 
 def openai_tts_speech_mp3(text: str, voice: str = "alloy", instructions: Optional[str] = None) -> bytes:
-    """Returns MP3 bytes. Requires OPENAI_API_KEY."""
-    key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not key:
-        print("OPENAI_API_KEY ist nicht gesetzt.")
+    """Returns MP3 bytes. Uses OpenRouter speech, then OpenAI if that key is still set."""
+    or_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    oa_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not or_key and not oa_key:
+        print("Weder OPENROUTER_API_KEY noch OPENAI_API_KEY ist gesetzt.")
         raise RuntimeError("Die KI ist gerade nicht verfügbar. Bitte versuche es später erneut.")
     text = (text or "").strip()
     if not text:
@@ -71,6 +120,20 @@ def openai_tts_speech_mp3(text: str, voice: str = "alloy", instructions: Optiona
         remaining = remaining[cut:].strip()
     mp3_parts: List[bytes] = []
     for ch in chunks:
+        if or_key:
+            spoken = ch
+            if (instructions or "").strip():
+                spoken = f"{instructions.strip()}\n\n{ch}"
+            try:
+                audio = _openrouter_tts_mp3(spoken, v)
+            except RuntimeError as exc:
+                if not oa_key:
+                    raise
+                print(f"OpenRouter TTS failed, fallback to OpenAI: {exc}")
+                audio = None
+            if audio:
+                mp3_parts.append(audio)
+                continue
         payload = {
             "model": "gpt-4o-mini-tts",
             "input": ch,
@@ -81,14 +144,14 @@ def openai_tts_speech_mp3(text: str, voice: str = "alloy", instructions: Optiona
             payload["instructions"] = instructions.strip()
         r = requests.post(
             "https://api.openai.com/v1/audio/speech",
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {oa_key}", "Content-Type": "application/json"},
             json=payload,
             timeout=120,
         )
         if not r.ok:
             fallback = requests.post(
                 "https://api.openai.com/v1/audio/speech",
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                headers={"Authorization": f"Bearer {oa_key}", "Content-Type": "application/json"},
                 json={"model": "tts-1", "input": ch, "voice": v, "response_format": "mp3"},
                 timeout=120,
             )

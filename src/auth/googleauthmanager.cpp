@@ -146,8 +146,11 @@ constexpr const char *kDesktopExchangeUrl =
 // (or BLOP_GOOGLE_CLIENT_SECRET for local/dev).
 constexpr const char *kDesktopOAuthClientId =
     "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com";
-// Must match a registered Desktop OAuth redirect URI — never fall back to a
-// random ephemeral port (Google rejects unregistered loopback URIs).
+// Sign-in and Calendar. Drive connect listens on 27185 (CloudLinkHub) so a
+// running login does not block „Mit Google Drive verbinden“. Both URIs must
+// be registered on the Desktop OAuth client — Google rejects unknown ports:
+//   http://127.0.0.1:27183/
+//   http://127.0.0.1:27185/
 constexpr quint16 kDesktopCalendarLoopbackPort = 27183;
 constexpr const char *kBridgeOrg = "Blop";
 constexpr const char *kBridgeApp = "BlopApp";
@@ -739,7 +742,8 @@ void GoogleAuthManager::startDesktopPkceLogin() {
 
   m_loopbackServer = new QTcpServer(this);
   // Fixed registered loopback port only — Google rejects ephemeral ports.
-  // Desktop OAuth client must list: http://127.0.0.1:27183/
+  // Sign-in / Calendar: http://127.0.0.1:27183/
+  // Drive connect (CloudLinkHub): http://127.0.0.1:27185/
   if (!m_loopbackServer->listen(QHostAddress(QStringLiteral("127.0.0.1")),
                                 kDesktopCalendarLoopbackPort)) {
     qWarning() << "GoogleAuthManager: loopback listen failed on"

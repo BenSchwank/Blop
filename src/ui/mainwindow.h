@@ -359,6 +359,8 @@ private:
   void createDefaultFolder();
   QString noteWriteDirectory() const;
   void applyStoragePrefsToLibrary();
+  /// First-run wizard. force=true ignores ui/onboardingDone (settings replay).
+  void showOnboardingWizard(bool force = false);
   void mirrorNoteIfNeeded(const QString &notePath);
   void refreshCloudSyncStatus(const QString &flash = QString());
   void runStudyJavaScript(const QString &js);
@@ -387,6 +389,8 @@ private:
   void applyTheme();
   void refreshSidebarSearchHint();
   void applyAutoSavePrefs();
+  /// Title-bar mark: built-in Blop logo, or a user logo / wide banner.
+  void applyBrandMark();
   void applyLibraryFilters();
   void rebuildPageSettingsTags();
   void assignTagsForNotePath(const QString &path);
@@ -410,6 +414,8 @@ private:
   void assignTagsForNotePaths(const QStringList &paths);
 
   void updateGrid();
+  void showLibrarySizeMenu(const QPoint &globalPos);
+  void setLibraryDensity(int density);
   void updateSidebarState();
   void updateOverviewBackButton();
   /// Sidebar rect in MainWindow coords (below title bar on desktop, under toolbar on Android).
@@ -427,6 +433,8 @@ private:
   void showRenameOverlay(const QString &currentName);
 
   void animateSidebar(bool show);
+  /// Open the drawer on the notes library. No-op in the editor and on phone burger UI.
+  void ensureNotesLibrarySidebar();
   /// Smooth width change when Dashboard vs. Notes changes sidebar footprint.
   void animateSidebarWidth(int targetWidthPx);
   /// Hard-cut between Dashboard and Notes apps (dual-app shell).
@@ -606,6 +614,8 @@ private:
 
   QLabel *m_lblBrand{nullptr};
   QLabel *m_titleBrandMark{nullptr};
+  QLabel *m_sidebarBrandMark{nullptr};
+  bool m_brandIsBanner{false};
   QFrame *m_titleBarSep{nullptr};
   QWidget *m_titleBarWidget{nullptr};
   QWidget *m_topNavControls{nullptr};
@@ -705,6 +715,9 @@ private:
   QPushButton *m_btnLibraryList{nullptr};
   QPushButton *m_btnEmptyTrash{nullptr};
   bool m_libraryListMode{false};
+  // 0 klein, 1 mittel, 2 groß — list row height and grid tile size.
+  int m_libraryDensity{1};
+  bool m_suppressLibraryClick{false};
   QLabel *m_lblLibraryTitle{nullptr};
   QLabel *m_lblLibrarySubtitle{nullptr};
   QLabel *m_lblCloudSyncStatus{nullptr};

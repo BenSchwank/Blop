@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronLeft, ListTodo, Loader2, XCircle, ArrowUp, ArrowDown, X } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ListTodo, Loader2, XCircle, X } from "lucide-react";
 import { abortAiJob } from "@/lib/aiJobAbortRegistry";
 import {
     readQueueSnapshot,
-    reorderActiveJobs,
-    removeActiveJobById,
+    expireStaleActiveJobs,
+    markActiveCancelled,
     dismissRecentJobById,
+    formatQueueAge,
     type QueueSnapshot,
 } from "@/lib/globalQueueStorage";
 import {
@@ -21,9 +22,12 @@ const EMPTY_QUEUE: QueueSnapshot = { updatedAt: 0, active: [], recent: [] };
 export default function GlobalQueueStatus() {
     const [queue, setQueue] = useState<QueueSnapshot>(EMPTY_QUEUE);
     const [expanded, setExpanded] = useState(false);
+    const [now, setNow] = useState(() => Date.now());
 
     useEffect(() => {
+        expireStaleActiveJobs();
         const readQueue = () => {
+            expireStaleActiveJobs();
             const parsed = readQueueSnapshot();
             if (parsed) {
                 setQueue({
@@ -45,13 +49,15 @@ export default function GlobalQueueStatus() {
         };
     }, []);
 
+    useEffect(() => {
+        if (queue.active.length === 0) return;
+        const timer = window.setInterval(() => setNow(Date.now()), 15000);
+        return () => window.clearInterval(timer);
+    }, [queue.active.length]);
+
     const handleCancelActive = (jobId: string) => {
         const aborted = abortAiJob(jobId);
-        if (!aborted) removeActiveJobById(jobId);
-    };
-
-    const handleMoveActive = (fromIndex: number, delta: number) => {
-        reorderActiveJobs(fromIndex, fromIndex + delta);
+        if (!aborted) markActiveCancelled(jobId);
     };
 
     if (queue.active.length === 0 && queue.recent.length === 0) return null;
@@ -83,49 +89,27 @@ export default function GlobalQueueStatus() {
                 <div className={OVERLAY_GLOBAL_QUEUE_PANEL}>
                     <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Globale Warteschlange</div>
                     <p className="text-[10px] text-gray-600 mb-2 leading-snug">
-                        Reihenfolge nur Anzeige; laufende Anfragen werden nicht automatisch umgestellt.
+                        Jobs laufen parallel. Abbrechen stoppt nur das Warten hier — der Server kann eine schon gestartete Generierung noch zu Ende schreiben.
                     </p>
                     {queue.active.length > 0 && (
                         <ul className="space-y-1.5 mb-2">
-                            {queue.active.map((job, index) => (
+                            {queue.active.map((job) => (
                                 <li
                                     key={job.id}
                                     className="flex items-center gap-1 rounded-lg border border-[#2A2A40] bg-[#151525] px-2 py-2 text-sm text-gray-200"
                                 >
                                     <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
                                     <span className="truncate flex-1 min-w-0">{job.label}</span>
-                                    <span className="text-[10px] text-gray-500 shrink-0">#{job.folderId.slice(-6)}</span>
-                                    <div className="flex items-center gap-0.5 shrink-0">
-                                        <button
-                                            type="button"
-                                            aria-label="Nach oben"
-                                            title="Nach oben"
-                                            disabled={index === 0}
-                                            onClick={() => handleMoveActive(index, -1)}
-                                            className="p-1 rounded text-gray-400 hover:bg-[#1C1C33] hover:text-white disabled:opacity-30 disabled:pointer-events-none"
-                                        >
-                                            <ArrowUp size={14} />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            aria-label="Nach unten"
-                                            title="Nach unten"
-                                            disabled={index >= queue.active.length - 1}
-                                            onClick={() => handleMoveActive(index, 1)}
-                                            className="p-1 rounded text-gray-400 hover:bg-[#1C1C33] hover:text-white disabled:opacity-30 disabled:pointer-events-none"
-                                        >
-                                            <ArrowDown size={14} />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            aria-label="Abbrechen"
-                                            title="Abbrechen"
-                                            onClick={() => handleCancelActive(job.id)}
-                                            className="p-1 rounded text-red-400 hover:bg-red-500/15 hover:text-red-300"
-                                        >
-                                            <X size={14} />
-                                        </button>
-                                    </div>
+                                    <span className="text-[10px] text-gray-500 shrink-0">{formatQueueAge(job.startedAt, now)}</span>
+                                    <button
+                                        type="button"
+                                        aria-label="Abbrechen"
+                                        title="Abbrechen"
+                                        onClick={() => handleCancelActive(job.id)}
+                                        className="p-1 rounded text-red-400 hover:bg-red-500/15 hover:text-red-300"
+                                    >
+                                        <X size={14} />
+                                    </button>
                                 </li>
                             ))}
                         </ul>

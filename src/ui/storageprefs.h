@@ -40,6 +40,9 @@ bool isNonFilesystemPath(const QString &path);
 /// First linked cloud path that exists on disk (prefers primaryCloudId).
 QString primaryLinkedCloudPath();
 
+/// True when a sync folder or an API link can take notes.
+bool hasCloudTarget();
+
 /// True when Google Drive (or primary cloud) has a live linked folder.
 bool isProviderLinked(const QString &providerId);
 bool isGoogleDriveLinked();

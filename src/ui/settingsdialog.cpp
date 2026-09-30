@@ -2,6 +2,7 @@
 #include "settings_ui_helpers.h"
 #include "calendarservice.h"
 #include "cloudstoragestore.h"
+#include "cloudlink.h"
 #include "googleauthmanager.h"
 #include "storageprefs.h"
 #include "uiprofilemanager.h"
@@ -45,6 +46,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QScrollArea>
+#include <QPixmap>
 #include <QSettings>
 #include <QShowEvent>
 #include <QSizePolicy>
@@ -880,10 +882,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Darstellung"),
         QStringLiteral("Hell, Dunkel und Akzentfarbe"),
         contentWidget);
-    cardTheme->setSectionKeywords(
+        cardTheme->setSectionKeywords(
         QStringLiteral("thema theme dunkelmodus dark light hell akzent farbe "
                        "burger tablet layout sprache language locale deutsch "
-                       "english sidebar seitenleiste bewegung motion"));
+                       "english sidebar seitenleiste bewegung motion logo "
+                       "banner bild marke"));
     {
         const int segH = settingsSegmentMinHeight();
         const QString segStyle = segmentedControlQss();
@@ -1005,6 +1008,77 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         cardTheme->addBodyWidget(makePropertyRow(
             cardTheme, QStringLiteral("Akzent"), accentRow, false,
             QStringLiteral("akzent farbe accent blue green pink")));
+
+        auto *brandBox = new QWidget(cardTheme);
+        auto *brandLay = new QHBoxLayout(brandBox);
+        brandLay->setContentsMargins(0, 0, 0, 0);
+        brandLay->setSpacing(UiScale::dp(8));
+        auto *brandPreview = new QLabel(brandBox);
+        brandPreview->setAlignment(Qt::AlignCenter);
+        brandPreview->setScaledContents(false);
+        auto refreshBrandPreview = [brandPreview]() {
+          QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+          const QString path =
+              st.value(QStringLiteral("ui/brandMarkPath")).toString().trimmed();
+          QPixmap pix;
+          if (!path.isEmpty())
+            pix.load(path);
+          if (pix.isNull())
+            pix = QPixmap(QStringLiteral(":/assets/logo.jpg"));
+          const bool banner =
+              !pix.isNull() && pix.width() > pix.height() * 2;
+          const int h = UiScale::dp(32);
+          const int w =
+              banner ? qBound(h * 2,
+                              int(qreal(h) * pix.width() / qMax(1, pix.height())),
+                              UiScale::dp(140))
+                     : h;
+          brandPreview->setFixedSize(w, h);
+          if (pix.isNull()) {
+            brandPreview->setPixmap(QPixmap());
+            brandPreview->setText(QStringLiteral("B"));
+            return;
+          }
+          brandPreview->setText(QString());
+          brandPreview->setPixmap(pix.scaled(w, h, Qt::KeepAspectRatio,
+                                             Qt::SmoothTransformation));
+        };
+        refreshBrandPreview();
+        brandLay->addWidget(brandPreview, 0, Qt::AlignVCenter);
+        auto *btnBrandPick =
+            makeQuietAction(cardTheme, QStringLiteral("Wählen"));
+        btnBrandPick->setToolTip(QStringLiteral(
+            "Eigenes Logo oder Banner. Ein breites Bild ersetzt das Wort "
+            "Blop in der Titelleiste."));
+        auto *btnBrandReset =
+            makeQuietAction(cardTheme, QStringLiteral("Standard"));
+        connect(btnBrandPick, &QPushButton::clicked, this,
+                [this, refreshBrandPreview]() {
+                  const QString path = QFileDialog::getOpenFileName(
+                      this, QStringLiteral("Logo oder Banner"), QString(),
+                      QStringLiteral(
+                          "Bilder (*.png *.jpg *.jpeg *.webp *.bmp)"));
+                  if (path.isEmpty())
+                    return;
+                  QSettings st(QStringLiteral("Blop"),
+                               QStringLiteral("BlopApp"));
+                  st.setValue(QStringLiteral("ui/brandMarkPath"), path);
+                  refreshBrandPreview();
+                  emit appPrefsChanged();
+                });
+        connect(btnBrandReset, &QPushButton::clicked, this,
+                [refreshBrandPreview, this]() {
+                  QSettings st(QStringLiteral("Blop"),
+                               QStringLiteral("BlopApp"));
+                  st.remove(QStringLiteral("ui/brandMarkPath"));
+                  refreshBrandPreview();
+                  emit appPrefsChanged();
+                });
+        brandLay->addWidget(btnBrandPick, 0, Qt::AlignVCenter);
+        brandLay->addWidget(btnBrandReset, 0, Qt::AlignVCenter);
+        cardTheme->addBodyWidget(makePropertyRow(
+            cardTheme, QStringLiteral("Logo"), brandBox, false,
+            QStringLiteral("logo banner bild marke eigenes")));
 
         auto *btnBurger = makeQuietAction(
             cardTheme, QStringLiteral("Tablet/Laptop"));
@@ -1559,23 +1633,28 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         auto refreshCloudUi = [cloudRefs]() {
             const QString primary = StoragePrefs::primaryCloudId();
             for (CloudRowRef &r : *cloudRefs) {
-                const bool linked = StoragePrefs::isProviderLinked(r.id);
                 bool webOk = false;
+                bool api = false;
+                bool folder = false;
                 QVector<CloudStorageEntry> rows = CloudStorageStore::load();
                 if (CloudStorageEntry *cur =
-                        CloudStorageStore::findMutable(rows, r.id))
+                        CloudStorageStore::findMutable(rows, r.id)) {
                     webOk = cur->webConnected;
-                const QString st =
-                    (linked || webOk) ? QStringLiteral("Verbunden")
-                                      : QStringLiteral("Nicht verbunden");
+                    api = cur->apiConnected;
+                    folder = StoragePrefs::isUsableFilesystemDir(cur->path);
+                }
+                const QString st = api ? QStringLiteral("Per API verbunden")
+                                    : folder ? QStringLiteral("Ordner verknüpft")
+                                    : webOk ? QStringLiteral("Im Web angemeldet")
+                                            : QStringLiteral("Nicht verbunden");
                 if (r.statusLbl)
                     r.statusLbl->setText(st);
                 if (r.openBtn)
-                    r.openBtn->setText((linked || webOk)
+                    r.openBtn->setText((api || folder || webOk)
                                            ? QStringLiteral("Öffnen →")
                                            : QStringLiteral("Anmelden →"));
                 if (r.primaryBtn) {
-                    r.primaryBtn->setEnabled(linked);
+                    r.primaryBtn->setEnabled(api || folder);
                     r.primaryBtn->setText(primary == r.id
                                              ? QStringLiteral("Primär ✓")
                                              : QStringLiteral("Primär"));
@@ -1589,6 +1668,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 makeQuietAction(actions, QStringLiteral("Primär"));
             auto *btnFolder =
                 makeQuietAction(actions, QStringLiteral("Ordner"));
+            auto *btnConnect =
+                makeQuietAction(actions, QStringLiteral("Verbinden"));
             auto *btnOpen =
                 makeQuietAction(actions, QStringLiteral("Öffnen →"));
 
@@ -1596,7 +1677,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 auto *al = new QVBoxLayout(actions);
                 al->setContentsMargins(0, 0, 0, 0);
                 al->setSpacing(UiScale::dp(4));
-                for (QPushButton *b : {btnPrimary, btnFolder, btnOpen}) {
+                for (QPushButton *b : {btnPrimary, btnConnect, btnFolder, btnOpen}) {
                     b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
                     b->setMinimumHeight(
                         UiScale::dp(BlopStyle::touchTargetMinDp()));
@@ -1607,6 +1688,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 al->setContentsMargins(0, 0, 0, 0);
                 al->setSpacing(UiScale::dp(2));
                 al->addWidget(btnPrimary);
+                al->addWidget(btnConnect);
                 al->addWidget(btnFolder);
                 al->addWidget(btnOpen);
             }
@@ -1660,6 +1742,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                                  refreshCloudUi();
                                  emit storagePrefsChanged();
                              });
+            QObject::connect(btnConnect, &QPushButton::clicked, this,
+                             [this, id]() {
+                                 CloudLinkHub::instance().connectProvider(id, this);
+                             });
             QObject::connect(btnPrimary, &QPushButton::clicked, this,
                              [this, id, refreshCloudUi]() {
                                  StoragePrefs::setPrimaryCloudId(id);
@@ -1704,6 +1790,19 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             for (int i = 0; i < ordered.size(); ++i)
                 addCloudRow(ordered[i], /*last=*/false);
             refreshCloudUi();
+            connect(&CloudLinkHub::instance(), &CloudLinkHub::connectFinished,
+                    cardStorage,
+                    [this, refreshCloudUi](const QString &, bool ok,
+                                           const QString &detail) {
+                        refreshCloudUi();
+                        if (!ok) {
+                            if (!detail.isEmpty())
+                                BlopDialogs::notify(this, QStringLiteral("Cloud"),
+                                                    detail);
+                            return;
+                        }
+                        emit storagePrefsChanged();
+                    });
         }
 
         auto applyMode = [this, btnLocal, btnCloud, btnBoth, hint,
@@ -1734,6 +1833,20 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                          [applyMode]() {
                              applyMode(StoragePrefs::Mode::LocalAndCloud);
                          });
+
+        auto *btnOnboarding =
+            makeQuietAction(cardStorage, QStringLiteral("Erneut zeigen"));
+        btnOnboarding->setToolTip(QStringLiteral(
+            "Willkommen, Speicherwahl und Kurzrundgang noch einmal. "
+            "Offene Notizen werden vorher gespeichert und geschlossen."));
+        connect(btnOnboarding, &QPushButton::clicked, this, [this]() {
+          QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+          s.setValue(QStringLiteral("ui/onboardingDone"), false);
+          emit onboardingReplayRequested();
+        });
+        cardStorage->addBodyWidget(makePropertyRow(
+            cardStorage, QStringLiteral("Einrichtung"), btnOnboarding, false,
+            QStringLiteral("onboarding einrichtung assistent erneut wizard")));
 
         // Custom embed — one compact row.
         auto *customUrl = new QLineEdit(cardStorage);

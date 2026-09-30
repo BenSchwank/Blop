@@ -322,14 +322,17 @@ export default function Settings() {
                     <h2 className="text-xl font-semibold text-white mb-4">KI-Modell (Standard)</h2>
                     <div className="bg-[#252526] border border-[#333] rounded-2xl p-6 space-y-4">
                         <p className="text-sm text-gray-400">
-                            Dieses Modell wird verwendet, wenn du in einer Funktion kein Modell explizit auswählst.
+                            Leer lassen: Blop wählt pro Aufgabe das Modell mit dem besten Verhältnis aus Qualität, Tempo und Kosten. Eine feste Wahl gilt für alle Aufgaben.
                         </p>
                         <select
                             value={preferredModel}
                             onChange={(e) => setPreferredModel(e.target.value)}
                             className="w-full bg-[#151525] border border-[#2A2A40] text-gray-200 rounded-xl px-4 py-2.5"
                         >
-                            <option value="">Global: Automatisch (Backend-Auswahl)</option>
+                            <option value="">Automatisch: bestes Modell pro Aufgabe</option>
+                            <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
+                            <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
+                            <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
                             <option value="gemini-2.5-pro">Gemini 2.5 Pro (sehr stark, teurer)</option>
                             <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro (stark)</option>
                             <option value="gemini-1.5-pro">Gemini 1.5 Pro (stark)</option>

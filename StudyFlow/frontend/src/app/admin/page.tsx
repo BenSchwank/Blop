@@ -22,10 +22,13 @@ interface AiKeyFingerprint {
 }
 
 interface AiKeysDebug {
+    openrouter_api_key?: AiKeyFingerprint;
     google_api_key: AiKeyFingerprint;
     openai_api_key: AiKeyFingerprint;
     compare_hint: string;
     fix_urls: {
+        openrouter_keys?: string;
+        openrouter_credits?: string;
         ai_studio_keys: string;
         ai_studio_billing: string;
         openai_billing: string;
@@ -192,9 +195,9 @@ export default function AdminPanel() {
                         <>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                                 <KeyCard
-                                    title="GOOGLE_API_KEY (Gemini)"
-                                    fp={aiKeys?.google_api_key}
-                                    compareUrl={aiKeys?.fix_urls.ai_studio_keys || 'https://aistudio.google.com/app/apikey'}
+                                    title="OPENROUTER_API_KEY (Text-KI)"
+                                    fp={aiKeys?.openrouter_api_key}
+                                    compareUrl={aiKeys?.fix_urls.openrouter_keys || 'https://openrouter.ai/keys'}
                                 />
                                 <KeyCard
                                     title="OPENAI_API_KEY (TTS)"
@@ -207,20 +210,20 @@ export default function AdminPanel() {
                             ) : null}
                             <div className="flex flex-wrap gap-3 text-xs">
                                 <a
-                                    href={aiKeys?.fix_urls.ai_studio_billing || 'https://ai.studio/projects'}
+                                    href={aiKeys?.fix_urls.openrouter_credits || 'https://openrouter.ai/settings/credits'}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#8B89F0] hover:bg-[#5E5CE6]/20"
                                 >
-                                    AI Studio Billing <ExternalLink size={12} />
+                                    OpenRouter Credits <ExternalLink size={12} />
                                 </a>
                                 <a
-                                    href={aiKeys?.fix_urls.ai_studio_keys || 'https://aistudio.google.com/app/apikey'}
+                                    href={aiKeys?.fix_urls.openrouter_keys || 'https://openrouter.ai/keys'}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#8B89F0] hover:bg-[#5E5CE6]/20"
                                 >
-                                    AI Studio API-Keys <ExternalLink size={12} />
+                                    OpenRouter API-Keys <ExternalLink size={12} />
                                 </a>
                             </div>
                         </>

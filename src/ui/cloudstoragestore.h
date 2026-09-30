@@ -17,6 +17,7 @@ struct CloudStorageEntry {
   QString path;    ///< optional local sync folder
   QString webUrl;  ///< provider web app (Drive / Nextcloud / …)
   bool webConnected{false};
+  bool apiConnected{false}; ///< Drive / Nextcloud / OneDrive API, not a folder
 };
 
 namespace CloudStorageStore {

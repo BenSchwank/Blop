@@ -138,8 +138,10 @@ function Invoke-Build {
     'Qt6Qml.dll', 'Qt6QmlMeta.dll', 'Qt6QmlModels.dll', 'Qt6QmlWorkerScript.dll',
     'Qt6Quick.dll', 'Qt6QuickWidgets.dll', 'Qt6QuickControls2.dll',
     'Qt6QuickControls2Basic.dll', 'Qt6QuickControls2Impl.dll',
-    'Qt6QuickTemplates2.dll', 'Qt6NetworkAuth.dll',
-    'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll'
+    'Qt6QuickTemplates2.dll',   'Qt6NetworkAuth.dll',
+    'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
+    'avcodec-61.dll', 'avformat-61.dll', 'avutil-59.dll',
+    'swresample-5.dll', 'swscale-8.dll'
   )
   foreach ($name in $needed) {
     $src = Join-Path $qtBin $name
@@ -170,6 +172,15 @@ function Invoke-Build {
     New-Item -ItemType Directory -Force -Path $imgDst | Out-Null
     Get-ChildItem $imgSrcDir -Filter 'q*.dll' | ForEach-Object {
       Copy-Item -Force $_.FullName (Join-Path $imgDst $_.Name)
+    }
+  }
+  # Intro video (QMediaPlayer) needs the FFmpeg backend under <app>/multimedia/.
+  $mmSrcDir = Join-Path $script:QtDir 'plugins\multimedia'
+  $mmDst = Join-Path $BuildDir 'multimedia'
+  if (Test-Path $mmSrcDir) {
+    New-Item -ItemType Directory -Force -Path $mmDst | Out-Null
+    Get-ChildItem $mmSrcDir -Filter '*.dll' | ForEach-Object {
+      Copy-Item -Force $_.FullName (Join-Path $mmDst $_.Name)
     }
   }
   # Drop legacy console launcher that caused terminal spam.

@@ -53,6 +53,8 @@ signals:
     void logoutRequested();
     /// Emitted when Speicher-Modus or linked cloud folders change.
     void storagePrefsChanged();
+    /// User asked to run the first-run wizard again.
+    void onboardingReplayRequested();
 
     void previewProfileRequested(const UiProfile& p);
     /// Guest Konto actions — MainWindow opens Study login / Google OAuth.

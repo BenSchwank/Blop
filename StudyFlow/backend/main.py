@@ -32,10 +32,10 @@ from email_notify import try_notify_document_ready
 from genai_warnings import suppress_known_google_warnings
 
 suppress_known_google_warnings()
-import google.generativeai as genai
+import openrouter_genai as genai
 
-# Configure GenAI (Global for main.py usage like upload_file)
-api_key = os.environ.get("GOOGLE_API_KEY")
+# Text models (chat, quiz, PDFs, …) go through OpenRouter.
+api_key = os.environ.get("OPENROUTER_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 
@@ -1852,6 +1852,11 @@ def update_user_model_preference(body: UserModelPreferenceRequest):
     return {"status": "success", "preferred_model": (body.preferred_model or "").strip()}
 
 MODEL_TOKEN_RATES_PER_1K = {
+    "claude-sonnet-5.5": {"in": 9.0, "out": 20.0},
+    "gpt-6.1-sol": {"in": 9.0, "out": 20.0},
+    "gemini-3.7-flash": {"in": 3.5, "out": 6.0},
+    "gemini-3.1-pro": {"in": 11.0, "out": 25.0},
+    "gemini-3-flash": {"in": 2.3, "out": 4.8},
     "gemini-2.5-pro": {"in": 7.0, "out": 21.0},
     "gemini-2.0-pro-exp": {"in": 5.0, "out": 12.0},
     "gemini-1.5-pro": {"in": 3.5, "out": 10.0},
@@ -1907,6 +1912,14 @@ _AI_FIX_OPENAI = {
     "url": "https://platform.openai.com/settings/organization/billing",
     "label": "OpenAI Billing öffnen",
 }
+_AI_FIX_OPENROUTER = {
+    "url": "https://openrouter.ai/settings/credits",
+    "label": "OpenRouter Credits öffnen",
+}
+_AI_FIX_OPENROUTER_KEYS = {
+    "url": "https://openrouter.ai/keys",
+    "label": "OpenRouter API-Keys öffnen",
+}
 
 
 def _api_key_fingerprint(env_name: str) -> Dict[str, Any]:
@@ -1934,16 +1947,21 @@ def _api_key_fingerprint(env_name: str) -> Dict[str, Any]:
 
 def admin_ai_keys_debug_payload() -> Dict[str, Any]:
     """Admin-only summary of which AI provider keys the server is using."""
+    openrouter = _api_key_fingerprint("OPENROUTER_API_KEY")
     google = _api_key_fingerprint("GOOGLE_API_KEY")
     openai = _api_key_fingerprint("OPENAI_API_KEY")
     return {
+        "openrouter_api_key": openrouter,
         "google_api_key": google,
         "openai_api_key": openai,
         "compare_hint": (
-            "In AI Studio die letzten 4 Zeichen der Keys mit "
-            f"GOOGLE_API_KEY={google.get('display') or 'nicht gesetzt'} vergleichen."
+            "In OpenRouter die letzten 4 Zeichen des Keys mit "
+            f"OPENROUTER_API_KEY={openrouter.get('display') or 'nicht gesetzt'} vergleichen. "
+            "OPENAI_API_KEY bleibt für Sprachausgabe (Podcast/Video)."
         ),
         "fix_urls": {
+            "openrouter_keys": "https://openrouter.ai/keys",
+            "openrouter_credits": "https://openrouter.ai/settings/credits",
             "ai_studio_keys": "https://aistudio.google.com/app/apikey",
             "ai_studio_billing": "https://ai.studio/projects",
             "openai_billing": "https://platform.openai.com/settings/organization/billing",
@@ -1970,7 +1988,21 @@ def _classify_ai_provider_error(exc=None) -> Dict[str, Any]:
     low = msg.lower()
     kind = "generic"
     fix = None
-    if (
+    if "openrouter" in low and (
+        "402" in msg
+        or "credit" in low
+        or "insufficient" in low
+        or "billing" in low
+        or "payment" in low
+    ):
+        kind = "openrouter_billing"
+        fix = _AI_FIX_OPENROUTER
+    elif "openrouter" in low and (
+        "401" in msg or "api key" in low or "unauthorized" in low or "no_api_key" in low
+    ):
+        kind = "api_key"
+        fix = _AI_FIX_OPENROUTER_KEYS
+    elif (
         "credits are depleted" in low
         or "prepayment" in low
         or ("429" in msg and ("gemini" in low or "google" in low or "generativelanguage" in low))
@@ -1988,6 +2020,8 @@ def _classify_ai_provider_error(exc=None) -> Dict[str, Any]:
         kind = "provider_quota"
         if "openai" in low:
             fix = _AI_FIX_OPENAI
+        elif "openrouter" in low:
+            fix = _AI_FIX_OPENROUTER
         else:
             fix = _AI_FIX_GEMINI_BILLING
     elif "openai" in low and ("insufficient" in low or "billing" in low):
@@ -2001,7 +2035,12 @@ def _classify_ai_provider_error(exc=None) -> Dict[str, Any]:
         or "api key not valid" in low
     ):
         kind = "api_key"
-        fix = _AI_FIX_OPENAI if "openai" in low else _AI_FIX_GEMINI
+        if "openai" in low:
+            fix = _AI_FIX_OPENAI
+        elif "openrouter" in low:
+            fix = _AI_FIX_OPENROUTER_KEYS
+        else:
+            fix = _AI_FIX_GEMINI
     return {
         "kind": kind,
         "raw": msg[:2500],
@@ -2018,12 +2057,14 @@ def format_ai_provider_detail(exc=None, username: Optional[str] = None):
     info = _classify_ai_provider_error(exc)
     if not _user_is_admin(username):
         return AI_USER_UNAVAILABLE_MSG
+    openrouter_fp = _api_key_fingerprint("OPENROUTER_API_KEY")
     google_fp = _api_key_fingerprint("GOOGLE_API_KEY")
     openai_fp = _api_key_fingerprint("OPENAI_API_KEY")
     debug_text = info["raw"] or AI_USER_UNAVAILABLE_MSG
     key_line = (
-        f"Server-Keys: GOOGLE_API_KEY={google_fp.get('display') or 'fehlt'}"
+        f"Server-Keys: OPENROUTER_API_KEY={openrouter_fp.get('display') or 'fehlt'}"
         f" · OPENAI_API_KEY={openai_fp.get('display') or 'fehlt'}"
+        f" · GOOGLE_API_KEY={google_fp.get('display') or 'fehlt'}"
     )
     return {
         "message": AI_USER_UNAVAILABLE_MSG,
@@ -2032,6 +2073,7 @@ def format_ai_provider_detail(exc=None, username: Optional[str] = None):
         "debug": f"{debug_text}\n{key_line}",
         "fix_url": info.get("fix_url"),
         "fix_label": info.get("fix_label"),
+        "openrouter_api_key_suffix": openrouter_fp.get("suffix"),
         "google_api_key_suffix": google_fp.get("suffix"),
         "openai_api_key_suffix": openai_fp.get("suffix"),
     }
@@ -2120,12 +2162,12 @@ def deduct_tokens_by_usage(username: str, feature_key: str, used_model: str, usa
     }
 
 def _configure_genai(username: str = None):
-    """Configures GenAI with Central Env Key."""
-    env_key = os.environ.get("GOOGLE_API_KEY")
-    
+    """Points text models at OpenRouter. TTS still uses OPENAI_API_KEY separately."""
+    env_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+
     if not env_key:
         raise HTTPException(status_code=503, detail=AI_USER_UNAVAILABLE_MSG)
-        
+
     genai.configure(api_key=env_key)
     return env_key
 
@@ -2309,11 +2351,12 @@ async def upload_image(
             temp_img_path = temp_img.name
             
         try:
-            import google.generativeai as genai
             from PIL import Image
-            
+
+            from ai_service import model_for_task
+
             img = Image.open(temp_img_path)
-            model = genai.GenerativeModel('gemini-1.5-pro')
+            model = genai.GenerativeModel(model_for_task("image", None))
             response = model.generate_content([
                 "Beschreibe dieses Bild detailliert für meine Lernunterlagen. Extrahiere jeglichen relevanten Text und erkläre Diagramme oder Konzepte.",
                 img
@@ -2754,7 +2797,7 @@ def recognize_math_ink(request: MathInkRecognizeRequest):
     import base64
     from io import BytesIO
 
-    from ai_service import SAFETY_SETTINGS, get_best_model
+    from ai_service import SAFETY_SETTINGS, model_for_task
 
     try:
         if not request.strokes and not (request.ink_png_base64 or "").strip():
@@ -2813,7 +2856,7 @@ def recognize_math_ink(request: MathInkRecognizeRequest):
             )
 
         model = genai.GenerativeModel(
-            get_best_model("gemini-2.5-flash"),
+            model_for_task("handwriting", None),
             generation_config={"temperature": 0.2, "max_output_tokens": 256},
         )
         parts: List[Any] = [prompt]
@@ -3237,6 +3280,52 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
         return [], debug_log
         
     return content_parts, debug_log
+
+
+def _get_chat_context(username: str, folder_id: str):
+    """Short text for chat. Full PDFs only if there is no text, and then at most one."""
+    CHAT_TEXT_TYPES = ("transcript", "summary")
+    CHAR_CAP = 12_000
+    try:
+        files = DataManager.list_files(username, folder_id, include_content=False)
+    except Exception as e:
+        print(f"Chat context list failed: {e}")
+        return []
+
+    ids_filter = DataManager.get_ai_context_file_ids(username, folder_id)
+    if ids_filter:
+        idset = set(ids_filter)
+        files = [f for f in files if f.get("id") in idset]
+    else:
+        files = [f for f in files if f.get("type") in ("pdf", "transcript", "summary")]
+
+    texts = []
+    pdfs = []
+    for f in files:
+        f_type = f.get("type")
+        if f_type in CHAT_TEXT_TYPES:
+            full = DataManager.get_file(username, f.get("id")) if f.get("id") else None
+            raw = (full or {}).get("content") if full else None
+            if raw is None:
+                continue
+            text = json.dumps(raw, ensure_ascii=False) if isinstance(raw, (dict, list)) else str(raw)
+            text = text.strip()
+            if text:
+                texts.append(f"--- {f.get('name') or 'Material'} ({f_type}) ---\n{text}")
+        elif f_type == "pdf" and f.get("id"):
+            pdfs.append(f)
+
+    if texts:
+        joined = "\n\n".join(texts)
+        if len(joined) > CHAR_CAP:
+            joined = joined[:CHAR_CAP] + "\n\n[… Kontext für den Chat gekürzt …]"
+        return [joined]
+
+    if pdfs:
+        parts, _log = _get_folder_context(username, folder_id, included_file_ids=[str(pdfs[0]["id"])])
+        return parts[:1] if parts else []
+    return []
+
 
 @app.post("/api/ai/quiz")
 def create_quiz(request: GenRequest):
@@ -3730,7 +3819,7 @@ def chat_endpoint_stream(request: ChatRequest):
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
-        context, _ = _get_folder_context(request.username, request.folder_id)
+        context = _get_chat_context(request.username, request.folder_id)
         if not context:
             context = []
         history_dicts = [{"role": msg.role, "content": msg.content} for msg in request.history]
@@ -3776,9 +3865,8 @@ def chat_endpoint(request: ChatRequest):
         ensure_minimum_tokens(request.username, 1)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
-        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        context = _get_chat_context(request.username, request.folder_id)
         if not context:
-            # Fallback to general chat if no context is found, but pass empty list
             context = []
         
         # Convert history
@@ -4125,8 +4213,7 @@ def _marketing_generate_script(bulletpoints: str, language: str) -> str:
     copy = _marketing_copy_for_language(language)
     intro = copy["intro"]
     outro = copy["outro"]
-    key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not key:
+    if not genai.api_key_configured():
         return f"{intro}\n\nHeute im Devlog:\n{bulletpoints.strip()}\n\n{outro}"
 
     prompt = (
@@ -4143,28 +4230,15 @@ def _marketing_generate_script(bulletpoints: str, language: str) -> str:
         f"{outro}\n\n"
         f"Stichpunkte:\n{bulletpoints.strip()}\n"
     )
-    response = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "gpt-4o",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.7,
-        },
-        timeout=120,
-    )
-    if not response.ok:
-        raise HTTPException(status_code=502, detail=f"OpenAI Script-Fehler: {response.text[:300]}")
-    text = (
-        response.json()
-        .get("choices", [{}])[0]
-        .get("message", {})
-        .get("content", "")
-        .strip()
-    )
+    try:
+        text = genai.complete_chat(
+            messages=[{"role": "user", "content": prompt}],
+            model="claude-sonnet-5.5",
+            temperature=0.7,
+            timeout=120,
+        ).strip()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OpenRouter Script-Fehler: {exc}") from exc
     if intro not in text:
         text = f"{intro}\n\n{text}"
     if outro not in text:

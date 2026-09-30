@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import { MessageCircle, X, Send, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -36,9 +36,15 @@ function isPatchResponse(obj: any): obj is DocumentPatch {
     return obj && typeof obj === 'object' && typeof obj.new_text === 'string' && typeof obj.apply_mode === 'string';
 }
 
+function wantsDocumentEdit(text: string): boolean {
+    return /\b(änder|aender|umschreib|ergänz|erganz|korrigier|füge|fuege|lösch|loesch|ersetze|kürze|kuerze|formulier)/i.test(text);
+}
+
 export default function FloatingChat({ folderId, username, modelPreference, activeFile, onUpdateActiveFile, onApplyPatch, onUndoLastPatch, canUndo = false }: FloatingChatProps) {
+    const dragControls = useDragControls();
     const [isOpen, setIsOpen] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
+    const [editDocument, setEditDocument] = useState(false);
     const [messages, setMessages] = useState<Message[]>([
         { role: 'model', content: 'Hallo! Ich bin dein Blop KI-Assistent. Hast du Fragen zu den Dokumenten in diesem Ordner?' }
     ]);
@@ -77,9 +83,9 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
 
         try {
             const hasTextDocument = activeFile && typeof activeFile.content === 'string';
+            const usePatch = Boolean(hasTextDocument && (editDocument || wantsDocumentEdit(userMsg)));
 
-            // Document-chat: returns a JSON patch → can't stream, keep as-is
-            if (hasTextDocument) {
+            if (usePatch) {
                 const res = await fetch('/api/ai/document-chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -105,6 +111,11 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                         role: 'model',
                         content: `Vorschlag: **${data.patch.patch_description || 'Dokumentänderung'}**\n\n${data.patch.new_text.substring(0, 1400)}${data.patch.new_text.length > 1400 ? '\n\n…(gekürzt)' : ''}`,
                     }]);
+                } else {
+                    const reply = typeof data?.reply === 'string' && data.reply.trim()
+                        ? data.reply
+                        : 'Ich konnte keine Dokumentänderung vorschlagen. Formuliere die Änderung genauer, oder schalte „Dokument ändern“ aus und stell die Frage normal.';
+                    setMessages([...newMessages, { role: 'model', content: reply }]);
                 }
                 return;
             }
@@ -220,13 +231,14 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
     return (
         <motion.div
             drag
+            dragListener={false}
+            dragControls={dragControls}
             dragConstraints={{ left: -1000, right: 0, top: -800, bottom: 0 }}
             dragElastic={0.1}
             dragMomentum={false}
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             className={OVERLAY_FLOATING_CHAT}
-            style={{ touchAction: 'none' }} // Prevents scrolling while dragging on touch devices
         >
             <AnimatePresence>
                 {isOpen && (
@@ -236,11 +248,13 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                         exit={{ opacity: 0, scale: 0.8, y: 20 }}
                         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                         className={`bg-[#1e1e1e] border border-[#333] shadow-2xl rounded-2xl mb-4 overflow-hidden flex flex-col ${isExpanded ? 'w-[80vw] h-[80vh] max-w-4xl' : 'w-[350px] sm:w-[400px] h-[500px]'}`}
-                        onPointerDownCapture={(e) => e.stopPropagation()} // Prevent drag when interacting with chat
                     >
-                        {/* Header */}
-                        <div className="bg-[#252526] p-4 border-b border-[#333] flex items-center justify-between shrink-0 cursor-grab active:cursor-grabbing">
-                            <div className="flex items-center gap-2">
+                        {/* Header — only this bar starts a drag */}
+                        <div className="bg-[#252526] p-4 border-b border-[#333] flex items-center justify-between shrink-0">
+                            <div
+                                className="flex items-center gap-2 cursor-grab active:cursor-grabbing min-w-0"
+                                onPointerDown={(e) => dragControls.start(e)}
+                            >
                                 <div className="w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center">
                                     <MessageCircle size={18} />
                                 </div>
@@ -344,6 +358,17 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
 
                         {/* Input Area */}
                         <div className="p-4 bg-[#252526] border-t border-[#333] shrink-0">
+                            {activeFile && typeof activeFile.content === 'string' ? (
+                                <label className="mb-2 flex items-center gap-2 text-[11px] text-gray-400">
+                                    <input
+                                        type="checkbox"
+                                        checked={editDocument}
+                                        onChange={(e) => setEditDocument(e.target.checked)}
+                                        className="rounded border-[#333]"
+                                    />
+                                    Dokument ändern
+                                </label>
+                            ) : null}
                             <form
                                 onSubmit={(e) => { e.preventDefault(); handleSend(); }}
                                 className="flex items-end gap-2"
@@ -371,7 +396,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                             </form>
                             <div className="text-center mt-2">
                                 <span className="text-[10px] text-gray-500">
-                                    {lastUsageInfo || 'Du kannst die Chat-Bubble auf dem Bildschirm verschieben.'}
+                                    {lastUsageInfo || 'Kopfleiste ziehen, um den Chat zu verschieben.'}
                                 </span>
                             </div>
                         </div>

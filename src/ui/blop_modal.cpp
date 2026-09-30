@@ -261,6 +261,17 @@ BlopModal *BlopModal::hostOf(QWidget *content) {
   return nullptr;
 }
 
+namespace {
+// qBound is undefined when the floor is larger than the ceiling. A short
+// host (half window, or a note overlay taller than the screen) used to
+// produce a negative card and take the app down.
+int fitSpan(int preferred, int floorPx, int ceilingPx) {
+  const int hi = qMax(1, ceilingPx);
+  const int lo = qMin(qMax(1, floorPx), hi);
+  return qBound(lo, preferred, hi);
+}
+} // namespace
+
 QRect BlopModal::preferredCardRect() const {
   if (!parentWidget() || !m_card)
     return {};
@@ -268,12 +279,14 @@ QRect BlopModal::preferredCardRect() const {
   const int H = height();
   if (m_mode == Mode::Float) {
     const int gap = UiScale::dp(24);
+    const int maxW = qMax(1, W - 2 * gap);
+    const int maxH = qMax(1, H - 2 * gap);
     int cardW = m_preferredCardWidth > 0 ? m_preferredCardWidth : int(W * 0.58);
-    cardW = qBound(UiScale::dp(420), cardW, W - 2 * gap);
+    cardW = fitSpan(cardW, UiScale::dp(420), maxW);
     const qreal frac =
         m_preferredCardHeightFrac > 0.0 ? m_preferredCardHeightFrac : 0.72;
     int cardH = int(H * frac);
-    cardH = qBound(UiScale::dp(360), cardH, H - 2 * gap);
+    cardH = fitSpan(cardH, UiScale::dp(360), maxH);
     return QRect((W - cardW) / 2, (H - cardH) / 2, cardW, cardH);
   }
   // Fallback: current geometry after a layout pass would be needed; return
@@ -601,9 +614,9 @@ void BlopModal::layoutContent() {
       const int gap = UiScale::dp(16);
       const int maxW = qMin(int(W * 0.92), qMax(UiScale::dp(320), W - 2 * gap));
       const int minW = qMin(UiScale::dp(640), maxW);
-      const int cardW = qBound(minW, preferred, maxW);
-      const int maxH = qMin(int(H * 0.94), H - 2 * gap);
-      const int cardH = qMax(UiScale::dp(480), maxH);
+      const int cardW = fitSpan(preferred, minW, maxW);
+      const int maxH = qMax(1, qMin(int(H * 0.94), H - 2 * gap));
+      const int cardH = fitSpan(maxH, UiScale::dp(320), maxH);
       m_card->setGeometry((W - cardW) / 2, (H - cardH) / 2, cardW, cardH);
       if (m_content) {
         m_content->setMinimumSize(0, 0);
@@ -624,7 +637,7 @@ void BlopModal::layoutContent() {
     // Compact centered card. Measure height *after* giving content a real
     // width — word-wrapped QLabels otherwise report a skyscraper sizeHint
     // (one glyph per line) and overlays look "extrem lang gestreckt".
-    const int cardW = qBound(UiScale::dp(320), preferred, W - 2 * pad);
+    const int cardW = fitSpan(preferred, UiScale::dp(320), qMax(1, W - 2 * pad));
     int contentH = UiScale::dp(140);
     if (m_content) {
       m_content->setMaximumWidth(cardW);
@@ -642,8 +655,8 @@ void BlopModal::layoutContent() {
       contentH = qMax(UiScale::dp(120), measured + UiScale::dp(8));
     }
     const qreal heightFrac = preferred >= UiScale::dp(560) ? 0.92 : 0.72;
-    const int maxH = qMin(int(H * heightFrac), H - 2 * pad);
-    const int cardH = qBound(UiScale::dp(120), contentH, maxH);
+    const int maxH = qMax(1, qMin(int(H * heightFrac), H - 2 * pad));
+    const int cardH = fitSpan(contentH, UiScale::dp(120), maxH);
     const int x = (W - cardW) / 2;
     const int y = (H - cardH) / 2;
     m_card->setGeometry(x, y, cardW, cardH);
@@ -768,8 +781,12 @@ bool BlopModal::eventFilter(QObject *watched, QEvent *event) {
   return QWidget::eventFilter(watched, event);
 }
 
+bool BlopModal::dismissLocked() const {
+  return m_content && m_content->property("blopPreventDismiss").toBool();
+}
+
 void BlopModal::dismissFromOutsideTap(const QPoint &pos) {
-  if (!m_card || m_dismissing)
+  if (dismissLocked() || !m_card || m_dismissing)
     return;
   if (!m_card->geometry().contains(pos))
     dismiss();
@@ -784,7 +801,8 @@ bool BlopModal::event(QEvent *event) {
       const QPoint global = te->points().first().globalPosition().toPoint();
       const QRect cardGlobal(m_card->mapToGlobal(QPoint(0, 0)), m_card->size());
       if (!cardGlobal.contains(global)) {
-        dismiss();
+        if (!dismissLocked())
+          dismiss();
         event->accept();
         return true;
       }
@@ -795,7 +813,8 @@ bool BlopModal::event(QEvent *event) {
 
 void BlopModal::keyPressEvent(QKeyEvent *event) {
   if (event->key() == Qt::Key_Escape || event->key() == Qt::Key_Back) {
-    dismiss();
+    if (!dismissLocked())
+      dismiss();
     return;
   }
   QWidget::keyPressEvent(event);
@@ -813,7 +832,7 @@ void BlopModal::mousePressEvent(QMouseEvent *event) {
     return;
   }
   // Drag handle press in BottomSheet mode begins drag-to-dismiss.
-  if (m_mode == Mode::BottomSheet && m_dragHandle) {
+  if (!dismissLocked() && m_mode == Mode::BottomSheet && m_dragHandle) {
     const QPoint handlePos = m_dragHandle->mapFrom(this, p);
     if (m_dragHandle->rect().contains(handlePos)) {
       m_dragging = true;
@@ -848,7 +867,8 @@ void BlopModal::mouseMoveEvent(QMouseEvent *event) {
 void BlopModal::mouseReleaseEvent(QMouseEvent *event) {
   if (m_dragging) {
     m_dragging = false;
-    if (m_dragOffset > UiScale::dp(kDragDismissThresholdDp)) {
+    if (!dismissLocked() &&
+        m_dragOffset > UiScale::dp(kDragDismissThresholdDp)) {
       dismiss();
     } else {
       // Snap back.

@@ -1,5 +1,6 @@
 #include "storageprefs.h"
 
+#include "cloudlink.h"
 #include "cloudstoragestore.h"
 
 #include <QDir>
@@ -170,10 +171,17 @@ bool isProviderLinked(const QString &providerId) {
     return false;
   for (const CloudStorageEntry &e : CloudStorageStore::load()) {
     if (e.id == providerId &&
-        (pathExistsDir(e.path) || e.webConnected || !e.webUrl.isEmpty()))
+        (pathExistsDir(e.path) || e.webConnected || e.apiConnected ||
+         !e.webUrl.isEmpty()))
       return true;
   }
   return false;
+}
+
+bool hasCloudTarget() {
+  if (!primaryLinkedCloudPath().isEmpty())
+    return true;
+  return CloudLinkHub::instance().primaryUsesApi();
 }
 
 bool isGoogleDriveLinked() {
@@ -297,6 +305,8 @@ QString noteWriteRoot(const QString &localRoot) {
       localRoot.isEmpty() ? ensureLocalLibraryRoot() : localRoot;
   if (m == Mode::LocalOnly || m == Mode::LocalAndCloud)
     return local;
+  if (CloudLinkHub::instance().primaryUsesApi())
+    return local;
 
   const QString cloud = primaryLinkedCloudPath();
   if (cloud.isEmpty() || isNonFilesystemPath(cloud))
@@ -307,10 +317,14 @@ QString noteWriteRoot(const QString &localRoot) {
 }
 
 bool mirrorNoteToCloudIfNeeded(const QString &localNotePath) {
-  if (mode() != Mode::LocalAndCloud)
+  const bool api = CloudLinkHub::instance().primaryUsesApi();
+  const Mode m = mode();
+  if (m != Mode::LocalAndCloud && !(m == Mode::CloudOnly && api))
     return false;
   if (localNotePath.isEmpty() || !QFileInfo::exists(localNotePath))
     return false;
+  if (api)
+    return CloudLinkHub::instance().putNote(localNotePath);
 
   const QString cloud = primaryLinkedCloudPath();
   if (cloud.isEmpty())
@@ -332,9 +346,16 @@ bool mirrorNoteToCloudIfNeeded(const QString &localNotePath) {
 }
 
 bool removeCloudMirrorIfNeeded(const QString &localNotePath) {
-  if (mode() != Mode::LocalAndCloud)
+  const bool api = CloudLinkHub::instance().primaryUsesApi();
+  const Mode m = mode();
+  if (m != Mode::LocalAndCloud && !(m == Mode::CloudOnly && api))
     return false;
-  if (localNotePath.isEmpty() || !QFileInfo::exists(localNotePath))
+  if (localNotePath.isEmpty())
+    return false;
+  if (api)
+    return CloudLinkHub::instance().removeNote(
+        QFileInfo(localNotePath).fileName());
+  if (!QFileInfo::exists(localNotePath))
     return false;
 
   const QString cloud = primaryLinkedCloudPath();
@@ -351,10 +372,16 @@ bool removeCloudMirrorIfNeeded(const QString &localNotePath) {
 
 bool renameCloudMirrorIfNeeded(const QString &oldLocalNotePath,
                                  const QString &newLocalNotePath) {
-  if (mode() != Mode::LocalAndCloud)
+  const bool api = CloudLinkHub::instance().primaryUsesApi();
+  const Mode m = mode();
+  if (m != Mode::LocalAndCloud && !(m == Mode::CloudOnly && api))
     return false;
   if (oldLocalNotePath.isEmpty() || newLocalNotePath.isEmpty())
     return false;
+  if (api)
+    return CloudLinkHub::instance().renameNote(
+        QFileInfo(oldLocalNotePath).fileName(),
+        QFileInfo(newLocalNotePath).fileName());
 
   const QString cloud = primaryLinkedCloudPath();
   if (cloud.isEmpty())

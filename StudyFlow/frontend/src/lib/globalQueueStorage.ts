@@ -65,3 +65,61 @@ export function dismissRecentJobById(jobId: string): void {
     if (recent.length === snap.recent.length) return;
     writeQueueSnapshot({ ...snap, recent });
 }
+
+export const QUEUE_STALE_MS = 25 * 60 * 1000;
+export const QUEUE_CANCEL_NOTE =
+    "Abgebrochen. Der Server kann die schon gestartete Generierung noch zu Ende schreiben.";
+
+export function formatQueueAge(startedAt: number, now = Date.now()): string {
+    const sec = Math.max(0, Math.floor((now - startedAt) / 1000));
+    if (sec < 60) return `seit ${sec}s`;
+    return `seit ${Math.floor(sec / 60)} Min`;
+}
+
+export function expireStaleActiveJobs(maxAgeMs = QUEUE_STALE_MS): void {
+    const snap = readQueueSnapshot();
+    if (!snap) return;
+    const now = Date.now();
+    const keep: ActiveJob[] = [];
+    const stale: ActiveJob[] = [];
+    for (const job of snap.active) {
+        if (now - (job.startedAt || 0) > maxAgeMs) stale.push(job);
+        else keep.push(job);
+    }
+    if (stale.length === 0) return;
+    const recent: RecentJob[] = [
+        ...stale.map((job) => ({
+            id: `${job.id}:${now}`,
+            label: job.label,
+            folderId: job.folderId,
+            ok: false,
+            finishedAt: now,
+            errorMessage: "Abgebrochen (keine Rückmeldung seit 25 Minuten).",
+        })),
+        ...snap.recent,
+    ].slice(0, 15);
+    writeQueueSnapshot({ ...snap, active: keep, recent });
+}
+
+export function markActiveCancelled(jobId: string): void {
+    const snap = readQueueSnapshot();
+    if (!snap) return;
+    const job = snap.active.find((j) => j.id === jobId);
+    if (!job) return;
+    const recent: RecentJob[] = [
+        {
+            id: `${jobId}:${Date.now()}`,
+            label: job.label,
+            folderId: job.folderId,
+            ok: false,
+            finishedAt: Date.now(),
+            errorMessage: QUEUE_CANCEL_NOTE,
+        },
+        ...snap.recent,
+    ].slice(0, 15);
+    writeQueueSnapshot({
+        ...snap,
+        active: snap.active.filter((j) => j.id !== jobId),
+        recent,
+    });
+}

@@ -12,9 +12,10 @@ import RichTextEditor from "@/components/RichTextEditor";
 import SmartLearningView, { normalizeSmartLearningContent } from "@/components/SmartLearningView";
 import QuizSession, { type QuizQuestion as QuizSessionQuestion } from "@/components/QuizSession";
 import FlashcardSession from "@/components/FlashcardSession";
-import { registerAiJobAbort, unregisterAiJobAbort, isAbortError } from "@/lib/aiJobAbortRegistry";
+import { registerAiJobAbort, unregisterAiJobAbort, abortAiJob, isAbortError } from "@/lib/aiJobAbortRegistry";
 import { getSessionId, sessionHeaders } from "@/lib/session";
 import { OVERLAY_FOLDER_KI_PANEL } from "@/constants/overlayLayout";
+import { expireStaleActiveJobs, formatQueueAge, readQueueSnapshot, QUEUE_CANCEL_NOTE } from "@/lib/globalQueueStorage";
 import FloatingChat from "@/components/FloatingChat";
 import { motion, AnimatePresence } from 'framer-motion';
 import { marked } from 'marked';
@@ -593,6 +594,7 @@ export default function FolderPage() {
     const [savingAiContext, setSavingAiContext] = useState(false);
     const [completedAiJobs, setCompletedAiJobs] = useState<{ id: string; jobKey: string; label: string; ok: boolean }[]>([]);
     const [aiJobsPanelExpanded, setAiJobsPanelExpanded] = useState(true);
+    const [queueNow, setQueueNow] = useState(() => Date.now());
     const [isEditingFile, setIsEditingFile] = useState(false);
 
     // Toast notification (replaces all showToast() calls)
@@ -690,9 +692,11 @@ export default function FolderPage() {
         const trimmed =
             ok || !errorMessage
                 ? undefined
-                : errorMessage.length > 280
-                  ? `${errorMessage.slice(0, 277)}...`
-                  : errorMessage;
+                : errorMessage === "Abgebrochen"
+                  ? QUEUE_CANCEL_NOTE
+                  : errorMessage.length > 280
+                    ? `${errorMessage.slice(0, 277)}...`
+                    : errorMessage;
         const entry: {
             id: string;
             label: string;
@@ -711,6 +715,16 @@ export default function FolderPage() {
         const recent = [entry, ...(snapshot.recent || [])];
         publishGlobalQueueSnapshot(active, recent);
     };
+
+    useEffect(() => {
+        expireStaleActiveJobs();
+    }, []);
+
+    useEffect(() => {
+        if (isGenerating.length === 0) return;
+        const timer = window.setInterval(() => setQueueNow(Date.now()), 15000);
+        return () => window.clearInterval(timer);
+    }, [isGenerating.length]);
 
     const prevGeneratingCountRef = useRef(0);
     useEffect(() => {
@@ -4689,7 +4703,10 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
+                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
+                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
+                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                                         <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
                                         <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
@@ -4768,7 +4785,10 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
+                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
+                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
+                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                                         <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
                                         <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
@@ -4802,7 +4822,7 @@ export default function FolderPage() {
                                     </div>
                                     <div>
                                         <h3 className="text-lg font-semibold text-white">Podcast</h3>
-                                        <p className="text-xs text-gray-400">Skript per KI, gesprochen mit OpenAI TTS</p>
+                                        <p className="text-xs text-gray-400">Skript per KI, gesprochen über OpenRouter</p>
                                     </div>
                                 </div>
                                 <button
@@ -4815,7 +4835,7 @@ export default function FolderPage() {
                             </div>
                             <div className="p-5 space-y-4 overflow-y-auto flex-1">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">TTS-Stimme (OpenAI)</label>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Stimme</label>
                                     <div className="flex items-center gap-2">
                                         <select
                                             className="flex-1 bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-pink-500/40 focus:border-pink-500/50 outline-none transition-all appearance-none"
@@ -4849,7 +4869,10 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
+                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
+                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
+                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                                         <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
                                         <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
@@ -5046,7 +5069,7 @@ export default function FolderPage() {
                                     </span>
                                 </label>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">TTS-Stimme (OpenAI)</label>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Stimme</label>
                                     <div className="flex items-center gap-2">
                                         <select
                                             className="flex-1 bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 outline-none transition-all appearance-none"
@@ -5077,7 +5100,10 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
+                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
+                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
+                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                                         <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
                                         <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
@@ -5437,7 +5463,10 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
+                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
+                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
+                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
                                         <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
                                         <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
                                         <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
@@ -5542,7 +5571,10 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
+                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
+                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
+                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
                                         <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
                                         <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
                                         <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
@@ -5627,7 +5659,10 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
+                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
+                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
+                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
                                         <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
                                         <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
                                         <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
@@ -5723,7 +5758,10 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
+                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
+                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
+                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
                                         <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
                                         <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
                                         <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
@@ -6353,15 +6391,30 @@ export default function FolderPage() {
                                                         <span>Material wird hochgeladen / verarbeitet</span>
                                                     </li>
                                                 )}
-                                                {isGenerating.map((key) => (
+                                                {isGenerating.map((key) => {
+                                                    const started = readQueueSnapshot()?.active.find((j) => j.id === `${folderId}:${key}`)?.startedAt;
+                                                    return (
                                                     <li key={key} className="flex items-center gap-2 text-gray-200 bg-[#151525] rounded-lg px-2.5 py-2 border border-[#2A2A40]">
                                                         <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
-                                                        <span>{AI_JOB_LABELS[key] || key}</span>
+                                                        <span className="flex-1 min-w-0 truncate">{AI_JOB_LABELS[key] || key}</span>
+                                                        {started ? (
+                                                            <span className="text-[10px] text-gray-500 shrink-0">{formatQueueAge(started, queueNow)}</span>
+                                                        ) : null}
+                                                        <button
+                                                            type="button"
+                                                            aria-label="Abbrechen"
+                                                            title="Abbrechen"
+                                                            onClick={() => abortAiJob(`${folderId}:${key}`)}
+                                                            className="p-1 rounded text-red-400 hover:bg-red-500/15 hover:text-red-300 shrink-0"
+                                                        >
+                                                            <X size={14} />
+                                                        </button>
                                                     </li>
-                                                ))}
+                                                    );
+                                                })}
                                             </ul>
                                             <p className="text-[11px] text-gray-500 mt-2 leading-snug">
-                                                Mehrere Aktionen gleichzeitig sind möglich — jede läuft unabhängig, solange sie nicht schon für dieselbe Funktion aktiv ist.
+                                                Abbrechen stoppt das Warten hier. Der Server kann eine schon gestartete Generierung noch zu Ende schreiben.
                                             </p>
                                         </div>
                                     )}

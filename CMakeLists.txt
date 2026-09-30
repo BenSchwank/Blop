@@ -212,6 +212,8 @@ qt_add_executable(Blop
     src/ui/librarytagspanel.h
     src/ui/cloudstoragestore.cpp
     src/ui/cloudstoragestore.h
+    src/ui/cloudlink.cpp
+    src/ui/cloudlink.h
     src/ui/cloudwebexplorer.cpp
     src/ui/cloudwebexplorer.h
     src/ui/phonelibrarynav.cpp
@@ -226,6 +228,10 @@ qt_add_executable(Blop
     src/ui/blop_dialogs.h
     src/ui/introscreen.h
     src/ui/introscreen.cpp
+    src/ui/onboardingwizard.h
+    src/ui/onboardingwizard.cpp
+    src/ui/onboardingwizard.h
+    src/ui/onboardingwizard.cpp
     src/ui/overlayscrollindicator.h
     src/ui/overlayscrollindicator.cpp
     src/ui/blopripple.h

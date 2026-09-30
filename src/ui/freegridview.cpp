@@ -5,6 +5,7 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QScrollBar>
+#include <QTimer>
 #include <cmath>
 
 
@@ -27,6 +28,15 @@ FreeGridView::FreeGridView(QWidget *parent)
   verticalScrollBar()->setSingleStep(10);
 
   OverlayScrollIndicator::install(this);
+
+  m_longPressTimer = new QTimer(this);
+  m_longPressTimer->setSingleShot(true);
+  m_longPressTimer->setInterval(520);
+  connect(m_longPressTimer, &QTimer::timeout, this, [this]() {
+    m_pressTracking = false;
+    m_longPressFired = true;
+    emit longPressed(m_pressPos);
+  });
 }
 
 void FreeGridView::setItemSize(const QSize &size) {
@@ -151,6 +161,9 @@ void FreeGridView::mousePressEvent(QMouseEvent *e) {
   if (e->button() == Qt::LeftButton) {
     m_pressPos = e->position().toPoint();
     m_pressTracking = true;
+    m_longPressFired = false;
+    if (m_longPressTimer)
+      m_longPressTimer->start();
   }
   QListView::mousePressEvent(e);
 }
@@ -165,12 +178,21 @@ void FreeGridView::mouseMoveEvent(QMouseEvent *e) {
     if ((e->position().toPoint() - m_pressPos).manhattanLength() < threshold)
       return;
     m_pressTracking = false;
+    if (m_longPressTimer)
+      m_longPressTimer->stop();
   }
   QListView::mouseMoveEvent(e);
 }
 
 void FreeGridView::mouseReleaseEvent(QMouseEvent *e) {
+  if (m_longPressTimer)
+    m_longPressTimer->stop();
   m_pressTracking = false;
+  if (m_longPressFired) {
+    m_longPressFired = false;
+    e->accept();
+    return;
+  }
   QListView::mouseReleaseEvent(e);
 }
 

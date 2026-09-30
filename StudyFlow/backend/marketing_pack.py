@@ -1,5 +1,6 @@
 """
-Social Content Pack: multimodal OpenAI plan, hero crops, 15s brainrot clips, ZIP export.
+Social Content Pack: OpenRouter plan from screenshots, hero crops, 15s clips, ZIP export.
+Accent images stay on OpenAI when MARKETING_PACK_GENERATE_IMAGES is on.
 """
 from __future__ import annotations
 
@@ -411,8 +412,9 @@ def call_openai_pack_plan(
 ) -> Dict[str, Any]:
     if not image_paths:
         return _default_plan(bulletpoints, language, max_clips)
-    key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not key:
+    from openrouter_genai import OpenRouterError, api_key_configured, complete_chat
+
+    if not api_key_configured():
         return _default_plan(bulletpoints, language, max_clips)
 
     langs = {"de": "German", "en": "English", "tr": "Turkish", "es": "Spanish"}
@@ -459,26 +461,16 @@ def call_openai_pack_plan(
         if os.path.isfile(p):
             content.append({"type": "image_url", "image_url": {"url": _image_to_data_url(p)}})
 
-    response = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={
-            "model": "gpt-4o",
-            "messages": [{"role": "user", "content": content}],
-            "temperature": 0.55,
-            "response_format": {"type": "json_object"},
-        },
-        timeout=180,
-    )
-    if not response.ok:
+    try:
+        raw = complete_chat(
+            messages=[{"role": "user", "content": content}],
+            model="claude-sonnet-5.5",
+            temperature=0.55,
+            response_format={"type": "json_object"},
+            timeout=180,
+        ).strip()
+    except OpenRouterError:
         return _default_plan(bulletpoints, language, max_clips)
-    raw = (
-        response.json()
-        .get("choices", [{}])[0]
-        .get("message", {})
-        .get("content", "")
-        .strip()
-    )
     try:
         data = _parse_json_content(raw)
     except (json.JSONDecodeError, ValueError):

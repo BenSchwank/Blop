@@ -7,6 +7,8 @@
 #include <QListView>
 #include <QPainter>
 
+class QTimer;
+
 
 class FreeGridView : public QListView {
   Q_OBJECT
@@ -23,6 +25,8 @@ public:
 signals:
   void itemDropped(const QModelIndex &sourceIndex,
                    const QModelIndex &targetIndex);
+  // Finger hold on a tile or the empty list. Right-click stays a separate path.
+  void longPressed(const QPoint &viewportPos);
 
 protected:
   void paintEvent(QPaintEvent *e) override;
@@ -38,6 +42,8 @@ protected:
 private:
   QPoint m_pressPos;
   bool m_pressTracking{false};
+  bool m_longPressFired{false};
+  QTimer *m_longPressTimer{nullptr};
   QRect m_ghostRect;
   QRect m_lastGhostRect; // v119: union'd with m_ghostRect for partial update
   bool m_showGhost;

@@ -78,6 +78,10 @@ QIcon chipGlyph(LibraryOrgBar::SmartView view, const QColor &color) {
 LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("LibraryOrgBar"));
   setAttribute(Qt::WA_StyledBackground, true);
+  // Fixed height so a tall icon-mode list cannot squeeze this row to its
+  // minimum and paint the chips on top of the notes.
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  setMinimumWidth(0);
   m_accent = BlopTheme::accentPrimary();
 
   auto *root = new QHBoxLayout(this);
@@ -115,8 +119,10 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
   scroll->setObjectName(QStringLiteral("LibraryOrgChipScroll"));
   scroll->setFrameShape(QFrame::NoFrame);
   scroll->setWidgetResizable(false);
+  scroll->setMinimumWidth(0);
   scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   scroll->setFixedHeight(UiScale::dp(phone ? 48 : 32));
   scroll->setStyleSheet(
       QStringLiteral("QScrollArea { background: transparent; border: none; }"));
@@ -127,14 +133,14 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
   chipLay = new QHBoxLayout(host);
   chipLay->setContentsMargins(0, 0, 0, 0);
   chipLay->setSpacing(UiScale::dp(8));
-  chipLay->setSizeConstraint(QLayout::SetMinimumSize);
+  chipLay->setSizeConstraint(QLayout::SetMinAndMaxSize);
 
   for (const auto &c : chips) {
-    auto *btn = new QPushButton(QString::fromUtf8(c.label), this);
+    auto *btn = new QPushButton(QString::fromUtf8(c.label), host);
     btn->setCheckable(true);
     btn->setCursor(Qt::PointingHandCursor);
     btn->setFixedHeight(UiScale::dp(phone ? 44 : 28));
-    btn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    btn->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     btn->setObjectName(QStringLiteral("libraryOrgChip"));
     m_viewGroup->addButton(btn, int(c.view));
     btn->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
@@ -145,6 +151,9 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
   host->adjustSize();
   scroll->setWidget(host);
   root->addWidget(scroll, 1);
+  const int barH = UiScale::dp(phone ? 56 : 42);
+  setMinimumHeight(barH);
+  setMaximumHeight(barH);
   BlopScroll::enableFingerScroll(scroll);
   connect(m_viewGroup, &QButtonGroup::idClicked, this,
           &LibraryOrgBar::onViewClicked);

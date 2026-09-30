@@ -52,6 +52,7 @@ QVector<CloudStorageEntry> load() {
     e.path = o.value(QStringLiteral("path")).toString();
     e.webUrl = o.value(QStringLiteral("webUrl")).toString();
     e.webConnected = o.value(QStringLiteral("webConnected")).toBool();
+    e.apiConnected = o.value(QStringLiteral("apiConnected")).toBool();
     if (e.id.isEmpty())
       e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     if (e.name.isEmpty())
@@ -63,6 +64,20 @@ QVector<CloudStorageEntry> load() {
   // fails (and can take down the Qt 6.10 Android EGL surface). Missing
   // local folders are kept so a temporarily unmounted sync root survives.
   bool dirty = false;
+  bool haveIcloud = false;
+  for (const CloudStorageEntry &e : out) {
+    if (e.id.compare(QLatin1String("icloud"), Qt::CaseInsensitive) == 0 ||
+        e.type.compare(QLatin1String("icloud"), Qt::CaseInsensitive) == 0)
+      haveIcloud = true;
+  }
+  if (!haveIcloud) {
+    CloudStorageEntry e;
+    e.id = QStringLiteral("icloud");
+    e.type = e.id;
+    e.name = QStringLiteral("iCloud");
+    out.append(e);
+    dirty = true;
+  }
   for (CloudStorageEntry &e : out) {
     if (!StoragePrefs::isNonFilesystemPath(e.path))
       continue;
@@ -84,6 +99,7 @@ void save(const QVector<CloudStorageEntry> &entries) {
     o.insert(QStringLiteral("path"), e.path);
     o.insert(QStringLiteral("webUrl"), e.webUrl);
     o.insert(QStringLiteral("webConnected"), e.webConnected);
+    o.insert(QStringLiteral("apiConnected"), e.apiConnected);
     arr.append(o);
   }
   QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
@@ -109,6 +125,8 @@ QString displayNameForType(const QString &type) {
     return QStringLiteral("OneDrive");
   if (type == QLatin1String("dropbox"))
     return QStringLiteral("Dropbox");
+  if (type == QLatin1String("icloud"))
+    return QStringLiteral("iCloud");
   return QStringLiteral("Eigene Cloud");
 }
 
