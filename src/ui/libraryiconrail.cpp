@@ -63,28 +63,28 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   lay->setContentsMargins(0, UiScale::dp(8), 0, UiScale::dp(12));
   lay->setSpacing(UiScale::dp(2));
 
-  const int tap = UiScale::dp(BlopStyle::touchTargetMinDp());
-  m_menuBtn = new QToolButton(this);
-  m_menuBtn->setObjectName(QStringLiteral("LibraryIconRailMenu"));
-  m_menuBtn->setFixedSize(tap, tap);
-  m_menuBtn->setIconSize(QSize(UiScale::dp(20), UiScale::dp(20)));
-  m_menuBtn->setCursor(Qt::PointingHandCursor);
-  m_menuBtn->setAutoRaise(true);
-  m_menuBtn->setFocusPolicy(Qt::StrongFocus);
-  m_menuBtn->setToolTip(QStringLiteral("Hauptmenü"));
-  m_menuBtn->setIcon(hamburgerGlyph(QColor(0xB8, 0xBE, 0xC9), UiScale::dp(20)));
-  connect(m_menuBtn, &QToolButton::clicked, this,
-          &LibraryIconRail::menuToggled);
-  lay->addWidget(m_menuBtn, 0, Qt::AlignHCenter);
-  lay->addSpacing(UiScale::dp(4));
-
   m_logo = new QLabel(this);
   m_logo->setObjectName(QStringLiteral("LibraryIconRailLogo"));
   m_logo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   m_logo->setAlignment(Qt::AlignCenter);
   m_logo->setScaledContents(false);
   lay->addWidget(m_logo, 0, Qt::AlignHCenter);
-  lay->addSpacing(UiScale::dp(8));
+  lay->addSpacing(UiScale::dp(6));
+
+  const int tap = UiScale::dp(BlopStyle::touchTargetMinDp());
+  m_menuBtn = new QToolButton(this);
+  m_menuBtn->setObjectName(QStringLiteral("LibraryIconRailMenu"));
+  m_menuBtn->setFixedSize(tap, tap);
+  m_menuBtn->setIconSize(QSize(UiScale::dp(22), UiScale::dp(22)));
+  m_menuBtn->setCursor(Qt::PointingHandCursor);
+  m_menuBtn->setAutoRaise(true);
+  m_menuBtn->setFocusPolicy(Qt::StrongFocus);
+  m_menuBtn->setToolTip(QStringLiteral("Hauptmenü"));
+  m_menuBtn->setIcon(hamburgerGlyph(QColor(0xB8, 0xBE, 0xC9), UiScale::dp(22)));
+  connect(m_menuBtn, &QToolButton::clicked, this,
+          &LibraryIconRail::menuToggled);
+  lay->addWidget(m_menuBtn, 0, Qt::AlignHCenter);
+  lay->addSpacing(UiScale::dp(4));
 
   // Dual-app switch first, then note utilities.
   addBtn(QStringLiteral("home"), QStringLiteral("home"),
@@ -237,7 +237,6 @@ void LibraryIconRail::paintEvent(QPaintEvent *event) {
 
 void LibraryIconRail::refreshStyles() {
   const QString nav = BlopStyle::obsidianNav().name(QColor::HexRgb);
-  const QString acc = m_accent.name(QColor::HexRgb);
   const QString hover = accentRgba(m_accent, 0.16);
   const QString onBg = accentRgba(m_accent, 0.18);
   const QString onHover = accentRgba(m_accent, 0.28);
@@ -255,7 +254,7 @@ void LibraryIconRail::refreshStyles() {
                     .arg(nav, hover, onBg));
   if (m_menuBtn) {
     m_menuBtn->setIcon(
-        hamburgerGlyph(QColor(0xB8, 0xBE, 0xC9), UiScale::dp(20)));
+        hamburgerGlyph(QColor(0xB8, 0xBE, 0xC9), UiScale::dp(22)));
   }
   applyBrand();
   for (auto it = m_btns.begin(); it != m_btns.end(); ++it) {
