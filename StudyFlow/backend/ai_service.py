@@ -1,4 +1,5 @@
 import os
+import re
 from genai_warnings import suppress_known_google_warnings
 
 suppress_known_google_warnings()
@@ -1164,58 +1165,122 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
             raise Exception(f"Fehler bei der Aufgaben-Hilfe: {str(e)}")
 
     @staticmethod
+    def _podcast_token_cap(error: BaseException, current: int) -> Optional[int]:
+        match = re.search(r"can only afford\s+(\d+)", str(error), re.IGNORECASE)
+        if not match:
+            return None
+        affordable = int(match.group(1)) - 400
+        if affordable >= current or affordable < 600:
+            return None
+        return affordable
+
+    @staticmethod
+    def _cap_podcast_material(content: Any, max_chars: int = 60_000) -> Any:
+        parts = content if isinstance(content, list) else [content]
+        kept = []
+        used = 0
+        for part in parts:
+            if not isinstance(part, str):
+                kept.append(part)
+                continue
+            room = max_chars - used
+            if room <= 0:
+                break
+            chunk = part if len(part) <= room else part[:room] + "\n\n[… Material für den Podcast gekürzt …]"
+            kept.append(chunk)
+            used += len(chunk)
+        return kept
+
+    @staticmethod
     def generate_podcast_script(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
         """German dialogue for two podcast speakers."""
         primary = model_for_task("podcast", model_preference)
         candidates = [primary]
         if "gemini-3.7-flash" not in candidates:
             candidates.append("gemini-3.7-flash")
+        material = AIService._cap_podcast_material(content)
+        material_parts = material if isinstance(material, list) else [material]
+        material_chars = sum(len(part) for part in material_parts if isinstance(part, str))
         last_exc: Optional[BaseException] = None
         for model_name in candidates:
-            try:
-                model = genai.GenerativeModel(
-                    model_name,
-                    generation_config={
-                        "temperature": 0.45,
-                        "max_output_tokens": 12000,
-                        "reasoning_effort": "low",
-                    },
-                )
-                prompt = """
-Du schreibst einen Lern-Podcast auf Deutsch als Gespräch zwischen zwei Personen.
-Alex fragt nach, hakt ein und fasst in einfachen Worten zusammen.
-Sam erklärt mit einem Vergleich, einem kurzen Beispiel und einem Merksatz.
-Sie reden miteinander, nicht nacheinander einen Vortrag. So versteht man den Stoff leichter.
+            token_cap = 8000
+            for _attempt in range(2):
+                try:
+                    model = genai.GenerativeModel(
+                        model_name,
+                        generation_config={
+                            "temperature": 0.6,
+                            "max_output_tokens": token_cap,
+                            "reasoning_effort": "low",
+                        },
+                    )
+                    prompt = """
+Du schreibst einen Lern-Podcast auf Deutsch. Alex und Sam sitzen zusammen und gehen den Stoff durch, bis man ihn wirklich verstanden hat. Kein kurzer Überblick von ein paar Minuten.
 
-Regeln:
+Länge:
+- Nimm jedes wichtige Thema aus dem Material mit, in dieser Reihenfolge. Was zum Verständnis nötig ist, darf nicht fehlen.
+- Pro Thema mehrere Wechsel: Frage, Erklärung, Nachfrage, Beispiel, ein häufiger Irrtum, nochmal in einfachen Worten.
+- Ein Beitrag hat zwei bis fünf gesprochene Sätze. Keine Ein-Satz-Telegramme.
+- Wenig Stoff: mindestens 24 Beiträge. Ein normales Kapitel: 36 bis 56 Beiträge. Viel Stoff: bis 64. Höchstens 64.
+- Lieber ein Thema gründlich als viele Themen nur antippen.
+
+Wie sie klingen:
+- Wie zwei Studierende am Tisch, nicht wie eine Ansage und nicht wie ein Lehrbuch.
+- Gesprochenes Deutsch: "also", "genau", "warte mal", "ah, okay", "das ist der Punkt".
+- Alex ist neugierig und hakt nach. Sam erklärt warm, mit einem Vergleich aus dem Alltag.
+- Eine Pause schreibst du nur als <short pause>, höchstens einmal in einem längeren Beitrag.
+- Kein Markdown, keine Überschriften, keine eckigen Klammern, keine Regie wie "lacht" oder "flüstert".
+
+Form:
 - Jede Zeile beginnt genau mit "ALEX:" oder "SAM:".
-- Alex beginnt. Danach wechseln sie sich ab. Mindestens 16 und höchstens 26 Beiträge.
-- Ein Beitrag ist meist ein bis drei Sätze, gesprochen, ohne Aufzählungszeichen.
-- Sie dürfen sich mit Vornamen ansprechen.
-- Kein Markdown, keine Überschriften, keine Regieanweisungen, keine Klammern.
+- Alex beginnt, danach wechseln sie sich ab.
 - Kein Satz der Art "Hier ist der Podcast".
 
 Antworte NUR mit dem Dialog.
 """
-                input_parts = [prompt]
-                if isinstance(content, list):
-                    input_parts.extend(content)
-                else:
-                    input_parts.append(content)
-                response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
-                text = (response.text or "").strip()
-                if not text:
-                    raise Exception("Leere Antwort vom Modell erhalten.")
-                if not return_meta:
-                    return text
-                return {
-                    "text": text,
-                    "usage": AIService._extract_usage(response),
-                    "used_model": str(getattr(model, "model_name", "") or ""),
-                }
-            except Exception as e:
-                last_exc = e
-                print(f"Podcast script {model_name} failed: {e}")
+                    chat = model.start_chat(history=[])
+                    response = chat.send_message([prompt, *material_parts], safety_settings=SAFETY_SETTINGS)
+                    text = (response.text or "").strip()
+                    if not text:
+                        raise Exception("Leere Antwort vom Modell erhalten.")
+                    usage = AIService._extract_usage(response)
+                    from podcast_dialogue import parse_podcast_dialogue
+
+                    turns = parse_podcast_dialogue(text)
+                    if len(turns) < 28 and material_chars > 6000 and token_cap >= 2500:
+                        last_speaker = turns[-1][0] if turns else "SAM"
+                        next_speaker = "SAM" if last_speaker == "ALEX" else "ALEX"
+                        try:
+                            follow = chat.send_message(
+                                "Das Gespräch ist zu kurz, mehrere Themen aus dem Material fehlen noch oder sind nur angetippt. "
+                                "Schreib NUR weitere Zeilen. Mindestens 20, höchstens 32. "
+                                "Nichts vom bisherigen Dialog wiederholen. "
+                                f'Die nächste Zeile beginnt mit "{next_speaker}:". Danach wechseln ALEX und SAM. '
+                                "Dieselbe gesprochene Sprache, zwei bis fünf Sätze pro Beitrag. "
+                                "Antworte NUR mit den neuen Zeilen."
+                            )
+                            extra = (follow.text or "").strip()
+                            if extra:
+                                text = text.rstrip() + "\n" + extra
+                                usage = AIService._merge_usage_dict(usage, AIService._extract_usage(follow))
+                        except Exception as follow_exc:
+                            print(f"Podcast script continuation skipped: {follow_exc}")
+                    if not return_meta:
+                        return text
+                    return {
+                        "text": text,
+                        "usage": usage,
+                        "used_model": str(getattr(model, "model_name", "") or ""),
+                    }
+                except Exception as e:
+                    smaller = AIService._podcast_token_cap(e, token_cap)
+                    if smaller:
+                        print(f"Podcast script {model_name} retry with max_output_tokens={smaller}")
+                        token_cap = smaller
+                        continue
+                    last_exc = e
+                    print(f"Podcast script {model_name} failed: {e}")
+                    break
         raise Exception(f"Podcast-Skript fehlgeschlagen: {last_exc}")
 
     @staticmethod

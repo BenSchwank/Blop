@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks, Request, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response, StreamingResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional, Tuple
@@ -2396,59 +2397,33 @@ async def upload_image(
     session_id: str = "",
     file: UploadFile = File(...)
 ):
-    """Uploads an image, extracts text/context via Gemini, and saves."""
+    """Stores an image in the folder. No AI step."""
     user = require_session_user(http_request, session_id=session_id or None, username=username or None)
-
-    import tempfile
+    filename = file.filename or "bild.jpg"
+    lower = filename.lower()
+    content_types = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }
+    suffix = next((ext for ext in content_types if lower.endswith(ext)), "")
+    if not suffix:
+        raise HTTPException(status_code=400, detail="Nur JPG, PNG, WEBP oder GIF.")
+    if not folder_id:
+        raise HTTPException(status_code=400, detail="Ordner fehlt.")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Die Bilddatei ist leer.")
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Bilder dürfen höchstens 15 MB groß sein.")
     try:
-        if not file.filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-             raise HTTPException(status_code=400, detail="Nur unterstützte Bildformate (.jpg, .jpeg, .png, .webp)")
-             
-        SubscriptionManager.ensure_feature(user, "image_to_text")
-        ensure_minimum_tokens(user, 1)
-        _configure_genai(user)
-
-        content = await file.read()
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_img:
-            temp_img.write(content)
-            temp_img_path = temp_img.name
-            
-        try:
-            from PIL import Image
-
-            from ai_service import model_for_task
-
-            img = Image.open(temp_img_path)
-            model = genai.GenerativeModel(model_for_task("image", None))
-            response = model.generate_content([
-                "Beschreibe dieses Bild detailliert für meine Lernunterlagen. Extrahiere jeglichen relevanten Text und erkläre Diagramme oder Konzepte.",
-                img
-            ])
-            
-            extracted_text = response.text
-            image_title = f"Bild: {file.filename}"
-            
-            DataManager.save_transcript(image_title, extracted_text, user, folder_id)
-            
-            charge = deduct_tokens_by_usage(
-                username,
-                "image_to_text",
-                "gemini-1.5-pro",
-                {
-                    "prompt_tokens": int(getattr(getattr(response, "usage_metadata", None), "prompt_token_count", 0) or 0),
-                    "output_tokens": int(getattr(getattr(response, "usage_metadata", None), "candidates_token_count", 0) or 0),
-                    "total_tokens": int(getattr(getattr(response, "usage_metadata", None), "total_token_count", 0) or 0),
-                },
-            )
-            return {"status": "success", "message": "Bild verarbeitet und als Text notiert", **charge}
-        finally:
-             if os.path.exists(temp_img_path):
-                 os.remove(temp_img_path)
-                 
+        saved = DataManager.save_image(content, filename, user, folder_id, content_types[suffix])
+        return {"status": "success", "file": saved}
     except Exception as e:
         print(f"Image Upload Error: {e}")
-        raise_for_ai_provider_error(e, prefix="Bildverarbeitung", username=username)
+        raise HTTPException(status_code=500, detail="Bild konnte nicht gespeichert werden.")
 
 @app.get("/api/files/signed-media-url")
 def signed_media_url(
@@ -2602,6 +2577,31 @@ def download_pdf(http_request: Request, username: str = "", folder_id: str = "",
         raise HTTPException(status_code=500, detail=f"PDF-Download fehlgeschlagen: {str(e)}")
 
 
+@app.get("/api/files/download_image")
+def download_image(
+    http_request: Request,
+    username: str = "",
+    folder_id: str = "",
+    file_id: str = "",
+    session_id: str = "",
+):
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    image_bytes, download_name = DataManager.get_image_bytes(user, folder_id, file_id)
+    if not image_bytes:
+        raise HTTPException(status_code=404, detail="Bild nicht gefunden")
+    safe_name = (download_name or "bild.jpg").replace('"', "")
+    lower = safe_name.lower()
+    media = "image/png" if lower.endswith(".png") else "image/webp" if lower.endswith(".webp") else "image/gif" if lower.endswith(".gif") else "image/jpeg"
+    return Response(
+        content=image_bytes,
+        media_type=media,
+        headers={
+            "Content-Disposition": f'inline; filename="{safe_name}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @app.get("/api/files/item/{file_id}")
 def get_file_item(http_request: Request, file_id: str, username: str = "", session_id: str = ""):
     """Returns a single file including content (lazy load after metadata list)."""
@@ -2617,7 +2617,7 @@ def get_files(http_request: Request, folder_id: str, username: str = "", session
     """Returns files in a specific folder (metadata only; use /files/item/{id} for content)."""
     user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     files = DataManager.list_files(user, folder_id, include_content=False)
-    return files
+    return JSONResponse(content=jsonable_encoder(files), headers={"Cache-Control": "no-store"})
 
 
 class ShareToUsernameRequest(BaseModel):

@@ -677,6 +677,66 @@ class DataManager:
         return filename
 
     @staticmethod
+    def save_image(file_data: bytes, filename: str, username: str, folder_id: str, content_type: str) -> dict:
+        db = DataManager._init_supabase()
+        if not db:
+            raise Exception("Supabase DB nicht initialisiert")
+        safe_filename = DataManager._sanitize_filename(filename)
+        file_id = f"image_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
+        path = f"{username}/{folder_id}/images/{file_id}_{safe_filename}"
+        db.storage.from_("blop_documents").upload(
+            path, file_data, {"upsert": "true", "content-type": content_type}
+        )
+        now = datetime.now().isoformat()
+        record = {
+            "id": file_id,
+            "name": filename,
+            "type": "image",
+            "file_url": path,
+            "created_at": now,
+            "updated_at": now,
+            "folder_id": str(folder_id),
+        }
+        DataManager.save_file_metadata(record, username, folder_id)
+        return record
+
+    @staticmethod
+    def get_image_bytes(username: str, folder_id: str, file_id: str):
+        db = DataManager._init_supabase()
+        if not db or not file_id:
+            return None, None
+        meta = (
+            db.table("files")
+            .select("file_url,name")
+            .eq("id", file_id)
+            .eq("folder_id", str(folder_id))
+            .eq("username", username)
+            .eq("type", "image")
+            .limit(1)
+            .execute()
+        )
+        if not meta.data:
+            return None, None
+        path = meta.data[0].get("file_url")
+        name = meta.data[0].get("name") or "bild.jpg"
+        if not path:
+            return None, None
+        try:
+            payload = db.storage.from_("blop_documents").download(path)
+            if hasattr(payload, "content"):
+                payload = payload.content
+            if hasattr(payload, "read"):
+                payload = payload.read()
+            if isinstance(payload, bytearray):
+                payload = bytes(payload)
+            if not isinstance(payload, (bytes, memoryview)):
+                return None, None
+            return bytes(payload), name
+        except Exception as exc:
+            print(f"get_image_bytes ({path}): {exc}")
+            return None, None
+
+    @staticmethod
     def list_pdfs(username, folder_id):
         # We now query normal files table for type='pdf'
         db = DataManager._init_supabase()

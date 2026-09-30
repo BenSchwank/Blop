@@ -52,27 +52,47 @@ def _audio_response_ok(response: requests.Response) -> bool:
     return "audio" in ctype or "octet-stream" in ctype or response.content.startswith(b"ID3") or response.content[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")
 
 
-def _openrouter_tts_mp3(text: str, voice: str) -> Optional[bytes]:
+def _openrouter_tts_mp3(text: str, voice: str, style: Optional[str] = None) -> Optional[bytes]:
     key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not key:
         return None
     mapped = _OR_TTS_VOICE.get(voice, "Kore")
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": os.environ.get("OPENROUTER_HTTP_REFERER", "https://www.blop-study.com"),
+        "X-Title": os.environ.get("OPENROUTER_APP_TITLE", "Blop Study"),
+    }
+    body = {
+        "model": _OR_TTS_MODEL,
+        "input": text,
+        "voice": mapped,
+        "response_format": "mp3",
+    }
+    style = (style or "").strip()
+    if style:
+        body["provider"] = {
+            "options": {
+                "google-ai-studio": {
+                    "speech_metadata": {"style": style},
+                }
+            }
+        }
     response = requests.post(
         "https://openrouter.ai/api/v1/audio/speech",
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": os.environ.get("OPENROUTER_HTTP_REFERER", "https://www.blop-study.com"),
-            "X-Title": os.environ.get("OPENROUTER_APP_TITLE", "Blop Study"),
-        },
-        json={
-            "model": _OR_TTS_MODEL,
-            "input": text,
-            "voice": mapped,
-            "response_format": "mp3",
-        },
+        headers=headers,
+        json=body,
         timeout=120,
     )
+    if not _audio_response_ok(response) and style and response.status_code in (400, 422):
+        print("OpenRouter TTS retry without speech style")
+        body.pop("provider", None)
+        response = requests.post(
+            "https://openrouter.ai/api/v1/audio/speech",
+            headers=headers,
+            json=body,
+            timeout=120,
+        )
     if _audio_response_ok(response):
         return response.content
     snippet = (response.text or "").strip()[:400]
@@ -136,11 +156,8 @@ def openai_tts_speech_mp3(text: str, voice: str = "alloy", instructions: Optiona
     mp3_parts: List[bytes] = []
     for ch in chunks:
         if or_key:
-            spoken = ch
-            if (instructions or "").strip():
-                spoken = f"{instructions.strip()}\n\n{ch}"
             try:
-                audio = _openrouter_tts_mp3(spoken, v)
+                audio = _openrouter_tts_mp3(ch, v, style=instructions)
             except RuntimeError as exc:
                 if not oa_key:
                     raise
@@ -199,7 +216,13 @@ def openai_tts_speech_mp3_concat_segments(
 
 def synthesize_podcast_dialogue(script: str, voice_a: str, voice_b: str) -> bytes:
     """Speak a two-person script. Alex asks, Sam explains, each with their own voice."""
-    from podcast_dialogue import ALEX_STYLE, SAM_STYLE, parse_podcast_dialogue, podcast_voice_pair
+    from podcast_dialogue import (
+        ALEX_STYLE,
+        SAM_STYLE,
+        parse_podcast_dialogue,
+        podcast_voice_pair,
+        spoken_podcast_line,
+    )
 
     first, second = podcast_voice_pair(voice_a, voice_b)
     turns = parse_podcast_dialogue(script)
@@ -208,13 +231,16 @@ def synthesize_podcast_dialogue(script: str, voice_a: str, voice_b: str) -> byte
     voice_for = {"ALEX": first, "SAM": second}
     style_for = {"ALEX": ALEX_STYLE, "SAM": SAM_STYLE}
     parts: List[bytes] = []
-    gap = _silence_mp3(0.28)
+    gap = _silence_mp3(0.42)
     for index, (speaker, line) in enumerate(turns):
-        if index and gap:
+        spoken = spoken_podcast_line(line)
+        if not spoken:
+            continue
+        if parts and gap:
             parts.append(gap)
         parts.append(
             openai_tts_speech_mp3(
-                line,
+                spoken,
                 voice=voice_for.get(speaker, first),
                 instructions=style_for.get(speaker, ALEX_STYLE),
             )
@@ -248,7 +274,8 @@ def _silence_mp3(seconds: float) -> bytes:
 def _concat_mp3_ffmpeg(parts: List[bytes], reencode: bool = False) -> bytes:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        # naive concat of mp3 streams often glitches; still better than failing if single chunk
+        if reencode:
+            raise RuntimeError("Podcast-Audio konnte nicht zusammengefügt werden.")
         return b"".join(parts)
     with tempfile.TemporaryDirectory() as tmp:
         paths = []
@@ -263,15 +290,26 @@ def _concat_mp3_ffmpeg(parts: List[bytes], reencode: bool = False) -> bytes:
                 f.write(f"file '{p.replace(chr(92), '/')}'\n")
         out = os.path.join(tmp, "out.mp3")
         try:
-            encode = ["-c:a", "libmp3lame", "-q:a", "4"] if reencode else ["-c", "copy"]
-            subprocess.run(
+            encode = ["-ar", "44100", "-ac", "1", "-c:a", "libmp3lame", "-q:a", "4"] if reencode else ["-c", "copy"]
+            completed = subprocess.run(
                 [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", lst, *encode, out],
-                check=True,
+                check=False,
                 capture_output=True,
             )
+            if completed.returncode != 0 or not os.path.isfile(out):
+                err = (completed.stderr or b"").decode("utf-8", errors="replace")[-500:]
+                print(f"ffmpeg concat failed: {err}")
+                if reencode:
+                    raise RuntimeError("Podcast-Audio konnte nicht zusammengefügt werden.")
+                return b"".join(parts)
             with open(out, "rb") as f:
                 return f.read()
-        except Exception:
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            print(f"ffmpeg concat error: {exc}")
+            if reencode:
+                raise RuntimeError("Podcast-Audio konnte nicht zusammengefügt werden.") from exc
             return b"".join(parts)
 
 
