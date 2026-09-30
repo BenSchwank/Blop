@@ -15,13 +15,69 @@
 
 namespace {
 
+QString messageFromReply(const QByteArray &raw, int status) {
+    const QJsonObject obj = QJsonDocument::fromJson(raw).object();
+    const QString detail = obj.value(QStringLiteral("detail")).toString();
+    if (status == 401)
+        return QStringLiteral("Melde dich in Blop an. Die KI nutzt dein Study-Guthaben.");
+    if (status == 402)
+        return detail.isEmpty() ? QStringLiteral("Nicht genügend Tokens.") : detail;
+    if (status == 404)
+        return QStringLiteral("Der Assistent-Dienst ist auf dem Server noch nicht aktiv.");
+    if (!detail.isEmpty())
+        return detail;
+    return QStringLiteral("Die KI ist gerade nicht verfügbar.");
+}
+
+QString completeViaStudy(const QString &system, const QString &user, QString *error,
+                         double temperature) {
+    QJsonObject body;
+    body.insert(QStringLiteral("system"), system);
+    body.insert(QStringLiteral("user"), user);
+    body.insert(QStringLiteral("model"), SettingsSync::openRouterModel());
+    if (temperature >= 0)
+        body.insert(QStringLiteral("temperature"), temperature);
+    QNetworkRequest req(QUrl(QStringLiteral("https://www.blop-study.com/api/assistant/complete")));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    req.setRawHeader("X-Session-Id", SettingsSync::studySessionId().toUtf8());
+    QNetworkAccessManager nam;
+    QEventLoop loop;
+    QNetworkReply *reply = nam.post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timer.start(50000);
+    loop.exec();
+    if (!reply->isFinished()) {
+        reply->abort();
+        if (error)
+            *error = QStringLiteral("Study hat nicht geantwortet.");
+        reply->deleteLater();
+        return {};
+    }
+    const QByteArray raw = reply->readAll();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    reply->deleteLater();
+    const QJsonObject obj = QJsonDocument::fromJson(raw).object();
+    const QString text = obj.value(QStringLiteral("content")).toString().trimmed();
+    if (text.isEmpty() || status >= 400) {
+        if (error)
+            *error = messageFromReply(raw, status);
+        return {};
+    }
+    return text;
+}
+
 QString complete(const QString &system, const QString &user, QString *error,
                  double temperature = -1) {
+    if (!SettingsSync::studySessionId().isEmpty())
+        return completeViaStudy(system, user, error, temperature);
     const QString key = SettingsSync::openRouterKey();
     if (key.isEmpty()) {
         if (error)
             *error = QStringLiteral(
-                "OpenRouter-Schlüssel fehlt. Trag ihn in Blop unter Tastatur oder hier unter Konto ein.");
+                "Melde dich in Blop an. Die KI nutzt dein Study-Guthaben.");
         return {};
     }
     QJsonArray messages;

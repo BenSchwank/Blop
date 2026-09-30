@@ -4,9 +4,10 @@
 #include <QWidget>
 
 class QPushButton;
+class QTimer;
 class QVBoxLayout;
 
-/// Slim right dashboard column — shell chrome + weather/modules.
+/// Slim right dashboard column — Notion-style modules + shell chrome.
 /// Customize controls live here (never overlaid on the cover banner).
 class DashRightRail : public QWidget {
   Q_OBJECT
@@ -26,6 +27,15 @@ signals:
   void customizeClicked();
   void moreClicked();
   void undoClicked();
+  void newNoteRequested();
+  void snapToNotesRequested();
+  void studyRequested();
+  void openCalendarRequested();
+  void searchLibrary(const QString &text);
+  void contentChanged();
+
+protected:
+  void paintEvent(QPaintEvent *event) override;
 
 private:
   void applyChrome();
@@ -34,13 +44,25 @@ private:
   void saveModulePrefs() const;
   void hideModule(const QString &id);
   void showModule(const QString &id);
-  void showAddMenu();
+  void showRailMenu();
   void promptWeatherPlace();
+  void promptQuickSearch();
+  void tickFocus();
   bool isSuppressedByBoard(const QString &id) const;
+  bool isModuleVisible(const QString &id) const;
+  static QStringList knownModules();
+  static QString moduleTitle(const QString &id);
 
   QWidget *makeSegment(const QString &id, const QString &title,
                        QWidget *content);
   QWidget *buildWeatherContent();
+  QWidget *buildClockContent();
+  QWidget *buildNextUpContent();
+  QWidget *buildFocusContent();
+  QWidget *buildCaptureContent();
+  QWidget *buildShortcutsContent();
+  QWidget *buildSearchContent();
+  QWidget *buildFavoritesContent();
   QWidget *buildRecentContent();
   QWidget *buildTodosContent();
 
@@ -55,4 +77,8 @@ private:
   QWidget *m_body{nullptr};
   QVBoxLayout *m_bodyLay{nullptr};
   QPushButton *m_btnAdd{nullptr};
+  QTimer *m_clockTimer{nullptr};
+  QTimer *m_focusTick{nullptr};
+  bool m_focusRunning{false};
+  int m_focusSecsLeft{25 * 60};
 };

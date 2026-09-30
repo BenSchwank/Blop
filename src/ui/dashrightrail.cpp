@@ -3,47 +3,164 @@
 #include "blop_dialogs.h"
 #include "blop_inwindow_menu.h"
 #include "blop_theme.h"
+#include "bloplocale.h"
 #include "blopstyle.h"
+#include "calendarservice.h"
 #include "libraryorgstore.h"
 #include "todostore.h"
 #include "uiscale.h"
 #include "weatherservice.h"
 
+#include <QCheckBox>
+#include <QDate>
+#include <QDateTime>
 #include <QFileInfo>
 #include <QFrame>
 #include <QHash>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
+#include <QPainter>
+#include <QPaintEvent>
 #include <QPushButton>
 #include <QSettings>
+#include <QStyle>
+#include <QStyleFactory>
+#include <QTimer>
+#include <QTime>
 #include <QVBoxLayout>
+#include <functional>
 
 namespace {
 constexpr const char *kOrderKey = "dashboard/rightRail.moduleOrder";
 constexpr const char *kHiddenKey = "dashboard/rightRail.hiddenModules";
-constexpr int kRailWidthDp = 132;
-/// Match LibraryIconRail / title-bar shell (warm charcoal, not cool gray).
-QString chromeBg() {
-  return BlopTheme::instance().isDark()
-             ? BlopStyle::obsidianNav().name(QColor::HexRgb)
-             : BlopStyle::paperBg().name(QColor::HexRgb);
-}
+constexpr int kRailWidthDp = 188;
 
+enum class SegStyle { Plain, Soft, Callout };
+
+QColor railFill() {
+  if (BlopTheme::instance().isDark())
+    return QColor(0x27, 0x29, 0x2E);
+  return BlopStyle::paperBg();
+}
 QString railInk() {
   return BlopTheme::instance().isDark()
-             ? QColor(255, 255, 255, 220).name(QColor::HexArgb)
+             ? QColor(255, 255, 255, 230).name(QColor::HexArgb)
              : BlopStyle::paperInk().name(QColor::HexRgb);
 }
 QString railMuted() {
   return BlopTheme::instance().isDark()
-             ? QColor(255, 255, 255, 130).name(QColor::HexArgb)
-             : QColor(55, 53, 47, 160).name(QColor::HexArgb);
+             ? QColor(255, 255, 255, 120).name(QColor::HexArgb)
+             : QColor(55, 53, 47, 140).name(QColor::HexArgb);
 }
-/// Segments sit on the chrome rail — no second card plate (was reading as a
-/// lighter island next to the charcoal left rail / title bar).
-QString segmentBg() { return QStringLiteral("transparent"); }
-QString segmentBorder() { return QStringLiteral("none"); }
+QString hairline() {
+  return BlopTheme::instance().isDark()
+             ? QStringLiteral("rgba(255,255,255,0.08)")
+             : QStringLiteral("rgba(55,53,47,0.10)");
+}
+
+SegStyle styleForModule(const QString &id) {
+  if (id == QLatin1String("weather") || id == QLatin1String("focus"))
+    return SegStyle::Callout;
+  if (id == QLatin1String("clock") || id == QLatin1String("shortcuts") ||
+      id == QLatin1String("favorites") || id == QLatin1String("recent"))
+    return SegStyle::Plain;
+  return SegStyle::Soft;
+}
+
+QString calloutWash(const QString &id) {
+  if (id == QLatin1String("weather")) {
+    return BlopTheme::instance().isDark()
+               ? QStringLiteral("rgba(91,157,255,0.14)")
+               : QStringLiteral("rgba(91,157,255,0.11)");
+  }
+  if (id == QLatin1String("focus")) {
+    return BlopTheme::instance().isDark()
+               ? QStringLiteral("rgba(52,211,153,0.14)")
+               : QStringLiteral("rgba(16,185,129,0.10)");
+  }
+  return BlopTheme::instance().isDark()
+             ? QStringLiteral("rgba(255,255,255,0.04)")
+             : QStringLiteral("rgba(15,23,42,0.03)");
+}
+
+QString softWash() {
+  return BlopTheme::instance().isDark()
+             ? QStringLiteral("rgba(255,255,255,0.04)")
+             : QStringLiteral("rgba(55,53,47,0.04)");
+}
+
+QString fieldBorder() {
+  return BlopTheme::instance().isDark()
+             ? QStringLiteral("1px solid rgba(255,255,255,0.10)")
+             : QStringLiteral("1px solid rgba(55,53,47,0.12)");
+}
+
+QString linkBtnQss() {
+  return QStringLiteral(
+             "QPushButton { color: %1; font-size: 12px; font-weight: 500;"
+             "  background: transparent; border: none; text-align: left;"
+             "  padding: 2px 0; }"
+             "QPushButton:hover { color: %2; }")
+      .arg(railMuted(), BlopTheme::accentPrimary().name(QColor::HexRgb));
+}
+
+QString rowBtnQss() {
+  const QString hover = BlopTheme::instance().isDark()
+                            ? QStringLiteral("rgba(255,255,255,0.06)")
+                            : BlopStyle::paperHover().name(QColor::HexRgb);
+  return QStringLiteral(
+             "QPushButton {"
+             "  text-align: left; padding: 5px 4px;"
+             "  color: %1; font-size: 13px; font-weight: 450;"
+             "  background: transparent; border: none;"
+             "  border-radius: %3px;"
+             "}"
+             "QPushButton:hover { background: %2; }")
+      .arg(railInk(), hover, QString::number(UiScale::dp(6)));
+}
+
+QString todoCheckQss() {
+  const int s = UiScale::dp(16);
+  const int r = UiScale::dp(5);
+  return QStringLiteral(
+             "QCheckBox { color: %1; font-size: 12px; spacing: 8px;"
+             "  background: transparent; }"
+             "QCheckBox::indicator { width: %2px; height: %2px; }"
+             "QCheckBox::indicator:unchecked {"
+             "  border: 1.5px solid %3; border-radius: %4px;"
+             "  background: transparent; }"
+             "QCheckBox::indicator:checked {"
+             "  border: 1.5px solid %5; border-radius: %4px;"
+             "  background: %5; }")
+      .arg(railInk(), QString::number(s), railMuted(), QString::number(r),
+           BlopTheme::accentPrimary().name(QColor::HexRgb));
+}
 } // namespace
+
+QStringList DashRightRail::knownModules() {
+  return {QStringLiteral("weather"),   QStringLiteral("clock"),
+          QStringLiteral("nextup"),    QStringLiteral("focus"),
+          QStringLiteral("capture"),   QStringLiteral("shortcuts"),
+          QStringLiteral("search"),    QStringLiteral("favorites"),
+          QStringLiteral("recent"),    QStringLiteral("todos")};
+}
+
+QString DashRightRail::moduleTitle(const QString &id) {
+  static const QHash<QString, QString> names = {
+      {QStringLiteral("weather"), QStringLiteral("Wetter")},
+      {QStringLiteral("clock"), QStringLiteral("Uhr")},
+      {QStringLiteral("nextup"), QStringLiteral("Als Nächstes")},
+      {QStringLiteral("focus"), QStringLiteral("Fokus")},
+      {QStringLiteral("capture"), QStringLiteral("Schnellnotiz")},
+      {QStringLiteral("shortcuts"), QStringLiteral("Shortcuts")},
+      {QStringLiteral("search"), QStringLiteral("Suche")},
+      {QStringLiteral("favorites"), QStringLiteral("Favoriten")},
+      {QStringLiteral("recent"), QStringLiteral("Zuletzt")},
+      {QStringLiteral("todos"), QStringLiteral("Aufgaben")},
+  };
+  return names.value(id, id);
+}
 
 DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("DashRightRail"));
@@ -52,11 +169,10 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
 
   auto *root = new QVBoxLayout(this);
-  root->setContentsMargins(UiScale::dp(12), UiScale::dp(12), UiScale::dp(10),
+  root->setContentsMargins(UiScale::dp(14), UiScale::dp(12), UiScale::dp(12),
                            UiScale::dp(14));
-  root->setSpacing(UiScale::dp(10));
+  root->setSpacing(UiScale::dp(4));
 
-  // Page controls live in the shell rail — never overlaid on the cover.
   m_chrome = new QWidget(this);
   m_chrome->setObjectName(QStringLiteral("DashRailChrome"));
   m_chrome->setStyleSheet(QStringLiteral("background: transparent;"));
@@ -95,18 +211,27 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   m_body = new QWidget(this);
   m_body->setStyleSheet(QStringLiteral("background: transparent;"));
   m_bodyLay = new QVBoxLayout(m_body);
-  m_bodyLay->setContentsMargins(0, 0, 0, 0);
-  m_bodyLay->setSpacing(UiScale::dp(8));
+  m_bodyLay->setContentsMargins(0, UiScale::dp(4), 0, 0);
+  m_bodyLay->setSpacing(UiScale::dp(6));
   root->addWidget(m_body, 0);
   root->addStretch(1);
 
   m_btnAdd = new QPushButton(QStringLiteral("+ Widget"), this);
   m_btnAdd->setCursor(Qt::PointingHandCursor);
   m_btnAdd->setFlat(true);
-  m_btnAdd->setVisible(false);
-  m_btnAdd->setMinimumHeight(UiScale::dp(30));
-  connect(m_btnAdd, &QPushButton::clicked, this, &DashRightRail::showAddMenu);
+  m_btnAdd->setMinimumHeight(UiScale::dp(34));
+  m_btnAdd->setToolTip(QStringLiteral("Seitenleisten-Widgets ein-/ausblenden"));
+  connect(m_btnAdd, &QPushButton::clicked, this, &DashRightRail::showRailMenu);
   root->addWidget(m_btnAdd, 0);
+
+  m_clockTimer = new QTimer(this);
+  m_clockTimer->setInterval(30000);
+  connect(m_clockTimer, &QTimer::timeout, this, [this]() {
+    if (isModuleVisible(QStringLiteral("clock")) ||
+        isModuleVisible(QStringLiteral("nextup")))
+      rebuildModules();
+  });
+  m_clockTimer->start();
 
   loadModulePrefs();
 
@@ -116,6 +241,8 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
           [this](const QString &msg) {
             BlopDialogs::notify(this, QStringLiteral("Wetter"), msg);
           });
+  connect(&CalendarService::instance(), &CalendarService::eventsChanged, this,
+          &DashRightRail::rebuildModules);
   connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this, [this]() {
     applyChrome();
     rebuildModules();
@@ -143,6 +270,14 @@ void DashRightRail::setUndoAvailable(bool on, int stackDepth) {
 
 QWidget *DashRightRail::overflowAnchor() const { return m_btnMore; }
 
+void DashRightRail::paintEvent(QPaintEvent *event) {
+  Q_UNUSED(event);
+  QPainter p(this);
+  p.fillRect(rect(), railFill());
+  p.fillRect(0, UiScale::dp(12), 1, qMax(0, height() - UiScale::dp(24)),
+             QColor(55, 53, 47, BlopTheme::instance().isDark() ? 40 : 28));
+}
+
 void DashRightRail::refresh() { rebuildModules(); }
 
 void DashRightRail::setBoardOccupiedIds(const QStringList &ids) {
@@ -153,41 +288,51 @@ void DashRightRail::setBoardOccupiedIds(const QStringList &ids) {
 }
 
 bool DashRightRail::isSuppressedByBoard(const QString &id) const {
-  // Never duplicate Zuletzt/Aufgaben that already live on the board.
   if (id != QLatin1String("recent") && id != QLatin1String("todos"))
     return false;
   return m_boardOccupied.contains(id);
+}
+
+bool DashRightRail::isModuleVisible(const QString &id) const {
+  return !m_hiddenModules.contains(id) && !isSuppressedByBoard(id) &&
+         m_moduleOrder.contains(id);
 }
 
 void DashRightRail::loadModulePrefs() {
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   m_moduleOrder = st.value(QLatin1String(kOrderKey)).toStringList();
   m_hiddenModules = st.value(QLatin1String(kHiddenKey)).toStringList();
-  // Drop legacy collapsed preference — rail is always a slim column now.
   st.remove(QStringLiteral("dashboard/rightRail.collapsed"));
 
-  const QStringList known = {QStringLiteral("weather"), QStringLiteral("recent"),
-                             QStringLiteral("todos")};
-  // Fresh install: weather only — recent/todos live on the board.
-  if (!st.contains(QLatin1String(kOrderKey)) &&
-      !st.contains(QLatin1String(kHiddenKey))) {
-    m_moduleOrder = {QStringLiteral("weather")};
-    m_hiddenModules = {QStringLiteral("recent"), QStringLiteral("todos")};
+  const QStringList known = knownModules();
+  constexpr const char *kModulesV4 = "dashboard/rightRail.modulesV4";
+  if (!st.value(QLatin1String(kModulesV4)).toBool()) {
+    st.setValue(QLatin1String(kModulesV4), true);
+    // Expand defaults: useful rail tools, keep board-duplicated lists hidden.
+    m_moduleOrder = {QStringLiteral("weather"), QStringLiteral("clock"),
+                     QStringLiteral("nextup"), QStringLiteral("focus"),
+                     QStringLiteral("capture"), QStringLiteral("shortcuts")};
+    m_hiddenModules = {QStringLiteral("search"), QStringLiteral("favorites"),
+                       QStringLiteral("recent"), QStringLiteral("todos")};
     saveModulePrefs();
-    return;
   }
-  if (m_moduleOrder.isEmpty())
-    m_moduleOrder = {QStringLiteral("weather")};
+
+  if (m_moduleOrder.isEmpty()) {
+    m_moduleOrder = {QStringLiteral("weather"), QStringLiteral("clock"),
+                     QStringLiteral("nextup")};
+  }
+  for (const QString &id : known) {
+    if (!m_moduleOrder.contains(id) && !m_hiddenModules.contains(id))
+      m_hiddenModules.append(id);
+  }
   for (const QString &id : known) {
     if (!m_moduleOrder.contains(id))
       m_moduleOrder.append(id);
   }
 
-  // Force-hide board duplicates (users who still had both after earlier prefs).
-  constexpr const char *kDedupeKey = "dashboard/rightRail.dedupeBoardV3";
+  constexpr const char *kDedupeKey = "dashboard/rightRail.dedupeBoardV4";
   if (!st.value(QLatin1String(kDedupeKey)).toBool()) {
     st.setValue(QLatin1String(kDedupeKey), true);
-    st.setValue(QStringLiteral("dashboard/rightRail.dedupeBoardV1"), true);
     if (!m_hiddenModules.contains(QStringLiteral("recent")))
       m_hiddenModules.append(QStringLiteral("recent"));
     if (!m_hiddenModules.contains(QStringLiteral("todos")))
@@ -221,62 +366,77 @@ void DashRightRail::applyChrome() {
   if (!m_btnAdd)
     return;
   setStyleSheet(QStringLiteral(
-      "QWidget#DashRightRail {"
-      "  background: %1;"
-      "  border: none;"
-      "  border-left: 1px solid %2;"
-      "}")
-                    .arg(chromeBg(),
-                         BlopTheme::instance().isDark()
-                             ? QStringLiteral("rgba(255,255,255,0.06)")
-                             : QStringLiteral("rgba(15,23,42,0.08)")));
+      "QWidget#DashRightRail { background: %1; border: none; }")
+                    .arg(railFill().name(QColor::HexRgb)));
+
   const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
-  const QString quiet =
-      QStringLiteral("QPushButton {"
-                     "  color: %1; font-size: 11px; font-weight: 500;"
-                     "  background: transparent; border: none;"
-                     "  border-radius: %2px; padding: 4px 2px;"
-                     "}"
-                     "QPushButton:hover { color: %3; }"
-                     "QPushButton:disabled { color: %4; }")
-          .arg(railMuted(), QString::number(UiScale::dp(6)), acc,
-               BlopTheme::instance().isDark()
-                   ? QStringLiteral("rgba(255,255,255,0.25)")
-                   : QStringLiteral("rgba(55,53,47,0.28)"));
+  const int rad = UiScale::dp(BlopStyle::radiusMdDp());
+
   if (m_btnCustomize) {
     m_btnCustomize->setText(m_editMode ? QStringLiteral("Fertig")
                                        : QStringLiteral("Anpassen"));
-    m_btnCustomize->setStyleSheet(
-        QStringLiteral("QPushButton {"
-                       "  color: %1; font-size: 12px; font-weight: %2;"
-                       "  background: transparent; border: none;"
-                       "  border-radius: %3px; padding: 4px 2px;"
-                       "  text-align: left;"
-                       "}"
-                       "QPushButton:hover { color: %4; }")
-            .arg(m_editMode ? acc : railMuted(),
-                 m_editMode ? QStringLiteral("600") : QStringLiteral("500"),
-                 QString::number(UiScale::dp(6)), acc));
+    if (m_editMode) {
+      m_btnCustomize->setStyleSheet(
+          QStringLiteral("QPushButton {"
+                         "  color: %1; font-size: 13px; font-weight: 600;"
+                         "  background: rgba(%2,%3,%4,0.16); border: none;"
+                         "  border-radius: %5px; padding: 6px 10px;"
+                         "  text-align: left;"
+                         "}"
+                         "QPushButton:hover { background: rgba(%2,%3,%4,0.24); }")
+              .arg(acc)
+              .arg(BlopTheme::accentPrimary().red())
+              .arg(BlopTheme::accentPrimary().green())
+              .arg(BlopTheme::accentPrimary().blue())
+              .arg(rad));
+    } else {
+      m_btnCustomize->setStyleSheet(
+          QStringLiteral("QPushButton {"
+                         "  color: %1; font-size: 13px; font-weight: 500;"
+                         "  background: transparent; border: none;"
+                         "  border-radius: %2px; padding: 4px 2px;"
+                         "  text-align: left;"
+                         "}"
+                         "QPushButton:hover { color: %3; }")
+              .arg(railMuted(), QString::number(rad), acc));
+    }
   }
+
+  const QString ghostIcon =
+      QStringLiteral("QPushButton {"
+                     "  color: %1; font-size: 16px; font-weight: 500;"
+                     "  background: transparent; border: none;"
+                     "  border-radius: %2px; padding: 0;"
+                     "}"
+                     "QPushButton:hover { color: %3; background: %4; }"
+                     "QPushButton:disabled { color: %5; }")
+          .arg(railMuted(), QString::number(rad), acc,
+               BlopTheme::instance().isDark()
+                   ? QStringLiteral("rgba(255,255,255,0.06)")
+                   : QStringLiteral("rgba(15,23,42,0.05)"),
+               BlopTheme::instance().isDark()
+                   ? QStringLiteral("rgba(255,255,255,0.22)")
+                   : QStringLiteral("rgba(55,53,47,0.28)"));
   if (m_btnUndo) {
-    m_btnUndo->setStyleSheet(quiet);
+    m_btnUndo->setStyleSheet(ghostIcon);
     m_btnUndo->setVisible(m_editMode);
   }
   if (m_btnMore) {
-    m_btnMore->setStyleSheet(quiet);
-    // Overflow only in edit — one entry point (Anpassen) otherwise.
+    m_btnMore->setStyleSheet(ghostIcon);
     m_btnMore->setVisible(m_editMode);
   }
+
+  m_btnAdd->setVisible(m_editMode);
+  m_btnAdd->setEnabled(m_editMode);
+  m_btnAdd->setText(QStringLiteral("+ Widget"));
   m_btnAdd->setStyleSheet(
       QStringLiteral("QPushButton {"
-                     "  color: %1; font-size: 11px; font-weight: 550;"
+                     "  color: %1; font-size: 13px; font-weight: 500;"
                      "  background: transparent; border: none;"
-                     "  border-radius: %2px; padding: 6px 4px; text-align: left;"
+                     "  border-radius: %2px; padding: 10px 2px; text-align: left;"
                      "}"
                      "QPushButton:hover { color: %3; }")
-          .arg(railMuted(), QString::number(UiScale::dp(8)), acc));
-  const bool anyHidden = !m_hiddenModules.isEmpty();
-  m_btnAdd->setVisible(m_editMode && anyHidden);
+          .arg(railMuted(), QString::number(rad), acc));
 }
 
 void DashRightRail::rebuildModules() {
@@ -293,22 +453,31 @@ void DashRightRail::rebuildModules() {
       continue;
     if (isSuppressedByBoard(id))
       continue;
-    // Prefs win: if the user re-enabled a module in Anpassen, keep it after Fertig
-    // — unless the board already shows the same block (see isSuppressedByBoard).
+
     QWidget *content = nullptr;
-    QString title;
-    if (id == QLatin1String("weather")) {
-      title = QStringLiteral("Wetter");
+    if (id == QLatin1String("weather"))
       content = buildWeatherContent();
-    } else if (id == QLatin1String("recent")) {
-      title = QStringLiteral("Zuletzt");
+    else if (id == QLatin1String("clock"))
+      content = buildClockContent();
+    else if (id == QLatin1String("nextup"))
+      content = buildNextUpContent();
+    else if (id == QLatin1String("focus"))
+      content = buildFocusContent();
+    else if (id == QLatin1String("capture"))
+      content = buildCaptureContent();
+    else if (id == QLatin1String("shortcuts"))
+      content = buildShortcutsContent();
+    else if (id == QLatin1String("search"))
+      content = buildSearchContent();
+    else if (id == QLatin1String("favorites"))
+      content = buildFavoritesContent();
+    else if (id == QLatin1String("recent"))
       content = buildRecentContent();
-    } else if (id == QLatin1String("todos")) {
-      title = QStringLiteral("Aufgaben");
+    else if (id == QLatin1String("todos"))
       content = buildTodosContent();
-    }
+
     if (content)
-      m_bodyLay->addWidget(makeSegment(id, title, content), 0);
+      m_bodyLay->addWidget(makeSegment(id, moduleTitle(id), content), 0);
   }
   applyChrome();
 }
@@ -318,18 +487,34 @@ QWidget *DashRightRail::makeSegment(const QString &id, const QString &title,
   auto *seg = new QFrame(m_body);
   seg->setObjectName(QStringLiteral("DashRailSegment"));
   seg->setAttribute(Qt::WA_StyledBackground, true);
-  const int rad = UiScale::dp(BlopStyle::radiusMdDp());
+  const int rad = UiScale::dp(10);
+  const SegStyle style = styleForModule(id);
+
+  QString bg = QStringLiteral("transparent");
+  QString border = QStringLiteral("none");
+  int padX = UiScale::dp(2);
+  int padY = UiScale::dp(10);
+  if (style == SegStyle::Callout) {
+    bg = calloutWash(id);
+    border = QStringLiteral("1px solid %1").arg(hairline());
+    padX = UiScale::dp(12);
+    padY = UiScale::dp(12);
+  } else if (style == SegStyle::Soft) {
+    bg = softWash();
+    padX = UiScale::dp(10);
+    padY = UiScale::dp(10);
+  }
+
   seg->setStyleSheet(
       QStringLiteral("QFrame#DashRailSegment {"
                      "  background: %1;"
                      "  border: %2;"
                      "  border-radius: %3px;"
                      "}")
-          .arg(segmentBg(), segmentBorder(), QString::number(rad)));
+          .arg(bg, border, QString::number(rad)));
 
   auto *lay = new QVBoxLayout(seg);
-  lay->setContentsMargins(UiScale::dp(10), UiScale::dp(8), UiScale::dp(6),
-                          UiScale::dp(10));
+  lay->setContentsMargins(padX, padY, padX, padY);
   lay->setSpacing(UiScale::dp(5));
 
   auto *hdr = new QWidget(seg);
@@ -339,32 +524,40 @@ QWidget *DashRightRail::makeSegment(const QString &id, const QString &title,
 
   auto *cap = new QLabel(title, hdr);
   cap->setStyleSheet(
-      QStringLiteral("color: %1; font-size: 12px; font-weight: 550;"
-                     "letter-spacing: -0.2px; background: transparent;")
+      QStringLiteral("color: %1; font-size: 11px; font-weight: 500;"
+                     "letter-spacing: 0.3px; background: transparent;")
           .arg(railMuted()));
   hdrLay->addWidget(cap, 1);
 
   auto *dismiss = new QPushButton(QStringLiteral("×"), hdr);
   dismiss->setCursor(Qt::PointingHandCursor);
   dismiss->setFlat(true);
-  dismiss->setFixedSize(UiScale::dp(20), UiScale::dp(20));
-  dismiss->setToolTip(QStringLiteral("Segment ausblenden"));
+  dismiss->setFixedSize(UiScale::dp(22), UiScale::dp(22));
+  dismiss->setToolTip(QStringLiteral("Ausblenden"));
   dismiss->setVisible(m_editMode);
   dismiss->setStyleSheet(
       QStringLiteral("QPushButton {"
                      "  color: %1; background: transparent; border: none;"
-                     "  font-size: 13px; font-weight: 400; padding: 0;"
+                     "  font-size: 14px; padding: 0;"
                      "}"
                      "QPushButton:hover { color: %2; }")
           .arg(railMuted(), railInk()));
-  connect(dismiss, &QPushButton::clicked, this, [this, id]() {
-    hideModule(id);
-  });
+  connect(dismiss, &QPushButton::clicked, this,
+          [this, id]() { hideModule(id); });
   hdrLay->addWidget(dismiss, 0, Qt::AlignTop);
   lay->addWidget(hdr, 0);
 
   content->setParent(seg);
   lay->addWidget(content, 0);
+
+  if (style == SegStyle::Plain) {
+    auto *rule = new QFrame(seg);
+    rule->setFixedHeight(1);
+    rule->setStyleSheet(
+        QStringLiteral("background: %1; border: none;").arg(hairline()));
+    lay->addSpacing(UiScale::dp(6));
+    lay->addWidget(rule);
+  }
   return seg;
 }
 
@@ -376,35 +569,54 @@ QWidget *DashRightRail::buildWeatherContent() {
 
   const auto snap = WeatherService::instance().current();
   if (!WeatherService::instance().hasLocation()) {
-    auto *empty = new QLabel(QStringLiteral("Ort wählen"), box);
-    empty->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 12px; background: transparent;")
-            .arg(railMuted()));
-    lay->addWidget(empty);
-  } else if (snap.valid) {
-    auto *temp = new QLabel(
+    auto *setOrt = new QPushButton(QStringLiteral("Ort festlegen"), box);
+    setOrt->setCursor(Qt::PointingHandCursor);
+    setOrt->setFlat(true);
+    setOrt->setStyleSheet(
+        QStringLiteral("QPushButton { color: %1; font-size: 13px; font-weight: 550;"
+                       "  background: transparent; border: none; text-align: left; }"
+                       "QPushButton:hover { color: %2; }")
+            .arg(BlopTheme::accentPrimary().name(QColor::HexRgb),
+                 BlopTheme::accentHover().name(QColor::HexRgb)));
+    connect(setOrt, &QPushButton::clicked, this,
+            &DashRightRail::promptWeatherPlace);
+    lay->addWidget(setOrt, 0, Qt::AlignLeft);
+    return box;
+  }
+
+  if (snap.valid) {
+    auto *temp = new QPushButton(
         QStringLiteral("%1°").arg(QString::number(snap.tempC, 'f', 0)), box);
+    temp->setFlat(true);
+    temp->setCursor(Qt::PointingHandCursor);
+    temp->setToolTip(QStringLiteral("Aktualisieren"));
     temp->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 20px; font-weight: 600;"
-                       "letter-spacing: -0.5px; background: transparent;")
-            .arg(railInk()));
-    lay->addWidget(temp);
+        QStringLiteral("QPushButton { color: %1; font-size: 32px; font-weight: 700;"
+                       "  letter-spacing: -1.2px; background: transparent;"
+                       "  border: none; text-align: left; padding: 0; }"
+                       "QPushButton:hover { color: %2; }")
+            .arg(railInk(), BlopTheme::accentPrimary().name(QColor::HexRgb)));
+    connect(temp, &QPushButton::clicked, this,
+            []() { WeatherService::instance().refresh(true); });
+    lay->addWidget(temp, 0, Qt::AlignLeft);
+
     auto *sum = new QLabel(snap.summary, box);
     sum->setWordWrap(true);
     sum->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 11px; background: transparent;")
-            .arg(railMuted()));
+        QStringLiteral("color: %1; font-size: 13px; font-weight: 500;"
+                       "background: transparent;")
+            .arg(railInk()));
     lay->addWidget(sum);
+
     auto *place = new QLabel(snap.placeLabel, box);
     place->setWordWrap(true);
     place->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 10px; background: transparent;")
+        QStringLiteral("color: %1; font-size: 11px; background: transparent;")
             .arg(railMuted()));
     lay->addWidget(place);
   } else {
-    auto *err = new QLabel(snap.error.isEmpty() ? QStringLiteral("…")
-                                                : snap.error,
-                           box);
+    auto *err = new QLabel(
+        snap.error.isEmpty() ? QStringLiteral("…") : snap.error, box);
     err->setWordWrap(true);
     err->setStyleSheet(
         QStringLiteral("color: %1; font-size: 12px; background: transparent;")
@@ -412,22 +624,209 @@ QWidget *DashRightRail::buildWeatherContent() {
     lay->addWidget(err);
   }
 
-  auto *setOrt = new QPushButton(
-      WeatherService::instance().hasLocation() ? QStringLiteral("Ort")
-                                               : QStringLiteral("Festlegen"),
-      box);
+  auto *setOrt = new QPushButton(QStringLiteral("Ort ändern"), box);
   setOrt->setCursor(Qt::PointingHandCursor);
   setOrt->setFlat(true);
-  setOrt->setStyleSheet(
-      QStringLiteral("QPushButton { color: %1; font-size: 11px; font-weight: 600;"
-                     "  background: transparent; border: none; text-align: left;"
-                     "  padding: 4px 0 0 0; }"
-                     "QPushButton:hover { color: %2; }")
-          .arg(BlopTheme::accentPrimary().name(QColor::HexRgb),
-               BlopTheme::accentHover().name(QColor::HexRgb)));
+  setOrt->setStyleSheet(linkBtnQss());
   connect(setOrt, &QPushButton::clicked, this,
           &DashRightRail::promptWeatherPlace);
   lay->addWidget(setOrt, 0, Qt::AlignLeft);
+  return box;
+}
+
+QWidget *DashRightRail::buildClockContent() {
+  auto *box = new QWidget();
+  auto *lay = new QVBoxLayout(box);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(1));
+
+  const QTime now = QTime::currentTime();
+  auto *time = new QLabel(now.toString(QStringLiteral("HH:mm")), box);
+  time->setStyleSheet(
+      QStringLiteral("color: %1; font-size: 34px; font-weight: 700;"
+                     "letter-spacing: -1.4px; background: transparent;")
+          .arg(railInk()));
+  lay->addWidget(time);
+
+  auto *date = new QLabel(
+      BlopLocale::instance().formatDate(QDate::currentDate(),
+                                        QStringLiteral("dddd, d. MMM")),
+      box);
+  date->setWordWrap(true);
+  date->setStyleSheet(
+      QStringLiteral("color: %1; font-size: 12px; font-weight: 450;"
+                     "background: transparent;")
+          .arg(railMuted()));
+  lay->addWidget(date);
+  return box;
+}
+
+QWidget *DashRightRail::buildNextUpContent() {
+  auto *box = new QWidget();
+  auto *lay = new QVBoxLayout(box);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(8));
+
+  const auto upcoming = CalendarService::instance().upcoming(3);
+  if (upcoming.isEmpty()) {
+    auto *empty = new QLabel(QStringLiteral("Keine Termine"), box);
+    empty->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 13px; background: transparent;")
+            .arg(railMuted()));
+    lay->addWidget(empty);
+  } else {
+    const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
+    for (const auto &e : upcoming) {
+      auto *row = new QWidget(box);
+      auto *rowLay = new QHBoxLayout(row);
+      rowLay->setContentsMargins(0, 0, 0, 0);
+      rowLay->setSpacing(UiScale::dp(8));
+
+      auto *bar = new QFrame(row);
+      bar->setFixedWidth(UiScale::dp(3));
+      bar->setMinimumHeight(UiScale::dp(28));
+      bar->setStyleSheet(
+          QStringLiteral("background: %1; border: none; border-radius: 2px;")
+              .arg(acc));
+      rowLay->addWidget(bar, 0);
+
+      auto *col = new QWidget(row);
+      auto *colLay = new QVBoxLayout(col);
+      colLay->setContentsMargins(0, 0, 0, 0);
+      colLay->setSpacing(UiScale::dp(1));
+
+      auto *title = new QLabel(
+          e.title.isEmpty() ? QStringLiteral("Termin") : e.title, col);
+      title->setWordWrap(true);
+      title->setStyleSheet(
+          QStringLiteral("color: %1; font-size: 13px; font-weight: 550;"
+                         "background: transparent;")
+              .arg(railInk()));
+      colLay->addWidget(title);
+
+      const QString when =
+          e.allDay ? BlopLocale::instance().formatDate(e.start.date(),
+                                                       QStringLiteral("d. MMM"))
+                   : e.start.toString(QStringLiteral("ddd · HH:mm"));
+      auto *meta = new QLabel(when, col);
+      meta->setStyleSheet(
+          QStringLiteral("color: %1; font-size: 11px; background: transparent;")
+              .arg(railMuted()));
+      colLay->addWidget(meta);
+      rowLay->addWidget(col, 1);
+      lay->addWidget(row);
+    }
+  }
+
+  auto *open = new QPushButton(QStringLiteral("Kalender öffnen"), box);
+  open->setCursor(Qt::PointingHandCursor);
+  open->setFlat(true);
+  open->setStyleSheet(linkBtnQss());
+  connect(open, &QPushButton::clicked, this,
+          &DashRightRail::openCalendarRequested);
+  lay->addWidget(open, 0, Qt::AlignLeft);
+  return box;
+}
+
+QWidget *DashRightRail::buildShortcutsContent() {
+  auto *box = new QWidget();
+  auto *lay = new QVBoxLayout(box);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(2));
+
+  struct Item {
+    const char *label;
+    std::function<void()> fire;
+  };
+  const QList<Item> items = {
+      {"Neue Notiz", [this]() { emit newNoteRequested(); }},
+      {"Bibliothek", [this]() { emit snapToNotesRequested(); }},
+      {"Lernen", [this]() { emit studyRequested(); }},
+      {"Kalender", [this]() { emit openCalendarRequested(); }},
+  };
+  for (const auto &it : items) {
+    auto *btn = new QPushButton(QString::fromUtf8(it.label), box);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFlat(true);
+    btn->setStyleSheet(rowBtnQss());
+    connect(btn, &QPushButton::clicked, this, it.fire);
+    lay->addWidget(btn);
+  }
+  return box;
+}
+
+QWidget *DashRightRail::buildSearchContent() {
+  auto *box = new QWidget();
+  auto *lay = new QVBoxLayout(box);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(6));
+
+  auto *edit = new QLineEdit(box);
+  edit->setPlaceholderText(QStringLiteral("Notizen suchen…"));
+  edit->setClearButtonEnabled(true);
+  const int rad = UiScale::dp(BlopStyle::radiusMdDp());
+  edit->setStyleSheet(
+      QStringLiteral("QLineEdit {"
+                     "  color: %1; background: %2; border: %3;"
+                     "  border-radius: %4px; padding: 7px 9px; font-size: 13px;"
+                     "}"
+                     "QLineEdit:focus { border: 1px solid %5; }")
+          .arg(railInk(),
+               BlopTheme::instance().isDark()
+                   ? QStringLiteral("rgba(0,0,0,0.22)")
+                   : QStringLiteral("rgba(255,255,255,0.72)"),
+               fieldBorder(), QString::number(rad),
+               BlopTheme::accentPrimary().name(QColor::HexRgb)));
+  connect(edit, &QLineEdit::returnPressed, this, [this, edit]() {
+    const QString q = edit->text().trimmed();
+    if (!q.isEmpty())
+      emit searchLibrary(q);
+  });
+  lay->addWidget(edit);
+
+  auto *go = new QPushButton(QStringLiteral("Suchen"), box);
+  go->setCursor(Qt::PointingHandCursor);
+  go->setFlat(true);
+  go->setStyleSheet(linkBtnQss());
+  connect(go, &QPushButton::clicked, this, [this, edit]() {
+    const QString q = edit->text().trimmed();
+    if (!q.isEmpty())
+      emit searchLibrary(q);
+    else
+      promptQuickSearch();
+  });
+  lay->addWidget(go, 0, Qt::AlignLeft);
+  return box;
+}
+
+QWidget *DashRightRail::buildFavoritesContent() {
+  auto *box = new QWidget();
+  auto *lay = new QVBoxLayout(box);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(2));
+
+  const QStringList paths = LibraryOrgStore::favoritePaths();
+  if (paths.isEmpty()) {
+    auto *empty = new QLabel(QStringLiteral("Keine Favoriten"), box);
+    empty->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 12px; background: transparent;")
+            .arg(railMuted()));
+    lay->addWidget(empty);
+    return box;
+  }
+  int n = 0;
+  for (const QString &path : paths) {
+    if (n >= 5)
+      break;
+    auto *btn = new QPushButton(QFileInfo(path).completeBaseName(), box);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFlat(true);
+    btn->setStyleSheet(rowBtnQss());
+    connect(btn, &QPushButton::clicked, this,
+            [this, path]() { emit openNotePath(path); });
+    lay->addWidget(btn);
+    ++n;
+  }
   return box;
 }
 
@@ -435,9 +834,9 @@ QWidget *DashRightRail::buildRecentContent() {
   auto *box = new QWidget();
   auto *lay = new QVBoxLayout(box);
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(0);
+  lay->setSpacing(UiScale::dp(2));
 
-  const QStringList paths = LibraryOrgStore::recentPaths(4);
+  const QStringList paths = LibraryOrgStore::recentPaths(5);
   if (paths.isEmpty()) {
     auto *empty = new QLabel(QStringLiteral("Leer"), box);
     empty->setStyleSheet(
@@ -446,25 +845,13 @@ QWidget *DashRightRail::buildRecentContent() {
     lay->addWidget(empty);
     return box;
   }
-  const QString hover = BlopTheme::instance().isDark()
-                            ? QStringLiteral("rgba(255,255,255,0.05)")
-                            : BlopStyle::paperHover().name(QColor::HexRgb);
   for (const QString &path : paths) {
     auto *btn = new QPushButton(QFileInfo(path).completeBaseName(), box);
     btn->setCursor(Qt::PointingHandCursor);
     btn->setFlat(true);
-    btn->setStyleSheet(
-        QStringLiteral("QPushButton {"
-                       "  text-align: left; padding: 5px 2px;"
-                       "  color: %1; font-size: 12px; font-weight: 500;"
-                       "  background: transparent; border: none;"
-                       "  border-radius: 4px;"
-                       "}"
-                       "QPushButton:hover { background: %2; }")
-            .arg(railInk(), hover));
-    connect(btn, &QPushButton::clicked, this, [this, path]() {
-      emit openNotePath(path);
-    });
+    btn->setStyleSheet(rowBtnQss());
+    connect(btn, &QPushButton::clicked, this,
+            [this, path]() { emit openNotePath(path); });
     lay->addWidget(btn);
   }
   return box;
@@ -474,18 +861,26 @@ QWidget *DashRightRail::buildTodosContent() {
   auto *box = new QWidget();
   auto *lay = new QVBoxLayout(box);
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(UiScale::dp(3));
+  lay->setSpacing(UiScale::dp(4));
+
+  if (QStyle *fusion = QStyleFactory::create(QStringLiteral("Fusion")))
+    box->setStyle(fusion);
 
   int shown = 0;
   for (const auto &t : TodoStore::load()) {
-    if (t.done || shown >= 4)
+    if (t.done || shown >= 5)
       continue;
-    auto *row = new QLabel(QStringLiteral("·  %1").arg(t.title), box);
-    row->setWordWrap(true);
-    row->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 12px; background: transparent;")
-            .arg(railInk()));
-    lay->addWidget(row);
+    auto *cb = new QCheckBox(t.title, box);
+    cb->setStyleSheet(todoCheckQss());
+    const QString id = t.id;
+    connect(cb, &QCheckBox::toggled, this, [this, id](bool on) {
+      if (!on)
+        return;
+      TodoStore::setDone(id, true);
+      emit contentChanged();
+      rebuildModules();
+    });
+    lay->addWidget(cb);
     ++shown;
   }
   if (shown == 0) {
@@ -500,31 +895,173 @@ QWidget *DashRightRail::buildTodosContent() {
 
 void DashRightRail::promptWeatherPlace() {
   const QString q = BlopDialogs::promptText(
-      this, QStringLiteral("Wetter-Ort"),
-      QStringLiteral("Stadt oder Ort:"),
+      this, QStringLiteral("Wetter-Ort"), QStringLiteral("Stadt oder Ort:"),
       WeatherService::instance().current().placeLabel);
   if (q.trimmed().isEmpty())
     return;
   WeatherService::instance().searchPlace(q.trimmed());
 }
 
-void DashRightRail::showAddMenu() {
+void DashRightRail::promptQuickSearch() {
+  const QString q = BlopDialogs::promptText(
+      this, QStringLiteral("Suche"), QStringLiteral("Notizen durchsuchen:"),
+      QString());
+  if (!q.trimmed().isEmpty())
+    emit searchLibrary(q.trimmed());
+}
+
+void DashRightRail::showRailMenu() {
   QList<BlopInWindowMenu::Item> items;
-  const QHash<QString, QString> names = {
-      {QStringLiteral("weather"), QStringLiteral("Wetter")},
-      {QStringLiteral("recent"), QStringLiteral("Zuletzt")},
-      {QStringLiteral("todos"), QStringLiteral("Aufgaben")},
-  };
-  for (const QString &id : m_hiddenModules) {
+  for (const QString &id : knownModules()) {
+    // Board already owns these — offering them would silently add nothing.
+    if (isSuppressedByBoard(id))
+      continue;
+    const bool visible = isModuleVisible(id);
     BlopInWindowMenu::Item it;
-    it.label = QStringLiteral("+ %1").arg(names.value(id, id));
-    it.handler = [this, id]() { showModule(id); };
+    if (visible) {
+      it.label = QStringLiteral("✓  %1").arg(moduleTitle(id));
+      it.handler = [this, id]() { hideModule(id); };
+    } else {
+      it.label = QStringLiteral("+  %1").arg(moduleTitle(id));
+      it.handler = [this, id]() { showModule(id); };
+    }
     items.push_back(it);
   }
   if (items.isEmpty())
     return;
-  const QPoint g =
-      m_btnAdd ? m_btnAdd->mapToGlobal(QPoint(0, m_btnAdd->height()))
-               : mapToGlobal(QPoint(0, height()));
-  BlopInWindowMenu::show(this, g, items);
+  BlopInWindowMenu::show(
+      this, m_btnAdd->mapToGlobal(QPoint(0, m_btnAdd->height())), items);
+}
+
+QWidget *DashRightRail::buildFocusContent() {
+  auto *box = new QWidget();
+  auto *lay = new QVBoxLayout(box);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(6));
+
+  const int mins = m_focusSecsLeft / 60;
+  const int secs = m_focusSecsLeft % 60;
+  auto *lbl = new QLabel(QStringLiteral("%1:%2")
+                             .arg(mins, 2, 10, QLatin1Char('0'))
+                             .arg(secs, 2, 10, QLatin1Char('0')),
+                         box);
+  lbl->setObjectName(QStringLiteral("DashFocusLabel"));
+  lbl->setStyleSheet(
+      QStringLiteral("color: %1; font-size: 30px; font-weight: 700;"
+                     "letter-spacing: -1.0px; background: transparent;")
+          .arg(railInk()));
+  lay->addWidget(lbl);
+
+  auto *hint = new QLabel(QStringLiteral("Fokus · Pomodoro"), box);
+  hint->setStyleSheet(
+      QStringLiteral("color: %1; font-size: 11px; background: transparent;")
+          .arg(railMuted()));
+  lay->addWidget(hint);
+
+  auto *row = new QWidget(box);
+  auto *rowLay = new QHBoxLayout(row);
+  rowLay->setContentsMargins(0, 0, 0, 0);
+  rowLay->setSpacing(UiScale::dp(8));
+
+  auto *toggle = new QPushButton(
+      m_focusRunning ? QStringLiteral("Pause") : QStringLiteral("Start"), row);
+  toggle->setCursor(Qt::PointingHandCursor);
+  toggle->setFlat(true);
+  toggle->setStyleSheet(linkBtnQss());
+  connect(toggle, &QPushButton::clicked, this, [this]() {
+    m_focusRunning = !m_focusRunning;
+    if (m_focusRunning) {
+      if (!m_focusTick) {
+        m_focusTick = new QTimer(this);
+        m_focusTick->setInterval(1000);
+        connect(m_focusTick, &QTimer::timeout, this, &DashRightRail::tickFocus);
+      }
+      m_focusTick->start();
+    } else if (m_focusTick) {
+      m_focusTick->stop();
+    }
+    rebuildModules();
+  });
+  rowLay->addWidget(toggle, 0);
+
+  auto *reset = new QPushButton(QStringLiteral("25 Min"), row);
+  reset->setCursor(Qt::PointingHandCursor);
+  reset->setFlat(true);
+  reset->setStyleSheet(linkBtnQss());
+  connect(reset, &QPushButton::clicked, this, [this]() {
+    m_focusRunning = false;
+    m_focusSecsLeft = 25 * 60;
+    if (m_focusTick)
+      m_focusTick->stop();
+    rebuildModules();
+  });
+  rowLay->addWidget(reset, 0);
+  rowLay->addStretch(1);
+  lay->addWidget(row);
+  return box;
+}
+
+void DashRightRail::tickFocus() {
+  if (!m_focusRunning)
+    return;
+  if (m_focusSecsLeft <= 0) {
+    m_focusRunning = false;
+    if (m_focusTick)
+      m_focusTick->stop();
+    BlopDialogs::notify(this, QStringLiteral("Fokus"),
+                        QStringLiteral("25 Minuten geschafft."));
+    m_focusSecsLeft = 25 * 60;
+    rebuildModules();
+    return;
+  }
+  --m_focusSecsLeft;
+  if (auto *lbl = findChild<QLabel *>(QStringLiteral("DashFocusLabel"))) {
+    const int mins = m_focusSecsLeft / 60;
+    const int secs = m_focusSecsLeft % 60;
+    lbl->setText(QStringLiteral("%1:%2")
+                     .arg(mins, 2, 10, QLatin1Char('0'))
+                     .arg(secs, 2, 10, QLatin1Char('0')));
+  }
+}
+
+QWidget *DashRightRail::buildCaptureContent() {
+  auto *box = new QWidget();
+  auto *lay = new QVBoxLayout(box);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(UiScale::dp(6));
+
+  auto *edit = new QLineEdit(box);
+  edit->setPlaceholderText(QStringLiteral("Aufgabe notieren…"));
+  edit->setClearButtonEnabled(true);
+  const int rad = UiScale::dp(BlopStyle::radiusMdDp());
+  edit->setStyleSheet(
+      QStringLiteral("QLineEdit {"
+                     "  color: %1; background: %2; border: %3;"
+                     "  border-radius: %4px; padding: 7px 9px; font-size: 13px;"
+                     "}"
+                     "QLineEdit:focus { border: 1px solid %5; }")
+          .arg(railInk(),
+               BlopTheme::instance().isDark()
+                   ? QStringLiteral("rgba(0,0,0,0.22)")
+                   : QStringLiteral("rgba(255,255,255,0.72)"),
+               fieldBorder(), QString::number(rad),
+               BlopTheme::accentPrimary().name(QColor::HexRgb)));
+  auto addTask = [this, edit]() {
+    const QString t = edit->text().trimmed();
+    if (t.isEmpty())
+      return;
+    TodoStore::add(t);
+    edit->clear();
+    emit contentChanged();
+  };
+  connect(edit, &QLineEdit::returnPressed, this, addTask);
+  lay->addWidget(edit);
+
+  auto *go = new QPushButton(QStringLiteral("Hinzufügen"), box);
+  go->setCursor(Qt::PointingHandCursor);
+  go->setFlat(true);
+  go->setStyleSheet(linkBtnQss());
+  connect(go, &QPushButton::clicked, this, addTask);
+  lay->addWidget(go, 0, Qt::AlignLeft);
+  return box;
 }

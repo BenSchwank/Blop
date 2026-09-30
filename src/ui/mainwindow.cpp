@@ -4005,6 +4005,8 @@ void MainWindow::applyBrandMark() {
   }
   if (m_lblBrand && m_brandIsBanner)
     m_lblBrand->hide();
+  if (m_libraryIconRail)
+    m_libraryIconRail->setBrandPixmap(src);
 }
 
 void MainWindow::showAndroidStudyBootRetry() {
@@ -4040,7 +4042,9 @@ void MainWindow::setupTitleBar() {
   btnEditorMenu->setIcon(createModernIcon("menu", BlopTheme::textPrimary()));
   btnEditorMenu->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp()),
                               UiScale::dp(BlopStyle::touchTargetMinDp()));
-  btnEditorMenu->setToolTip("Navigation");
+  btnEditorMenu->setToolTip(QStringLiteral("Hauptmenü"));
+  btnEditorMenu->setCursor(Qt::PointingHandCursor);
+  btnEditorMenu->setFocusPolicy(Qt::StrongFocus);
   btnEditorMenu->setStyleSheet(
       QStringLiteral(
           "QToolButton {"
@@ -4048,8 +4052,12 @@ void MainWindow::setupTitleBar() {
           "}"
           "QToolButton:hover {"
           "  background: %1;"
+          "}"
+          "QToolButton:pressed {"
+          "  background: %2;"
           "}")
-          .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb)));
+          .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb),
+               BlopTheme::accentPrimary().name(QColor::HexArgb)));
   connect(btnEditorMenu, &QAbstractButton::clicked, this,
           &MainWindow::onToggleSidebar);
   mainLayout->addWidget(btnEditorMenu);
@@ -5518,9 +5526,16 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
     // enough that the click becomes HTCAPTION (drag) or a resize. Treat the
     // button rect itself as client before any edge or caption test.
     if (btnEditorMenu && btnEditorMenu->isVisible()) {
+      const QPoint origin = btnEditorMenu->mapTo(this, QPoint(0, 0));
       const int pad = UiScale::dp(8);
-      const QRect hit = btnEditorMenu->rect().adjusted(-pad, -pad, pad, pad);
-      if (hit.contains(btnEditorMenu->mapFrom(this, pos))) {
+      // Full title-bar height, including the top resize strip, so a finger
+      // or a click on the glyph is never turned into a window drag.
+      const QRect hit(origin.x() - pad, 0,
+                      btnEditorMenu->width() + pad * 2,
+                      qMax(m_titleBarWidget ? m_titleBarWidget->height()
+                                           : btnEditorMenu->height(),
+                           origin.y() + btnEditorMenu->height() + pad));
+      if (hit.contains(pos)) {
         *result = HTCLIENT;
         return true;
       }
@@ -10081,6 +10096,8 @@ void MainWindow::setupSidebar() {
   m_libraryIconRail = new LibraryIconRail(m_sidebarContainer);
   m_libraryIconRail->setAccentColor(m_currentAccentColor);
   shellLay->addWidget(m_libraryIconRail, 0);
+  connect(m_libraryIconRail, &LibraryIconRail::menuToggled, this,
+          &MainWindow::onToggleSidebar);
   connect(m_libraryIconRail, &LibraryIconRail::actionTriggered, this,
           [this](const QString &id) {
             if (id == QLatin1String("home")) {
@@ -10137,6 +10154,7 @@ void MainWindow::setupSidebar() {
               onOpenSettings();
             }
           });
+  applyBrandMark();
   m_sidebarNavPanel = new QWidget(m_sidebarContainer);
   m_sidebarNavPanel->setObjectName(QStringLiteral("SidebarNavPanel"));
   m_sidebarNavPanel->setAttribute(Qt::WA_StyledBackground, true);

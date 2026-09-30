@@ -5,9 +5,11 @@
 #include "moderntoolbar.h"
 #include "uiscale.h"
 
+#include <QIcon>
 #include <QLabel>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QPainterPath>
 #include <QPen>
 #include <QPixmap>
 #include <QToolButton>
@@ -32,6 +34,23 @@ QIcon glyph(const QString &name, const QColor &fg, int px) {
   blopDrawToolbarGlyph64(&p, name, fg);
   return QIcon(pm);
 }
+
+QIcon hamburgerGlyph(const QColor &fg, int px) {
+  QPixmap pm(px, px);
+  pm.fill(Qt::transparent);
+  QPainter p(&pm);
+  p.setRenderHint(QPainter::Antialiasing);
+  p.setPen(QPen(fg, qMax(2, px / 10), Qt::SolidLine, Qt::RoundCap));
+  const int x0 = px * 22 / 100;
+  const int x1 = px - x0;
+  const int y0 = px * 30 / 100;
+  const int y1 = px / 2;
+  const int y2 = px - y0;
+  p.drawLine(x0, y0, x1, y0);
+  p.drawLine(x0, y1, x1, y1);
+  p.drawLine(x0, y2, x1, y2);
+  return QIcon(pm);
+}
 } // namespace
 
 LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
@@ -41,15 +60,30 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   m_accent = BlopTheme::accentPrimary();
 
   auto *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(0, UiScale::dp(12), 0, UiScale::dp(12));
+  lay->setContentsMargins(0, UiScale::dp(8), 0, UiScale::dp(12));
   lay->setSpacing(UiScale::dp(2));
 
-  auto *logo = new QLabel(this);
-  logo->setObjectName(QStringLiteral("LibraryIconRailLogo"));
-  logo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
-  logo->setAlignment(Qt::AlignCenter);
-  logo->setText(QStringLiteral("B"));
-  lay->addWidget(logo, 0, Qt::AlignHCenter);
+  const int tap = UiScale::dp(BlopStyle::touchTargetMinDp());
+  m_menuBtn = new QToolButton(this);
+  m_menuBtn->setObjectName(QStringLiteral("LibraryIconRailMenu"));
+  m_menuBtn->setFixedSize(tap, tap);
+  m_menuBtn->setIconSize(QSize(UiScale::dp(20), UiScale::dp(20)));
+  m_menuBtn->setCursor(Qt::PointingHandCursor);
+  m_menuBtn->setAutoRaise(true);
+  m_menuBtn->setFocusPolicy(Qt::StrongFocus);
+  m_menuBtn->setToolTip(QStringLiteral("Hauptmenü"));
+  m_menuBtn->setIcon(hamburgerGlyph(QColor(0xB8, 0xBE, 0xC9), UiScale::dp(20)));
+  connect(m_menuBtn, &QToolButton::clicked, this,
+          &LibraryIconRail::menuToggled);
+  lay->addWidget(m_menuBtn, 0, Qt::AlignHCenter);
+  lay->addSpacing(UiScale::dp(4));
+
+  m_logo = new QLabel(this);
+  m_logo->setObjectName(QStringLiteral("LibraryIconRailLogo"));
+  m_logo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+  m_logo->setAlignment(Qt::AlignCenter);
+  m_logo->setScaledContents(false);
+  lay->addWidget(m_logo, 0, Qt::AlignHCenter);
   lay->addSpacing(UiScale::dp(8));
 
   // Dual-app switch first, then note utilities.
@@ -144,6 +178,42 @@ void LibraryIconRail::setAvatarLetter(const QString &letter) {
   }
 }
 
+void LibraryIconRail::setBrandPixmap(const QPixmap &pm) {
+  m_brand = pm;
+  applyBrand();
+}
+
+void LibraryIconRail::applyBrand() {
+  if (!m_logo)
+    return;
+  const int side = UiScale::dp(36);
+  m_logo->setText(QString());
+  if (m_brand.isNull()) {
+    m_logo->setPixmap(QPixmap());
+    m_logo->setText(QStringLiteral("B"));
+    m_logo->setStyleSheet(QStringLiteral(
+        "background: %1; color: #FFFFFF; border-radius: 8px;"
+        "font-weight: 800; font-size: 13px;")
+                              .arg(m_accent.name(QColor::HexRgb)));
+    return;
+  }
+  QPixmap out(side, side);
+  out.fill(Qt::transparent);
+  const QPixmap scaled = m_brand.scaled(side, side, Qt::KeepAspectRatioByExpanding,
+                                        Qt::SmoothTransformation);
+  QPainter p(&out);
+  p.setRenderHint(QPainter::Antialiasing);
+  p.setRenderHint(QPainter::SmoothPixmapTransform);
+  const qreal radius = side * 0.28;
+  QPainterPath clip;
+  clip.addRoundedRect(QRectF(0, 0, side, side), radius, radius);
+  p.setClipPath(clip);
+  p.drawPixmap((side - scaled.width()) / 2, (side - scaled.height()) / 2,
+               scaled);
+  m_logo->setPixmap(out);
+  m_logo->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
+}
+
 void LibraryIconRail::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);
@@ -173,17 +243,21 @@ void LibraryIconRail::refreshStyles() {
   const QString onHover = accentRgba(m_accent, 0.28);
   setStyleSheet(QStringLiteral(
       "QWidget#LibraryIconRail { background: %1; border: none; }"
-      "QLabel#LibraryIconRailLogo {"
-      "  background: %2; color: #FFFFFF; border-radius: 8px;"
-      "  font-weight: 800; font-size: 13px;"
-      "}"
-      "QToolButton#LibraryIconRailBtn {"
+      "QToolButton#LibraryIconRailMenu, QToolButton#LibraryIconRailBtn {"
       "  background: transparent; border: none; border-radius: 10px;"
       "}"
-      "QToolButton#LibraryIconRailBtn:hover {"
+      "QToolButton#LibraryIconRailMenu:hover, QToolButton#LibraryIconRailBtn:hover {"
+      "  background: %2;"
+      "}"
+      "QToolButton#LibraryIconRailMenu:pressed, QToolButton#LibraryIconRailBtn:pressed {"
       "  background: %3;"
       "}")
-                    .arg(nav, acc, hover));
+                    .arg(nav, hover, onBg));
+  if (m_menuBtn) {
+    m_menuBtn->setIcon(
+        hamburgerGlyph(QColor(0xB8, 0xBE, 0xC9), UiScale::dp(20)));
+  }
+  applyBrand();
   for (auto it = m_btns.begin(); it != m_btns.end(); ++it) {
     QToolButton *btn = it.value();
     if (!btn)

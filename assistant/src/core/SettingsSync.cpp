@@ -235,6 +235,67 @@ QString SettingsSync::openRouterKey() {
     return load().value(QStringLiteral("openrouterKey")).toString().trimmed();
 }
 
+QString SettingsSync::studySessionId() {
+    return blopSettings().value(QStringLiteral("session_id")).toString().trimmed();
+}
+
+QString SettingsSync::voiceHotkey() {
+    const QString keys = load().value(QStringLiteral("voiceHotkey")).toString().trimmed();
+    return keys.isEmpty() ? QStringLiteral("Ctrl+Space") : keys;
+}
+
+QVector<ToolBinding> SettingsSync::toolBindings() {
+    const QJsonObject saved = load().value(QStringLiteral("bindings")).toObject();
+    const struct Row {
+        const char *id;
+        const char *label;
+        const char *fallback;
+    } rows[] = {
+        {"pen1", "Stift 1", "Ctrl+1"},
+        {"pen2", "Stift 2", "Ctrl+2"},
+        {"pen3", "Stift 3", "Ctrl+3"},
+        {"marker", "Textmarker", "Ctrl+4"},
+        {"pen", "Stift", "P"},
+        {"eraser", "Radierer", "E"},
+        {"lasso", "Lasso", "V"},
+        {"text", "Text", "T"},
+        {"hand", "Hand", "H"},
+        {"markerKey", "Marker", "M"},
+    };
+    QVector<ToolBinding> out;
+    for (const Row &row : rows) {
+        ToolBinding binding;
+        binding.id = QString::fromLatin1(row.id);
+        binding.label = QString::fromUtf8(row.label);
+        const QString keys = saved.value(binding.id).toObject().value(QStringLiteral("keys")).toString();
+        binding.keys = keys.isEmpty() ? QString::fromLatin1(row.fallback) : keys;
+        out.append(binding);
+    }
+    return out;
+}
+
+void SettingsSync::setVoiceHotkey(const QString &keys) {
+    QJsonObject blob = load();
+    if (blob.isEmpty())
+        blob.insert(QStringLiteral("version"), 1);
+    const QString trimmed = keys.trimmed();
+    blob.insert(QStringLiteral("voiceHotkey"),
+                trimmed.isEmpty() ? QStringLiteral("Ctrl+Space") : trimmed);
+    rememberBlob(blob);
+}
+
+void SettingsSync::setToolBinding(const QString &id, const QString &keys) {
+    QJsonObject blob = load();
+    if (blob.isEmpty())
+        blob.insert(QStringLiteral("version"), 1);
+    QJsonObject bindings = blob.value(QStringLiteral("bindings")).toObject();
+    QJsonObject row = bindings.value(id).toObject();
+    row.insert(QStringLiteral("keys"), keys.trimmed());
+    bindings.insert(id, row);
+    blob.insert(QStringLiteral("bindings"), bindings);
+    rememberBlob(blob);
+}
+
 void SettingsSync::setOpenRouter(const QString &model, const QString &key) {
     QJsonObject blob = load();
     if (blob.isEmpty())

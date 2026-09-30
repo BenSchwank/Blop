@@ -1,20 +1,23 @@
 #include "NotchWindow.h"
 
-#include "AccountDialog.h"
+#include "core/SettingsSync.h"
 #include "platform/SpeechInput.h"
 
 #include <QApplication>
+#include <QCursor>
+#include <QEnterEvent>
 #include <QEventLoop>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QScreen>
-#include <QSettings>
 #include <QStyle>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #if defined(Q_OS_WIN)
@@ -29,46 +32,98 @@
 
 namespace {
 constexpr int kHotkeyId = 0xB107;
+
+#if defined(Q_OS_WIN)
+UINT virtualKey(int key) {
+    if (key >= Qt::Key_A && key <= Qt::Key_Z)
+        return static_cast<UINT>(key);
+    if (key >= Qt::Key_0 && key <= Qt::Key_9)
+        return static_cast<UINT>(key);
+    if (key >= Qt::Key_F1 && key <= Qt::Key_F24)
+        return VK_F1 + static_cast<UINT>(key - Qt::Key_F1);
+    switch (key) {
+    case Qt::Key_Space:
+        return VK_SPACE;
+    case Qt::Key_Tab:
+        return VK_TAB;
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+        return VK_RETURN;
+    case Qt::Key_Backspace:
+        return VK_BACK;
+    case Qt::Key_Delete:
+        return VK_DELETE;
+    case Qt::Key_Left:
+        return VK_LEFT;
+    case Qt::Key_Right:
+        return VK_RIGHT;
+    case Qt::Key_Up:
+        return VK_UP;
+    case Qt::Key_Down:
+        return VK_DOWN;
+    default:
+        return 0;
+    }
 }
+
+bool winHotkey(const QKeySequence &sequence, UINT *mods, UINT *vk) {
+    if (sequence.isEmpty())
+        return false;
+    const QKeyCombination combo = sequence[0];
+    UINT value = MOD_NOREPEAT;
+    const Qt::KeyboardModifiers keyboard = combo.keyboardModifiers();
+    if (keyboard.testFlag(Qt::ControlModifier))
+        value |= MOD_CONTROL;
+    if (keyboard.testFlag(Qt::AltModifier))
+        value |= MOD_ALT;
+    if (keyboard.testFlag(Qt::ShiftModifier))
+        value |= MOD_SHIFT;
+    if (keyboard.testFlag(Qt::MetaModifier))
+        value |= MOD_WIN;
+    const UINT key = virtualKey(combo.key());
+    if (key == 0)
+        return false;
+    *mods = value;
+    *vk = key;
+    return true;
+}
+#endif
+} // namespace
 
 NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("notch"));
     setWindowTitle(QStringLiteral("Blop Assistent"));
-    setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool);
+    setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool |
+                   Qt::NoDropShadowWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
-    setAttribute(Qt::WA_ShowWithoutActivating, false);
+    setAttribute(Qt::WA_Hover);
+    setMouseTracking(true);
 
     m_speech = new SpeechInput(this);
 
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(12, 6, 10, 8);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(6);
 
     auto *row = new QHBoxLayout;
+    row->setContentsMargins(12, 4, 8, 0);
     row->setSpacing(8);
-    m_brand = new QLabel(QStringLiteral("Blop"), this);
-    m_brand->setObjectName(QStringLiteral("brand"));
-    row->addWidget(m_brand);
     row->addStretch(1);
 
-    m_mic = new QPushButton(QStringLiteral("●"), this);
-    m_mic->setObjectName(QStringLiteral("mic"));
-    m_mic->setFixedSize(28, 28);
-    m_mic->setCursor(Qt::PointingHandCursor);
-    m_mic->setFocusPolicy(Qt::NoFocus);
-    m_mic->setToolTip(QStringLiteral("Halten und sprechen"));
-    m_mic->installEventFilter(this);
-    row->addWidget(m_mic);
-    auto *account = new QPushButton(QStringLiteral("Konto"), this);
-    account->setObjectName(QStringLiteral("account"));
-    account->setCursor(Qt::PointingHandCursor);
-    account->setFocusPolicy(Qt::NoFocus);
-    row->addWidget(account);
+    m_gear = new QPushButton(QString(QChar(0x2699)), this);
+    m_gear->setObjectName(QStringLiteral("gear"));
+    m_gear->setFixedSize(22, 22);
+    m_gear->setCursor(Qt::PointingHandCursor);
+    m_gear->setFocusPolicy(Qt::NoFocus);
+    m_gear->setToolTip(QStringLiteral("Einstellungen"));
+    m_gear->installEventFilter(this);
+    row->addWidget(m_gear);
     layout->addLayout(row);
 
     m_edit = new QLineEdit(this);
     m_edit->setPlaceholderText(QStringLiteral("Befehl eingeben…"));
     m_edit->setClearButtonEnabled(true);
+    m_edit->installEventFilter(this);
     layout->addWidget(m_edit);
 
     m_status = new QLabel(this);
@@ -77,26 +132,23 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     layout->addWidget(m_status);
 
     setStyleSheet(QStringLiteral(
-        "QWidget#notch { background: #24262B; border: 1px solid #3A3F48; border-radius: 18px; }"
-        "QLabel#brand { color: #5B9DFF; font-weight: 700; }"
+        "QWidget#notch { background: #24262B; border: none;"
+        " border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }"
+        "QWidget#notch[resting=\"true\"] { background: #2C3036;"
+        " border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }"
+        "QWidget#notch[resting=\"true\"][listening=\"true\"] { background: #5B9DFF; }"
         "QLabel#status { color: #D5D8DE; }"
         "QLineEdit { background: #16181C; color: #F4F6F8; border: 1px solid #3A3F48;"
         " border-radius: 10px; padding: 6px 10px; selection-background-color: #5B9DFF; }"
         "QLineEdit:focus { border: 1px solid #5B9DFF; }"
-        "QPushButton#mic { background: #343840; color: #F4F6F8; border: none; border-radius: 14px; }"
-        "QPushButton#mic[listening=\"true\"] { background: #5B9DFF; color: #0E1116; }"
-        "QPushButton#account { background: transparent; color: #D5D8DE; border: none; padding: 0 4px; }"));
+        "QPushButton#gear { background: transparent; color: #D5D8DE; border: none; font-size: 14px; }"
+        "QPushButton#gear:hover { color: #5B9DFF; }"));
 
     QFont font(QStringLiteral("Segoe UI"));
     font.setPointSize(10);
     setFont(font);
 
-    connect(account, &QPushButton::clicked, this, [this]() {
-        if (!m_expanded)
-            expand();
-        AccountDialog dialog(this);
-        dialog.exec();
-    });
+    connect(m_gear, &QPushButton::clicked, this, &NotchWindow::settingsRequested);
     connect(m_edit, &QLineEdit::returnPressed, this, [this]() { runCommand(m_edit->text()); });
     connect(m_speech, &SpeechInput::recognized, this, [this](const QString &text) {
         m_edit->setText(text);
@@ -112,9 +164,9 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     });
     connect(m_speech, &SpeechInput::listeningChanged, this, &NotchWindow::setListening);
 
+    m_status->installEventFilter(this);
+
     applyChrome();
-    placeDefault();
-    restorePosition();
     qApp->installNativeEventFilter(this);
     registerHotkey();
 }
@@ -126,7 +178,6 @@ NotchWindow::~NotchWindow() {
     if (m_hotkey)
         UnregisterHotKey(nullptr, kHotkeyId);
 #endif
-    savePosition();
 }
 
 bool NotchWindow::nativeEventFilter(const QByteArray &eventType, void *message, qintptr *) {
@@ -135,7 +186,7 @@ bool NotchWindow::nativeEventFilter(const QByteArray &eventType, void *message, 
         return false;
     const auto *msg = static_cast<MSG *>(message);
     if (msg->message == WM_HOTKEY && msg->wParam == kHotkeyId) {
-        QMetaObject::invokeMethod(this, [this]() { expand(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, [this]() { toggleSpeech(); }, Qt::QueuedConnection);
         return true;
     }
 #else
@@ -143,6 +194,15 @@ bool NotchWindow::nativeEventFilter(const QByteArray &eventType, void *message, 
     Q_UNUSED(message);
 #endif
     return false;
+}
+
+void NotchWindow::reveal() {
+    show();
+    expand();
+}
+
+void NotchWindow::reloadVoiceHotkey() {
+    registerHotkey();
 }
 
 void NotchWindow::expand() {
@@ -158,23 +218,42 @@ void NotchWindow::collapse() {
     applyChrome();
 }
 
+bool NotchWindow::surfaceOpen() const {
+    return m_hovered || m_expanded || m_listening;
+}
+
 void NotchWindow::applyChrome() {
-    const int top = y();
-    const int mid = x() + width() / 2;
-    m_edit->setVisible(m_expanded);
-    const bool showStatus = m_expanded && !m_status->text().isEmpty();
+    const bool open = surfaceOpen();
+    m_edit->setVisible(open);
+    m_gear->setVisible(open);
+    const bool showStatus = open && !m_status->text().isEmpty();
     m_status->setVisible(showStatus);
-    if (!m_expanded) {
-        setFixedSize(156, 40);
+    setProperty("resting", !open);
+    setProperty("listening", m_listening);
+    style()->unpolish(this);
+    style()->polish(this);
+    if (!open) {
+        layout()->setContentsMargins(0, 0, 0, 0);
+        setFixedSize(92, 8);
     } else {
-        m_status->setFixedWidth(416);
-        int height = 46 + m_edit->sizeHint().height();
+        layout()->setContentsMargins(14, 2, 12, 12);
+        m_status->setFixedWidth(392);
+        int height = 36 + m_edit->sizeHint().height();
         if (showStatus)
-            height += 8 + qBound(18, m_status->heightForWidth(416), 240);
-        setFixedSize(440, height + 12);
+            height += 8 + qBound(18, m_status->heightForWidth(392), 220);
+        setFixedSize(440, height + 8);
     }
-    if (m_expanded || top != 0)
-        move(mid - width() / 2, top);
+    pinToTop();
+}
+
+void NotchWindow::pinToTop() {
+    QScreen *screen = QGuiApplication::screenAt(QPoint(x() + width() / 2, 1));
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    if (!screen)
+        return;
+    const QRect area = screen->geometry();
+    move(area.center().x() - width() / 2, area.top());
 }
 
 void NotchWindow::runCommand(const QString &text) {
@@ -198,33 +277,6 @@ void NotchWindow::runCommand(const QString &text) {
     m_edit->selectAll();
 }
 
-void NotchWindow::placeDefault() {
-    QScreen *screen = QGuiApplication::primaryScreen();
-    if (!screen)
-        return;
-    const QRect area = screen->availableGeometry();
-    move(area.center().x() - width() / 2, area.top() + 8);
-}
-
-void NotchWindow::restorePosition() {
-    const QSettings settings;
-    const QPoint saved = settings.value(QStringLiteral("notch/pos")).toPoint();
-    if (saved.isNull() && !settings.contains(QStringLiteral("notch/pos")))
-        return;
-    const QRect probe(saved, size());
-    for (QScreen *screen : QGuiApplication::screens()) {
-        if (screen->availableGeometry().intersects(probe)) {
-            move(saved);
-            return;
-        }
-    }
-}
-
-void NotchWindow::savePosition() const {
-    QSettings settings;
-    settings.setValue(QStringLiteral("notch/pos"), pos());
-}
-
 void NotchWindow::bringToFront() {
 #if defined(Q_OS_WIN)
     HWND hwnd = reinterpret_cast<HWND>(winId());
@@ -245,16 +297,48 @@ void NotchWindow::bringToFront() {
 void NotchWindow::registerHotkey() {
 #if defined(Q_OS_WIN)
     if (m_hotkey)
+        UnregisterHotKey(nullptr, kHotkeyId);
+    m_hotkey = false;
+    UINT mods = 0;
+    UINT vk = 0;
+    const QKeySequence sequence(SettingsSync::voiceHotkey(), QKeySequence::PortableText);
+    if (!winHotkey(sequence, &mods, &vk))
         return;
-    m_hotkey = RegisterHotKey(nullptr, kHotkeyId, MOD_CONTROL | MOD_NOREPEAT, VK_SPACE);
+    m_hotkey = RegisterHotKey(nullptr, kHotkeyId, mods, vk);
 #endif
 }
 
 void NotchWindow::setListening(bool on) {
-    m_mic->setProperty("listening", on);
-    m_mic->style()->unpolish(m_mic);
-    m_mic->style()->polish(m_mic);
-    m_mic->update();
+    m_listening = on;
+    applyChrome();
+}
+
+void NotchWindow::toggleSpeech() {
+    show();
+    if (!m_expanded)
+        expand();
+    if (m_speech->listening())
+        m_speech->stop();
+    else
+        m_speech->start();
+}
+
+void NotchWindow::enterEvent(QEnterEvent *event) {
+    QWidget::enterEvent(event);
+    m_hovered = true;
+    applyChrome();
+}
+
+void NotchWindow::leaveEvent(QEvent *event) {
+    QWidget::leaveEvent(event);
+    QTimer::singleShot(0, this, [this]() {
+        if (rect().contains(mapFromGlobal(QCursor::pos())))
+            return;
+        m_hovered = false;
+        if (!m_edit->hasFocus() && !m_listening)
+            m_expanded = false;
+        applyChrome();
+    });
 }
 
 void NotchWindow::keyPressEvent(QKeyEvent *event) {
@@ -265,64 +349,25 @@ void NotchWindow::keyPressEvent(QKeyEvent *event) {
     QWidget::keyPressEvent(event);
 }
 
-void NotchWindow::mousePressEvent(QMouseEvent *event) {
-    if (event->button() != Qt::LeftButton) {
-        QWidget::mousePressEvent(event);
-        return;
-    }
-    m_pressed = true;
-    m_dragging = false;
-    m_pressGlobal = event->globalPosition().toPoint();
-    m_dragOffset = m_pressGlobal - frameGeometry().topLeft();
-    grabMouse();
-}
-
-void NotchWindow::mouseMoveEvent(QMouseEvent *event) {
-    if (!m_pressed) {
-        QWidget::mouseMoveEvent(event);
-        return;
-    }
-    const QPoint global = event->globalPosition().toPoint();
-    if ((global - m_pressGlobal).manhattanLength() > 4)
-        m_dragging = true;
-    if (m_dragging)
-        move(global - m_dragOffset);
-}
-
 void NotchWindow::mouseReleaseEvent(QMouseEvent *event) {
-    if (event->button() != Qt::LeftButton) {
-        QWidget::mouseReleaseEvent(event);
-        return;
-    }
-    if (mouseGrabber() == this)
-        releaseMouse();
-    const bool dragged =
-        m_dragging && (event->globalPosition().toPoint() - m_pressGlobal).manhattanLength() > 5;
-    m_pressed = false;
-    m_dragging = false;
-    if (dragged) {
-        savePosition();
-        return;
-    }
-    if (m_expanded)
-        collapse();
-    else
-        expand();
+    QWidget::mouseReleaseEvent(event);
 }
 
 bool NotchWindow::eventFilter(QObject *watched, QEvent *event) {
-    if (watched == m_mic) {
-        if (event->type() == QEvent::MouseButtonPress) {
-            m_mic->grabMouse();
-            m_speech->start();
-            return true;
-        }
-        if (event->type() == QEvent::MouseButtonRelease) {
-            if (QWidget::mouseGrabber() == m_mic)
-                m_mic->releaseMouse();
-            m_speech->stop();
-            return true;
-        }
+    if (event->type() == QEvent::Enter) {
+        m_hovered = true;
+        applyChrome();
     }
+    if (event->type() == QEvent::Leave || event->type() == QEvent::FocusOut) {
+        QTimer::singleShot(0, this, [this]() {
+            if (rect().contains(mapFromGlobal(QCursor::pos())))
+                return;
+            m_hovered = false;
+            if (!m_edit->hasFocus() && !m_listening)
+                m_expanded = false;
+            applyChrome();
+        });
+    }
+    Q_UNUSED(watched);
     return QWidget::eventFilter(watched, event);
 }

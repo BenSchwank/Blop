@@ -21,6 +21,7 @@ qt_add_executable(BlopAssistent
     src/ui/NotchWindow.cpp
     src/ui/PhoneShell.cpp
     src/ui/AccountDialog.cpp
+    src/ui/SetupWindow.cpp
 )
 
 target_include_directories(BlopAssistent PRIVATE src)

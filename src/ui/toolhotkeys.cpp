@@ -51,6 +51,9 @@ QJsonObject loadBlob() {
                   .toString(blob.value(QStringLiteral("openrouterModel")).toString()));
   blob.insert(QStringLiteral("openrouterKey"),
               obj.value(QStringLiteral("openrouterKey")).toString());
+  if (obj.contains(QStringLiteral("voiceHotkey")))
+    blob.insert(QStringLiteral("voiceHotkey"),
+                obj.value(QStringLiteral("voiceHotkey")).toString());
   QJsonObject bindings = blob.value(QStringLiteral("bindings")).toObject();
   const QJsonObject saved = obj.value(QStringLiteral("bindings")).toObject();
   for (auto it = saved.begin(); it != saved.end(); ++it) {

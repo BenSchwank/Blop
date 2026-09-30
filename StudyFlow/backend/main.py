@@ -1890,6 +1890,7 @@ FEATURE_MULTIPLIER = {
     "podcast": 1.2,
     "learning_video": 1.4,
     "smart_learning": 1.5,
+    "assistant": 0.6,
 }
 
 def ensure_minimum_tokens(username: str, reserve: int = 1):
@@ -2174,6 +2175,65 @@ def _configure_genai(username: str = None):
 
     genai.configure(api_key=env_key)
     return env_key
+
+
+class AssistantCompleteRequest(BaseModel):
+    system: str = ""
+    user: str
+    model: str = "openai/gpt-4o-mini"
+    temperature: Optional[float] = 0
+
+
+@app.post("/api/assistant/complete")
+def assistant_complete(http_request: Request, body: AssistantCompleteRequest):
+    """Assistent spricht über das Study-Konto. Der OpenRouter-Schlüssel bleibt auf dem Server."""
+    user = require_session_user(http_request)
+    prompt = (body.user or "").strip()
+    system = (body.system or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Leere Anfrage")
+    if len(prompt) > 8000 or len(system) > 8000:
+        raise HTTPException(status_code=400, detail="Anfrage ist zu lang")
+    ensure_minimum_tokens(user, 1)
+    key = (os.environ.get("OPENROUTER_API_KEY_FOR_ASSISTENT") or "").strip()
+    if not key:
+        raise HTTPException(status_code=503, detail=AI_USER_UNAVAILABLE_MSG)
+    model = (body.model or "openai/gpt-4o-mini").strip()[:120] or "openai/gpt-4o-mini"
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    if body.temperature is not None:
+        payload["temperature"] = body.temperature
+    try:
+        resp = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://www.blop-study.com",
+                "X-Title": "Blop Assistent",
+            },
+            json=payload,
+            timeout=45,
+        )
+    except requests.RequestException:
+        raise HTTPException(status_code=503, detail=AI_USER_UNAVAILABLE_MSG)
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=503, detail=AI_USER_UNAVAILABLE_MSG)
+    data = resp.json() if resp.content else {}
+    choices = data.get("choices") or []
+    content = ""
+    if choices:
+        content = ((choices[0].get("message") or {}).get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=503, detail=AI_USER_UNAVAILABLE_MSG)
+    charged = deduct_tokens_by_usage(user, "assistant", model, data.get("usage") or {})
+    return {"content": content, **charged}
+
 
 @app.post("/api/files/upload")
 async def upload_file(

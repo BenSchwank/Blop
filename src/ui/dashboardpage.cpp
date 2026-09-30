@@ -120,6 +120,18 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
           &DashboardPage::showOverflowMenu);
   connect(m_rightRail, &DashRightRail::undoClicked, this,
           &DashboardPage::undoLayout);
+  connect(m_rightRail, &DashRightRail::newNoteRequested, this,
+          &DashboardPage::newNoteRequested);
+  connect(m_rightRail, &DashRightRail::snapToNotesRequested, this,
+          &DashboardPage::snapToNotesRequested);
+  connect(m_rightRail, &DashRightRail::studyRequested, this,
+          &DashboardPage::studyRequested);
+  connect(m_rightRail, &DashRightRail::searchLibrary, this,
+          &DashboardPage::searchLibrary);
+  connect(m_rightRail, &DashRightRail::openCalendarRequested, this,
+          &DashboardPage::showCalendarMaximized);
+  connect(m_rightRail, &DashRightRail::contentChanged, this,
+          &DashboardPage::refresh);
   shellLay->addWidget(m_rightRail, 0);
   m_root->addWidget(m_bodyRow, 1);
 
