@@ -390,9 +390,6 @@ private:
   bool editorTabIsWorkspace(QWidget *w) const;
   int findWorkspaceTabIndex(const QString &kind) const;
   void openLoadedA4Note(const QString &path, const QString &fileName, Note note);
-  void scheduleCanvasOpen(const QString &path, const QString &fileName);
-  void presentOpenedCanvas(const QString &path, const QString &fileName,
-                           CanvasFileData data);
   void applyTheme();
   void refreshSidebarSearchHint();
   void applyAutoSavePrefs();
