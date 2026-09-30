@@ -1,4 +1,5 @@
 import os
+import re
 from genai_warnings import suppress_known_google_warnings
 
 suppress_known_google_warnings()
@@ -1164,24 +1165,54 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
             raise Exception(f"Fehler bei der Aufgaben-Hilfe: {str(e)}")
 
     @staticmethod
+    def _podcast_token_cap(error: BaseException, current: int) -> Optional[int]:
+        match = re.search(r"can only afford\s+(\d+)", str(error), re.IGNORECASE)
+        if not match:
+            return None
+        affordable = int(match.group(1)) - 400
+        if affordable >= current or affordable < 600:
+            return None
+        return affordable
+
+    @staticmethod
+    def _cap_podcast_material(content: Any, max_chars: int = 24_000) -> Any:
+        parts = content if isinstance(content, list) else [content]
+        kept = []
+        used = 0
+        for part in parts:
+            if not isinstance(part, str):
+                kept.append(part)
+                continue
+            room = max_chars - used
+            if room <= 0:
+                break
+            chunk = part if len(part) <= room else part[:room] + "\n\n[… Material für den Podcast gekürzt …]"
+            kept.append(chunk)
+            used += len(chunk)
+        return kept
+
+    @staticmethod
     def generate_podcast_script(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
         """German dialogue for two podcast speakers."""
         primary = model_for_task("podcast", model_preference)
         candidates = [primary]
         if "gemini-3.7-flash" not in candidates:
             candidates.append("gemini-3.7-flash")
+        material = AIService._cap_podcast_material(content)
         last_exc: Optional[BaseException] = None
         for model_name in candidates:
-            try:
-                model = genai.GenerativeModel(
-                    model_name,
-                    generation_config={
-                        "temperature": 0.45,
-                        "max_output_tokens": 12000,
-                        "reasoning_effort": "low",
-                    },
-                )
-                prompt = """
+            token_cap = 4000
+            for _attempt in range(2):
+                try:
+                    model = genai.GenerativeModel(
+                        model_name,
+                        generation_config={
+                            "temperature": 0.45,
+                            "max_output_tokens": token_cap,
+                            "reasoning_effort": "low",
+                        },
+                    )
+                    prompt = """
 Du schreibst einen Lern-Podcast auf Deutsch als Gespräch zwischen zwei Personen.
 Alex fragt nach, hakt ein und fasst in einfachen Worten zusammen.
 Sam erklärt mit einem Vergleich, einem kurzen Beispiel und einem Merksatz.
@@ -1189,7 +1220,7 @@ Sie reden miteinander, nicht nacheinander einen Vortrag. So versteht man den Sto
 
 Regeln:
 - Jede Zeile beginnt genau mit "ALEX:" oder "SAM:".
-- Alex beginnt. Danach wechseln sie sich ab. Mindestens 16 und höchstens 26 Beiträge.
+- Alex beginnt. Danach wechseln sie sich ab. Mindestens 12 und höchstens 20 Beiträge.
 - Ein Beitrag ist meist ein bis drei Sätze, gesprochen, ohne Aufzählungszeichen.
 - Sie dürfen sich mit Vornamen ansprechen.
 - Kein Markdown, keine Überschriften, keine Regieanweisungen, keine Klammern.
@@ -1197,25 +1228,31 @@ Regeln:
 
 Antworte NUR mit dem Dialog.
 """
-                input_parts = [prompt]
-                if isinstance(content, list):
-                    input_parts.extend(content)
-                else:
-                    input_parts.append(content)
-                response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
-                text = (response.text or "").strip()
-                if not text:
-                    raise Exception("Leere Antwort vom Modell erhalten.")
-                if not return_meta:
-                    return text
-                return {
-                    "text": text,
-                    "usage": AIService._extract_usage(response),
-                    "used_model": str(getattr(model, "model_name", "") or ""),
-                }
-            except Exception as e:
-                last_exc = e
-                print(f"Podcast script {model_name} failed: {e}")
+                    input_parts = [prompt]
+                    if isinstance(material, list):
+                        input_parts.extend(material)
+                    else:
+                        input_parts.append(material)
+                    response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+                    text = (response.text or "").strip()
+                    if not text:
+                        raise Exception("Leere Antwort vom Modell erhalten.")
+                    if not return_meta:
+                        return text
+                    return {
+                        "text": text,
+                        "usage": AIService._extract_usage(response),
+                        "used_model": str(getattr(model, "model_name", "") or ""),
+                    }
+                except Exception as e:
+                    smaller = AIService._podcast_token_cap(e, token_cap)
+                    if smaller:
+                        print(f"Podcast script {model_name} retry with max_output_tokens={smaller}")
+                        token_cap = smaller
+                        continue
+                    last_exc = e
+                    print(f"Podcast script {model_name} failed: {e}")
+                    break
         raise Exception(f"Podcast-Skript fehlgeschlagen: {last_exc}")
 
     @staticmethod

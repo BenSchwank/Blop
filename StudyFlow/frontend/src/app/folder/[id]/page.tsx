@@ -1026,13 +1026,16 @@ export default function FolderPage() {
     }, []);
 
     useEffect(() => {
-        if (!selectedFile || (selectedFile.type !== 'video' && selectedFile.type !== 'audio')) {
-            setSignedMediaUrl(null);
+        if (!selectedFile || !['video', 'audio', 'image'].includes(selectedFile.type)) {
+            setSignedMediaUrl((prev) => {
+                if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
+                return null;
+            });
             setSignedMediaStatus('idle');
             return;
         }
         const ac = new AbortController();
-        const kind = selectedFile.type === 'video' ? 'video' : 'audio';
+        const kind = selectedFile.type;
         setSignedMediaStatus('loading');
         setSignedMediaUrl(null);
         const run = async () => {
@@ -1043,9 +1046,27 @@ export default function FolderPage() {
                     showToast('Nicht angemeldet.', 'error');
                     return;
                 }
-                const q = `username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(String(folderId))}&file_id=${encodeURIComponent(selectedFile.id)}`;
+                const q = `username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(String(folderId))}&file_id=${encodeURIComponent(selectedFile.id)}&session_id=${encodeURIComponent(getSessionId())}`;
+                if (kind === 'image') {
+                    const res = await fetch(`${API_BASE}/files/download_image?${q}`, {
+                        signal: ac.signal,
+                        cache: 'no-store',
+                        headers: sessionHeaders(),
+                    });
+                    if (!res.ok) throw new Error('image');
+                    const blob = await res.blob();
+                    if (ac.signal.aborted) return;
+                    const url = URL.createObjectURL(blob);
+                    setSignedMediaUrl((prev) => {
+                        if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
+                        return url;
+                    });
+                    setSignedMediaStatus('ready');
+                    return;
+                }
                 const res = await fetch(`${API_BASE}/files/signed-media-url?${q}&kind=${kind}`, {
                     signal: ac.signal,
+                    cache: 'no-store',
                 });
                 if (res.ok) {
                     const data = (await res.json()) as { url?: string };
@@ -1264,11 +1285,11 @@ export default function FolderPage() {
             }
             const q = `username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`;
             const [filesRes, subfoldersRes, contextRes, userRes, folderRes] = await Promise.all([
-                fetch(`${API_BASE}/files/${folderId}?${q}`),
-                fetch(`${API_BASE}/folders/${folderId}/subfolders?${q}`),
-                fetch(`${API_BASE}/folders/${folderId}/ai-context?${q}`),
-                fetch(`${API_BASE}/user/${username}?session_id=${encodeURIComponent(sid)}`),
-                fetch(`${API_BASE}/folders/${folderId}?${q}`),
+                fetch(`${API_BASE}/files/${folderId}?${q}`, { cache: "no-store", headers: sessionHeaders() }),
+                fetch(`${API_BASE}/folders/${folderId}/subfolders?${q}`, { cache: "no-store", headers: sessionHeaders() }),
+                fetch(`${API_BASE}/folders/${folderId}/ai-context?${q}`, { cache: "no-store", headers: sessionHeaders() }),
+                fetch(`${API_BASE}/user/${username}?session_id=${encodeURIComponent(sid)}`, { cache: "no-store", headers: sessionHeaders() }),
+                fetch(`${API_BASE}/folders/${folderId}?${q}`, { cache: "no-store", headers: sessionHeaders() }),
             ]);
 
             if (filesRes.ok) {
@@ -1277,7 +1298,7 @@ export default function FolderPage() {
                 setFilesLoadError(`Dateien konnten nicht geladen werden (HTTP ${filesRes.status}).`);
                 if (filesRes.status >= 500) {
                     await new Promise((r) => setTimeout(r, 500));
-                    const retry = await fetch(`${API_BASE}/files/${folderId}?${q}`);
+                    const retry = await fetch(`${API_BASE}/files/${folderId}?${q}`, { cache: "no-store", headers: sessionHeaders() });
                     if (retry.ok) {
                         setFiles(await retry.json());
                         setFilesLoadError(null);
@@ -1442,8 +1463,8 @@ export default function FolderPage() {
             if (res.ok) {
                 showToast(isAudio ? "Audio erfolgreich transkribiert!" : "Datei hochgeladen!", "success");
                 if (isUploadOpen) setIsUploadOpen(false); // Close modal if it was open
-                setFilesToUpload([]); // Reset manual selection form state
-                fetchFiles();
+                setFilesToUpload([]);
+                await fetchFiles();
             } else {
                 const err = await res.json();
                 if (res.status === 402 || (err.detail && err.detail.includes("Nicht genügend Tokens"))) {
@@ -1491,7 +1512,7 @@ export default function FolderPage() {
             if (res.ok) {
                 setYoutubeUrl("");
                 setIsUploadOpen(false);
-                fetchFiles();
+                await fetchFiles();
             } else {
                 const err = await res.json();
                 if (res.status === 402 || (err.detail && err.detail.includes("Nicht genügend Tokens"))) {
@@ -1514,35 +1535,47 @@ export default function FolderPage() {
         e.preventDefault();
         if (filesToUpload.length === 0) return;
         setIsProcessing(true);
+        let saved = 0;
         try {
             const username = localStorage.getItem("username");
             const sid = getSessionId();
-            
-            await Promise.all(filesToUpload.map(async (file) => {
+            for (const file of filesToUpload) {
                 const formData = new FormData();
                 formData.append("file", file);
-
                 const res = await fetch(
                     `${API_BASE}/files/image?username=${encodeURIComponent(username || "")}&folder_id=${encodeURIComponent(folderId)}&session_id=${encodeURIComponent(sid)}`,
                     {
-                    method: "POST",
-                    headers: sessionHeaders(),
-                    body: formData
-                });
-
+                        method: "POST",
+                        headers: sessionHeaders(),
+                        body: formData,
+                    }
+                );
                 if (!res.ok) {
-                    const err = await res.json();
-                    showToast(`Fehler beim Bild-Upload von ${file.name}: ${err.detail || "Unbekannter Fehler"}`);
+                    let detail = "Unbekannter Fehler";
+                    try {
+                        const err = await res.json();
+                        detail = typeof err.detail === "string" ? err.detail : detail;
+                    } catch {
+                        /* ignore */
+                    }
+                    showToast(`Bild ${file.name}: ${detail}`, "error");
+                    continue;
                 }
-            }));
-
-            setFilesToUpload([]);
-            setIsUploadOpen(false);
-            fetchFiles();
-            showToast("Bilder erfolgreich hochgeladen!", "success");
+                const data = await res.json();
+                if (data.file?.id) {
+                    setFiles((prev) => [data.file, ...prev.filter((item) => item.id !== data.file.id)]);
+                }
+                saved += 1;
+            }
+            if (saved > 0) {
+                setFilesToUpload([]);
+                setIsUploadOpen(false);
+                await fetchFiles();
+                showToast(saved === 1 ? "Bild hochgeladen." : `${saved} Bilder hochgeladen.`, "success");
+            }
         } catch (error) {
             console.error("Image upload error:", error);
-            showToast("Konnte Bilder nicht hochladen.");
+            showToast("Konnte Bilder nicht hochladen.", "error");
         } finally {
             setIsProcessing(false);
         }
@@ -1571,7 +1604,7 @@ export default function FolderPage() {
 
             if (res.ok) {
                 setIsUploadOpen(false);
-                fetchFiles();
+                await fetchFiles();
                 // Optionally open it right away for editing
                 setTimeout(() => {
                     // Try to find the just created file. We fetch it again so it might not be in the state instantly.
@@ -1661,7 +1694,7 @@ export default function FolderPage() {
                 setAudioBlob(null);
                 setRecordingTime(0);
                 setIsUploadOpen(false);
-                fetchFiles();
+                await fetchFiles();
             } else {
                 const err = await res.json();
                 if (res.status === 402 || (err.detail && err.detail.includes("Nicht genügend Tokens"))) {
@@ -4003,6 +4036,28 @@ export default function FolderPage() {
             );
         }
 
+        if (selectedFile.type === 'image') {
+            return (
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden">
+                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A]">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <button onClick={() => setSelectedFile(null)} className="min-h-10 min-w-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl">
+                                <X size={20} />
+                            </button>
+                            <h3 className="text-lg font-semibold text-white truncate">{selectedFile.name || 'Bild'}</h3>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+                        {signedMediaStatus === 'loading' || !signedMediaUrl ? (
+                            <Loader2 className="animate-spin text-[#5E5CE6]" size={28} />
+                        ) : (
+                            <img src={signedMediaUrl} alt={selectedFile.name || 'Bild'} className="max-w-full max-h-full object-contain rounded-xl" />
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
         if (selectedFile.type === 'pdf') {
             const username = typeof window !== 'undefined' ? localStorage.getItem("username") || "" : "";
             const pdfUrl = `${API_BASE}/files/download_pdf?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id || "")}&filename=${encodeURIComponent(selectedFile.name || "")}`;
@@ -4189,6 +4244,7 @@ export default function FolderPage() {
             case 'summary': return <FileOutput size={20} />;
             case 'audio': return <Mic size={20} />;
             case 'video': return <Video size={20} />;
+            case 'image': return <ImageIcon size={20} />;
             default: return <FileText size={20} />;
         }
     };
@@ -4585,17 +4641,18 @@ export default function FolderPage() {
                             ) : uploadType === 'image' ? (
                                 <form onSubmit={handleImageUpload} className="space-y-4">
                                     <div className="border-2 border-dashed border-[#2A2A40] rounded-xl p-8 text-center hover:border-green-500 transition-colors cursor-pointer relative">
-                                        <input type="file" accept=".jpg,.jpeg,.png,.webp" multiple onChange={(e) => setFilesToUpload(Array.from(e.target.files || []))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" multiple onChange={(e) => setFilesToUpload(Array.from(e.target.files || []))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                                         <div className="flex flex-col items-center gap-2 text-gray-400">
                                             <ImageIcon size={24} />
                                             <span className="text-sm">
-                                                {filesToUpload.length > 0 
-                                                    ? `${filesToUpload.length} Bild(er) ausgewählt` 
-                                                    : "Klicken für Bildauswahl (mehrere möglich)"}
+                                                {filesToUpload.length > 0
+                                                    ? `${filesToUpload.length} Bild(er) ausgewählt`
+                                                    : "Bild auswählen"}
                                             </span>
                                         </div>
                                     </div>
-                                    <button type="submit" disabled={filesToUpload.length === 0 || isProcessing} className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Bilder analysieren</button>
+                                    <p className="text-xs text-gray-500">Das Bild wird gespeichert und erscheint direkt in der Liste.</p>
+                                    <button type="submit" disabled={filesToUpload.length === 0 || isProcessing} className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Hochladen</button>
                                 </form>
                             ) : uploadType === 'youtube' ? (
                                 <form onSubmit={handleYoutubeImport} className="space-y-4">
