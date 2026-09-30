@@ -1047,13 +1047,14 @@ export default function FolderPage() {
                     return;
                 }
                 const q = `username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(String(folderId))}&file_id=${encodeURIComponent(selectedFile.id)}&session_id=${encodeURIComponent(getSessionId())}`;
-                if (kind === 'image') {
-                    const res = await fetch(`${API_BASE}/files/download_image?${q}`, {
+                if (kind === 'image' || kind === 'audio') {
+                    const path = kind === 'image' ? 'download_image' : 'download_audio';
+                    const res = await fetch(`${API_BASE}/files/${path}?${q}`, {
                         signal: ac.signal,
                         cache: 'no-store',
                         headers: sessionHeaders(),
                     });
-                    if (!res.ok) throw new Error('image');
+                    if (!res.ok) throw new Error(kind);
                     const blob = await res.blob();
                     if (ac.signal.aborted) return;
                     const url = URL.createObjectURL(blob);
@@ -1067,6 +1068,7 @@ export default function FolderPage() {
                 const res = await fetch(`${API_BASE}/files/signed-media-url?${q}&kind=${kind}`, {
                     signal: ac.signal,
                     cache: 'no-store',
+                    headers: sessionHeaders(),
                 });
                 if (res.ok) {
                     const data = (await res.json()) as { url?: string };

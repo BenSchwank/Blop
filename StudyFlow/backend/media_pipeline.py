@@ -248,7 +248,8 @@ def _silence_mp3(seconds: float) -> bytes:
 def _concat_mp3_ffmpeg(parts: List[bytes], reencode: bool = False) -> bytes:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        # naive concat of mp3 streams often glitches; still better than failing if single chunk
+        if reencode:
+            raise RuntimeError("Podcast-Audio konnte nicht zusammengefügt werden.")
         return b"".join(parts)
     with tempfile.TemporaryDirectory() as tmp:
         paths = []
@@ -263,15 +264,26 @@ def _concat_mp3_ffmpeg(parts: List[bytes], reencode: bool = False) -> bytes:
                 f.write(f"file '{p.replace(chr(92), '/')}'\n")
         out = os.path.join(tmp, "out.mp3")
         try:
-            encode = ["-c:a", "libmp3lame", "-q:a", "4"] if reencode else ["-c", "copy"]
-            subprocess.run(
+            encode = ["-ar", "44100", "-ac", "1", "-c:a", "libmp3lame", "-q:a", "4"] if reencode else ["-c", "copy"]
+            completed = subprocess.run(
                 [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", lst, *encode, out],
-                check=True,
+                check=False,
                 capture_output=True,
             )
+            if completed.returncode != 0 or not os.path.isfile(out):
+                err = (completed.stderr or b"").decode("utf-8", errors="replace")[-500:]
+                print(f"ffmpeg concat failed: {err}")
+                if reencode:
+                    raise RuntimeError("Podcast-Audio konnte nicht zusammengefügt werden.")
+                return b"".join(parts)
             with open(out, "rb") as f:
                 return f.read()
-        except Exception:
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            print(f"ffmpeg concat error: {exc}")
+            if reencode:
+                raise RuntimeError("Podcast-Audio konnte nicht zusammengefügt werden.") from exc
             return b"".join(parts)
 
 
