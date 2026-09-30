@@ -9,11 +9,14 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QTimer>
+#include <QUrl>
 
 namespace {
 
-QString complete(const QString &system, const QString &user, QString *error) {
+QString complete(const QString &system, const QString &user, QString *error,
+                 double temperature = -1) {
     const QString key = SettingsSync::openRouterKey();
     if (key.isEmpty()) {
         if (error)
@@ -29,6 +32,8 @@ QString complete(const QString &system, const QString &user, QString *error) {
     QJsonObject body;
     body.insert(QStringLiteral("model"), SettingsSync::openRouterModel());
     body.insert(QStringLiteral("messages"), messages);
+    if (temperature >= 0)
+        body.insert(QStringLiteral("temperature"), temperature);
     QNetworkRequest req(QUrl(QStringLiteral("https://openrouter.ai/api/v1/chat/completions")));
     req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     req.setRawHeader("Authorization", QByteArray("Bearer ") + key.toUtf8());
@@ -82,6 +87,127 @@ QString unwrapJson(QString text) {
     return text;
 }
 
+AppKind appKindFrom(const QString &raw) {
+    const QString name = raw.toLower();
+    if (name.contains(QLatin1String("explor")) || name == QLatin1String("dateien"))
+        return AppKind::Explorer;
+    if (name.contains(QLatin1String("rechner")) || name.contains(QLatin1String("calc")) ||
+        name.contains(QLatin1String("taschen")))
+        return AppKind::Calculator;
+    if (name.contains(QLatin1String("editor")) || name.contains(QLatin1String("notepad")) ||
+        name.contains(QLatin1String("notizblock")))
+        return AppKind::Notepad;
+    if (name.contains(QLatin1String("browser")) || name == QLatin1String("chrome") ||
+        name == QLatin1String("edge") || name == QLatin1String("firefox"))
+        return AppKind::Browser;
+    if (name == QLatin1String("blop"))
+        return AppKind::Blop;
+    return AppKind::None;
+}
+
+bool allowedFolder(const QString &name) {
+    const QString key = name.trimmed().toLower();
+    static const QStringList keys = {
+        QStringLiteral("downloads"),    QStringLiteral("download"),
+        QStringLiteral("dokumente"),    QStringLiteral("dokument"),
+        QStringLiteral("documents"),    QStringLiteral("desktop"),
+        QStringLiteral("schreibtisch"), QStringLiteral("bilder"),
+        QStringLiteral("fotos"),        QStringLiteral("musik"),
+        QStringLiteral("videos"),       QStringLiteral("video"),
+        QStringLiteral("notizen"),      QStringLiteral("blopnotizen"),
+    };
+    return keys.contains(key);
+}
+
+QString plainName(QString name) {
+    name = name.trimmed();
+    name.remove(QRegularExpression(QStringLiteral("[<>:\"/\\\\|?*]")));
+    if (name == QLatin1String(".") || name == QLatin1String("..") ||
+        name.contains(QLatin1String("..")))
+        return {};
+    return name.trimmed();
+}
+
+Command commandFromAction(const QJsonObject &action) {
+    const QString kind = action.value(QStringLiteral("kind")).toString().trimmed().toLower();
+    Command command;
+    if (kind == QLatin1String("launch")) {
+        const AppKind app = appKindFrom(action.value(QStringLiteral("app")).toString());
+        if (app == AppKind::None)
+            return {};
+        command.kind = CommandKind::LaunchApp;
+        command.app = app;
+        return command;
+    }
+    if (kind == QLatin1String("folder")) {
+        const QString name = action.value(QStringLiteral("name")).toString().trimmed();
+        if (!allowedFolder(name))
+            return {};
+        command.kind = CommandKind::OpenFolder;
+        command.text = name;
+        return command;
+    }
+    if (kind == QLatin1String("url")) {
+        const QUrl url(action.value(QStringLiteral("url")).toString().trimmed());
+        if (!url.isValid() ||
+            (url.scheme() != QLatin1String("https") && url.scheme() != QLatin1String("http")))
+            return {};
+        command.kind = CommandKind::OpenUrl;
+        command.text = url.toString();
+        return command;
+    }
+    if (kind == QLatin1String("mkdir")) {
+        const QString name = plainName(action.value(QStringLiteral("name")).toString());
+        if (name.isEmpty())
+            return {};
+        QString place = action.value(QStringLiteral("place")).toString().trimmed().toLower();
+        if (place != QLatin1String("dokumente") && place != QLatin1String("documents") &&
+            place != QLatin1String("downloads") && place != QLatin1String("download"))
+            place = QStringLiteral("desktop");
+        command.kind = CommandKind::CreateFolder;
+        command.text = name;
+        command.title = place;
+        return command;
+    }
+    if (kind == QLatin1String("txt")) {
+        const QString content = action.value(QStringLiteral("content")).toString();
+        if (content.trimmed().isEmpty())
+            return {};
+        command.kind = CommandKind::CreateTextFile;
+        command.title = plainName(action.value(QStringLiteral("name")).toString());
+        command.text = content;
+        return command;
+    }
+    if (kind == QLatin1String("note")) {
+        const QString title = plainName(action.value(QStringLiteral("title")).toString());
+        if (title.isEmpty())
+            return {};
+        command.kind = CommandKind::CreateNote;
+        command.title = title;
+        command.text = action.value(QStringLiteral("text")).toString();
+        return command;
+    }
+    if (kind == QLatin1String("tool")) {
+        const QString id = action.value(QStringLiteral("id")).toString().trimmed().toLower();
+        if (id != QLatin1String("pen1") && id != QLatin1String("pen2") &&
+            id != QLatin1String("pen3") && id != QLatin1String("marker"))
+            return {};
+        command.kind = CommandKind::SelectTool;
+        command.toolId = id;
+        return command;
+    }
+    if (kind == QLatin1String("explain")) {
+        const QString text = action.value(QStringLiteral("text")).toString().trimmed();
+        if (text.isEmpty())
+            return {};
+        command.kind = CommandKind::Explain;
+        command.text = text;
+        command.generate = true;
+        return command;
+    }
+    return {};
+}
+
 } // namespace
 
 bool OpenRouter::note(const QString &prompt, QString *heading, QStringList *points,
@@ -118,5 +244,47 @@ bool OpenRouter::explain(const QString &prompt, QString *answer, QString *error)
         return false;
     if (answer)
         *answer = text;
+    return true;
+}
+
+bool OpenRouter::plan(const QString &utterance, QList<Command> *commands, QString *error) {
+    if (commands)
+        commands->clear();
+    const QString text = complete(
+        QStringLiteral(
+            "Du planst Aktionen für den Blop Assistenten. Der Nutzer spricht Deutsch, oft umständlich. "
+            "Antworte nur mit JSON {\"actions\":[...]}. Keine Markdown-Fences. Höchstens sechs Schritte, "
+            "in der Reihenfolge der Anfrage. Erlaubt sind nur diese kinds: "
+            "launch mit app explorer, rechner, editor, browser oder blop; "
+            "folder mit name downloads, dokumente, desktop, bilder, musik, videos oder notizen; "
+            "url mit https-Adresse; "
+            "mkdir mit name und place desktop, dokumente oder downloads; "
+            "txt mit content und optionalem name, die Datei liegt auf dem Desktop; "
+            "note mit title und text; "
+            "tool mit id pen1, pen2, pen3 oder marker; "
+            "explain mit text, wenn nur eine Erklärung gewünscht ist. "
+            "Kein Löschen, keine Shell, keine anderen Programme, keine beliebigen Pfade. "
+            "Was nicht erlaubt ist, lässt du weg."),
+        utterance, error, 0);
+    if (text.isEmpty())
+        return false;
+    const QJsonObject obj = QJsonDocument::fromJson(unwrapJson(text).toUtf8()).object();
+    const QJsonArray actions = obj.value(QStringLiteral("actions")).toArray();
+    QList<Command> planned;
+    for (const QJsonValue &value : actions) {
+        const Command command = commandFromAction(value.toObject());
+        if (command.kind == CommandKind::Unknown)
+            continue;
+        planned.append(command);
+        if (planned.size() >= 6)
+            break;
+    }
+    if (planned.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Das kann ich so nicht ausführen.");
+        return false;
+    }
+    if (commands)
+        *commands = planned;
     return true;
 }

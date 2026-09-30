@@ -155,6 +155,78 @@ bool takeCreateFolder(const QString &raw, Command *out) {
     return true;
 }
 
+bool takeTextFile(const QString &raw, Command *out) {
+    const QRegularExpression re(
+        QStringLiteral(
+            "^(?:erstelle|schreibe|mach|mache|anlegen|neue|lege)\\s+(?:mir\\s+)?"
+            "(?:eine\\s+|die\\s+)?(?:txt[\\s-]*datei|text[\\s-]*datei|textdatei|txt)"
+            "(?:\\s+(.+))?$"),
+        QRegularExpression::CaseInsensitiveOption);
+    const auto match = re.match(raw);
+    if (!match.hasMatch())
+        return false;
+
+    QString rest = match.captured(1).trimmed();
+    QString body;
+    const QRegularExpression inhalt(
+        QStringLiteral("(?:^|\\s)(?:mit\\s+(?:dem\\s+)?)?inhalt\\s+(.+)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto bodyMatch = inhalt.match(rest); bodyMatch.hasMatch()) {
+        body = bodyMatch.captured(1).trimmed();
+        rest = rest.left(bodyMatch.capturedStart()).trimmed();
+    }
+    rest.remove(QRegularExpression(QStringLiteral("^(?:namens|name)\\s+"),
+                                   QRegularExpression::CaseInsensitiveOption));
+    rest.remove(QRegularExpression(QStringLiteral("^[\"']|[\"']$")));
+    rest.remove(QRegularExpression(
+        QStringLiteral("\\s+auf\\s+(?:dem\\s+|meinem\\s+)?(?:desktop|schreibtisch)\\s*$"),
+        QRegularExpression::CaseInsensitiveOption));
+    if (body.isEmpty()) {
+        *out = unknown(QStringLiteral(
+            "Was soll in die Datei? Zum Beispiel: erstelle eine txt datei mit dem inhalt Hallo"));
+        return true;
+    }
+    Command command;
+    command.kind = CommandKind::CreateTextFile;
+    command.title = rest;
+    command.text = body;
+    *out = command;
+    return true;
+}
+
+QStringList splitClauses(const QString &raw) {
+    const QStringList verbs = {
+        QStringLiteral("öffne"),     QStringLiteral("oeffne"),   QStringLiteral("zeige"),
+        QStringLiteral("starte"),    QStringLiteral("erstelle"), QStringLiteral("neue"),
+        QStringLiteral("schreibe"),  QStringLiteral("schreib"),  QStringLiteral("mach"),
+        QStringLiteral("mache"),     QStringLiteral("anlegen"),  QStringLiteral("lege"),
+        QStringLiteral("notiere"),   QStringLiteral("nimm"),
+    };
+    const QRegularExpression und(QStringLiteral("\\s+und\\s+"),
+                                 QRegularExpression::CaseInsensitiveOption);
+    QStringList parts;
+    int last = 0;
+    auto matches = und.globalMatch(raw);
+    while (matches.hasNext()) {
+        const auto match = matches.next();
+        const QString after = raw.mid(match.capturedEnd()).trimmed().toLower();
+        bool startsVerb = false;
+        for (const QString &verb : verbs) {
+            if (after.startsWith(verb)) {
+                startsVerb = true;
+                break;
+            }
+        }
+        if (!startsVerb)
+            continue;
+        parts.append(raw.mid(last, match.capturedStart() - last).trimmed());
+        last = match.capturedEnd();
+    }
+    parts.append(raw.mid(last).trimmed());
+    parts.removeAll(QString());
+    return parts;
+}
+
 QUrl addressFrom(const QString &raw) {
     const QString text = raw.trimmed();
     if (text.startsWith(QLatin1String("http://"), Qt::CaseInsensitive) ||
@@ -402,14 +474,16 @@ QString CommandEngine::helpText() {
         "starte rechner\n"
         "öffne yt\n"
         "erstelle ordner Test 1 2 auf dem desktop\n"
+        "erstelle eine txt datei mit dem inhalt Hallo\n"
         "erstelle notiz Titel: Inhalt\n"
         "öffne notiz Test123, Überschrift Themen, schreibe: günstig und schnell\n"
         "schreib mir die zwei wichtigsten Vorteile\n"
         "nimm den Textmarker\n"
-        "erklär mir …");
+        "erklär mir …\n"
+        "Umständliche Sätze gehen über OpenRouter.");
 }
 
-Command CommandEngine::parse(const QString &input) const {
+Command CommandEngine::parseClause(const QString &input) const {
     const QString raw = stripLead(fold(input));
     if (raw.isEmpty())
         return unknown(QStringLiteral("Sag einen Befehl, oder „Hilfe“."));
@@ -429,6 +503,9 @@ Command CommandEngine::parse(const QString &input) const {
 
     if (Command folder; takeCreateFolder(raw, &folder))
         return folder;
+
+    if (Command textFile; takeTextFile(raw, &textFile))
+        return textFile;
 
     QString object;
     if (!splitVerb(raw, &object) && lower.startsWith(QLatin1String("ordner ")))
@@ -499,4 +576,21 @@ Command CommandEngine::parse(const QString &input) const {
         return command;
     }
     return unknown(QStringLiteral("Das kenne ich nicht. Sag „Hilfe“."));
+}
+
+QList<Command> CommandEngine::parseAll(const QString &input) const {
+    const QString raw = stripLead(fold(input));
+    if (raw.isEmpty())
+        return {unknown(QStringLiteral("Sag einen Befehl, oder „Hilfe“."))};
+    QList<Command> commands;
+    for (const QString &clause : splitClauses(raw))
+        commands.append(parseClause(clause));
+    return commands;
+}
+
+Command CommandEngine::parse(const QString &input) const {
+    const QList<Command> commands = parseAll(input);
+    if (commands.isEmpty())
+        return unknown(QStringLiteral("Sag einen Befehl, oder „Hilfe“."));
+    return commands.first();
 }

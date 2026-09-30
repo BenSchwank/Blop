@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
         const QString command = args.mid(runAt + 1).join(QLatin1Char(' '));
         CommandEngine engine;
         ActionRunner runner;
-        const ActionResult result = runner.run(engine.parse(command));
+        const ActionResult result = runner.runText(command);
         QTextStream(stdout) << result.message << '\n';
         return result.ok ? 0 : 1;
     }

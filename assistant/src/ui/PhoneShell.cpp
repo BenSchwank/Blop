@@ -85,7 +85,7 @@ PhoneShell::PhoneShell(QWidget *parent) : QWidget(parent) {
 }
 
 void PhoneShell::runCommand(const QString &text) {
-    const ActionResult result = m_runner.run(m_engine.parse(text));
+    const ActionResult result = m_runner.runText(text);
     m_status->setText(result.message);
     m_edit->selectAll();
 }

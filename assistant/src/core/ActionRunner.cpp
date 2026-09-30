@@ -8,6 +8,7 @@
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QProcess>
 #include <QRegularExpression>
@@ -26,6 +27,37 @@ QString standardDir(QStandardPaths::StandardLocation location) {
 }
 
 } // namespace
+
+ActionResult ActionRunner::runAll(const QList<Command> &commands) const {
+    if (commands.isEmpty())
+        return {false, QStringLiteral("Sag einen Befehl, oder „Hilfe“.")};
+    QStringList messages;
+    bool ok = true;
+    for (const Command &command : commands) {
+        const ActionResult result = run(command);
+        if (!result.message.isEmpty())
+            messages.append(result.message);
+        if (!result.ok)
+            ok = false;
+    }
+    return {ok, messages.join(QStringLiteral(" "))};
+}
+
+ActionResult ActionRunner::runText(const QString &text) const {
+    const QList<Command> local = CommandEngine().parseAll(text);
+    bool understood = !local.isEmpty();
+    for (const Command &command : local) {
+        if (command.kind == CommandKind::Unknown)
+            understood = false;
+    }
+    if (understood)
+        return runAll(local);
+    QList<Command> planned;
+    QString error;
+    if (!OpenRouter::plan(text, &planned, &error))
+        return {false, error};
+    return runAll(planned);
+}
 
 ActionResult ActionRunner::run(const Command &command) const {
     switch (command.kind) {
@@ -67,6 +99,13 @@ ActionResult ActionRunner::run(const Command &command) const {
         if (path.isEmpty())
             return {false, error};
         return {true, QStringLiteral("Ordner erstellt: %1").arg(command.text)};
+    }
+    case CommandKind::CreateTextFile: {
+        QString error;
+        const QString path = createTextFile(command.title, command.text, &error);
+        if (path.isEmpty())
+            return {false, error};
+        return {true, QStringLiteral("Datei erstellt: %1").arg(QFileInfo(path).fileName())};
     }
     case CommandKind::CreateNote: {
         QString error;
@@ -293,6 +332,51 @@ QString ActionRunner::createFolder(const QString &name, const QString &place,
             *error = QStringLiteral("Der Ordner konnte nicht erstellt werden.");
         return {};
     }
+    return path;
+}
+
+QString ActionRunner::createTextFile(const QString &name, const QString &content,
+                                     QString *error) const {
+    const QString base = standardDir(QStandardPaths::DesktopLocation);
+    if (base.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Den Desktop habe ich nicht gefunden.");
+        return {};
+    }
+    QString fileName = name.trimmed();
+    fileName.remove(QRegularExpression(QStringLiteral("[<>:\"/\\\\|?*]")));
+    fileName = fileName.trimmed();
+    const bool named = !fileName.isEmpty();
+    if (!named)
+        fileName = QStringLiteral("Neu.txt");
+    if (fileName == QLatin1String(".") || fileName == QLatin1String("..")) {
+        if (error)
+            *error = QStringLiteral("Der Dateiname ist ungültig.");
+        return {};
+    }
+    if (!fileName.endsWith(QLatin1String(".txt"), Qt::CaseInsensitive))
+        fileName += QStringLiteral(".txt");
+
+    QString path = QDir(base).filePath(fileName);
+    if (!named) {
+        int n = 2;
+        while (QFileInfo::exists(path)) {
+            path = QDir(base).filePath(QStringLiteral("Neu (%1).txt").arg(n));
+            ++n;
+        }
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (error)
+            *error = QStringLiteral("Die Datei konnte nicht erstellt werden.");
+        return {};
+    }
+    file.write(content.toUtf8());
+    file.close();
+#ifdef Q_OS_WIN
+    QProcess::startDetached(QStringLiteral("explorer.exe"),
+                            {QStringLiteral("/select,") + QDir::toNativeSeparators(path)});
+#endif
     return path;
 }
 

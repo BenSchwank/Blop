@@ -4,6 +4,7 @@
 #include "platform/SpeechInput.h"
 
 #include <QApplication>
+#include <QEventLoop>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -177,7 +178,19 @@ void NotchWindow::applyChrome() {
 }
 
 void NotchWindow::runCommand(const QString &text) {
-    const ActionResult result = m_runner.run(m_engine.parse(text));
+    bool understood = true;
+    for (const Command &command : m_engine.parseAll(text)) {
+        if (command.kind == CommandKind::Unknown)
+            understood = false;
+    }
+    if (!understood) {
+        m_status->setText(QStringLiteral("Ich frage OpenRouter…"));
+        if (!m_expanded)
+            m_expanded = true;
+        applyChrome();
+        QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    }
+    const ActionResult result = m_runner.runText(text);
     m_status->setText(result.message);
     if (!m_expanded)
         m_expanded = true;

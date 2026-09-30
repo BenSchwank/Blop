@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QList>
 #include <QString>
 #include <QStringList>
 
@@ -11,6 +12,7 @@ enum class CommandKind {
     LaunchApp,
     CreateNote,
     CreateFolder,
+    CreateTextFile,
     ComposeNote,
     Explain,
     SelectTool
@@ -41,5 +43,9 @@ struct Command {
 class CommandEngine {
 public:
     Command parse(const QString &input) const;
+    QList<Command> parseAll(const QString &input) const;
     static QString helpText();
+
+private:
+    Command parseClause(const QString &input) const;
 };
