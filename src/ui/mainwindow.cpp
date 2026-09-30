@@ -2049,8 +2049,10 @@ MainWindow::MainWindow(QWidget *parent)
     QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
     const bool openSidebar =
         st.value(QStringLiteral("ui/sidebarStartOpen"), true).toBool();
+    const bool dashboardHome =
+        m_shellStack && m_shellStack->currentIndex() == 0;
     if (!m_authNavigationLocked && !UiScale::usePhoneBurgerMenu(this) &&
-        openSidebar) {
+        (openSidebar || dashboardHome)) {
       animateSidebar(true);
     }
     ensureNotesLibrarySidebar();
@@ -9825,6 +9827,8 @@ void MainWindow::updateSidebarUser(const QString &username) {
   // Update username text
   if (m_lblSidebarUser)
     m_lblSidebarUser->setText(persist.isEmpty() ? "Gast" : persist);
+  if (m_libraryIconRail)
+    m_libraryIconRail->setAvatarLetter(initial);
   if (m_phoneLibraryNav)
     m_phoneLibraryNav->setAccountName(persist);
 
@@ -10096,8 +10100,18 @@ void MainWindow::setupSidebar() {
   m_libraryIconRail = new LibraryIconRail(m_sidebarContainer);
   m_libraryIconRail->setAccentColor(m_currentAccentColor);
   shellLay->addWidget(m_libraryIconRail, 0);
-  connect(m_libraryIconRail, &LibraryIconRail::menuToggled, this,
-          &MainWindow::onToggleSidebar);
+  {
+    const QString saved =
+        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+            .value(QStringLiteral("username"))
+            .toString()
+            .trimmed();
+    const QString initial =
+        saved.isEmpty() || isPlaceholderStudyUser(saved)
+            ? QStringLiteral("G")
+            : saved.left(1).toUpper();
+    m_libraryIconRail->setAvatarLetter(initial);
+  }
   connect(m_libraryIconRail, &LibraryIconRail::actionTriggered, this,
           [this](const QString &id) {
             if (id == QLatin1String("home")) {
@@ -13830,6 +13844,11 @@ void MainWindow::switchToApp(bool notesApp) {
   if (notesApp)
     ensureNotesLibrarySidebar();
 #ifndef Q_OS_ANDROID
+  else if (!m_isSidebarOpen && !m_authNavigationLocked &&
+           !UiScale::usePhoneBurgerMenu(this))
+    animateSidebar(true);
+#endif
+#ifndef Q_OS_ANDROID
   refreshNoteTitleChrome(false);
   if (m_sidebarContainer) {
     m_sidebarContainer->setStyleSheet(
@@ -14178,24 +14197,14 @@ void MainWindow::updateSidebarState() {
     syncAndroidHeaderGeometry(this);
   }
 #else
-  if (isEditor) {
-    m_sidebarStrip->hide();
-    if (btnEditorMenu)
-      btnEditorMenu->show();
-    if (btnOverviewMenu)
-      btnOverviewMenu->hide();
-  } else {
-    // Übersicht / Dashboard / Settings-Shell: Hamburger wenn Sidebar zu.
-    m_sidebarStrip->hide();
-    if (btnEditorMenu) {
-      const bool showMenu =
-          !m_isSidebarOpen &&
-          (inNotesMode || onDashboard || m_settingsShellActive);
-      btnEditorMenu->setVisible(showMenu);
-    }
-    if (btnOverviewMenu)
-      btnOverviewMenu->hide();
+  m_sidebarStrip->hide();
+  if (btnEditorMenu) {
+    const bool showMenu =
+        !m_isSidebarOpen && !onDashboard && !m_authNavigationLocked;
+    btnEditorMenu->setVisible(showMenu);
   }
+  if (btnOverviewMenu)
+    btnOverviewMenu->hide();
 #endif
 
   if (m_phoneLibraryNav) {

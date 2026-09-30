@@ -2,6 +2,7 @@
 
 #include "blop_inwindow_menu.h"
 #include "blop_modal.h"
+#include "blop_scroll.h"
 #include "blop_theme.h"
 #include "bloplocale.h"
 #include "blopstyle.h"
@@ -105,6 +106,7 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
       "QScrollArea#DashPageScroll > QWidget > QWidget { background: transparent; }"
       "QScrollBar:vertical, QScrollBar:horizontal { width: 0px; height: 0px; }"));
   OverlayScrollIndicator::install(m_scroll);
+  BlopScroll::enableFingerScroll(m_scroll, BlopScroll::Axes::VerticalOnly);
 
   m_canvas = new DashCanvas(m_scroll);
   m_scroll->setWidget(m_canvas);

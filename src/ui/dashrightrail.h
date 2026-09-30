@@ -4,6 +4,7 @@
 #include <QWidget>
 
 class QPushButton;
+class QScrollArea;
 class QTimer;
 class QVBoxLayout;
 
@@ -74,6 +75,7 @@ private:
   QPushButton *m_btnCustomize{nullptr};
   QPushButton *m_btnUndo{nullptr};
   QPushButton *m_btnMore{nullptr};
+  QScrollArea *m_bodyScroll{nullptr};
   QWidget *m_body{nullptr};
   QVBoxLayout *m_bodyLay{nullptr};
   QPushButton *m_btnAdd{nullptr};

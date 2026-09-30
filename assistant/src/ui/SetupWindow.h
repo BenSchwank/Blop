@@ -36,6 +36,7 @@ private:
     QLabel *m_pageLead = nullptr;
     QLabel *m_googleValue = nullptr;
     QLabel *m_sessionValue = nullptr;
+    QLabel *m_notice = nullptr;
     QLineEdit *m_navSearch = nullptr;
     QLineEdit *m_pageSearch = nullptr;
     QList<QPushButton *> m_navButtons;

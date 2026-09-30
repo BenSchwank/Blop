@@ -10,6 +10,7 @@
 
 #include <QCalendarWidget>
 #include <QColor>
+#include <QCoreApplication>
 #include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -25,6 +26,7 @@
 #include <QTime>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 namespace {
 constexpr int kDayStartHour = 6;
@@ -375,6 +377,27 @@ void CalendarDayView::applyCompactChrome() {
     m_btnGoogle->setMinimumHeight(UiScale::dp(m_compact ? 22 : 28));
     refreshGoogleButton();
   }
+
+  // Compact board tiles must not trap wheel / finger scroll — otherwise the
+  // dashboard page and rubber-band bounce feel "dead" over the calendar card.
+  auto tuneNested = [this](QScrollArea *sa) {
+    if (!sa)
+      return;
+    if (m_compact) {
+      sa->setProperty("blopFitContents", true);
+      sa->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+      if (auto *bar = sa->verticalScrollBar())
+        bar->setEnabled(false);
+    } else {
+      sa->setProperty("blopFitContents", false);
+      sa->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+      if (auto *bar = sa->verticalScrollBar())
+        bar->setEnabled(true);
+    }
+  };
+  tuneNested(m_dayScroll);
+  tuneNested(m_weekScroll);
+  tuneNested(m_monthListScroll);
 }
 
 void CalendarDayView::setMinimal(bool on) {
@@ -480,6 +503,23 @@ bool CalendarDayView::eventFilter(QObject *watched, QEvent *event) {
       event->type() == QEvent::MouseButtonRelease) {
     showModeMenu();
     return true;
+  }
+
+  // Compact tiles: bubble wheel to the dashboard page scroller so nested
+  // day/week lists cannot swallow page scroll + bounce.
+  if (m_compact && event->type() == QEvent::Wheel) {
+    for (QWidget *p = parentWidget(); p; p = p->parentWidget()) {
+      if (auto *sa = qobject_cast<QScrollArea *>(p)) {
+        if (sa->property("blopFitContents").toBool())
+          continue;
+        if (QScrollBar *bar = sa->verticalScrollBar()) {
+          if (bar->isEnabled() && bar->maximum() > bar->minimum()) {
+            QCoreApplication::sendEvent(sa->viewport(), event);
+            return true;
+          }
+        }
+      }
+    }
   }
 
   if (m_dayScroll && watched == m_dayScroll->viewport()) {

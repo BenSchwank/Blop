@@ -7,6 +7,7 @@
 
 #include <QIcon>
 #include <QLabel>
+#include <QSizePolicy>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPainterPath>
@@ -35,22 +36,6 @@ QIcon glyph(const QString &name, const QColor &fg, int px) {
   return QIcon(pm);
 }
 
-QIcon hamburgerGlyph(const QColor &fg, int px) {
-  QPixmap pm(px, px);
-  pm.fill(Qt::transparent);
-  QPainter p(&pm);
-  p.setRenderHint(QPainter::Antialiasing);
-  p.setPen(QPen(fg, qMax(2, px / 10), Qt::SolidLine, Qt::RoundCap));
-  const int x0 = px * 22 / 100;
-  const int x1 = px - x0;
-  const int y0 = px * 30 / 100;
-  const int y1 = px / 2;
-  const int y2 = px - y0;
-  p.drawLine(x0, y0, x1, y0);
-  p.drawLine(x0, y1, x1, y1);
-  p.drawLine(x0, y2, x1, y2);
-  return QIcon(pm);
-}
 } // namespace
 
 LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
@@ -59,8 +44,9 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   setFixedWidth(preferredWidth());
   m_accent = BlopTheme::accentPrimary();
 
+  setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
   auto *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(0, UiScale::dp(8), 0, UiScale::dp(12));
+  lay->setContentsMargins(0, UiScale::dp(12), 0, UiScale::dp(12));
   lay->setSpacing(UiScale::dp(2));
 
   m_logo = new QLabel(this);
@@ -69,22 +55,7 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   m_logo->setAlignment(Qt::AlignCenter);
   m_logo->setScaledContents(false);
   lay->addWidget(m_logo, 0, Qt::AlignHCenter);
-  lay->addSpacing(UiScale::dp(6));
-
-  const int tap = UiScale::dp(BlopStyle::touchTargetMinDp());
-  m_menuBtn = new QToolButton(this);
-  m_menuBtn->setObjectName(QStringLiteral("LibraryIconRailMenu"));
-  m_menuBtn->setFixedSize(tap, tap);
-  m_menuBtn->setIconSize(QSize(UiScale::dp(22), UiScale::dp(22)));
-  m_menuBtn->setCursor(Qt::PointingHandCursor);
-  m_menuBtn->setAutoRaise(true);
-  m_menuBtn->setFocusPolicy(Qt::StrongFocus);
-  m_menuBtn->setToolTip(QStringLiteral("Hauptmenü"));
-  m_menuBtn->setIcon(hamburgerGlyph(QColor(0xB8, 0xBE, 0xC9), UiScale::dp(22)));
-  connect(m_menuBtn, &QToolButton::clicked, this,
-          &LibraryIconRail::menuToggled);
-  lay->addWidget(m_menuBtn, 0, Qt::AlignHCenter);
-  lay->addSpacing(UiScale::dp(4));
+  lay->addSpacing(UiScale::dp(8));
 
   // Dual-app switch first, then note utilities.
   addBtn(QStringLiteral("home"), QStringLiteral("home"),
@@ -152,15 +123,17 @@ void LibraryIconRail::setAccentColor(const QColor &color) {
     return;
   m_accent = color;
   refreshStyles();
-  if (m_avatar != QLatin1String("B"))
+  if (!m_avatar.isEmpty())
     setAvatarLetter(m_avatar);
 }
 
 void LibraryIconRail::setAvatarLetter(const QString &letter) {
   m_avatar = letter.trimmed().left(1).toUpper();
-  if (m_avatar.isEmpty())
-    m_avatar = QStringLiteral("B");
   if (QToolButton *b = m_btns.value(QStringLiteral("account"))) {
+    if (m_avatar.isEmpty()) {
+      refreshStyles();
+      return;
+    }
     QPixmap pm(UiScale::dp(28), UiScale::dp(28));
     pm.fill(Qt::transparent);
     QPainter p(&pm);
@@ -242,20 +215,16 @@ void LibraryIconRail::refreshStyles() {
   const QString onHover = accentRgba(m_accent, 0.28);
   setStyleSheet(QStringLiteral(
       "QWidget#LibraryIconRail { background: %1; border: none; }"
-      "QToolButton#LibraryIconRailMenu, QToolButton#LibraryIconRailBtn {"
+      "QToolButton#LibraryIconRailBtn {"
       "  background: transparent; border: none; border-radius: 10px;"
       "}"
-      "QToolButton#LibraryIconRailMenu:hover, QToolButton#LibraryIconRailBtn:hover {"
+      "QToolButton#LibraryIconRailBtn:hover {"
       "  background: %2;"
       "}"
-      "QToolButton#LibraryIconRailMenu:pressed, QToolButton#LibraryIconRailBtn:pressed {"
+      "QToolButton#LibraryIconRailBtn:pressed {"
       "  background: %3;"
       "}")
                     .arg(nav, hover, onBg));
-  if (m_menuBtn) {
-    m_menuBtn->setIcon(
-        hamburgerGlyph(QColor(0xB8, 0xBE, 0xC9), UiScale::dp(22)));
-  }
   applyBrand();
   for (auto it = m_btns.begin(); it != m_btns.end(); ++it) {
     QToolButton *btn = it.value();
@@ -265,8 +234,7 @@ void LibraryIconRail::refreshStyles() {
     const QString iconKey = btn->property("iconKey").toString();
     // Cool gray icons — never pure white (invisible on light hover washes).
     const QColor idleIcon(0xB8, 0xBE, 0xC9);
-    if (it.key() == QLatin1String("account") && !m_avatar.isEmpty() &&
-        m_avatar != QLatin1String("B")) {
+    if (it.key() == QLatin1String("account") && !m_avatar.isEmpty()) {
       // Avatar icon set separately.
     } else {
       btn->setIcon(glyph(iconKey, on ? m_accent : idleIcon, UiScale::dp(20)));

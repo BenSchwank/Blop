@@ -28,7 +28,6 @@ public:
 
 signals:
   void actionTriggered(const QString &id);
-  void menuToggled();
 
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -41,9 +40,8 @@ private:
 
   QHash<QString, QToolButton *> m_btns;
   QLabel *m_logo{nullptr};
-  QToolButton *m_menuBtn{nullptr};
   QPixmap m_brand;
   QString m_active{QStringLiteral("home")};
   QColor m_accent;
-  QString m_avatar{QStringLiteral("B")};
+  QString m_avatar;
 };

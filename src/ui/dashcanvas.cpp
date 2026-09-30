@@ -149,6 +149,10 @@ void DashCanvas::setEditMode(bool on) {
   }
   if (!on && m_dragging)
     cancelGesture();
+  // Leaving Anpassen must never leave the page scroller frozen.
+  if (!on)
+    setScrollLocked(false);
+  applyPositions();
 }
 
 void DashCanvas::setSpecs(const QVector<DashboardWidgetSpec> &specs) {
@@ -347,9 +351,11 @@ QMargins DashCanvas::boardMargins() const {
               : (m_besideRail ? UiScale::dp(8) : UiScale::dp(40));
   // Tight top so cover sits close under the title bar / Anpassen overlay.
   const int top = UiScale::dp(m_phone ? 2 : 4);
+  // Extra bottom pad so the last board row can clear the window edge and the
+  // page always has a little rubber-band room under the cards.
   const int bot =
       m_phone ? PhoneChrome::contentBottomInsetPx(const_cast<DashCanvas *>(this))
-              : UiScale::dp(40);
+              : UiScale::dp(72);
   return QMargins(left, top, right, bot);
 }
 
@@ -385,6 +391,15 @@ int DashCanvas::contentBottom() const {
                                     (s.row + rs) * (rowUnit() + vGap()));
   }
   return maxBottom + boardMargins().bottom();
+}
+
+QSize DashCanvas::sizeHint() const {
+  return QSize(width() > 0 ? width() : UiScale::dp(720),
+               qMax(contentBottom(), UiScale::dp(480)));
+}
+
+QSize DashCanvas::minimumSizeHint() const {
+  return QSize(UiScale::dp(280), contentBottom());
 }
 
 void DashCanvas::layoutPhoneStack() {

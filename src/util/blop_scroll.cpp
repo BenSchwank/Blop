@@ -98,8 +98,14 @@ QAbstractScrollArea *enclosingScrollable(QWidget *w) {
     // outer QScrollArea (a leftover 1–8 px range looks like "can't scroll").
     if (area->property(kFitContents).toBool())
       continue;
+    if (fingerScrollBlocked(area))
+      continue;
     QScrollBar *vs = area->verticalScrollBar();
     QScrollBar *hs = area->horizontalScrollBar();
+    if (vs && !vs->isEnabled())
+      vs = nullptr;
+    if (hs && !hs->isEnabled())
+      hs = nullptr;
     const int vr = vs ? vs->maximum() - vs->minimum() : 0;
     const int hr = hs ? hs->maximum() - hs->minimum() : 0;
     if (vr >= 12 || hr >= 12)
@@ -124,8 +130,10 @@ void applyScrollerMetrics(QWidget *vp, bool verticalOnly) {
   // Vertical-only: lock to Y early so sideways flicks never pan the sheet.
   sp.setScrollMetric(QScrollerProperties::AxisLockThreshold,
                      QVariant(verticalOnly ? 0.15 : 0.55));
+  // AlwaysOn restores the rubber-band bounce even when content barely
+  // overflows (WhenScrollable felt "dead" on short dashboard pages).
   const auto overshootOn =
-      QVariant::fromValue(QScrollerProperties::OvershootWhenScrollable);
+      QVariant::fromValue(QScrollerProperties::OvershootAlwaysOn);
   const auto overshootOff =
       QVariant::fromValue(QScrollerProperties::OvershootAlwaysOff);
   sp.setScrollMetric(QScrollerProperties::HorizontalOvershootPolicy,

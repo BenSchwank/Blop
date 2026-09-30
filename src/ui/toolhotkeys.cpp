@@ -3,6 +3,7 @@
 #include "cloudlink.h"
 #include "storageprefs.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -37,12 +38,21 @@ QJsonObject defaultBlob() {
   return root;
 }
 
+qint64 blobStamp(const QJsonObject &obj) {
+  return obj.value(QStringLiteral("updatedAt")).toVariant().toLongLong();
+}
+
 QJsonObject loadBlob() {
   QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   const QByteArray raw = s.value(blobKey()).toByteArray();
-  if (raw.isEmpty())
-    return defaultBlob();
-  const QJsonObject obj = QJsonDocument::fromJson(raw).object();
+  QJsonObject obj = QJsonDocument::fromJson(raw).object();
+  QFile file(assistantSettingsPath());
+  if (file.open(QIODevice::ReadOnly)) {
+    const QJsonObject fromFile = QJsonDocument::fromJson(file.readAll()).object();
+    if (!fromFile.isEmpty() &&
+        (obj.isEmpty() || blobStamp(fromFile) > blobStamp(obj)))
+      obj = fromFile;
+  }
   if (obj.isEmpty())
     return defaultBlob();
   QJsonObject blob = defaultBlob();
@@ -61,12 +71,18 @@ QJsonObject loadBlob() {
       bindings.insert(it.key(), it.value().toObject());
   }
   blob.insert(QStringLiteral("bindings"), bindings);
+  if (blobStamp(obj) > 0)
+    blob.insert(QStringLiteral("updatedAt"), blobStamp(obj));
   return blob;
 }
 
 void saveBlob(const QJsonObject &blob) {
+  QJsonObject stamped = blob;
+  stamped.insert(QStringLiteral("updatedAt"),
+                 QDateTime::currentMSecsSinceEpoch());
   QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-  s.setValue(blobKey(), QJsonDocument(blob).toJson(QJsonDocument::Compact));
+  s.setValue(blobKey(), QJsonDocument(stamped).toJson(QJsonDocument::Compact));
+  s.sync();
 }
 
 const ToolHotkeyDef *findDef(const QString &id) {

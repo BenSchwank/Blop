@@ -303,9 +303,11 @@ void BlopModal::animateCardToPreferred(int durationMs) {
     return;
   }
   if (m_cardAnim) {
-    m_cardAnim->stop();
-    m_cardAnim->deleteLater();
+    QPropertyAnimation *old = m_cardAnim;
     m_cardAnim = nullptr;
+    old->disconnect(this);
+    old->stop();
+    old->deleteLater();
   }
   // Keep preferred values in sync so resizeEvent / layoutContent match.
   // Width/height already stored via setters; just animate geometry.
@@ -322,12 +324,15 @@ void BlopModal::animateCardToPreferred(int durationMs) {
   m_cardAnim->setEndValue(target);
   m_cardAnim->setEasingCurve(QEasingCurve::OutCubic);
   connect(m_cardAnim, &QPropertyAnimation::finished, this, [this]() {
-    m_cardAnim = nullptr;
-    // Sync content without restarting another animation.
+    auto *anim = qobject_cast<QPropertyAnimation *>(sender());
+    if (anim && m_cardAnim == anim)
+      m_cardAnim = nullptr;
     if (m_card)
       layoutContent();
+    if (anim)
+      anim->deleteLater();
   });
-  m_cardAnim->start(QAbstractAnimation::DeleteWhenStopped);
+  m_cardAnim->start();
 }
 
 void BlopModal::applyTheme() {
@@ -711,7 +716,14 @@ void BlopModal::startOpenAnim() {
     m_cardAnim->setStartValue(startGeom);
     m_cardAnim->setEndValue(endGeom);
     m_cardAnim->setEasingCurve(BlopMotion::kEaseStandard);
-    m_cardAnim->start(QAbstractAnimation::DeleteWhenStopped);
+    connect(m_cardAnim, &QPropertyAnimation::finished, this, [this]() {
+      auto *anim = qobject_cast<QPropertyAnimation *>(sender());
+      if (anim && m_cardAnim == anim)
+        m_cardAnim = nullptr;
+      if (anim)
+        anim->deleteLater();
+    });
+    m_cardAnim->start();
   }
 #endif
 }

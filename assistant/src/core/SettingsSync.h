@@ -26,6 +26,6 @@ public:
 
     static bool signedIn();
     static QString signIn(QString *error);
-    static bool pull(QString *error);
+    static bool pull(QString *error, bool keepNewerLocal = false);
     static bool upload(QString *error);
 };

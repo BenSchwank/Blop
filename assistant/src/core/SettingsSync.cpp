@@ -54,6 +54,8 @@ QByteArray googleSecret() {
     return {};
 }
 
+QString messageFromBody(const QByteArray &raw, const QString &fallback);
+
 QString randomToken(int len) {
     const QByteArray raw = QUuid::createUuid().toByteArray() +
                            QByteArray::number(QDateTime::currentMSecsSinceEpoch());
@@ -104,9 +106,39 @@ QByteArray httpBody(QNetworkAccessManager *nam, const QNetworkRequest &req,
         *status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QByteArray data = reply->readAll();
     if (reply->error() != QNetworkReply::NoError && error && error->isEmpty())
-        *error = reply->errorString();
+        *error = messageFromBody(data, reply->errorString());
     reply->deleteLater();
     return data;
+}
+
+QString messageFromBody(const QByteArray &raw, const QString &fallback) {
+    const QJsonObject obj = QJsonDocument::fromJson(raw).object();
+    QString detail = obj.value(QStringLiteral("error_description")).toString();
+    if (detail.isEmpty())
+        detail = obj.value(QStringLiteral("error")).toString();
+    const QJsonValue bodyDetail = obj.value(QStringLiteral("detail"));
+    if (detail.isEmpty() && bodyDetail.isString())
+        detail = bodyDetail.toString();
+    if (detail.isEmpty() && bodyDetail.isArray() && !bodyDetail.toArray().isEmpty())
+        detail = bodyDetail.toArray().at(0).toObject().value(QStringLiteral("msg")).toString();
+    if (detail.contains(QStringLiteral("GOOGLE_CLIENT_SECRET")) ||
+        detail.contains(QStringLiteral("GOOGLE_DESKTOP_CLIENT_SECRET"))) {
+        return QStringLiteral(
+            "Der Server hat das Google-Geheimnis nicht. Lege es in "
+            "google_desktop_client_secret.txt oder als BLOP_GOOGLE_CLIENT_SECRET ab.");
+    }
+    if (detail.contains(QStringLiteral("redirect_uri_mismatch"))) {
+        return QStringLiteral(
+            "Google kennt http://127.0.0.1:27185/ noch nicht. Trag die Adresse "
+            "beim Desktop-Client unter „Autorisierte Weiterleitungs-URIs“ ein.");
+    }
+    if (detail.contains(QStringLiteral("invalid_grant")))
+        return QStringLiteral("Der Google-Code ist abgelaufen. Bitte noch einmal anmelden.");
+    if (!detail.isEmpty())
+        return detail;
+    if (fallback.contains(QStringLiteral("server replied:")))
+        return QStringLiteral("Der Anmelde-Server hat abgelehnt, ohne eine Erklärung zu schicken.");
+    return fallback;
 }
 
 QString accessToken(QNetworkAccessManager *nam, QString *error) {
@@ -189,16 +221,97 @@ QString fileId(QNetworkAccessManager *nam, const QString &token, const QString &
     return files.at(0).toObject().value(QStringLiteral("id")).toString();
 }
 
-void rememberBlob(const QJsonObject &obj) {
-    if (obj.isEmpty())
-        return;
+qint64 stampOf(const QJsonObject &obj) {
+    return obj.value(QStringLiteral("updatedAt")).toVariant().toLongLong();
+}
+
+QJsonObject completeBlob(const QJsonObject &src) {
+    const struct Row {
+        const char *id;
+        const char *keys;
+        const char *color;
+        int width;
+    } rows[] = {
+        {"pen1", "Ctrl+1", "#000000", 3},
+        {"pen2", "Ctrl+2", "#2F6FED", 3},
+        {"pen3", "Ctrl+3", "#E23B3B", 3},
+        {"marker", "Ctrl+4", nullptr, 0},
+        {"pen", "P", nullptr, 0},
+        {"eraser", "E", nullptr, 0},
+        {"lasso", "V", nullptr, 0},
+        {"text", "T", nullptr, 0},
+        {"hand", "H", nullptr, 0},
+        {"markerKey", "M", nullptr, 0},
+    };
+    const QJsonObject saved = src.value(QStringLiteral("bindings")).toObject();
+    QJsonObject bindings;
+    for (const Row &row : rows) {
+        const QString id = QString::fromLatin1(row.id);
+        const QJsonObject incoming = saved.value(id).toObject();
+        QJsonObject out;
+        const QString keys = incoming.value(QStringLiteral("keys")).toString().trimmed();
+        out.insert(QStringLiteral("keys"),
+                   keys.isEmpty() ? QString::fromLatin1(row.keys) : keys);
+        if (row.color) {
+            const QString color = incoming.value(QStringLiteral("color")).toString().trimmed();
+            out.insert(QStringLiteral("color"),
+                       color.isEmpty() ? QString::fromLatin1(row.color) : color);
+            const int width = incoming.value(QStringLiteral("width")).toInt(row.width);
+            out.insert(QStringLiteral("width"), qBound(1, width, 40));
+        }
+        bindings.insert(id, out);
+    }
+    QJsonObject out;
+    out.insert(QStringLiteral("version"), 1);
+    const QString model = src.value(QStringLiteral("openrouterModel")).toString().trimmed();
+    out.insert(QStringLiteral("openrouterModel"),
+               model.isEmpty() ? QStringLiteral("openai/gpt-4o-mini") : model);
+    out.insert(QStringLiteral("openrouterKey"),
+               src.value(QStringLiteral("openrouterKey")).toString());
+    const QString voice = src.value(QStringLiteral("voiceHotkey")).toString().trimmed();
+    out.insert(QStringLiteral("voiceHotkey"),
+               voice.isEmpty() ? QStringLiteral("Ctrl+Space") : voice);
+    out.insert(QStringLiteral("bindings"), bindings);
+    if (stampOf(src) > 0)
+        out.insert(QStringLiteral("updatedAt"), stampOf(src));
+    return out;
+}
+
+QJsonObject readSettingsBlob() {
+    return QJsonDocument::fromJson(
+               blopSettings().value(QStringLiteral("ui/tool_hotkeys")).toByteArray())
+        .object();
+}
+
+QJsonObject readFileBlob() {
+    QFile file(SettingsSync::settingsPath());
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return QJsonDocument::fromJson(file.readAll()).object();
+}
+
+QJsonObject newerRawBlob() {
+    const QJsonObject settings = readSettingsBlob();
+    const QJsonObject file = readFileBlob();
+    if (file.isEmpty())
+        return settings;
+    if (settings.isEmpty())
+        return file;
+    return stampOf(file) > stampOf(settings) ? file : settings;
+}
+
+void rememberBlob(const QJsonObject &obj, bool stampNow = true) {
+    QJsonObject full = completeBlob(obj);
+    if (stampNow)
+        full.insert(QStringLiteral("updatedAt"), QDateTime::currentMSecsSinceEpoch());
     QSettings s = blopSettings();
     s.setValue(QStringLiteral("ui/tool_hotkeys"),
-               QJsonDocument(obj).toJson(QJsonDocument::Compact));
+               QJsonDocument(full).toJson(QJsonDocument::Compact));
+    s.sync();
     QSaveFile file(SettingsSync::settingsPath());
     if (!file.open(QIODevice::WriteOnly))
         return;
-    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    file.write(QJsonDocument(full).toJson(QJsonDocument::Indented));
     file.commit();
 }
 
@@ -209,15 +322,7 @@ QString SettingsSync::settingsPath() {
 }
 
 QJsonObject SettingsSync::load() {
-    QFile file(settingsPath());
-    if (file.open(QIODevice::ReadOnly)) {
-        const QJsonObject obj = QJsonDocument::fromJson(file.readAll()).object();
-        if (!obj.isEmpty())
-            return obj;
-    }
-    const QByteArray raw =
-        blopSettings().value(QStringLiteral("ui/tool_hotkeys")).toByteArray();
-    return QJsonDocument::fromJson(raw).object();
+    return completeBlob(newerRawBlob());
 }
 
 QString SettingsSync::hotkeyFor(const QString &id) {
@@ -394,20 +499,51 @@ QString SettingsSync::signIn(QString *error) {
     const QByteArray raw = httpBody(&nam, ex, "POST",
                                     QJsonDocument(payload).toJson(QJsonDocument::Compact),
                                     &status, &httpError);
-    const QJsonObject obj = QJsonDocument::fromJson(raw).object();
+    QJsonObject obj = QJsonDocument::fromJson(raw).object();
     if (obj.value(QStringLiteral("access_token")).toString().isEmpty()) {
-        if (error)
-            *error = httpError.isEmpty()
-                         ? QStringLiteral("Google hat kein Zugriffstoken geliefert.")
-                         : httpError;
-        return {};
+        const QByteArray secret = googleSecret();
+        if (!secret.isEmpty()) {
+            QUrlQuery form;
+            form.addQueryItem(QStringLiteral("grant_type"),
+                              QStringLiteral("authorization_code"));
+            form.addQueryItem(QStringLiteral("code"), code);
+            form.addQueryItem(QStringLiteral("redirect_uri"), redirect);
+            form.addQueryItem(QStringLiteral("client_id"), QString::fromLatin1(kClientId));
+            form.addQueryItem(QStringLiteral("code_verifier"), verifier);
+            form.addQueryItem(QStringLiteral("client_secret"), QString::fromUtf8(secret));
+            QNetworkRequest direct(QUrl(QStringLiteral("https://oauth2.googleapis.com/token")));
+            direct.setHeader(QNetworkRequest::ContentTypeHeader,
+                             QStringLiteral("application/x-www-form-urlencoded"));
+            int directStatus = 0;
+            QString directError;
+            const QByteArray directRaw =
+                httpBody(&nam, direct, "POST",
+                         form.toString(QUrl::FullyEncoded).toUtf8(), &directStatus,
+                         &directError);
+            obj = QJsonDocument::fromJson(directRaw).object();
+            if (obj.value(QStringLiteral("access_token")).toString().isEmpty()) {
+                if (error)
+                    *error = directError.isEmpty()
+                                 ? messageFromBody(raw, httpError)
+                                 : messageFromBody(directRaw, directError);
+                return {};
+            }
+        } else {
+            if (error)
+                *error = httpError.isEmpty()
+                             ? QStringLiteral("Google hat kein Zugriffstoken geliefert.")
+                             : messageFromBody(raw, httpError);
+            return {};
+        }
     }
     storeTokens(obj);
-    pull(error);
+    QString pullError;
+    if (!pull(&pullError, true) && error)
+        *error = pullError;
     return obj.value(QStringLiteral("access_token")).toString();
 }
 
-bool SettingsSync::pull(QString *error) {
+bool SettingsSync::pull(QString *error, bool keepNewerLocal) {
     QNetworkAccessManager nam;
     const QString token = accessToken(&nam, error);
     if (token.isEmpty())
@@ -430,7 +566,13 @@ bool SettingsSync::pull(QString *error) {
             *error = QStringLiteral("Die Einstellungen von Drive waren leer.");
         return false;
     }
-    rememberBlob(obj);
+    if (keepNewerLocal && stampOf(newerRawBlob()) > stampOf(obj) && stampOf(obj) > 0) {
+        if (error)
+            *error = QStringLiteral(
+                "Die Hotkeys auf diesem Gerät sind neuer und bleiben erhalten.");
+        return true;
+    }
+    rememberBlob(obj, stampOf(obj) <= 0);
     return true;
 }
 

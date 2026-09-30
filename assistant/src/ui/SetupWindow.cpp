@@ -264,9 +264,16 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
         const QString id = binding.id;
         connect(edit, &QKeySequenceEdit::editingFinished, this, [this, edit, id]() {
             SettingsSync::setToolBinding(id, portable(edit));
-            if (SettingsSync::signedIn()) {
-                QString error;
-                SettingsSync::upload(&error);
+            QString error;
+            if (SettingsSync::signedIn() && !SettingsSync::upload(&error) && m_notice) {
+                m_notice->setText(error.isEmpty()
+                                      ? QStringLiteral("Hotkey ist lokal gespeichert, Drive hat sie nicht übernommen.")
+                                      : error);
+                m_notice->show();
+            } else if (m_notice && !SettingsSync::signedIn()) {
+                m_notice->setText(QStringLiteral(
+                    "Hotkey ist auf diesem Gerät gespeichert. Für andere Geräte einmal mit Google verbinden."));
+                m_notice->show();
             }
         });
     }
@@ -287,8 +294,13 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
     m_pageLead = new QLabel(titleBlock);
     m_pageLead->setObjectName(QStringLiteral("pageLead"));
     m_pageLead->setWordWrap(true);
+    m_notice = new QLabel(titleBlock);
+    m_notice->setObjectName(QStringLiteral("notice"));
+    m_notice->setWordWrap(true);
+    m_notice->hide();
     titleLayout->addWidget(m_pageTitle);
     titleLayout->addWidget(m_pageLead);
+    titleLayout->addWidget(m_notice);
 
     contentLayout->addWidget(titleBlock);
     contentLayout->addWidget(pages, 1);
@@ -339,6 +351,7 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
         "QLabel#pageTitle { color: #F4F5F7; font-size: 20px; font-weight: 650;"
         " background: transparent; }"
         "QLabel#pageLead { color: #9AA0AA; font-size: 13px; background: transparent; }"
+        "QLabel#notice { color: #F0C7C7; font-size: 13px; background: transparent; }"
         "QLabel#fieldLabel { color: #F4F5F7; font-size: 13px; background: transparent; }"
         "QLabel#value { color: #C8CDD6; font-size: 13px; background: transparent; }"
         "QWidget#row { background: transparent; border-bottom: 1px solid rgba(255,255,255,0.08); }"
@@ -380,18 +393,38 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
 
     connect(google, &QPushButton::clicked, this, [this]() {
         m_googleValue->setText(QStringLiteral("Browser öffnet sich …"));
+        if (m_notice)
+            m_notice->hide();
         QString error;
-        if (SettingsSync::signIn(&error).isEmpty())
-            m_googleValue->setText(error);
-        else
+        if (SettingsSync::signIn(&error).isEmpty()) {
             refresh();
+            if (m_notice) {
+                m_notice->setText(error);
+                m_notice->show();
+            }
+        } else {
+            refresh();
+            if (m_notice && !error.isEmpty()) {
+                m_notice->setText(error);
+                m_notice->show();
+            }
+        }
     });
     connect(pull, &QPushButton::clicked, this, [this, voice]() {
         QString error;
         if (!SettingsSync::pull(&error)) {
-            m_googleValue->setText(error.isEmpty() ? QStringLiteral("Laden fehlgeschlagen.")
-                                                   : error);
+            if (m_notice) {
+                m_notice->setText(error.isEmpty() ? QStringLiteral("Laden fehlgeschlagen.")
+                                                  : error);
+                m_notice->show();
+            }
             return;
+        }
+        if (m_notice) {
+            m_notice->setText(error.isEmpty()
+                                  ? QStringLiteral("Hotkeys geladen.")
+                                  : error);
+            m_notice->show();
         }
         voice->setKeySequence(
             QKeySequence(SettingsSync::voiceHotkey(), QKeySequence::PortableText));
@@ -404,9 +437,12 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
     });
     connect(voice, &QKeySequenceEdit::editingFinished, this, [this, voice]() {
         SettingsSync::setVoiceHotkey(portable(voice));
-        if (SettingsSync::signedIn()) {
-            QString error;
-            SettingsSync::upload(&error);
+        QString error;
+        if (SettingsSync::signedIn() && !SettingsSync::upload(&error) && m_notice) {
+            m_notice->setText(error.isEmpty()
+                                  ? QStringLiteral("Taste ist lokal gespeichert, Drive hat sie nicht übernommen.")
+                                  : error);
+            m_notice->show();
         }
         emit voiceHotkeyChanged();
     });

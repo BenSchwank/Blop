@@ -58,6 +58,8 @@ protected:
   void resizeEvent(QResizeEvent *event) override;
   void paintEvent(QPaintEvent *event) override;
   bool eventFilter(QObject *watched, QEvent *event) override;
+  QSize sizeHint() const override;
+  QSize minimumSizeHint() const override;
 
 private:
   enum class Gesture { None, Move, Resize };

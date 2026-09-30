@@ -2,11 +2,13 @@
 
 #include "blop_dialogs.h"
 #include "blop_inwindow_menu.h"
+#include "blop_scroll.h"
 #include "blop_theme.h"
 #include "bloplocale.h"
 #include "blopstyle.h"
 #include "calendarservice.h"
 #include "libraryorgstore.h"
+#include "overlayscrollindicator.h"
 #include "todostore.h"
 #include "uiscale.h"
 #include "weatherservice.h"
@@ -23,6 +25,8 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QStyle>
 #include <QStyleFactory>
@@ -208,13 +212,32 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   chromeLay->addWidget(m_btnMore, 0);
   root->addWidget(m_chrome, 0);
 
-  m_body = new QWidget(this);
+  m_bodyScroll = new QScrollArea(this);
+  m_bodyScroll->setObjectName(QStringLiteral("DashRailBodyScroll"));
+  m_bodyScroll->setWidgetResizable(true);
+  m_bodyScroll->setFrameShape(QFrame::NoFrame);
+  m_bodyScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_bodyScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_bodyScroll->setStyleSheet(QStringLiteral(
+      "QScrollArea#DashRailBodyScroll { background: transparent; border: none; }"
+      "QScrollArea#DashRailBodyScroll > QWidget > QWidget { background: transparent; }"));
+  if (m_bodyScroll->viewport()) {
+    m_bodyScroll->viewport()->setAutoFillBackground(false);
+    m_bodyScroll->viewport()->setStyleSheet(
+        QStringLiteral("background: transparent;"));
+  }
+  OverlayScrollIndicator::install(m_bodyScroll);
+  BlopScroll::enableFingerScroll(m_bodyScroll, BlopScroll::Axes::VerticalOnly);
+
+  m_body = new QWidget;
+  m_body->setObjectName(QStringLiteral("DashRailBody"));
   m_body->setStyleSheet(QStringLiteral("background: transparent;"));
   m_bodyLay = new QVBoxLayout(m_body);
-  m_bodyLay->setContentsMargins(0, UiScale::dp(4), 0, 0);
+  m_bodyLay->setContentsMargins(0, UiScale::dp(4), 0, UiScale::dp(8));
   m_bodyLay->setSpacing(UiScale::dp(6));
-  root->addWidget(m_body, 0);
-  root->addStretch(1);
+  m_bodyLay->addStretch(1);
+  m_bodyScroll->setWidget(m_body);
+  root->addWidget(m_bodyScroll, 1);
 
   m_btnAdd = new QPushButton(QStringLiteral("+ Widget"), this);
   m_btnAdd->setCursor(Qt::PointingHandCursor);
@@ -479,6 +502,7 @@ void DashRightRail::rebuildModules() {
     if (content)
       m_bodyLay->addWidget(makeSegment(id, moduleTitle(id), content), 0);
   }
+  m_bodyLay->addStretch(1);
   applyChrome();
 }
 
