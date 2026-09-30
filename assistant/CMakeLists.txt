@@ -5,6 +5,9 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
+if(ANDROID)
+    find_package(Qt6 REQUIRED COMPONENTS CorePrivate)
+endif()
 
 qt_add_executable(BlopAssistent
     src/main.cpp
