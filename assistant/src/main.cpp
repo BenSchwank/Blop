@@ -4,8 +4,6 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QGuiApplication>
-#include <QPainter>
-#include <QPixmap>
 #include <QTextStream>
 
 #ifdef Q_OS_ANDROID
@@ -15,21 +13,11 @@
 #include <QSettings>
 #include <QSystemTrayIcon>
 
+#include "ui/AssistantLogo.h"
 #include "ui/NotchWindow.h"
 #include "ui/SetupWindow.h"
 
-QIcon blopTrayIcon() {
-    QPixmap pixmap(32, 32);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(QStringLiteral("#24262B")));
-    painter.drawEllipse(1, 1, 30, 30);
-    painter.setBrush(QColor(QStringLiteral("#5B9DFF")));
-    painter.drawEllipse(9, 9, 14, 14);
-    return QIcon(pixmap);
-}
+QIcon blopTrayIcon() { return assistantLogoIcon(); }
 #endif
 
 int main(int argc, char *argv[]) {
@@ -54,6 +42,7 @@ int main(int argc, char *argv[]) {
     shell.show();
 #else
     QApplication::setQuitOnLastWindowClosed(false);
+    app.setWindowIcon(assistantLogoIcon());
 
     NotchWindow notch;
     SetupWindow setup;
