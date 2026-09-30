@@ -405,17 +405,56 @@ _AUDIO_FORMATS = {
 }
 
 
+def extract_pdf_text(path: str, max_pages: int = 40, max_chars: int = 100_000) -> str:
+    """Read a PDF text layer locally. Avoids OpenRouter's paid file parser."""
+    try:
+        from PyPDF2 import PdfReader
+    except ImportError:
+        return ""
+    try:
+        reader = PdfReader(path)
+        pages = getattr(reader, "pages", None)
+        if pages is None:
+            count = int(reader.getNumPages())
+            pages = [reader.getPage(index) for index in range(count)]
+        chunks = []
+        total = 0
+        for page in list(pages)[:max_pages]:
+            if hasattr(page, "extract_text"):
+                piece = page.extract_text() or ""
+            else:
+                piece = page.extractText() or ""
+            piece = piece.strip()
+            if not piece:
+                continue
+            chunks.append(piece)
+            total += len(piece)
+            if total >= max_chars:
+                break
+        text = "\n\n".join(chunks).strip()
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n\n[… PDF-Text gekürzt …]"
+        return text
+    except Exception as exc:
+        print(f"PDF text extract failed: {exc}")
+        return ""
+
+
 def _file_block(uploaded: UploadedFile) -> Dict[str, Any]:
+    mime = uploaded.mime_type or "application/octet-stream"
+    filename = Path(uploaded.path).name or "material"
+    if mime == "application/pdf" or filename.lower().endswith(".pdf"):
+        text = extract_pdf_text(uploaded.path)
+        body = text or f"[PDF {filename} enthält keinen lesbaren Text.]"
+        return {"type": "text", "text": f"--- {filename} (PDF) ---\n{body}"}
     raw = Path(uploaded.path).read_bytes()
     b64 = base64.b64encode(raw).decode("ascii")
-    mime = uploaded.mime_type or "application/octet-stream"
     audio_format = _AUDIO_FORMATS.get(mime)
     if audio_format:
         return {
             "type": "input_audio",
             "input_audio": {"data": b64, "format": audio_format},
         }
-    filename = Path(uploaded.path).name or "material"
     return {
         "type": "file",
         "file": {

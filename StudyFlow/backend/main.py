@@ -341,9 +341,11 @@ def _podcast_job_worker(
     folder_id: str,
     model_preference: Optional[str],
     tts_voice: Optional[str] = None,
+    tts_voice_b: Optional[str] = None,
 ) -> None:
     from ai_service import AIService
-    from media_pipeline import openai_tts_speech_mp3
+    from media_pipeline import synthesize_podcast_dialogue
+    from podcast_dialogue import podcast_voice_pair
 
     try:
         _configure_genai()
@@ -359,8 +361,8 @@ def _podcast_job_worker(
             context, model_preference=model_pref, return_meta=True
         )
         text = script_result["text"]
-        voice = (tts_voice or "alloy").strip().lower()
-        mp3_bytes = openai_tts_speech_mp3(text, voice=voice)
+        voice_a, voice_b = podcast_voice_pair(tts_voice or "", tts_voice_b or "")
+        mp3_bytes = synthesize_podcast_dialogue(text, voice_a, voice_b)
         fname = f"podcast_{int(datetime.now().timestamp())}.mp3"
         file_id = DataManager.save_audio(mp3_bytes, fname, username, folder_id)
         charge = deduct_tokens_by_usage(
@@ -378,7 +380,8 @@ def _podcast_job_worker(
                         "finished_at": time.time(),
                         "file_id": file_id,
                         "filename": fname,
-                        "tts_voice": voice,
+                        "tts_voice": voice_a,
+                        "tts_voice_b": voice_b,
                         "used_model": script_result.get("used_model", model_pref or ""),
                         "usage": script_result.get("usage", {}),
                         **charge,
@@ -392,7 +395,8 @@ def _podcast_job_worker(
             result={
                 "file_id": file_id,
                 "filename": fname,
-                "tts_voice": voice,
+                "tts_voice": voice_a,
+                "tts_voice_b": voice_b,
                 "used_model": script_result.get("used_model", model_pref or ""),
                 "usage": script_result.get("usage", {}),
                 **charge,
@@ -2764,6 +2768,7 @@ class PodcastRequest(BaseModel):
     folder_id: str
     model_preference: Optional[str] = None
     tts_voice: Optional[str] = None
+    tts_voice_b: Optional[str] = None
 
 
 class LearningVideoRequest(BaseModel):
@@ -3240,37 +3245,26 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
             has_content = True
             debug_log.append(f"Added text context from {f_type} {f_name}")
         
-        # 2. PDFs (Upload to Gemini for OCR/Vision) — storage only, no DB content
+        # 2. PDFs — local text, not OpenRouter's file parser (that returns 402).
         elif f_type == "pdf":
             try:
-                # Get local path
                 debug_log.append(f"Fetching PDF path for {f_name}")
                 pdf_path = DataManager.get_pdf_path(
                     f_name, username, folder_id, file_id=f.get("id")
                 )
-                
-                if pdf_path:
-                    if os.path.exists(pdf_path):
-                        try:
-                            import time
-                            uploaded_file = genai.upload_file(pdf_path, mime_type="application/pdf")
-                            
-                            while uploaded_file.state.name == "PROCESSING":
-                                debug_log.append(f"Waiting for PDF {f_name} processing...")
-                                time.sleep(2)
-                                uploaded_file = genai.get_file(uploaded_file.name)
-                                
-                            if uploaded_file.state.name == "FAILED":
-                                debug_log.append(f"PDF {f_name} processing failed on Gemini.")
-                                continue
-
-                            content_parts.append(uploaded_file)
-                            has_content = True
-                            debug_log.append(f"Successfully uploaded and processed {f_name}")
-                        except Exception as upload_err:
-                             debug_log.append(f"GenAI Upload Error: {str(upload_err)}")
+                if pdf_path and os.path.exists(pdf_path):
+                    from openrouter_genai import extract_pdf_text
+                    pdf_text = extract_pdf_text(pdf_path)
+                    if pdf_text.strip():
+                        content_parts.append(f"--- {f_name} (PDF) ---\n{pdf_text}\n\n")
+                        has_content = True
+                        debug_log.append(f"PDF-Text aus {f_name}: {len(pdf_text)} Zeichen")
                     else:
-                        debug_log.append(f"Path returned but file missing: {pdf_path}")
+                        debug_log.append(
+                            f"PDF {f_name} hat keinen lesbaren Text. Eingescannte Seiten kann die KI so nicht lesen."
+                        )
+                elif pdf_path:
+                    debug_log.append(f"Path returned but file missing: {pdf_path}")
                 else:
                     debug_log.append(f"DataManager returned None path for {f_name}")
             except Exception as e:
@@ -3990,12 +3984,18 @@ def tts_preview(request: TtsPreviewRequest):
         ensure_minimum_tokens(request.username, 1)
         voice = (request.voice or "alloy").strip().lower()
         text = (request.text or "").strip()
-        if not text:
+        instructions = None
+        from podcast_dialogue import ALEX_STYLE, PODCAST_VOICES, SAM_STYLE
+        if voice in PODCAST_VOICES:
+            instructions = ALEX_STYLE if voice in {"aoede", "leda", "zephyr"} else SAM_STYLE
+            if not text:
+                text = "Warte mal, das heißt also, man merkt sich das am besten an einem kleinen Beispiel. Soll ich das nochmal anders erklären?"
+        elif not text:
             text = (
                 "Hallo, das ist eine kurze Stimmprobe. "
                 "So klingt diese Stimme in Blop Study."
             )
-        mp3 = openai_tts_speech_mp3(text, voice=voice)
+        mp3 = openai_tts_speech_mp3(text, voice=voice, instructions=instructions)
         return Response(content=mp3, media_type="audio/mpeg")
     except HTTPException:
         raise
@@ -4025,7 +4025,7 @@ def create_podcast(request: PodcastRequest):
     )
     thread = threading.Thread(
         target=_podcast_job_worker,
-        args=(job_id, request.username, request.folder_id, request.model_preference, request.tts_voice),
+        args=(job_id, request.username, request.folder_id, request.model_preference, request.tts_voice, request.tts_voice_b),
         daemon=True,
     )
     thread.start()

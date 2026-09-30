@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { AiModelOptions } from '@/lib/aiModelOptions';
 import { Trash2, AlertTriangle, Loader2, LogOut, CreditCard, Calendar, ArrowUpRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { fetchSubscriptionStatus, syncStripeSubscription, cancelStripeSubscription, confirmStripeCheckout, createStripePortal, SubscriptionStatus } from '@/lib/subscription';
@@ -322,26 +323,17 @@ export default function Settings() {
                     <h2 className="text-xl font-semibold text-white mb-4">KI-Modell (Standard)</h2>
                     <div className="bg-[#252526] border border-[#333] rounded-2xl p-6 space-y-4">
                         <p className="text-sm text-gray-400">
-                            Leer lassen: Blop wählt pro Aufgabe das Modell mit dem besten Verhältnis aus Qualität, Tempo und Kosten. Eine feste Wahl gilt für alle Aufgaben.
+                            Automatisch wählt pro Aufgabe das Modell mit dem besten Verhältnis aus Qualität, Tempo und Kosten. Eine feste Wahl gilt für alle Aufgaben und verbraucht die genannten Tokens.
                         </p>
                         <select
                             value={preferredModel}
                             onChange={(e) => setPreferredModel(e.target.value)}
                             className="w-full bg-[#151525] border border-[#2A2A40] text-gray-200 rounded-xl px-4 py-2.5"
                         >
-                            <option value="">Automatisch: bestes Modell pro Aufgabe</option>
-                            <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
-                            <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
-                            <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
-                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (sehr stark, teurer)</option>
-                            <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro (stark)</option>
-                            <option value="gemini-1.5-pro">Gemini 1.5 Pro (stark)</option>
-                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (schnell)</option>
-                            <option value="gemini-1.5-flash">Gemini 1.5 Flash (günstig)</option>
-                            <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (sehr günstig)</option>
+                            <AiModelOptions current={preferredModel} />
                         </select>
                         <p className="text-xs text-gray-500">
-                            Tokenabzug erfolgt dynamisch nach Nutzung. Pro-Modelle ziehen in der Regel mehr Tokens ab als Flash-Modelle.
+                            Claude und GPT ziehen mehr Tokens ab. Gemini 3.7 Flash ist die sparsame Wahl.
                         </p>
                         <button
                             onClick={savePreferredModel}

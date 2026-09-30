@@ -17,6 +17,7 @@ import { getSessionId, sessionHeaders } from "@/lib/session";
 import { OVERLAY_FOLDER_KI_PANEL } from "@/constants/overlayLayout";
 import { expireStaleActiveJobs, formatQueueAge, readQueueSnapshot, QUEUE_CANCEL_NOTE } from "@/lib/globalQueueStorage";
 import FloatingChat from "@/components/FloatingChat";
+import { AiModelOptions } from "@/lib/aiModelOptions";
 import { motion, AnimatePresence } from 'framer-motion';
 import { marked } from 'marked';
 import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
@@ -229,6 +230,28 @@ const AI_JOB_LABELS: Record<string, string> = {
 
 const LEARNING_VIDEO_SETTINGS_KEY = "blop_study_learning_video_settings_v1";
 const PODCAST_SETTINGS_KEY = "blop_study_podcast_settings_v1";
+const PODCAST_VOICES = [
+    { id: "aoede", label: "Locker und freundlich" },
+    { id: "leda", label: "Klar und jünger" },
+    { id: "zephyr", label: "Hell und direkt" },
+    { id: "puck", label: "Lebendig" },
+    { id: "charon", label: "Ruhig erklärend" },
+    { id: "kore", label: "Sachlich" },
+] as const;
+const LEGACY_PODCAST_VOICE: Record<string, string> = {
+    alloy: "aoede",
+    echo: "charon",
+    fable: "leda",
+    onyx: "kore",
+    nova: "zephyr",
+    shimmer: "puck",
+};
+
+function normalizePodcastVoice(value: string, fallback: string) {
+    const key = value.trim().toLowerCase();
+    const mapped = LEGACY_PODCAST_VOICE[key] || key;
+    return PODCAST_VOICES.some((voice) => voice.id === mapped) ? mapped : fallback;
+}
 const OPENAI_TTS_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"] as const;
 
 /** File types the user can opt into AI context. Default selection is pdf + transcript only. */
@@ -320,33 +343,34 @@ const DroppableSubfolder = ({ subfolder, onClick, onRename, onDelete }: { subfol
     });
 
     return (
-        <motion.button
+        <motion.div
             ref={setNodeRef}
             layout
             initial={{ opacity: 0, scale: 0.95, y: -5 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -5 }}
             transition={{ duration: 0.2 }}
-            onClick={onClick}
             className={`flex items-center gap-2 border p-3 rounded-xl text-left transition-all group
                 ${isOver ? 'bg-[#1C1C33] border-[#5E5CE6] shadow-lg shadow-[#5E5CE6]/20 scale-105' : 'bg-[#151525] hover:bg-[#1C1C33] border-[#2A2A40] hover:border-[#5E5CE6]/40'}
             `}
         >
+            <button type="button" onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2 text-left min-h-10">
             <div className="p-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#5E5CE6] shrink-0">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
             </div>
-            <span className="text-sm text-gray-300 group-hover:text-white truncate font-medium">{subfolder.name}</span>
-            <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="text-sm text-gray-300 group-hover:text-white truncate font-medium min-w-0">{subfolder.name}</span>
+            </button>
+            <div className="ml-auto flex items-center gap-1 shrink-0" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                 <button
                     type="button"
                     onClick={(e) => {
                         e.stopPropagation();
                         onRename(subfolder);
                     }}
-                    className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-[#23233b]"
+                    className="min-h-10 min-w-10 flex items-center justify-center rounded-md text-gray-400 hover:text-white hover:bg-[#23233b]"
                     aria-label="Unterordner umbenennen"
                 >
-                    <Edit size={13} />
+                    <Edit size={16} />
                 </button>
                 <button
                     type="button"
@@ -354,13 +378,13 @@ const DroppableSubfolder = ({ subfolder, onClick, onRename, onDelete }: { subfol
                         e.stopPropagation();
                         onDelete(subfolder);
                     }}
-                    className="p-1.5 rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                    className="min-h-10 min-w-10 flex items-center justify-center rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/10"
                     aria-label="Unterordner löschen"
                 >
-                    <Trash2 size={13} />
+                    <Trash2 size={16} />
                 </button>
             </div>
-        </motion.button>
+        </motion.div>
     );
 };
 
@@ -386,9 +410,9 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                 e.preventDefault();
                 setOpenMenuFileId(openMenuFileId === file.id ? null : file.id);
             }}
-            className={`bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] p-4 rounded-xl flex items-center justify-between group transition-colors cursor-pointer relative ${isDragging ? 'z-50 shadow-2xl border-[#5E5CE6]' : ''}`}
+            className={`bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] p-4 rounded-xl flex items-center justify-between gap-3 group transition-colors cursor-pointer relative min-w-0 ${isDragging ? 'z-50 shadow-2xl border-[#5E5CE6]' : ''}`}
         >
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 min-w-0 flex-1">
                 <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
                     file.type === 'smart_learning' ? 'bg-indigo-500/10 text-indigo-300' :
                     file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
@@ -401,17 +425,18 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                     }`}>
                     {icon}
                 </div>
-                <div>
-                    <h4 className="text-sm font-medium text-white select-none">{file.name}</h4>
-                    <p className="text-xs text-gray-500 capitalize select-none">{formatDateTime(file.created_at)} • {file.type}</p>
+                <div className="min-w-0">
+                    <h4 className="text-sm font-medium text-white select-none truncate">{file.name}</h4>
+                    <p className="text-xs text-gray-500 capitalize select-none truncate">{formatDateTime(file.created_at)} • {file.type}</p>
                 </div>
             </div>
 
             {/* 3-dot button + dropdown */}
-            <div className="relative" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            <div className="relative shrink-0" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                 <button
                     onClick={() => setOpenMenuFileId(openMenuFileId === file.id ? null : file.id)}
-                    className="text-gray-500 hover:text-white p-2 rounded-lg hover:bg-[#1C1C33] opacity-0 group-hover:opacity-100 transition-all"
+                    aria-label="Dateiaktionen"
+                    className="text-gray-300 hover:text-white min-h-10 min-w-10 flex items-center justify-center rounded-lg hover:bg-[#1C1C33]"
                 >
                     <MoreVertical size={18} />
                 </button>
@@ -420,7 +445,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                     <div className="absolute right-0 top-full mt-1 w-40 bg-[#0B0B1A] border border-[#2A2A40] rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                         <button
                             onClick={() => { setSelectedFile(file); setOpenMenuFileId(null); }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
                             Öffnen
@@ -436,7 +461,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                                         setOpenMenuFileId(null);
                                         if (vid) openYoutubeVideoInNewTab(vid);
                                     }}
-                                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
                                 >
                                     <ExternalLink size={15} />
                                     Video auf YouTube öffnen
@@ -454,7 +479,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                                         setIsRenameFileOpen(true);
                                         setOpenMenuFileId(null);
                                     }}
-                                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
                                 >
                                     <Edit size={15} />
                                     Umbenennen
@@ -470,7 +495,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                                         onRefineFile(file);
                                         setOpenMenuFileId(null);
                                     }}
-                                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
                                 >
                                     <Edit size={15} />
                                     Mit Prompt anpassen
@@ -484,7 +509,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                                 setOpenMenuFileId(null);
                                 onOpenShareOverlay(file);
                             }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
                         >
                             <Send size={15} />
                             Teilen
@@ -496,7 +521,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                                 setOpenMenuFileId(null);
                                 onCopyFile(file);
                             }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
                         >
                             <Copy size={15} />
                             Kopieren
@@ -508,7 +533,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                                 setOpenMenuFileId(null);
                                 handleDelete(file);
                             }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
                             Löschen
@@ -834,7 +859,8 @@ export default function FolderPage() {
     const [lvSlideCrossfade, setLvSlideCrossfade] = useState(false);
     const [lvTtsVoice, setLvTtsVoice] = useState<string>("alloy");
     const [isPodcastConfigOpen, setIsPodcastConfigOpen] = useState(false);
-    const [podcastTtsVoice, setPodcastTtsVoice] = useState<string>("alloy");
+    const [podcastTtsVoice, setPodcastTtsVoice] = useState<string>("aoede");
+    const [podcastTtsVoiceB, setPodcastTtsVoiceB] = useState<string>("charon");
     const [ttsPreviewLoadingVoice, setTtsPreviewLoadingVoice] = useState<string | null>(null);
     const ttsPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
     const ttsPreviewUrlRef = useRef<string | null>(null);
@@ -989,7 +1015,10 @@ export default function FolderPage() {
             if (!raw) return;
             const p = JSON.parse(raw) as Record<string, unknown>;
             if (typeof p.ttsVoice === "string" && p.ttsVoice.trim()) {
-                setPodcastTtsVoice(p.ttsVoice.trim().toLowerCase());
+                setPodcastTtsVoice(normalizePodcastVoice(p.ttsVoice, "aoede"));
+            }
+            if (typeof p.ttsVoiceB === "string" && p.ttsVoiceB.trim()) {
+                setPodcastTtsVoiceB(normalizePodcastVoice(p.ttsVoiceB, "charon"));
             }
         } catch {
             /* ignore */
@@ -2203,6 +2232,7 @@ export default function FolderPage() {
                 PODCAST_SETTINGS_KEY,
                 JSON.stringify({
                     ttsVoice: podcastTtsVoice,
+                    ttsVoiceB: podcastTtsVoiceB,
                 })
             );
         } catch {
@@ -2225,6 +2255,7 @@ export default function FolderPage() {
                     folder_id: folderId,
                     model_preference: effectiveModelPreference,
                     tts_voice: podcastTtsVoice,
+                    tts_voice_b: podcastTtsVoiceB,
                 }),
                 signal: ac.signal,
             });
@@ -3465,7 +3496,7 @@ export default function FolderPage() {
         if (selectedFile.type === 'audio') {
             const canPlay = signedMediaStatus === 'ready' && !!signedMediaUrl;
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
                             <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
@@ -3511,7 +3542,7 @@ export default function FolderPage() {
             const canPlay = signedMediaStatus === 'ready' && !!signedMediaUrl;
             const dlName = selectedFile.name.endsWith('.mp4') ? selectedFile.name : `${selectedFile.name}.mp4`;
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
                             <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
@@ -3606,7 +3637,7 @@ export default function FolderPage() {
             }
 
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
                             <button onClick={() => { setSelectedFile(null); setIsEditingFile(false); }} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
@@ -3742,7 +3773,7 @@ export default function FolderPage() {
             const sessionId = typeof window !== 'undefined' ? localStorage.getItem("session_id") || "" : "";
             const busyPractice = isGenerating.includes('quiz') || isGenerating.includes('flashcards');
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
                             <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
@@ -3811,7 +3842,7 @@ export default function FolderPage() {
             }
 
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
                             <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
@@ -3976,7 +4007,7 @@ export default function FolderPage() {
             const username = typeof window !== 'undefined' ? localStorage.getItem("username") || "" : "";
             const pdfUrl = `${API_BASE}/files/download_pdf?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id || "")}&filename=${encodeURIComponent(selectedFile.name || "")}`;
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
                             <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
@@ -4042,7 +4073,7 @@ export default function FolderPage() {
         const ytIdGeneric = youtubeVideoIdFromTranscriptFile(selectedFile);
 
         return (
-            <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                     <div className="flex items-center gap-3">
                         <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
@@ -4166,7 +4197,7 @@ export default function FolderPage() {
         <div className="bg-[#0B0B1A] min-h-screen">
             {/* Global Toast */}
             {toast && (
-                <div className={`fixed top-4 right-4 z-[9999] p-4 rounded-xl shadow-2xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2 border max-w-md ${toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
+                <div className={`fixed top-4 left-4 right-4 z-[9999] p-4 rounded-xl shadow-2xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2 border md:left-auto md:max-w-md ${toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
                     toast.type === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' :
                         'bg-blue-500/10 border-blue-500/20 text-blue-400'
                     }`}>
@@ -4191,24 +4222,24 @@ export default function FolderPage() {
                 </div>
             )}
 
-            <div className="max-w-6xl mx-auto px-6 py-10">
+            <div className="max-w-6xl mx-auto px-4 py-6 md:px-6 md:py-10 min-w-0">
 
                 {/* Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-                    <div className="flex items-center gap-4">
-                        <button onClick={() => router.back()} className="p-2 hover:bg-[#1C1C33] rounded-xl text-gray-400 hover:text-white transition-colors"><ArrowLeft size={22} /></button>
-                        <div>
-                            <h1 className="text-2xl font-bold text-white">{folderName || "Ordner"}</h1>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <button onClick={() => router.back()} aria-label="Zurück" className="min-h-10 min-w-10 flex items-center justify-center hover:bg-[#1C1C33] rounded-xl text-gray-400 hover:text-white transition-colors shrink-0"><ArrowLeft size={22} /></button>
+                        <div className="min-w-0">
+                            <h1 className="text-2xl font-bold text-white break-words">{folderName || "Ordner"}</h1>
                             <p className="text-sm text-gray-400">
                                 {files.length} {files.length === 1 ? "Datei" : "Dateien"}
                             </p>
                         </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full min-w-0 md:w-auto">
                         {/* AI Actions */}
-                        <div className="flex flex-wrap gap-2 mr-2 border-r border-[#2A2A40] pr-4">
-                            <button onClick={() => handleGenerate('plan')} disabled={isGenerating.includes('plan')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Lernplan erstellen">
+                        <div className="flex gap-2 overflow-x-auto max-w-full pb-1 [scrollbar-width:thin] sm:flex-wrap sm:overflow-visible sm:border-r sm:border-[#2A2A40] sm:pr-4 sm:mr-2 [&>button]:shrink-0">
+                            <button onClick={() => handleGenerate('plan')} disabled={isGenerating.includes('plan')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Lernplan erstellen">
                                 {isGenerating.includes('plan') ? <Loader2 size={16} className="animate-spin" /> : <BrainCircuit size={16} />}
                                 Lernplan
                             </button>
@@ -4223,43 +4254,43 @@ export default function FolderPage() {
                                     setIsSmartLearningConfigOpen(true);
                                 }}
                                 disabled={isGenerating.includes('smart-learning')}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium"
+                                className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium"
                                 title="Smart Learning"
                             >
                                 {isGenerating.includes('smart-learning') ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
                                 Lernen
                             </button>
-                            <button onClick={() => handleGenerate('quiz')} disabled={isGenerating.includes('quiz')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Quiz erstellen">
+                            <button onClick={() => handleGenerate('quiz')} disabled={isGenerating.includes('quiz')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Quiz erstellen">
                                 {isGenerating.includes('quiz') ? <Loader2 size={16} className="animate-spin" /> : <HelpCircle size={16} />}
                                 Quiz
                             </button>
-                            <button onClick={() => handleGenerate('flashcards')} disabled={isGenerating.includes('flashcards')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Karteikarten erstellen">
+                            <button onClick={() => handleGenerate('flashcards')} disabled={isGenerating.includes('flashcards')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Karteikarten erstellen">
                                 {isGenerating.includes('flashcards') ? <Loader2 size={16} className="animate-spin" /> : <Layers size={16} />}
                                 Karten
                             </button>
-                            <button onClick={() => handleGenerate('summary')} disabled={isGenerating.includes('summary')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Zusammenfassung erstellen">
+                            <button onClick={() => handleGenerate('summary')} disabled={isGenerating.includes('summary')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Zusammenfassung erstellen">
                                 {isGenerating.includes('summary') ? <Loader2 size={16} className="animate-spin" /> : <FileOutput size={16} />}
                                 Zusammenfassung
                             </button>
-                            <button onClick={() => handleGenerate('elaboration')} disabled={isGenerating.includes('elaboration')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Ausarbeitung erstellen">
+                            <button onClick={() => handleGenerate('elaboration')} disabled={isGenerating.includes('elaboration')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Ausarbeitung erstellen">
                                 {isGenerating.includes('elaboration') ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
                                 Ausarbeitung
                             </button>
-                            <button onClick={() => handleGenerate('repetition')} disabled={isGenerating.includes('repetition')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Wiederholung erstellen">
+                            <button onClick={() => handleGenerate('repetition')} disabled={isGenerating.includes('repetition')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Wiederholung erstellen">
                                 {isGenerating.includes('repetition') ? <Loader2 size={16} className="animate-spin" /> : <Repeat size={16} />}
                                 Wiederholung
                             </button>
-                            <button type="button" onClick={() => setIsPodcastConfigOpen(true)} disabled={isGenerating.includes('podcast')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Podcast (Einstellungen & TTS)">
+                            <button type="button" onClick={() => setIsPodcastConfigOpen(true)} disabled={isGenerating.includes('podcast')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Podcast (Einstellungen & TTS)">
                                 {isGenerating.includes('podcast') ? <Loader2 size={16} className="animate-spin" /> : <Mic size={16} />}
                                 Podcast
                             </button>
-                            <button type="button" onClick={() => setIsLearningVideoConfigOpen(true)} disabled={isGenerating.includes('learning-video')} className="inline-flex items-center gap-1.5 px-2.5 py-2 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Lernvideo (Einstellungen & KI)">
+                            <button type="button" onClick={() => setIsLearningVideoConfigOpen(true)} disabled={isGenerating.includes('learning-video')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Lernvideo (Einstellungen & KI)">
                                 {isGenerating.includes('learning-video') ? <Loader2 size={16} className="animate-spin" /> : <Video size={16} />}
                                 Video
                             </button>
                         </div>
 
-                        <div className="flex gap-2 items-center">
+                        <div className="flex gap-2 items-center shrink-0">
                             <button
                                 onClick={() => {
                                     setSelectedFile({
@@ -4278,7 +4309,7 @@ export default function FolderPage() {
                             <div className="relative">
                                 <button
                                     onClick={() => setIsHeaderMenuOpen((v) => !v)}
-                                    className="flex items-center justify-center bg-[#151525] text-white px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
+                                    className="min-h-10 min-w-10 flex items-center justify-center bg-[#151525] text-white px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
                                     title="Mehr Aktionen"
                                 >
                                     <MoreVertical size={18} />
@@ -4287,7 +4318,7 @@ export default function FolderPage() {
                                     <div className="absolute right-0 top-full mt-1 w-44 bg-[#0B0B1A] border border-[#2A2A40] rounded-xl shadow-2xl z-50 overflow-hidden">
                                         <button
                                             onClick={() => void loadIncomingShareRequests()}
-                                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
                                         >
                                             <Inbox size={15} />
                                             Requests
@@ -4295,7 +4326,7 @@ export default function FolderPage() {
                                         <div className="h-px bg-[#1C1C33]" />
                                         <button
                                             onClick={openImportByLinkOverlay}
-                                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
                                         >
                                             <Link2 size={15} />
                                             Link eingeben
@@ -4703,16 +4734,7 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
-                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
-                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
-                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
-                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                                        <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
-                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                                        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                                        <AiModelOptions current={aiModelPreference} />
                                     </select>
                                 </div>
                             </div>
@@ -4785,16 +4807,7 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
-                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
-                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
-                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
-                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                                        <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
-                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                                        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                                        <AiModelOptions current={aiModelPreference} />
                                     </select>
                                 </div>
                             </div>
@@ -4822,7 +4835,7 @@ export default function FolderPage() {
                                     </div>
                                     <div>
                                         <h3 className="text-lg font-semibold text-white">Podcast</h3>
-                                        <p className="text-xs text-gray-400">Skript per KI, gesprochen über OpenRouter</p>
+                                        <p className="text-xs text-gray-400">Alex und Sam unterhalten sich über den Stoff</p>
                                     </div>
                                 </div>
                                 <button
@@ -4835,31 +4848,56 @@ export default function FolderPage() {
                             </div>
                             <div className="p-5 space-y-4 overflow-y-auto flex-1">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Stimme</label>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Alex, fragt nach</label>
                                     <div className="flex items-center gap-2">
                                         <select
-                                            className="flex-1 bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-pink-500/40 focus:border-pink-500/50 outline-none transition-all appearance-none"
+                                            className="flex-1 min-w-0 bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-pink-500/40 focus:border-pink-500/50 outline-none transition-all appearance-none"
                                             value={podcastTtsVoice}
                                             onChange={(e) => setPodcastTtsVoice(e.target.value)}
                                         >
-                                            {OPENAI_TTS_VOICES.map((v) => (
-                                                <option key={v} value={v}>
-                                                    {v.charAt(0).toUpperCase() + v.slice(1)}
+                                            {PODCAST_VOICES.map((voice) => (
+                                                <option key={voice.id} value={voice.id}>
+                                                    {voice.label}
                                                 </option>
                                             ))}
                                         </select>
                                         <button
                                             type="button"
-                                            className="shrink-0 px-3 py-2.5 rounded-xl bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#2A2A40] text-gray-200 text-sm disabled:opacity-50"
+                                            className="shrink-0 min-h-10 px-3 py-2.5 rounded-xl bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#2A2A40] text-gray-200 text-sm disabled:opacity-50"
                                             onClick={() => void playTtsVoicePreview(podcastTtsVoice)}
                                             disabled={ttsPreviewLoadingVoice !== null}
-                                            title="Stimme testen"
+                                            title="Stimme von Alex testen"
                                         >
                                             {ttsPreviewLoadingVoice === podcastTtsVoice ? "..." : "Test"}
                                         </button>
                                     </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Sam, erklärt</label>
+                                    <div className="flex items-center gap-2">
+                                        <select
+                                            className="flex-1 min-w-0 bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-pink-500/40 focus:border-pink-500/50 outline-none transition-all appearance-none"
+                                            value={podcastTtsVoiceB}
+                                            onChange={(e) => setPodcastTtsVoiceB(e.target.value)}
+                                        >
+                                            {PODCAST_VOICES.map((voice) => (
+                                                <option key={voice.id} value={voice.id}>
+                                                    {voice.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            type="button"
+                                            className="shrink-0 min-h-10 px-3 py-2.5 rounded-xl bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#2A2A40] text-gray-200 text-sm disabled:opacity-50"
+                                            onClick={() => void playTtsVoicePreview(podcastTtsVoiceB)}
+                                            disabled={ttsPreviewLoadingVoice !== null}
+                                            title="Stimme von Sam testen"
+                                        >
+                                            {ttsPreviewLoadingVoice === podcastTtsVoiceB ? "..." : "Test"}
+                                        </button>
+                                    </div>
                                     <p className="text-xs text-gray-500 mt-2">
-                                        Hinweis: Die Stimme beeinflusst den TTS-Klang, nicht den Inhalt des Podcast-Skripts.
+                                        Zwei Personen sprechen abwechselnd. Alex fragt, Sam erklärt den Stoff an einem Beispiel.
                                     </p>
                                 </div>
                                 <div>
@@ -4869,16 +4907,7 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
-                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
-                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
-                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
-                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                                        <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
-                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                                        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                                        <AiModelOptions current={aiModelPreference} />
                                     </select>
                                 </div>
                             </div>
@@ -5100,16 +5129,7 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
-                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
-                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
-                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
-                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                                        <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
-                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                                        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                                        <AiModelOptions current={aiModelPreference} />
                                     </select>
                                 </div>
                             </div>
@@ -5463,18 +5483,9 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
-                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
-                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
-                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
-                                        <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
-                                        <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
-                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
-                                        <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (schnell)</option>
-                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (günstig)</option>
-                                        <option value="gemini-2.5-flash-lite">⚡ Gemini 2.5 Flash Lite (sehr günstig)</option>
+                                        <AiModelOptions current={aiModelPreference} />
                                     </select>
-                                    <p className="text-xs text-gray-500 mt-2">Wenn du Fehler wegen &apos;Quota Exceeded&apos; bekommst, wähle hier ein kleineres Modell (z.B. Flash).</p>
+                                    <p className="text-xs text-gray-500 mt-2">Gemini 3.7 Flash verbraucht weniger Tokens als Claude oder GPT.</p>
                                 </div>
                             </div>
 
@@ -5571,16 +5582,7 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
-                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
-                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
-                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
-                                        <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
-                                        <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
-                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
-                                        <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (schnell)</option>
-                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (günstig)</option>
-                                        <option value="gemini-2.5-flash-lite">⚡ Gemini 2.5 Flash Lite (sehr günstig)</option>
+                                        <AiModelOptions current={aiModelPreference} />
                                     </select>
                                 </div>
                             </div>
@@ -5659,16 +5661,7 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
-                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
-                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
-                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
-                                        <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
-                                        <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
-                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
-                                        <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (schnell)</option>
-                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (günstig)</option>
-                                        <option value="gemini-2.5-flash-lite">⚡ Gemini 2.5 Flash Lite (sehr günstig)</option>
+                                        <AiModelOptions current={aiModelPreference} />
                                     </select>
                                 </div>
                             </div>
@@ -5758,16 +5751,7 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">Automatisch: bestes Modell pro Aufgabe</option>
-                                        <option value="claude-sonnet-5.5">Claude Sonnet 5.5 (Texte, PDFs)</option>
-                                        <option value="gpt-6.1-sol">GPT-6.1 Sol (Fakten, Mathe)</option>
-                                        <option value="gemini-3.7-flash">Gemini 3.7 Flash (schnell, Audio)</option>
-                                        <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
-                                        <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
-                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
-                                        <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (schnell)</option>
-                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (günstig)</option>
-                                        <option value="gemini-2.5-flash-lite">⚡ Gemini 2.5 Flash Lite (sehr günstig)</option>
+                                        <AiModelOptions current={aiModelPreference} />
                                     </select>
                                 </div>
                             </div>

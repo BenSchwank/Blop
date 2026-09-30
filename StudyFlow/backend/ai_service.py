@@ -1165,7 +1165,7 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
 
     @staticmethod
     def generate_podcast_script(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
-        """Plain German narration text for TTS (no markdown headings)."""
+        """German dialogue for two podcast speakers."""
         primary = model_for_task("podcast", model_preference)
         candidates = [primary]
         if "gemini-3.7-flash" not in candidates:
@@ -1182,17 +1182,20 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
                     },
                 )
                 prompt = """
-Du bist Redakteur für einen Lern-Podcast auf Deutsch.
-Erstelle aus dem folgenden Material einen zusammenhängenden, gut verständlichen reinen Vorlesetext (ein Sprecher / Monolog) für die Sprachausgabe.
+Du schreibst einen Lern-Podcast auf Deutsch als Gespräch zwischen zwei Personen.
+Alex fragt nach, hakt ein und fasst in einfachen Worten zusammen.
+Sam erklärt mit einem Vergleich, einem kurzen Beispiel und einem Merksatz.
+Sie reden miteinander, nicht nacheinander einen Vortrag. So versteht man den Stoff leichter.
 
 Regeln:
-- Keine Sprecherlabels wie „Moderator:“ oder „Host:“.
-- Keine Markdown-Überschriften mit #; höchstens einfache Absätze.
-- Struktur: kurze Einleitung, dann thematische Abschnitte in Fließtext.
-- Länge: grob 800 bis 3500 Wörter — kürzer wenn das Material dünn ist, länger wenn sehr viel Stoff da ist.
-- Fokus: Kernkonzepte, Definitionen, Zusammenhänge; keine Meta-Kommentare („im Folgenden…“ sparsam).
+- Jede Zeile beginnt genau mit "ALEX:" oder "SAM:".
+- Alex beginnt. Danach wechseln sie sich ab. Mindestens 16 und höchstens 26 Beiträge.
+- Ein Beitrag ist meist ein bis drei Sätze, gesprochen, ohne Aufzählungszeichen.
+- Sie dürfen sich mit Vornamen ansprechen.
+- Kein Markdown, keine Überschriften, keine Regieanweisungen, keine Klammern.
+- Kein Satz der Art "Hier ist der Podcast".
 
-Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art „Hier ist der Podcast“.
+Antworte NUR mit dem Dialog.
 """
                 input_parts = [prompt]
                 if isinstance(content, list):

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit } from 'lucide-react';
+import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit, MoreVertical } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { hydrateNativeSession } from '@/lib/nativeSession';
@@ -17,6 +17,58 @@ interface FolderData {
   id: string;
   name: string;
   files?: unknown[];
+}
+
+function FolderCardMenu({ onRename, onDelete }: { onRename: (e: React.MouseEvent) => void, onDelete: (e: React.MouseEvent) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      className="absolute top-1.5 right-1.5 z-20"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        aria-label="Ordneraktionen"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((value) => !value);
+        }}
+        className="min-h-10 min-w-10 flex items-center justify-center text-gray-300 hover:text-white rounded-lg hover:bg-[#2A2A40]"
+      >
+        <MoreVertical size={18} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-44 bg-[#0B0B1A] border border-[#2A2A40] rounded-xl shadow-2xl overflow-hidden">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onRename(e);
+            }}
+            className="w-full min-h-10 flex items-center gap-2 px-4 text-sm text-gray-200 hover:bg-[#1C1C33]"
+          >
+            <Edit size={15} />
+            Umbenennen
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onDelete(e);
+            }}
+            className="w-full min-h-10 flex items-center gap-2 px-4 text-sm text-red-400 hover:bg-[#1C1C33]"
+          >
+            <Trash2 size={15} />
+            Löschen
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DraggableFolder({ folder, onClick, onRename, onDelete }: { folder: FolderData, onClick: () => void, onRename: (e: React.MouseEvent) => void, onDelete: (e: React.MouseEvent) => void }) {
@@ -50,32 +102,7 @@ function DraggableFolder({ folder, onClick, onRename, onDelete }: { folder: Fold
         ${isOver ? 'border-[#5E5CE6] bg-[#1C1C33] shadow-lg shadow-[#5E5CE6]/20 scale-105' : 'border-[#2A2A40] hover:bg-[#1C1C33] hover:border-[#5E5CE6]/50 hover:shadow-lg hover:shadow-[#5E5CE6]/10'}
       `}
     >
-      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
-        <div className="relative group/tooltip">
-          <button
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={onRename}
-            className="text-gray-500 hover:text-white p-1.5 hover:bg-[#2A2A40] rounded-lg transition-colors"
-          >
-            <Edit size={16} />
-          </button>
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-[#0B0B1A] text-[10px] text-white rounded opacity-0 group-hover/tooltip:opacity-100 transition-all pointer-events-none whitespace-nowrap border border-[#2A2A40] shadow-xl scale-95 group-hover/tooltip:scale-100">
-            Umbenennen
-          </div>
-        </div>
-        <div className="relative group/tooltip">
-          <button
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={onDelete}
-            className="text-gray-500 hover:text-red-400 p-1.5 hover:bg-[#2A2A40] rounded-lg transition-colors"
-          >
-            <Trash2 size={16} />
-          </button>
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-[#0B0B1A] text-[10px] text-white rounded opacity-0 group-hover/tooltip:opacity-100 transition-all pointer-events-none whitespace-nowrap border border-[#2A2A40] shadow-xl scale-95 group-hover/tooltip:scale-100">
-            Löschen
-          </div>
-        </div>
-      </div>
+      <FolderCardMenu onRename={onRename} onDelete={onDelete} />
 
       <div className="p-3.5 bg-[#0B0B1A] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
         <Folder size={40} className="text-gray-400 group-hover:text-[#5E5CE6] transition-colors" fill="currentColor" fillOpacity={isOver ? 0.3 : 0.1} />
@@ -343,12 +370,12 @@ export default function Dashboard() {
   return (
     <div className="bg-[#0B0B1A] min-h-screen relative">
       {/* Main Container - Professional Width */}
-      <div className="mx-auto w-full max-w-[1400px] px-6 py-10 md:px-8 md:py-12 xl:px-10">
+      <div className="mx-auto w-full max-w-[1400px] px-4 py-6 md:px-8 md:py-12 xl:px-10">
 
         {/* Header */}
-        <div className="mb-9 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white mb-2">
+        <div className="mb-9 flex items-center justify-between min-w-0">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2 break-words">
               Willkommen zurück! 👋
             </h1>
             <p className="text-base text-gray-400">
@@ -494,6 +521,15 @@ export default function Dashboard() {
                       onClick={() => router.push(`/folder/${folder.id}`)}
                       className="group relative bg-[#151525] border rounded-[18px] p-5 transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center gap-3 min-h-[150px] text-center border-[#2A2A40] hover:bg-[#1C1C33] hover:border-[#5E5CE6]/50 hover:shadow-lg hover:shadow-[#5E5CE6]/10"
                     >
+                      <FolderCardMenu
+                        onRename={(e) => {
+                          e.stopPropagation();
+                          setFolderToRename(folder);
+                          setRenameValue(folder.name);
+                          setIsRenameOpen(true);
+                        }}
+                        onDelete={(e) => handleDeleteFolder(folder.id, e)}
+                      />
                       <div className="p-3.5 bg-[#0B0B1A] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
                         <Folder size={40} className="text-gray-400 group-hover:text-[#5E5CE6] transition-colors" fill="currentColor" fillOpacity={0.1} />
                       </div>

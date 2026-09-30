@@ -26,6 +26,20 @@ _OR_TTS_VOICE = {
     "onyx": "Fenrir",
     "nova": "Leda",
     "shimmer": "Zephyr",
+    "aoede": "Aoede",
+    "leda": "Leda",
+    "zephyr": "Zephyr",
+    "puck": "Puck",
+    "charon": "Charon",
+    "kore": "Kore",
+}
+_OPENAI_FALLBACK_VOICE = {
+    "aoede": "nova",
+    "leda": "shimmer",
+    "zephyr": "alloy",
+    "puck": "echo",
+    "charon": "onyx",
+    "kore": "onyx",
 }
 
 
@@ -105,8 +119,9 @@ def openai_tts_speech_mp3(text: str, voice: str = "alloy", instructions: Optiona
     if not text:
         raise ValueError("Leerer Text für TTS.")
     v = (voice or "alloy").strip().lower()
-    if v not in OPENAI_TTS_VOICES:
+    if v not in OPENAI_TTS_VOICES and v not in _OR_TTS_VOICE:
         v = "alloy"
+    openai_voice = v if v in OPENAI_TTS_VOICES else _OPENAI_FALLBACK_VOICE.get(v, "alloy")
     chunks: List[str] = []
     remaining = text
     while remaining:
@@ -137,7 +152,7 @@ def openai_tts_speech_mp3(text: str, voice: str = "alloy", instructions: Optiona
         payload = {
             "model": "gpt-4o-mini-tts",
             "input": ch,
-            "voice": v,
+            "voice": openai_voice,
             "response_format": "mp3",
         }
         if (instructions or "").strip():
@@ -152,7 +167,7 @@ def openai_tts_speech_mp3(text: str, voice: str = "alloy", instructions: Optiona
             fallback = requests.post(
                 "https://api.openai.com/v1/audio/speech",
                 headers={"Authorization": f"Bearer {oa_key}", "Content-Type": "application/json"},
-                json={"model": "tts-1", "input": ch, "voice": v, "response_format": "mp3"},
+                json={"model": "tts-1", "input": ch, "voice": openai_voice, "response_format": "mp3"},
                 timeout=120,
             )
             if not fallback.ok:
@@ -182,7 +197,55 @@ def openai_tts_speech_mp3_concat_segments(
     return _concat_mp3_ffmpeg(parts)
 
 
-def _concat_mp3_ffmpeg(parts: List[bytes]) -> bytes:
+def synthesize_podcast_dialogue(script: str, voice_a: str, voice_b: str) -> bytes:
+    """Speak a two-person script. Alex asks, Sam explains, each with their own voice."""
+    from podcast_dialogue import ALEX_STYLE, SAM_STYLE, parse_podcast_dialogue, podcast_voice_pair
+
+    first, second = podcast_voice_pair(voice_a, voice_b)
+    turns = parse_podcast_dialogue(script)
+    if not turns:
+        raise ValueError("Leeres Podcast-Skript.")
+    voice_for = {"ALEX": first, "SAM": second}
+    style_for = {"ALEX": ALEX_STYLE, "SAM": SAM_STYLE}
+    parts: List[bytes] = []
+    gap = _silence_mp3(0.28)
+    for index, (speaker, line) in enumerate(turns):
+        if index and gap:
+            parts.append(gap)
+        parts.append(
+            openai_tts_speech_mp3(
+                line,
+                voice=voice_for.get(speaker, first),
+                instructions=style_for.get(speaker, ALEX_STYLE),
+            )
+        )
+    if len(parts) == 1:
+        return parts[0]
+    return _concat_mp3_ffmpeg(parts, reencode=True)
+
+
+def _silence_mp3(seconds: float) -> bytes:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return b""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "gap.mp3")
+        try:
+            subprocess.run(
+                [
+                    ffmpeg, "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+                    "-t", f"{seconds:.2f}", "-c:a", "libmp3lame", "-q:a", "7", out,
+                ],
+                check=True,
+                capture_output=True,
+            )
+            with open(out, "rb") as handle:
+                return handle.read()
+        except Exception:
+            return b""
+
+
+def _concat_mp3_ffmpeg(parts: List[bytes], reencode: bool = False) -> bytes:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         # naive concat of mp3 streams often glitches; still better than failing if single chunk
@@ -200,8 +263,9 @@ def _concat_mp3_ffmpeg(parts: List[bytes]) -> bytes:
                 f.write(f"file '{p.replace(chr(92), '/')}'\n")
         out = os.path.join(tmp, "out.mp3")
         try:
+            encode = ["-c:a", "libmp3lame", "-q:a", "4"] if reencode else ["-c", "copy"]
             subprocess.run(
-                [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", out],
+                [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", lst, *encode, out],
                 check=True,
                 capture_output=True,
             )
