@@ -4894,7 +4894,7 @@ export default function FolderPage() {
                                     </div>
                                     <div>
                                         <h3 className="text-lg font-semibold text-white">Podcast</h3>
-                                        <p className="text-xs text-gray-400">Alex und Sam unterhalten sich über den Stoff</p>
+                                        <p className="text-xs text-gray-400">Alex und Sam gehen die Themen durch. Das dauert länger als eine kurze Zusammenfassung.</p>
                                     </div>
                                 </div>
                                 <button

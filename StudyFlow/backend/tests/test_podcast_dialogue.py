@@ -1,6 +1,6 @@
 import unittest
 
-from podcast_dialogue import parse_podcast_dialogue, podcast_voice_pair
+from podcast_dialogue import parse_podcast_dialogue, podcast_voice_pair, spoken_podcast_line
 
 
 class PodcastDialogueTests(unittest.TestCase):
@@ -27,6 +27,12 @@ SAM: Weil man damit den nächsten Schritt selbst lösen kann.
         turns = parse_podcast_dialogue(script)
         speakers = {speaker for speaker, _ in turns}
         self.assertEqual(speakers, {"ALEX", "SAM"})
+
+    def test_stage_directions_are_not_spoken(self):
+        spoken = spoken_podcast_line("Also [lacht] das heißt <short pause> genau das.")
+        self.assertNotIn("[lacht]", spoken)
+        self.assertIn("<short pause>", spoken)
+        self.assertIn("genau das", spoken)
 
     def test_same_voice_choice_gets_a_second_person(self):
         self.assertEqual(podcast_voice_pair("aoede", "aoede"), ("aoede", "charon"))

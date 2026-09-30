@@ -31,15 +31,19 @@ _CONTRAST = {
 }
 
 _SPEAKER_LINE = re.compile(r"^(ALEX|SAM)\s*[:：\-–]\s*(.*)$", re.IGNORECASE)
-_MAX_TURNS = 32
+_STAGE_DIRECTION = re.compile(r"\[[^\[\]]{0,80}\]")
+_MAX_TURNS = 80
 
+# Delivery goes to the TTS style field. Gemini 3.8 reads the input aloud,
+# so these sentences must never be prefixed onto the spoken line.
 ALEX_STYLE = (
-    "Sag nur den folgenden Text auf Deutsch, locker und neugierig, "
-    "wie jemand der in einem Podcast nachfragt. Lies die Anweisung nicht vor: "
+    "Warm, curious German conversation with a friend. Natural pace, "
+    "living pitch, a small smile, genuine questions. Not a news reader and not monotone."
 )
 SAM_STYLE = (
-    "Sag nur den folgenden Text auf Deutsch, ruhig und erklärend, "
-    "wie jemand der einem Freund den Stoff beibringt. Lies die Anweisung nicht vor: "
+    "Warm German explanation to a friend at the same table. Clear and engaged, "
+    "a little emphasis on the important word, some energy when the idea lands. "
+    "Not a lecture and not monotone."
 )
 
 
@@ -61,6 +65,12 @@ def podcast_voice_pair(voice_a: str, voice_b: str) -> Tuple[str, str]:
 
 def gemini_voice_name(voice_id: str) -> str:
     return PODCAST_VOICES.get(normalize_podcast_voice(voice_id, "aoede"), "Aoede")
+
+
+def spoken_podcast_line(text: str) -> str:
+    """Drop stage directions. Angle-bracket pauses stay, the TTS model uses them."""
+    cleaned = _STAGE_DIRECTION.sub(" ", text or "")
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def parse_podcast_dialogue(script: str) -> List[Tuple[str, str]]:
