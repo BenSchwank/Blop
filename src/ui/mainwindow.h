@@ -40,6 +40,7 @@
 #include "uiprofilemanager.h"
 
 class QProgressBar;
+class QShortcut;
 
 // Forward Declarations
 class QBoxLayout;
@@ -132,6 +133,7 @@ protected:
   void enterEvent(QEnterEvent *event) override;
   void leaveEvent(QEvent *event) override;
   void paintEvent(QPaintEvent *event) override;
+  bool hitButton(const QPoint &pos) const override;
 
 private:
   double m_scale;
@@ -269,6 +271,8 @@ public slots:
 #ifndef Q_OS_ANDROID
   /// Single-instance / blop:// hand-off from a second process or cold start.
   void handleDesktopDeepLinkMessage(const QString &message);
+  /// Assistent socket: STATUS / CLOSE / OPEN, otherwise the deep link.
+  QString assistantIpc(const QString &message);
 #endif
 
 private slots:
@@ -386,9 +390,13 @@ private:
   bool editorTabIsWorkspace(QWidget *w) const;
   int findWorkspaceTabIndex(const QString &kind) const;
   void openLoadedA4Note(const QString &path, const QString &fileName, Note note);
+  void scheduleCanvasOpen(const QString &path, const QString &fileName);
+  void presentOpenedCanvas(const QString &path, const QString &fileName,
+                           CanvasFileData data);
   void applyTheme();
   void refreshSidebarSearchHint();
   void applyAutoSavePrefs();
+  void applyToolHotkeys();
   /// Title-bar mark: built-in Blop logo, or a user logo / wide banner.
   void applyBrandMark();
   void applyLibraryFilters();
@@ -723,6 +731,7 @@ private:
   QLabel *m_lblCloudSyncStatus{nullptr};
   QWidget *m_libraryBusyOverlay{nullptr};
   QString m_openingNotePath;
+  QVector<QShortcut *> m_toolHotkeys;
   QWidget *m_emptyStateHost{nullptr};
   QLabel *m_lblEmptyIcon{nullptr};
   QLabel *m_lblEmptyTitle{nullptr};

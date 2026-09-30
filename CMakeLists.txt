@@ -121,10 +121,14 @@ qt_add_executable(Blop
     src/ui/freegridview.cpp
     src/ui/multipagenoteview.cpp
     src/ui/multipagenoteview.h
+    src/ui/wordtextframe.cpp
+    src/ui/wordtextframe.h
     src/ui/editoroverlays.cpp
     src/ui/editoroverlays.h
     src/ui/settingsdialog.cpp
     src/ui/settingsdialog.h
+    src/ui/toolhotkeys.cpp
+    src/ui/toolhotkeys.h
     src/ui/settings_ui_helpers.cpp
     src/ui/settings_ui_helpers.h
     src/ui/graphaxissettingsdialog.cpp

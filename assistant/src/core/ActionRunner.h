@@ -20,4 +20,5 @@ private:
     bool openUrl(const QUrl &url, QString *error) const;
     bool launchApp(AppKind app, QString *error) const;
     bool launchBlop(QString *error) const;
+    QString createFolder(const QString &name, const QString &place, QString *error) const;
 };

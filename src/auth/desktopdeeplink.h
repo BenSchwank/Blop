@@ -4,6 +4,8 @@
 #include <QString>
 #include <QUrl>
 
+#include <functional>
+
 class QLocalServer;
 class QWidget;
 
@@ -22,6 +24,9 @@ public:
   /// Start listening for hand-off messages from secondary processes.
   void startServer();
 
+  /// If set, the socket writes this reply instead of only emitting.
+  void setReplyHandler(std::function<QString(const QString &)> handler);
+
   /// Parse argv for a blop: URL (empty if none).
   static QString deepLinkFromArguments(const QStringList &args);
 
@@ -35,4 +40,5 @@ signals:
 private:
   explicit DesktopDeepLink(QObject *parent = nullptr);
   QLocalServer *m_server{nullptr};
+  std::function<QString(const QString &)> m_reply;
 };

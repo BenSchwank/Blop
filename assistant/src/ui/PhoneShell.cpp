@@ -1,5 +1,6 @@
 #include "PhoneShell.h"
 
+#include "AccountDialog.h"
 #include "platform/SpeechInput.h"
 
 #include <QHBoxLayout>
@@ -40,6 +41,8 @@ PhoneShell::PhoneShell(QWidget *parent) : QWidget(parent) {
     m_mic->setCursor(Qt::PointingHandCursor);
     m_mic->setToolTip(QStringLiteral("Tippen und sprechen"));
     row->addWidget(m_mic);
+    auto *account = new QPushButton(QStringLiteral("Konto"), bar);
+    row->addWidget(account);
     root->addWidget(bar);
 
     m_status = new QLabel(this);
@@ -65,6 +68,10 @@ PhoneShell::PhoneShell(QWidget *parent) : QWidget(parent) {
         "QPushButton#mic { background: #343840; color: #F4F6F8; border: none; border-radius: 20px; }"
         "QPushButton#mic[listening=\"true\"] { background: #5B9DFF; color: #0E1116; }"));
 
+    connect(account, &QPushButton::clicked, this, [this]() {
+        AccountDialog dialog(this);
+        dialog.exec();
+    });
     connect(m_edit, &QLineEdit::returnPressed, this, [this]() { runCommand(m_edit->text()); });
     connect(m_mic, &QPushButton::clicked, m_speech, &SpeechInput::start);
     connect(m_speech, &SpeechInput::recognized, this, [this](const QString &text) {

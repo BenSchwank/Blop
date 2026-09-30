@@ -1,6 +1,7 @@
 #include "NoteWriter.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -38,6 +39,10 @@ QString NoteWriter::libraryRoot() {
     const QString root = base + QStringLiteral("/BlopNotizen");
     QDir().mkpath(root);
     return root;
+}
+
+QString NoteWriter::pathFor(const QString &title) {
+    return libraryRoot() + QLatin1Char('/') + safeStem(title) + QStringLiteral(".bnote");
 }
 
 QString NoteWriter::write(const QString &title, const QString &body, QString *error) {
@@ -105,6 +110,128 @@ QString NoteWriter::write(const QString &title, const QString &body, QString *er
         return {};
     }
     file.write(QJsonDocument(rootObj).toJson(QJsonDocument::Compact));
+    if (!file.commit()) {
+        if (error)
+            *error = QStringLiteral("Die Notiz konnte nicht gespeichert werden.");
+        return {};
+    }
+    return path;
+}
+
+namespace {
+
+QJsonObject textObject(qreal y, int size, const QString &text) {
+    QJsonObject obj;
+    obj.insert(QStringLiteral("x"), 48);
+    obj.insert(QStringLiteral("y"), y);
+    obj.insert(QStringLiteral("w"), 620);
+    obj.insert(QStringLiteral("text"), text);
+    obj.insert(QStringLiteral("c"), QStringLiteral("#ff111111"));
+    obj.insert(QStringLiteral("font"), QString());
+    obj.insert(QStringLiteral("size"), size);
+    return obj;
+}
+
+QJsonObject emptyNote(const QString &title) {
+    QJsonObject page;
+    page.insert(QStringLiteral("strokes"), QJsonArray());
+    page.insert(QStringLiteral("graphs"), QJsonArray());
+    page.insert(QStringLiteral("stickies"), QJsonArray());
+    page.insert(QStringLiteral("texts"), QJsonArray());
+    page.insert(QStringLiteral("bg"), 2);
+    page.insert(QStringLiteral("title"), QStringLiteral("Seite 1"));
+    page.insert(QStringLiteral("rot"), 0);
+    page.insert(QStringLiteral("bm"), false);
+    page.insert(QStringLiteral("paper"), QStringLiteral("#ffffff"));
+    QJsonArray pages;
+    pages.append(page);
+    QJsonObject cover;
+    cover.insert(QStringLiteral("bg"), 2);
+    cover.insert(QStringLiteral("paper"), QStringLiteral("#ffffff"));
+    QJsonArray tags;
+    tags.append(QStringLiteral("assistent"));
+    QJsonObject root;
+    root.insert(QStringLiteral("id"), QUuid::createUuid().toString());
+    root.insert(QStringLiteral("title"), title);
+    root.insert(QStringLiteral("tags"), tags);
+    root.insert(QStringLiteral("cover"), cover);
+    root.insert(QStringLiteral("pages"), pages);
+    return root;
+}
+
+} // namespace
+
+QString NoteWriter::compose(const QString &title, const QString &heading,
+                            const QStringList &points, QString *error) {
+    const QString rootDir = libraryRoot();
+    if (rootDir.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Der Notiz-Ordner fehlt.");
+        return {};
+    }
+    const QString stem = safeStem(title);
+    const QString path = pathFor(title);
+
+    QJsonObject root;
+    if (QFileInfo::exists(path)) {
+        QFile in(path);
+        if (!in.open(QIODevice::ReadOnly)) {
+            if (error)
+                *error = QStringLiteral("Die Notiz konnte nicht gelesen werden.");
+            return {};
+        }
+        root = QJsonDocument::fromJson(in.readAll()).object();
+    }
+    if (root.isEmpty())
+        root = emptyNote(stem);
+
+    QJsonArray pages = root.value(QStringLiteral("pages")).toArray();
+    if (pages.isEmpty())
+        pages.append(emptyNote(stem).value(QStringLiteral("pages")).toArray().at(0));
+    QJsonObject page = pages.at(0).toObject();
+    QJsonArray texts = page.value(QStringLiteral("texts")).toArray();
+
+    qreal y = 48;
+    if (!texts.isEmpty()) {
+        y = 0;
+        for (const QJsonValue &value : texts) {
+            const QJsonObject obj = value.toObject();
+            const qreal bottom = obj.value(QStringLiteral("y")).toDouble() +
+                                 qMax(28, obj.value(QStringLiteral("size")).toInt(16) + 12);
+            if (bottom > y)
+                y = bottom;
+        }
+        y += 28;
+    }
+
+    const QString head = heading.trimmed();
+    if (!head.isEmpty()) {
+        texts.append(textObject(y, 22, head));
+        y += 40;
+    }
+    for (QString point : points) {
+        point = point.trimmed();
+        if (point.isEmpty())
+            continue;
+        if (!point.startsWith(QChar(0x2022)))
+            point.prepend(QString(QChar(0x2022)) + QLatin1Char(' '));
+        texts.append(textObject(y, 16, point));
+        y += 32;
+    }
+
+    page.insert(QStringLiteral("texts"), texts);
+    pages.replace(0, page);
+    root.insert(QStringLiteral("pages"), pages);
+    if (root.value(QStringLiteral("title")).toString().trimmed().isEmpty())
+        root.insert(QStringLiteral("title"), stem);
+
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (error)
+            *error = QStringLiteral("Die Notiz konnte nicht gespeichert werden.");
+        return {};
+    }
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
     if (!file.commit()) {
         if (error)
             *error = QStringLiteral("Die Notiz konnte nicht gespeichert werden.");

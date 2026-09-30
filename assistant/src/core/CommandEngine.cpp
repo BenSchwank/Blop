@@ -14,6 +14,9 @@ QString fold(QString text) {
 QString stripLead(QString text) {
     const QStringList leads = {
         QStringLiteral("bitte "),
+        QStringLiteral("hey blop assistent "),
+        QStringLiteral("blop assistent "),
+        QStringLiteral("blop-assistent "),
         QStringLiteral("hey blop "),
         QStringLiteral("ok blop "),
         QStringLiteral("hallo blop "),
@@ -110,6 +113,48 @@ bool takeNote(const QString &raw, Command *out) {
     return false;
 }
 
+bool takeCreateFolder(const QString &raw, Command *out) {
+    const QRegularExpression re(
+        QStringLiteral(
+            "^(?:erstelle|neuer|neues|mache)\\s+(?:mir\\s+)?(?:einen\\s+|ein\\s+)?ordner\\s+(.+)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    const auto match = re.match(raw);
+    if (!match.hasMatch())
+        return false;
+
+    QString rest = match.captured(1).trimmed();
+    QString place = QStringLiteral("desktop");
+    const QRegularExpression trailingPlace(
+        QStringLiteral("\\s+auf\\s+(?:dem\\s+|meinem\\s+)?(desktop|schreibtisch)\\s*$"),
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto placeMatch = trailingPlace.match(rest); placeMatch.hasMatch()) {
+        place = placeMatch.captured(1).toLower();
+        rest = rest.left(placeMatch.capturedStart()).trimmed();
+    }
+    const QRegularExpression leadingPlace(
+        QStringLiteral("^(?:auf\\s+(?:dem\\s+|meinem\\s+)?)?(desktop|schreibtisch)\\s+(?:namens\\s+)?(.+)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto lead = leadingPlace.match(rest); lead.hasMatch()) {
+        place = lead.captured(1).toLower();
+        rest = lead.captured(2).trimmed();
+    } else if (rest.startsWith(QLatin1String("namens "), Qt::CaseInsensitive)) {
+        rest = rest.mid(QStringLiteral("namens ").size()).trimmed();
+    }
+    rest.remove(QRegularExpression(QStringLiteral("^[\"']|[\"']$")));
+    if (rest.isEmpty() || rest.contains(QLatin1Char('/')) || rest.contains(QLatin1Char('\\')) ||
+        rest.contains(QRegularExpression(QStringLiteral("[<>:\"|?*]")))) {
+        *out = unknown(QStringLiteral(
+            "Wie soll der Ordner heißen? Zum Beispiel: erstelle ordner Test 1 2 auf dem desktop"));
+        return true;
+    }
+    Command command;
+    command.kind = CommandKind::CreateFolder;
+    command.title = place;
+    command.text = rest;
+    *out = command;
+    return true;
+}
+
 QUrl addressFrom(const QString &raw) {
     const QString text = raw.trimmed();
     if (text.startsWith(QLatin1String("http://"), Qt::CaseInsensitive) ||
@@ -182,6 +227,168 @@ QString stripPrefix(const QString &text, const QStringList &prefixes) {
     return text;
 }
 
+QString clipTitle(QString title) {
+    title = title.trimmed();
+    title.remove(QRegularExpression(QStringLiteral("^[\"']|[\"']$")));
+    title.remove(QRegularExpression(QStringLiteral("[.]+$")));
+    const QStringList stop = {
+        QStringLiteral(" und "), QStringLiteral(","), QStringLiteral(" mach"),
+        QStringLiteral(" mit "), QStringLiteral(" überschrift"),
+        QStringLiteral(" ueberschrift"), QStringLiteral(" schreib"),
+        QStringLiteral(" notier"), QStringLiteral(" punkt"),
+    };
+    int cut = title.size();
+    const QString lower = title.toLower();
+    for (const QString &mark : stop) {
+        const int at = lower.indexOf(mark);
+        if (at > 0 && at < cut)
+            cut = at;
+    }
+    return title.left(cut).trimmed();
+}
+
+bool takeCompose(const QString &raw, Command *out) {
+    const QString lower = raw.toLower();
+    const bool explain = lower.startsWith(QLatin1String("erklär")) ||
+                         lower.startsWith(QLatin1String("erklaer")) ||
+                         lower.startsWith(QLatin1String("erklaere"));
+    if (explain) {
+        Command command;
+        command.kind = CommandKind::Explain;
+        command.generate = true;
+        command.text = raw;
+        command.alsoWrite = lower.contains(QLatin1String("schreib")) ||
+                            lower.contains(QLatin1String("notiz")) ||
+                            lower.contains(QLatin1String("notier"));
+        QRegularExpression named(
+            QStringLiteral("notiz\\s+(?:namens\\s+)?([^,]+)$"),
+            QRegularExpression::CaseInsensitiveOption);
+        if (const auto match = named.match(raw); match.hasMatch())
+            command.title = clipTitle(match.captured(1));
+        *out = command;
+        return true;
+    }
+
+    QString toolId;
+    if (lower.contains(QLatin1String("textmarker")) ||
+        lower.contains(QLatin1String("highlighter")))
+        toolId = QStringLiteral("marker");
+    else if (lower.contains(QLatin1String("stift 3")) ||
+             lower.contains(QLatin1String("stift drei")))
+        toolId = QStringLiteral("pen3");
+    else if (lower.contains(QLatin1String("stift 2")) ||
+             lower.contains(QLatin1String("stift zwei")))
+        toolId = QStringLiteral("pen2");
+    else if (lower.contains(QLatin1String("stift 1")) ||
+             lower.contains(QLatin1String("stift eins")) ||
+             lower.contains(QLatin1String("den stift")) ||
+             lower.contains(QLatin1String("marker")))
+        toolId = lower.contains(QLatin1String("marker")) ? QStringLiteral("marker")
+                                                        : QStringLiteral("pen1");
+
+    const bool mentionsNote =
+        lower.contains(QLatin1String("notiz")) || lower.contains(QLatin1String("nenn")) ||
+        lower.contains(QLatin1String("überschrift")) ||
+        lower.contains(QLatin1String("ueberschrift")) ||
+        lower.contains(QLatin1String("einen blop")) ||
+        lower.contains(QLatin1String("einen blog"));
+    const bool toolOnly =
+        !mentionsNote && !toolId.isEmpty() &&
+        (lower.contains(QLatin1String("nimm")) || lower.contains(QLatin1String("wähl")) ||
+         lower.contains(QLatin1String("waehl")) || lower.contains(QLatin1String("nimm den")));
+    if (toolOnly) {
+        Command command;
+        command.kind = CommandKind::SelectTool;
+        command.toolId = toolId;
+        *out = command;
+        return true;
+    }
+    const bool generateSentence =
+        lower.contains(QLatin1String("schreib mir")) ||
+        lower.contains(QLatin1String("schreibe mir")) ||
+        lower.contains(QLatin1String("selber")) ||
+        lower.contains(QLatin1String("selbst")) ||
+        lower.contains(QLatin1String("wichtigsten"));
+    if (!mentionsNote && !generateSentence)
+        return false;
+
+    QString title;
+    const QRegularExpression nenne(
+        QStringLiteral(
+            "nenn(?:e|en)\\s+(?:sie|ihn|es|die\\s+notiz\\s+)?(.+)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto match = nenne.match(raw); match.hasMatch())
+        title = clipTitle(match.captured(1));
+    if (title.isEmpty()) {
+        const QRegularExpression named(
+            QStringLiteral(
+                "(?:notiz|blop|blog)\\s+(?:namens\\s+)?([A-Za-z0-9][^,]*)"),
+            QRegularExpression::CaseInsensitiveOption);
+        if (const auto match = named.match(raw); match.hasMatch()) {
+            const QString candidate = clipTitle(match.captured(1));
+            if (candidate.compare(QLatin1String("mir"), Qt::CaseInsensitive) != 0 &&
+                candidate.compare(QLatin1String("einen"), Qt::CaseInsensitive) != 0 &&
+                candidate.compare(QLatin1String("eine"), Qt::CaseInsensitive) != 0 &&
+                candidate.compare(QLatin1String("oder"), Qt::CaseInsensitive) != 0)
+                title = candidate;
+        }
+    }
+    if (title.isEmpty()) {
+        if (!generateSentence)
+            return false;
+        title = QStringLiteral("Notiz");
+    }
+    if (raw.contains(QLatin1Char(':')) &&
+        !lower.contains(QLatin1String("überschrift")) &&
+        !lower.contains(QLatin1String("ueberschrift")) &&
+        !lower.contains(QLatin1String("nenn")))
+        return false;
+
+    QString heading;
+    const QRegularExpression head(
+        QStringLiteral(
+            "(?:überschrift|ueberschrift)\\s+(?:mit\\s+(?:den\\s+)?(?:themen\\s+)?)?(.+)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto match = head.match(raw); match.hasMatch())
+        heading = clipTitle(match.captured(1));
+
+    QString writeClause;
+    const QRegularExpression write(
+        QStringLiteral("(?:schreib(?:e)?(?:\\s+mir)?|notiere|punkte)\\s*:?\\s+(.+)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto match = write.match(raw); match.hasMatch())
+        writeClause = match.captured(1).trimmed();
+
+    Command command;
+    command.kind = CommandKind::ComposeNote;
+    command.title = title;
+    command.heading = heading;
+    command.toolId = toolId;
+    const QString writeLower = writeClause.toLower();
+    const bool generate =
+        writeLower.contains(QLatin1String("selber")) ||
+        writeLower.contains(QLatin1String("selbst")) ||
+        writeLower.contains(QLatin1String("wichtigsten")) ||
+        writeLower.contains(QLatin1String("zwei der")) ||
+        writeLower.contains(QLatin1String("drei der"));
+    if (generate) {
+        command.generate = true;
+        command.text = writeClause;
+    } else if (!writeClause.isEmpty()) {
+        const QStringList parts = writeClause.split(
+            QRegularExpression(QStringLiteral("\\s+und\\s+|\\s*,\\s*")),
+            Qt::SkipEmptyParts);
+        for (QString part : parts) {
+            part = part.trimmed();
+            part.remove(QRegularExpression(QStringLiteral("[.]+$")));
+            if (!part.isEmpty())
+                command.points.append(part);
+        }
+    }
+    *out = command;
+    return true;
+}
+
 } // namespace
 
 QString CommandEngine::helpText() {
@@ -191,9 +398,15 @@ QString CommandEngine::helpText() {
         "öffne ordner dokumente\n"
         "öffne browser\n"
         "öffne seite example.com\n"
+        "starte explorer\n"
         "starte rechner\n"
-        "starte blop\n"
-        "erstelle notiz Titel: Inhalt");
+        "öffne yt\n"
+        "erstelle ordner Test 1 2 auf dem desktop\n"
+        "erstelle notiz Titel: Inhalt\n"
+        "öffne notiz Test123, Überschrift Themen, schreibe: günstig und schnell\n"
+        "schreib mir die zwei wichtigsten Vorteile\n"
+        "nimm den Textmarker\n"
+        "erklär mir …");
 }
 
 Command CommandEngine::parse(const QString &input) const {
@@ -208,8 +421,14 @@ Command CommandEngine::parse(const QString &input) const {
         return command;
     }
 
+    if (Command composed; takeCompose(raw, &composed))
+        return composed;
+
     if (Command note; takeNote(raw, &note))
         return note;
+
+    if (Command folder; takeCreateFolder(raw, &folder))
+        return folder;
 
     QString object;
     if (!splitVerb(raw, &object) && lower.startsWith(QLatin1String("ordner ")))
@@ -253,6 +472,12 @@ Command CommandEngine::parse(const QString &input) const {
     }
 
     const QString key = object.toLower();
+    if (key == QLatin1String("yt") || key == QLatin1String("youtube")) {
+        Command command;
+        command.kind = CommandKind::OpenUrl;
+        command.text = QStringLiteral("https://www.youtube.com");
+        return command;
+    }
     if (key == QLatin1String("ordner"))
         return unknown(QStringLiteral("Welchen Ordner soll ich öffnen?"));
     if (const AppKind app = appFrom(key); app != AppKind::None) {

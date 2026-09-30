@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 enum class CommandKind {
     Unknown,
@@ -8,7 +9,11 @@ enum class CommandKind {
     OpenFolder,
     OpenUrl,
     LaunchApp,
-    CreateNote
+    CreateNote,
+    CreateFolder,
+    ComposeNote,
+    Explain,
+    SelectTool
 };
 
 enum class AppKind {
@@ -25,6 +30,11 @@ struct Command {
     AppKind app = AppKind::None;
     QString title;
     QString text;
+    QString heading;
+    QStringList points;
+    QString toolId;
+    bool generate = false;
+    bool alsoWrite = false;
     QString error;
 };
 

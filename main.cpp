@@ -222,6 +222,9 @@ int main(int argc, char *argv[]) {
   MainWindow *w = new MainWindow();
 
 #ifndef Q_OS_ANDROID
+  DesktopDeepLink::instance().setReplyHandler([w](const QString &message) {
+    return w->assistantIpc(message);
+  });
   QObject::connect(&DesktopDeepLink::instance(),
                    &DesktopDeepLink::messageReceived, w,
                    &MainWindow::handleDesktopDeepLinkMessage);

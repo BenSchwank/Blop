@@ -251,6 +251,11 @@ bool DesktopDeepLink::handOffToRunningInstance(const QString &message) {
   return true;
 }
 
+void DesktopDeepLink::setReplyHandler(
+    std::function<QString(const QString &)> handler) {
+  m_reply = std::move(handler);
+}
+
 void DesktopDeepLink::startServer() {
   if (m_server)
     return;
@@ -263,11 +268,22 @@ void DesktopDeepLink::startServer() {
         continue;
       connect(client, &QLocalSocket::readyRead, this, [this, client]() {
         const QByteArray raw = client->readAll().trimmed();
+        if (!raw.isEmpty()) {
+          const QString text = QString::fromUtf8(raw);
+          QString reply = QStringLiteral("OK");
+          if (m_reply)
+            reply = m_reply(text);
+          else
+            emit messageReceived(text);
+          if (reply.isEmpty())
+            reply = QStringLiteral("OK");
+          const QByteArray out = reply.toUtf8() + '\n';
+          client->write(out);
+          client->flush();
+          client->waitForBytesWritten(1500);
+        }
         client->disconnectFromServer();
         client->deleteLater();
-        if (raw.isEmpty())
-          return;
-        emit messageReceived(QString::fromUtf8(raw));
       });
     }
   });

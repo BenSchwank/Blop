@@ -54,6 +54,7 @@
 #include "blop_dialogs.h"
 #include "uiscale.h"
 #include "tools/ToolManager.h"
+#include "toolhotkeys.h"
 #include "googleauthmanager.h"
 #ifndef Q_OS_ANDROID
 #include "desktopdeeplink.h"
@@ -4864,6 +4865,8 @@ void MainWindow::openSettingsWorkspace() {
           &MainWindow::applyBrandMark);
   connect(dlg, &SettingsDialog::appPrefsChanged, this,
           &MainWindow::applyBrandMark);
+  connect(dlg, &SettingsDialog::appPrefsChanged, this,
+          &MainWindow::applyToolHotkeys);
   connect(dlg, &SettingsDialog::logoutRequested, this, [this]() {
     QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
     st.remove(QStringLiteral("session_id"));
@@ -5032,6 +5035,8 @@ void MainWindow::openSettingsShell() {
             &MainWindow::applyBrandMark);
     connect(m_settingsShellDlg, &SettingsDialog::appPrefsChanged, this,
             &MainWindow::applyBrandMark);
+    connect(m_settingsShellDlg, &SettingsDialog::appPrefsChanged, this,
+            &MainWindow::applyToolHotkeys);
     connect(m_settingsShellDlg, &SettingsDialog::logoutRequested, this,
             [this]() {
               QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
@@ -5600,6 +5605,64 @@ void MainWindow::onContentModified() {
     return;
   }
   m_autoSaveTimer->start();
+}
+
+void MainWindow::applyToolHotkeys() {
+#ifndef Q_OS_ANDROID
+  if (!m_editorCenterWidget)
+    return;
+  for (QShortcut *sc : m_toolHotkeys)
+    delete sc;
+  m_toolHotkeys.clear();
+  auto *topToolbar = qobject_cast<ModernToolbar *>(m_floatingTools);
+  for (const ResolvedHotkey &hk : resolvedToolHotkeys()) {
+    if (hk.sequence.isEmpty())
+      continue;
+    auto *sc = new QShortcut(hk.sequence, m_editorCenterWidget);
+    sc->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(sc, &QShortcut::activated, this, [this, topToolbar, hk]() {
+      QWidget *fw = QApplication::focusWidget();
+      if (fw && (qobject_cast<QLineEdit *>(fw) || qobject_cast<QTextEdit *>(fw) ||
+                 qobject_cast<QPlainTextEdit *>(fw) ||
+                 fw->inherits("QKeySequenceEdit")))
+        return;
+      if (MultiPageNoteView *noteView = currentNoteView();
+          noteView && noteView->isEditingText())
+        return;
+      if (hk.penPreset) {
+        ToolConfig cfg = ToolManager::instance().configFor(ToolMode::Pen);
+        cfg.penColor = hk.color;
+        cfg.penWidth = hk.width;
+        if (ToolManager::instance().activeToolMode() != ToolMode::Pen)
+          ToolManager::instance().selectTool(ToolMode::Pen);
+        ToolManager::instance().setConfig(cfg);
+        if (topToolbar)
+          topToolbar->setToolMode(ToolMode::Pen);
+        return;
+      }
+      const ToolMode mode = hk.mode;
+      if (!topToolbar) {
+        ToolManager::instance().selectTool(mode);
+        return;
+      }
+      const QList<RailSlot> rail = topToolbar->railSlots();
+      int idx = -1;
+      for (int i = 0; i < rail.size(); ++i) {
+        if (rail[i].mode == mode) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx >= 0)
+        topToolbar->applyRailSlot(idx);
+      else {
+        ToolManager::instance().selectTool(mode);
+        topToolbar->setToolMode(mode);
+      }
+    });
+    m_toolHotkeys.append(sc);
+  }
+#endif
 }
 
 void MainWindow::applyAutoSavePrefs() {
@@ -7881,38 +7944,8 @@ void MainWindow::setupUi() {
     connect(m_strukturBackPill, &QPushButton::clicked, this,
             &MainWindow::returnToStruktur);
 
-    // Drawboard-like tool shortcuts (editor surface, ignore when typing).
-    auto bindToolShortcut = [this, topToolbar](const QKeySequence &seq,
-                                               ToolMode mode) {
-      auto *sc = new QShortcut(seq, m_editorCenterWidget);
-      sc->setContext(Qt::WidgetWithChildrenShortcut);
-      connect(sc, &QShortcut::activated, this, [this, topToolbar, mode]() {
-        QWidget *fw = QApplication::focusWidget();
-        if (qobject_cast<QLineEdit *>(fw) || qobject_cast<QTextEdit *>(fw) ||
-            qobject_cast<QPlainTextEdit *>(fw))
-          return;
-        const QList<RailSlot> rail = topToolbar->railSlots();
-        int idx = -1;
-        for (int i = 0; i < rail.size(); ++i) {
-          if (rail[i].mode == mode) {
-            idx = i;
-            break;
-          }
-        }
-        if (idx >= 0)
-          topToolbar->applyRailSlot(idx);
-        else {
-          ToolManager::instance().selectTool(mode);
-          topToolbar->setToolMode(mode);
-        }
-      });
-    };
-    bindToolShortcut(QKeySequence(Qt::Key_P), ToolMode::Pen);
-    bindToolShortcut(QKeySequence(Qt::Key_H), ToolMode::Hand);
-    bindToolShortcut(QKeySequence(Qt::Key_M), ToolMode::Highlighter);
-    bindToolShortcut(QKeySequence(Qt::Key_E), ToolMode::Eraser);
-    bindToolShortcut(QKeySequence(Qt::Key_V), ToolMode::Lasso);
-    bindToolShortcut(QKeySequence(Qt::Key_T), ToolMode::Text);
+    m_floatingTools = topToolbar;
+    applyToolHotkeys();
         // Studio: open light tool properties sheet.
     {
       auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")),
@@ -7970,7 +8003,7 @@ void MainWindow::setupUi() {
       });
     };
     bindFitShortcut(QKeySequence(Qt::CTRL | Qt::Key_0), false);
-    bindFitShortcut(QKeySequence(Qt::CTRL | Qt::Key_1), true);
+    bindFitShortcut(QKeySequence(Qt::CTRL | Qt::Key_9), true);
 #endif
     m_floatingTools = topToolbar;
   }
@@ -15084,6 +15117,59 @@ void MainWindow::openThoughtThreadsCanvas() {
 #endif
 
 #ifndef Q_OS_ANDROID
+QString MainWindow::assistantIpc(const QString &message) {
+  const QString msg = message.trimmed();
+  auto tabIndex = [this](const QString &path) -> int {
+    if (!m_editorTabs || path.isEmpty())
+      return -1;
+    const QString abs = QFileInfo(path).absoluteFilePath();
+    for (int i = 0; i < m_editorTabs->count(); ++i) {
+      QWidget *w = m_editorTabs->widget(i);
+      if (!w)
+        continue;
+      QString tabPath = w->property("filePath").toString();
+      if (tabPath.isEmpty()) {
+        if (auto *cv = w->findChild<CanvasView *>())
+          tabPath = cv->property("filePath").toString();
+      }
+      if (sameNotePath(tabPath, abs))
+        return i;
+    }
+    return -1;
+  };
+  auto stateFor = [&](const QString &path) -> QString {
+    const int idx = tabIndex(path);
+    if (idx < 0)
+      return QStringLiteral("CLOSED");
+    const bool current = m_editorTabs && m_editorTabs->currentIndex() == idx;
+    const bool pending =
+        current && ((m_autoSaveTimer && m_autoSaveTimer->isActive()) ||
+                    (m_a4SaveDebounce && m_a4SaveDebounce->isActive()));
+    return pending ? QStringLiteral("DIRTY") : QStringLiteral("CLEAN");
+  };
+  if (msg.startsWith(QLatin1String("STATUS ")))
+    return stateFor(msg.mid(7).trimmed());
+  if (msg.startsWith(QLatin1String("CLOSE "))) {
+    const int idx = tabIndex(msg.mid(6).trimmed());
+    if (idx >= 0)
+      closeEditorTabAt(idx);
+    return QStringLiteral("OK");
+  }
+  if (msg.startsWith(QLatin1String("OPEN "))) {
+    const QString path = msg.mid(5).trimmed();
+    if (stateFor(path) == QLatin1String("DIRTY"))
+      return QStringLiteral("DIRTY");
+    const int idx = tabIndex(path);
+    if (idx >= 0)
+      closeEditorTabAt(idx);
+    DesktopDeepLink::bringWindowToFront(this);
+    openNotePath(path);
+    return QStringLiteral("OK");
+  }
+  handleDesktopDeepLinkMessage(msg);
+  return QStringLiteral("OK");
+}
+
 void MainWindow::handleDesktopDeepLinkMessage(const QString &message) {
   const QString msg = message.trimmed();
   DesktopDeepLink::bringWindowToFront(this);
@@ -16936,6 +17022,8 @@ void MainWindow::onOpenSettings() {
           &MainWindow::applyAutoSavePrefs);
   connect(&dlg, &SettingsDialog::appPrefsChanged, this,
           &MainWindow::applyBrandMark);
+  connect(&dlg, &SettingsDialog::appPrefsChanged, this,
+          &MainWindow::applyToolHotkeys);
   connect(&dlg, &SettingsDialog::logoutRequested, this, [this]() {
     QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
     st.remove(QStringLiteral("session_id"));

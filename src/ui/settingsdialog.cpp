@@ -16,10 +16,13 @@
 #include "blopstyle.h"
 #include "overlayscrollindicator.h"
 #include "uiscale.h"
+#include "toolhotkeys.h"
 #include "ui_SettingsDialog.h"
 #include "blop_diag.h"
 
 #include <QButtonGroup>
+#include <QColorDialog>
+#include <QSpinBox>
 #include <QBoxLayout>
 #include <QByteArray>
 #include <QDir>
@@ -32,6 +35,7 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QKeySequenceEdit>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -48,6 +52,7 @@
 #include <QScrollArea>
 #include <QPixmap>
 #include <QSettings>
+#include <QVector>
 #include <QShowEvent>
 #include <QSizePolicy>
 #include <QStandardPaths>
@@ -833,48 +838,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 cardKonto, QStringLiteral("Sitzung"), btnLogout, false,
                 QStringLiteral("logout abmelden session")));
         }
-
-        {
-            auto *startSeg = new QWidget(cardKonto);
-            styleSegmentTrack(startSeg);
-            auto *startLay = new QHBoxLayout(startSeg);
-            startLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
-                                         UiScale::dp(3), UiScale::dp(3));
-            startLay->setSpacing(UiScale::dp(2));
-            const int segH = settingsSegmentMinHeight();
-            const QString segStyle = segmentedControlQss();
-            auto *btnLib = new QPushButton(QStringLiteral("Bibliothek"), startSeg);
-            auto *btnLast = new QPushButton(QStringLiteral("Letzte Notiz"), startSeg);
-            for (QPushButton *b : {btnLib, btnLast}) {
-                b->setCheckable(true);
-                b->setCursor(Qt::PointingHandCursor);
-                b->setFixedHeight(segH);
-                b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
-                setThemedQss(b, segStyle);
-                BlopRipple::attachPressFeedback(b, 0.92);
-                startLay->addWidget(b, 0);
-            }
-            auto *startGroup = new QButtonGroup(this);
-            startGroup->setExclusive(true);
-            startGroup->addButton(btnLib, 0);
-            startGroup->addButton(btnLast, 1);
-            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-            const bool lastNote =
-                st.value(QStringLiteral("ui/startView"), QStringLiteral("library"))
-                    .toString() == QLatin1String("lastNote");
-            btnLib->setChecked(!lastNote);
-            btnLast->setChecked(lastNote);
-            connect(startGroup, &QButtonGroup::idClicked, this, [this](int id) {
-                QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-                s.setValue(QStringLiteral("ui/startView"),
-                           id == 1 ? QStringLiteral("lastNote")
-                                   : QStringLiteral("library"));
-                emit appPrefsChanged();
-            });
-            cardKonto->addBodyWidget(makePropertyRow(
-                cardKonto, QStringLiteral("Startansicht"), startSeg, true,
-                QStringLiteral("start startup bibliothek letzte notiz")));
-        }
     }
 
     // ----- Card: Darstellung (Light/Dark Mode) --------------------------
@@ -1131,6 +1094,46 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             cardTheme, QStringLiteral("Sidebar beim Start"), sidebarSeg, false,
             QStringLiteral("sidebar seitenleiste start offen zu")));
 
+        {
+            auto *startSeg = new QWidget(cardTheme);
+            styleSegmentTrack(startSeg);
+            auto *startLay = new QHBoxLayout(startSeg);
+            startLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                         UiScale::dp(3), UiScale::dp(3));
+            startLay->setSpacing(UiScale::dp(2));
+            auto *btnLib = new QPushButton(QStringLiteral("Bibliothek"), startSeg);
+            auto *btnLast = new QPushButton(QStringLiteral("Letzte Notiz"), startSeg);
+            for (QPushButton *b : {btnLib, btnLast}) {
+                b->setCheckable(true);
+                b->setCursor(Qt::PointingHandCursor);
+                b->setFixedHeight(segH);
+                b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+                setThemedQss(b, segStyle);
+                BlopRipple::attachPressFeedback(b, 0.92);
+                startLay->addWidget(b, 0);
+            }
+            auto *startGroup = new QButtonGroup(this);
+            startGroup->setExclusive(true);
+            startGroup->addButton(btnLib, 0);
+            startGroup->addButton(btnLast, 1);
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            const bool lastNote =
+                st.value(QStringLiteral("ui/startView"), QStringLiteral("library"))
+                    .toString() == QLatin1String("lastNote");
+            btnLib->setChecked(!lastNote);
+            btnLast->setChecked(lastNote);
+            connect(startGroup, &QButtonGroup::idClicked, this, [this](int id) {
+                QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+                s.setValue(QStringLiteral("ui/startView"),
+                           id == 1 ? QStringLiteral("lastNote")
+                                   : QStringLiteral("library"));
+                emit appPrefsChanged();
+            });
+            cardTheme->addBodyWidget(makePropertyRow(
+                cardTheme, QStringLiteral("Startansicht"), startSeg, false,
+                QStringLiteral("start startup bibliothek letzte notiz")));
+        }
+
         auto *btnMotion = makeQuietAction(cardTheme, QStringLiteral("Aus"));
         btnMotion->setCheckable(true);
         {
@@ -1159,7 +1162,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 #ifdef Q_OS_ANDROID
         QStringLiteral("Toolbar und Favorites"),
 #else
-        QStringLiteral("Studio-Werkzeugleiste (Layout A–D)"),
+        QStringLiteral("Werkzeugleiste, Speichern und neue Notizen"),
 #endif
         contentWidget);
     cardLook->setSectionKeywords(
@@ -1384,12 +1387,136 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Card: Keyboard shortcuts (discoverability) -------------------
     auto *cardShortcuts = new BlopSettingsCard(
         QStringLiteral("Tastatur"),
-        QStringLiteral("Wichtige Kurzbefehle in Bibliothek und Notiz"),
+        QStringLiteral("Werkzeug-Kürzel und Kurzbefehle"),
         contentWidget);
     cardShortcuts->setSectionKeywords(
         QStringLiteral("tastatur shortcuts hotkeys tastenkürzel kurzbefehl "
-                       "entf ctrl löschen suchen werkzeug"));
+                       "entf ctrl löschen suchen werkzeug stift radierer marker text"));
     {
+      struct HotkeyRow {
+        QString id;
+        bool pen = false;
+        QKeySequenceEdit *keys = nullptr;
+        QPushButton *color = nullptr;
+        QSpinBox *width = nullptr;
+      };
+      QVector<HotkeyRow> hotkeyRows;
+      const QVector<ResolvedHotkey> defs = resolvedToolHotkeys();
+      auto publishKeys = [this]() {
+        publishAssistantSettings();
+        emit appPrefsChanged();
+      };
+      for (const ResolvedHotkey &def : defs) {
+        HotkeyRow row;
+        row.id = def.id;
+        row.pen = def.penPreset;
+        auto *wrap = new QWidget(cardShortcuts);
+        auto *box = new QHBoxLayout(wrap);
+        box->setContentsMargins(0, 0, 0, 0);
+        box->setSpacing(6);
+        row.keys = new QKeySequenceEdit(def.sequence, wrap);
+        row.keys->setMaximumSequenceLength(1);
+        row.keys->setClearButtonEnabled(true);
+        row.keys->setFixedWidth(UiScale::dp(140));
+        row.keys->setFixedHeight(UiScale::dp(32));
+        box->addWidget(row.keys);
+        if (def.penPreset) {
+          row.color = new QPushButton(wrap);
+          row.color->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+          row.color->setCursor(Qt::PointingHandCursor);
+          row.color->setStyleSheet(
+              QStringLiteral("background: %1; border: 1px solid #888; border-radius: 6px;")
+                  .arg(def.color.name(QColor::HexRgb)));
+          row.width = new QSpinBox(wrap);
+          row.width->setRange(1, 40);
+          row.width->setValue(def.width);
+          row.width->setFixedWidth(UiScale::dp(64));
+          box->addWidget(row.color);
+          box->addWidget(row.width);
+        }
+        hotkeyRows.append(row);
+        const int index = hotkeyRows.size() - 1;
+        auto saveRow = [this, hotkeyRows, index, publishKeys]() {
+          const HotkeyRow &item = hotkeyRows.at(index);
+          const QColor color = item.color
+                                   ? QColor(item.color->property("penColor").toString())
+                                   : QColor();
+          storeToolHotkey(item.id,
+                          item.keys->keySequence().toString(QKeySequence::PortableText),
+                          color.isValid() ? color : QColor(Qt::black),
+                          item.width ? item.width->value() : 3);
+          publishKeys();
+        };
+        if (row.color) {
+          row.color->setProperty("penColor", def.color.name(QColor::HexRgb));
+          connect(row.color, &QPushButton::clicked, this, [this, row, saveRow]() {
+            const QColor next = QColorDialog::getColor(
+                QColor(row.color->property("penColor").toString()), this,
+                QStringLiteral("Stiftfarbe"));
+            if (!next.isValid())
+              return;
+            row.color->setProperty("penColor", next.name(QColor::HexRgb));
+            row.color->setStyleSheet(
+                QStringLiteral("background: %1; border: 1px solid #888; border-radius: 6px;")
+                    .arg(next.name(QColor::HexRgb)));
+            saveRow();
+          });
+        }
+        connect(row.keys, &QKeySequenceEdit::editingFinished, this, saveRow);
+        if (row.width)
+          connect(row.width, &QSpinBox::valueChanged, this, [saveRow](int) { saveRow(); });
+        cardShortcuts->addBodyWidget(makePropertyRow(
+            cardShortcuts, def.label, wrap, false,
+            QStringLiteral("tastatur werkzeug %1").arg(def.label.toLower())));
+      }
+      auto *btnHotkeyReset =
+          makeQuietAction(cardShortcuts, QStringLiteral("Standard"));
+      connect(btnHotkeyReset, &QPushButton::clicked, this,
+              [this, hotkeyRows, publishKeys]() {
+                resetToolHotkeys();
+                const QVector<ResolvedHotkey> fresh = resolvedToolHotkeys();
+                for (int i = 0; i < fresh.size() && i < hotkeyRows.size(); ++i) {
+                  hotkeyRows.at(i).keys->blockSignals(true);
+                  hotkeyRows.at(i).keys->setKeySequence(fresh.at(i).sequence);
+                  hotkeyRows.at(i).keys->blockSignals(false);
+                  if (hotkeyRows.at(i).width) {
+                    hotkeyRows.at(i).width->blockSignals(true);
+                    hotkeyRows.at(i).width->setValue(fresh.at(i).width);
+                    hotkeyRows.at(i).width->blockSignals(false);
+                  }
+                  if (hotkeyRows.at(i).color) {
+                    hotkeyRows.at(i).color->setProperty(
+                        "penColor", fresh.at(i).color.name(QColor::HexRgb));
+                    hotkeyRows.at(i).color->setStyleSheet(
+                        QStringLiteral(
+                            "background: %1; border: 1px solid #888; border-radius: 6px;")
+                            .arg(fresh.at(i).color.name(QColor::HexRgb)));
+                  }
+                }
+                publishKeys();
+              });
+      cardShortcuts->addBodyWidget(makePropertyRow(
+          cardShortcuts, QStringLiteral("Werkzeug-Kürzel"), btnHotkeyReset, false,
+          QStringLiteral("standard zurücksetzen hotkey")));
+
+      auto *modelEdit = new QLineEdit(openRouterModel(), cardShortcuts);
+      modelEdit->setPlaceholderText(QStringLiteral("openai/gpt-4o-mini"));
+      auto *keyEdit = new QLineEdit(openRouterKey(), cardShortcuts);
+      keyEdit->setEchoMode(QLineEdit::Password);
+      keyEdit->setPlaceholderText(QStringLiteral("OpenRouter-Schlüssel"));
+      auto saveRouter = [modelEdit, keyEdit, publishKeys]() {
+        storeOpenRouter(modelEdit->text(), keyEdit->text());
+        publishKeys();
+      };
+      connect(modelEdit, &QLineEdit::editingFinished, this, saveRouter);
+      connect(keyEdit, &QLineEdit::editingFinished, this, saveRouter);
+      cardShortcuts->addBodyWidget(makePropertyRow(
+          cardShortcuts, QStringLiteral("OpenRouter-Modell"), modelEdit, false,
+          QStringLiteral("openrouter modell ki")));
+      cardShortcuts->addBodyWidget(makePropertyRow(
+          cardShortcuts, QStringLiteral("OpenRouter-Schlüssel"), keyEdit, false,
+          QStringLiteral("openrouter schlüssel key api")));
+
       struct Row {
         const char *keys;
         const char *action;
@@ -1399,9 +1526,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
           {"Entf / Backspace", "Auswahl in den Papierkorb (Bibliothek)"},
           {"Ctrl+A", "Alle Notizen in der Bibliothek auswählen"},
           {"Ctrl+Z", "Im Papierkorb: Auswahl wiederherstellen"},
-          {"P / E / V / T / H / M",
-           "Stift / Radierer / Lasso / Text / Hand / Marker"},
-          {"Ctrl+0 / Ctrl+1", "An Inhalt / an Breite anpassen"},
+          {"Ctrl+0 / Ctrl+9", "An Inhalt / an Breite anpassen"},
           {"Ctrl+Shift+O", "Werkzeug-Eigenschaften öffnen"},
           {"Ctrl+Shift+J", "Werkzeugleiste K ↔ J umschalten"},
       };
@@ -1421,8 +1546,12 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
       }
       auto *foot = new QLabel(
           QStringLiteral(
-              "Werkzeug-Tasten greifen nur in der offenen Notiz, nicht beim "
-              "Tippen in Textfeldern."),
+              "Standard: Strg+1, Strg+2 und Strg+3 sind drei Stifte "
+              "(Farbe und Stärke daneben), Strg+4 der Textmarker. "
+              "P, E, V, T, H und M bleiben. Strg+9 passt an die Breite an. "
+              "Das gilt in der offenen Notiz, nicht beim Tippen. "
+              "Ein leeres Feld schaltet das Kürzel aus. "
+              "Die Datei assistent-einstellungen.json geht mit dem Google-Konto mit."),
           cardShortcuts);
       foot->setWordWrap(true);
       setLiteralQss(foot,
@@ -1500,7 +1629,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Card: Speicher — Notion property rows for clouds ---------------
     auto *cardStorage = new BlopSettingsCard(
         QStringLiteral("Cloud"),
-        QStringLiteral("Notizen lokal — Clouds öffnen in Blop"),
+        QStringLiteral("Speicherort und verbundene Clouds"),
         contentWidget);
     cardStorage->setSectionKeywords(
         QStringLiteral("drive nextcloud cloud lokal sync ordner speicher "
@@ -1834,20 +1963,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                              applyMode(StoragePrefs::Mode::LocalAndCloud);
                          });
 
-        auto *btnOnboarding =
-            makeQuietAction(cardStorage, QStringLiteral("Erneut zeigen"));
-        btnOnboarding->setToolTip(QStringLiteral(
-            "Willkommen, Speicherwahl und Kurzrundgang noch einmal. "
-            "Offene Notizen werden vorher gespeichert und geschlossen."));
-        connect(btnOnboarding, &QPushButton::clicked, this, [this]() {
-          QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-          s.setValue(QStringLiteral("ui/onboardingDone"), false);
-          emit onboardingReplayRequested();
-        });
-        cardStorage->addBodyWidget(makePropertyRow(
-            cardStorage, QStringLiteral("Einrichtung"), btnOnboarding, false,
-            QStringLiteral("onboarding einrichtung assistent erneut wizard")));
-
         // Custom embed — one compact row.
         auto *customUrl = new QLineEdit(cardStorage);
         customUrl->setPlaceholderText(QStringLiteral("https://…"));
@@ -1900,15 +2015,13 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             QStringLiteral("eigene cloud custom url einbetten webdav")));
     }
 
-    // ----- Card: Kalender + System --------------------------------------
+    // ----- Card: Kalender ------------------------------------------------
     auto *cardMore = new BlopSettingsCard(
         QStringLiteral("Kalender"),
-        QStringLiteral("Integrationen, Version und Diagnose"),
+        QStringLiteral("Google Kalender verbinden"),
         contentWidget);
     cardMore->setSectionKeywords(
-        QStringLiteral("kalender calendar integration version diagnose "
-                       "trace debug entwickler erweiterte mehr pdf webengine "
-                       "build fähigkeit sync cloud"));
+        QStringLiteral("kalender calendar google termine sync"));
     {
       auto *calStatusLbl = new QLabel(cardMore);
       calStatusLbl->hide(); // status text mirrored into named row
@@ -1960,7 +2073,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
       auto *calRow = makeNamedPropertyRow(
           cardMore, QStringLiteral("Google Kalender"),
-          refreshCalStatusText(), calBtns, false,
+          refreshCalStatusText(), calBtns, true,
           QStringLiteral("kalender calendar google termine sync"));
       cardMore->addBodyWidget(calRow);
       auto *calStatusInRow =
@@ -1978,71 +2091,72 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
       connect(&GoogleAuthManager::instance(),
               &GoogleAuthManager::calendarTokenUpdated, cardMore,
               syncCalStatusUi);
+    }
+    cardMore->setExpanded(true);
+
+    // ----- Card: System --------------------------------------------------
+    auto *cardSystem = new BlopSettingsCard(
+        QStringLiteral("System"),
+        QStringLiteral("Version, Build und Diagnose"),
+        contentWidget);
+    cardSystem->setSectionKeywords(
+        QStringLiteral("version diagnose trace debug entwickler pdf webengine "
+                       "build onboarding einrichtung assistent"));
+    {
+      auto *btnOnboarding =
+          makeQuietAction(cardSystem, QStringLiteral("Erneut zeigen"));
+      btnOnboarding->setToolTip(QStringLiteral(
+          "Willkommen, Speicherwahl und Kurzrundgang noch einmal. "
+          "Offene Notizen werden vorher gespeichert und geschlossen."));
+      connect(btnOnboarding, &QPushButton::clicked, this, [this]() {
+        QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+        s.setValue(QStringLiteral("ui/onboardingDone"), false);
+        emit onboardingReplayRequested();
+      });
+      cardSystem->addBodyWidget(makePropertyRow(
+          cardSystem, QStringLiteral("Einrichtung"), btnOnboarding, false,
+          QStringLiteral("onboarding einrichtung assistent erneut wizard")));
 
       const QString version = QString(BLOP_VERSION_STR);
       const QString versionLabel =
           (version.startsWith(QLatin1Char('v')) ? QStringLiteral("Blop ")
                                                 : QStringLiteral("Blop v")) +
           version;
-      auto *info = new QLabel(versionLabel, cardMore);
+      auto *info = new QLabel(versionLabel, cardSystem);
       setLiteralQss(info, QStringLiteral(
           "color: %1; font-size: 12px; font-weight: 500;"
           "background: transparent;")
           .arg(settingsInkMuted()));
-      cardMore->addBodyWidget(makePropertyRow(
-          cardMore, QStringLiteral("Version"), info, false,
+      cardSystem->addBodyWidget(makePropertyRow(
+          cardSystem, QStringLiteral("Version"), info, false,
           QStringLiteral("version about über blop")));
 
-      // Honest build matrix: local MinGW often ships without WebEngine/Pdf.
-      {
 #ifdef BLOP_HAS_PDF
-        const bool hasPdf = true;
-#else
-        const bool hasPdf = false;
+      {
+        auto *lbl = new QLabel(QStringLiteral("Verfügbar"), cardSystem);
+        setLiteralQss(lbl, QStringLiteral(
+            "color: %1; font-size: 12px; font-weight: 500;"
+            "background: transparent;")
+            .arg(settingsInkMuted()));
+        cardSystem->addBodyWidget(makePropertyRow(
+            cardSystem, QStringLiteral("PDF Import/Export"), lbl, false,
+            QStringLiteral("pdf export import")));
+      }
 #endif
 #ifdef BLOP_HAS_WEBENGINE
-        const bool hasWeb = true;
-#else
-        const bool hasWeb = false;
-#endif
-        auto makeCap = [cardMore](bool ok) {
-          auto *lbl = new QLabel(
-              ok ? QStringLiteral("Verfügbar")
-                 : QStringLiteral("Nicht in diesem Build"),
-              cardMore);
-          setLiteralQss(lbl,
-                        QStringLiteral(
-                            "color: %1; font-size: 12px; font-weight: 500;"
-                            "background: transparent;")
-                            .arg(ok ? settingsInkMuted()
-                                    : QStringLiteral("#B45309")));
-          return lbl;
-        };
-        cardMore->addBodyWidget(makePropertyRow(
-            cardMore, QStringLiteral("PDF Import/Export"), makeCap(hasPdf),
-            false,
-            QStringLiteral("pdf export import build fähigkeit capability")));
-        cardMore->addBodyWidget(makePropertyRow(
-            cardMore, QStringLiteral("Eingebettetes Study (WebEngine)"),
-            makeCap(hasWeb), false,
-            QStringLiteral("webengine study browser build fähigkeit")));
-        auto *syncHint = new QLabel(
-            QStringLiteral(
-                "Notiz-Cloud-Sync folgt später. CLOUD in der Sidebar öffnet "
-                "Web-Clouds (Drive, Nextcloud …), nicht den lokalen Notizordner."),
-            cardMore);
-        syncHint->setWordWrap(true);
-        setLiteralQss(syncHint,
-                      QStringLiteral(
-                          "color: %1; font-size: 11px; background: transparent;"
-                          "padding: 2px 0 4px 0;")
-                          .arg(settingsInkMuted()));
-        cardMore->addBodyWidget(makePropertyRow(
-            cardMore, QStringLiteral("Notiz-Sync"), syncHint, true,
-            QStringLiteral("cloud sync notizen onedrive drive build")));
+      {
+        auto *lbl = new QLabel(QStringLiteral("Verfügbar"), cardSystem);
+        setLiteralQss(lbl, QStringLiteral(
+            "color: %1; font-size: 12px; font-weight: 500;"
+            "background: transparent;")
+            .arg(settingsInkMuted()));
+        cardSystem->addBodyWidget(makePropertyRow(
+            cardSystem, QStringLiteral("Eingebettetes Study (WebEngine)"), lbl,
+            false, QStringLiteral("webengine study browser")));
       }
+#endif
 
-      auto *btnTrace = makeQuietAction(cardMore, QStringLiteral("Aus"));
+      auto *btnTrace = makeQuietAction(cardSystem, QStringLiteral("Aus"));
       btnTrace->setCheckable(true);
       btnTrace->setChecked(BlopDiag::sessionTraceActive());
       btnTrace->setText(btnTrace->isChecked() ? QStringLiteral("An")
@@ -2053,8 +2167,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         BlopDiag::setSessionTraceEnabled(on);
         btnTrace->setText(on ? QStringLiteral("An") : QStringLiteral("Aus"));
       });
-      cardMore->addBodyWidget(makePropertyRow(
-          cardMore, QStringLiteral("Session-Trace"), btnTrace,
+      cardSystem->addBodyWidget(makePropertyRow(
+          cardSystem, QStringLiteral("Session-Trace"), btnTrace,
 #ifndef Q_OS_ANDROID
           false,
 #else
@@ -2063,7 +2177,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
           QStringLiteral("trace diagnose debug entwickler")));
 
 #ifndef Q_OS_ANDROID
-      auto *btnTbDebug = makeQuietAction(cardMore, QStringLiteral("Aus"));
+      auto *btnTbDebug = makeQuietAction(cardSystem, QStringLiteral("Aus"));
       btnTbDebug->setCheckable(true);
       {
         QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
@@ -2080,19 +2194,19 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         s.setValue(QStringLiteral("diag/toolbarDebug"), on);
         btnTbDebug->setText(on ? QStringLiteral("An") : QStringLiteral("Aus"));
       });
-      cardMore->addBodyWidget(makePropertyRow(
-          cardMore, QStringLiteral("Toolbar-Debug"), btnTbDebug, true,
+      cardSystem->addBodyWidget(makePropertyRow(
+          cardSystem, QStringLiteral("Toolbar-Debug"), btnTbDebug, true,
           QStringLiteral("toolbar debug entwickler")));
 #endif
     }
-    cardMore->setExpanded(true);
+    cardSystem->setExpanded(true);
 
     const QList<BlopSettingsCard *> allCards = {
         cardKonto, cardTheme, cardLook,
 #ifndef Q_OS_ANDROID
         cardShortcuts,
 #endif
-        cardBehavior, cardStorage, cardMore};
+        cardBehavior, cardStorage, cardMore, cardSystem};
 
 #ifndef Q_OS_ANDROID
     if (!phoneUi) {

@@ -1,6 +1,9 @@
 #include "ActionRunner.h"
 
+#include "BlopBridge.h"
 #include "NoteWriter.h"
+#include "OpenRouter.h"
+#include "SettingsSync.h"
 
 #include <QCoreApplication>
 #include <QDesktopServices>
@@ -58,6 +61,13 @@ ActionResult ActionRunner::run(const Command &command) const {
             return {true, QStringLiteral("Blop gestartet.")};
         return {true, QStringLiteral("Programm gestartet.")};
     }
+    case CommandKind::CreateFolder: {
+        QString error;
+        const QString path = createFolder(command.text, command.title, &error);
+        if (path.isEmpty())
+            return {false, error};
+        return {true, QStringLiteral("Ordner erstellt: %1").arg(command.text)};
+    }
     case CommandKind::CreateNote: {
         QString error;
         const QString path = NoteWriter::write(command.title, command.text, &error);
@@ -65,6 +75,71 @@ ActionResult ActionRunner::run(const Command &command) const {
             return {false, error};
         return {true, QStringLiteral("Notiz gespeichert: %1")
                           .arg(QFileInfo(path).fileName())};
+    }
+    case CommandKind::Explain: {
+        QString answer;
+        QString error;
+        if (!OpenRouter::explain(command.text, &answer, &error))
+            return {false, error};
+        if (command.alsoWrite && !command.title.trimmed().isEmpty()) {
+            QString writeError;
+            const QString path =
+                NoteWriter::compose(command.title, QString(), {answer}, &writeError);
+            if (path.isEmpty())
+                return {true, answer + QStringLiteral("\n") + writeError};
+            QString ipcError;
+            BlopBridge::ask(QStringLiteral("OPEN ") + path, &ipcError);
+        }
+        return {true, answer};
+    }
+    case CommandKind::SelectTool: {
+        const QString keys = SettingsSync::hotkeyFor(command.toolId);
+        QString error;
+        if (!BlopBridge::sendHotkey(keys, &error))
+            return {false, error};
+        return {true, QStringLiteral("Werkzeug gewählt.")};
+    }
+    case CommandKind::ComposeNote: {
+        const QString stem = command.title.trimmed();
+        const QString path = NoteWriter::pathFor(stem);
+        QString ipcError;
+        const QString state = BlopBridge::ask(QStringLiteral("STATUS ") + path, &ipcError);
+        if (state == QLatin1String("DIRTY")) {
+            return {false, QStringLiteral(
+                               "Die Notiz ist in Blop noch nicht gespeichert. "
+                               "Warte kurz und sag den Befehl noch einmal.")};
+        }
+        if (state == QLatin1String("CLEAN"))
+            BlopBridge::ask(QStringLiteral("CLOSE ") + path, &ipcError);
+
+        QString heading = command.heading;
+        QStringList points = command.points;
+        if (command.generate) {
+            QString prompt = command.text;
+            if (!heading.isEmpty())
+                prompt.prepend(QStringLiteral("Überschrift: ") + heading + QStringLiteral(". "));
+            QString generatedHeading;
+            QString error;
+            if (!OpenRouter::note(prompt, &generatedHeading, &points, &error))
+                return {false, error};
+            if (heading.isEmpty())
+                heading = generatedHeading;
+        }
+        QString error;
+        const QString saved = NoteWriter::compose(stem, heading, points, &error);
+        if (saved.isEmpty())
+            return {false, error};
+        const QString opened = BlopBridge::ask(QStringLiteral("OPEN ") + saved, &ipcError);
+        if (!command.toolId.isEmpty()) {
+            QString keyError;
+            BlopBridge::sendHotkey(SettingsSync::hotkeyFor(command.toolId), &keyError);
+        }
+        if (opened == QLatin1String("DIRTY")) {
+            return {true, QStringLiteral("Notiz gespeichert, Blop hatte noch ungespeicherte Änderungen.")};
+        }
+        if (opened.isEmpty())
+            return {true, QStringLiteral("Notiz gespeichert: %1").arg(QFileInfo(saved).fileName())};
+        return {true, QStringLiteral("Notiz geöffnet: %1").arg(QFileInfo(saved).fileName())};
     }
     }
     return {false, QStringLiteral("Das kenne ich nicht. Sag „Hilfe“.")};
@@ -193,6 +268,34 @@ bool ActionRunner::launchApp(AppKind app, QString *error) const {
     return false;
 }
 
+QString ActionRunner::createFolder(const QString &name, const QString &place,
+                                   QString *error) const {
+    const QString clean = name.trimmed();
+    if (clean.isEmpty() || clean == QLatin1String(".") || clean == QLatin1String("..")) {
+        if (error)
+            *error = QStringLiteral("Der Ordnername ist ungültig.");
+        return {};
+    }
+    QString base = standardDir(QStandardPaths::DesktopLocation);
+    const QString where = place.toLower();
+    if (where == QLatin1String("dokumente") || where == QLatin1String("documents"))
+        base = standardDir(QStandardPaths::DocumentsLocation);
+    else if (where == QLatin1String("downloads") || where == QLatin1String("download"))
+        base = standardDir(QStandardPaths::DownloadLocation);
+    if (base.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Den Desktop habe ich nicht gefunden.");
+        return {};
+    }
+    const QString path = QDir(base).filePath(clean);
+    if (!QDir().mkpath(path)) {
+        if (error)
+            *error = QStringLiteral("Der Ordner konnte nicht erstellt werden.");
+        return {};
+    }
+    return path;
+}
+
 bool ActionRunner::launchBlop(QString *error) const {
 #ifdef Q_OS_ANDROID
     const QJniObject context = QNativeInterface::QAndroidApplication::context();
@@ -216,11 +319,13 @@ bool ActionRunner::launchBlop(QString *error) const {
     return true;
 #else
     const QString dir = QCoreApplication::applicationDirPath();
-    const QStringList candidates = {
+    QStringList candidates = {
         dir + QStringLiteral("/Blop.exe"),
         dir + QStringLiteral("/Blop"),
         QDir(dir).filePath(QStringLiteral("../Blop.exe")),
         QStandardPaths::findExecutable(QStringLiteral("Blop")),
+        QStringLiteral("C:/Program Files/Blop/Blop.exe"),
+        QStringLiteral("C:/Program Files (x86)/Blop/Blop.exe"),
     };
     for (const QString &candidate : candidates) {
         if (candidate.isEmpty() || !QFileInfo::exists(candidate))

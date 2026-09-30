@@ -4,21 +4,25 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 
 qt_add_executable(BlopAssistent
     src/main.cpp
     src/core/CommandEngine.cpp
     src/core/ActionRunner.cpp
     src/core/NoteWriter.cpp
+    src/core/SettingsSync.cpp
+    src/core/OpenRouter.cpp
+    src/core/BlopBridge.cpp
     src/platform/SpeechInput.cpp
     src/ui/NotchWindow.cpp
     src/ui/PhoneShell.cpp
+    src/ui/AccountDialog.cpp
 )
 
 target_include_directories(BlopAssistent PRIVATE src)
 
-target_link_libraries(BlopAssistent PRIVATE Qt6::Widgets)
+target_link_libraries(BlopAssistent PRIVATE Qt6::Widgets Qt6::Network)
 
 set_target_properties(BlopAssistent PROPERTIES
     CXX_STANDARD 17

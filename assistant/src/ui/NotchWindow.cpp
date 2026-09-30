@@ -1,5 +1,6 @@
 #include "NotchWindow.h"
 
+#include "AccountDialog.h"
 #include "platform/SpeechInput.h"
 
 #include <QApplication>
@@ -57,6 +58,11 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     m_mic->setToolTip(QStringLiteral("Halten und sprechen"));
     m_mic->installEventFilter(this);
     row->addWidget(m_mic);
+    auto *account = new QPushButton(QStringLiteral("Konto"), this);
+    account->setObjectName(QStringLiteral("account"));
+    account->setCursor(Qt::PointingHandCursor);
+    account->setFocusPolicy(Qt::NoFocus);
+    row->addWidget(account);
     layout->addLayout(row);
 
     m_edit = new QLineEdit(this);
@@ -77,12 +83,19 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
         " border-radius: 10px; padding: 6px 10px; selection-background-color: #5B9DFF; }"
         "QLineEdit:focus { border: 1px solid #5B9DFF; }"
         "QPushButton#mic { background: #343840; color: #F4F6F8; border: none; border-radius: 14px; }"
-        "QPushButton#mic[listening=\"true\"] { background: #5B9DFF; color: #0E1116; }"));
+        "QPushButton#mic[listening=\"true\"] { background: #5B9DFF; color: #0E1116; }"
+        "QPushButton#account { background: transparent; color: #D5D8DE; border: none; padding: 0 4px; }"));
 
     QFont font(QStringLiteral("Segoe UI"));
     font.setPointSize(10);
     setFont(font);
 
+    connect(account, &QPushButton::clicked, this, [this]() {
+        if (!m_expanded)
+            expand();
+        AccountDialog dialog(this);
+        dialog.exec();
+    });
     connect(m_edit, &QLineEdit::returnPressed, this, [this]() { runCommand(m_edit->text()); });
     connect(m_speech, &SpeechInput::recognized, this, [this](const QString &text) {
         m_edit->setText(text);
