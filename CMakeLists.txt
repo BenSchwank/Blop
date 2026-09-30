@@ -564,4 +564,8 @@ elseif(BLOP_BUILD_AUTOMATION AND ANDROID)
     message(STATUS "BLOP_BUILD_AUTOMATION=ON: skipping benchmarks subdirectory on Android toolchain (desktop CI only)")
 endif()
 
+# Eigene App im Blop-Ökosystem. Nicht in Blop.exe gelinkt.
+# Bauen: cmake --build build-check --target BlopAssistent
+add_subdirectory(assistant)
+
 # Forcing CMake refresh for AUTOMOC
