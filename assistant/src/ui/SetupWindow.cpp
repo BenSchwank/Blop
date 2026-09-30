@@ -1,21 +1,22 @@
 #include "SetupWindow.h"
 
+#include "AssistantLogo.h"
 #include "core/SettingsSync.h"
 
-#include <QButtonGroup>
 #include <QFont>
-#include <QFrame>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QKeySequence>
 #include <QKeySequenceEdit>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPainter>
 #include <QPushButton>
 #include <QScreen>
 #include <QSettings>
 #include <QShowEvent>
 #include <QStackedWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #if defined(Q_OS_WIN)
@@ -27,54 +28,61 @@
 
 namespace {
 
+enum class Glyph { Person, Wave, Pen };
+
 QString portable(const QKeySequenceEdit *edit) {
     return edit->keySequence().toString(QKeySequence::PortableText);
 }
 
-class Mark : public QWidget {
-public:
-    explicit Mark(QWidget *parent = nullptr) : QWidget(parent) { setFixedSize(28, 28); }
-
-protected:
-    void paintEvent(QPaintEvent *) override {
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing);
+QIcon glyphIcon(Glyph glyph, const QColor &color, int px) {
+    QPixmap pixmap(px, px);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    if (glyph == Glyph::Wave) {
         painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(0x2A, 0x2D, 0x33));
-        painter.drawEllipse(rect().adjusted(0, 0, -1, -1));
-        painter.setBrush(QColor(0x5B, 0x9D, 0xFF));
-        painter.drawEllipse(QRectF(9, 9, 10, 10));
+        painter.setBrush(color);
+        const qreal width = px * 0.14;
+        const qreal gap = px * 0.08;
+        const qreal heights[] = {0.36, 0.64, 0.46};
+        qreal x = px * 0.22;
+        for (qreal height : heights) {
+            const qreal bar = px * height;
+            painter.drawRoundedRect(QRectF(x, (px - bar) / 2.0, width, bar), width / 2.0, width / 2.0);
+            x += width + gap;
+        }
+        return QIcon(pixmap);
     }
-};
 
-QWidget *fieldRow(QWidget *parent, const QString &label, QWidget *editor) {
+    painter.setPen(QPen(color, qMax(1.3, px / 9.0), Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(Qt::NoBrush);
+    if (glyph == Glyph::Person) {
+        painter.drawEllipse(QRectF(px * 0.34, px * 0.14, px * 0.32, px * 0.32));
+        painter.drawArc(QRectF(px * 0.16, px * 0.50, px * 0.68, px * 0.48), 20 * 16, 140 * 16);
+    } else {
+        painter.drawLine(QPointF(px * 0.30, px * 0.74), QPointF(px * 0.70, px * 0.26));
+        painter.drawLine(QPointF(px * 0.58, px * 0.20), QPointF(px * 0.80, px * 0.42));
+    }
+    return QIcon(pixmap);
+}
+
+QWidget *fieldRow(QWidget *parent, const QString &label, QWidget *trailing, int page,
+                  const QString &needle, QList<QWidget *> *rows) {
     auto *row = new QWidget(parent);
-    row->setObjectName(QStringLiteral("fieldRow"));
-    row->setFixedHeight(48);
+    row->setObjectName(QStringLiteral("row"));
+    row->setAttribute(Qt::WA_StyledBackground, true);
+    row->setFixedHeight(46);
+    row->setProperty("page", page);
+    row->setProperty("needle", needle.toLower());
     auto *layout = new QHBoxLayout(row);
-    layout->setContentsMargins(16, 6, 16, 6);
+    layout->setContentsMargins(2, 0, 2, 0);
     layout->setSpacing(16);
     auto *text = new QLabel(label, row);
     text->setObjectName(QStringLiteral("fieldLabel"));
-    editor->setObjectName(QStringLiteral("keyEdit"));
-    editor->setFixedSize(148, 32);
     layout->addWidget(text, 1);
-    layout->addWidget(editor, 0, Qt::AlignRight | Qt::AlignVCenter);
+    layout->addWidget(trailing, 0, Qt::AlignRight | Qt::AlignVCenter);
+    rows->append(row);
     return row;
-}
-
-QFrame *hairline(QWidget *parent) {
-    auto *line = new QFrame(parent);
-    line->setObjectName(QStringLiteral("hairline"));
-    line->setAttribute(Qt::WA_StyledBackground, true);
-    line->setFrameShape(QFrame::NoFrame);
-    line->setFixedHeight(1);
-    return line;
-}
-
-void styleKeyEdit(QKeySequenceEdit *edit) {
-    edit->setMaximumSequenceLength(1);
-    edit->setClearButtonEnabled(true);
 }
 
 #if defined(Q_OS_WIN)
@@ -103,7 +111,8 @@ void darkCaption(HWND hwnd) {
 } // namespace
 
 SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
-    setWindowTitle(QStringLiteral("Blop Assistent"));
+    setWindowTitle(QStringLiteral("Einstellungen"));
+    setWindowIcon(assistantLogoIcon());
     setObjectName(QStringLiteral("setup"));
 
     QFont ui(QStringLiteral("Segoe UI"));
@@ -114,200 +123,37 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
+    auto *rail = new QWidget(this);
+    rail->setObjectName(QStringLiteral("rail"));
+    rail->setAttribute(Qt::WA_StyledBackground, true);
+    rail->setFixedWidth(56);
+    auto *railLayout = new QVBoxLayout(rail);
+    railLayout->setContentsMargins(0, 14, 0, 14);
+    railLayout->setSpacing(6);
+    auto *logo = new QLabel(rail);
+    logo->setPixmap(assistantLogoPixmap(32));
+    logo->setFixedSize(36, 36);
+    logo->setAlignment(Qt::AlignCenter);
+    railLayout->addWidget(logo, 0, Qt::AlignHCenter);
+    railLayout->addSpacing(8);
+
     auto *nav = new QWidget(this);
     nav->setObjectName(QStringLiteral("nav"));
     nav->setAttribute(Qt::WA_StyledBackground, true);
-    nav->setFixedWidth(232);
+    nav->setFixedWidth(240);
     auto *navLayout = new QVBoxLayout(nav);
-    navLayout->setContentsMargins(14, 18, 14, 16);
-    navLayout->setSpacing(4);
+    navLayout->setContentsMargins(12, 14, 12, 16);
+    navLayout->setSpacing(2);
 
-    auto *brand = new QWidget(nav);
-    auto *brandLayout = new QHBoxLayout(brand);
-    brandLayout->setContentsMargins(6, 0, 6, 12);
-    brandLayout->setSpacing(10);
-    brandLayout->addWidget(new Mark(brand));
-    auto *brandText = new QVBoxLayout;
-    brandText->setSpacing(0);
-    auto *brandName = new QLabel(QStringLiteral("Blop Assistent"), brand);
-    brandName->setObjectName(QStringLiteral("brand"));
-    auto *brandSub = new QLabel(QStringLiteral("Einstellungen"), brand);
-    brandSub->setObjectName(QStringLiteral("brandSub"));
-    brandText->addWidget(brandName);
-    brandText->addWidget(brandSub);
-    brandLayout->addLayout(brandText, 1);
-    navLayout->addWidget(brand);
-
-    auto *pages = new QStackedWidget(this);
-    pages->setObjectName(QStringLiteral("pages"));
-    pages->setAttribute(Qt::WA_StyledBackground, true);
-    auto *group = new QButtonGroup(this);
-    group->setExclusive(true);
-
-    struct PageCopy {
-        QString title;
-        QString lead;
-    };
-    const PageCopy copy[3] = {
-        {QStringLiteral("Konto"),
-         QStringLiteral("Anmeldung und die Verbindung, über die die KI Tokens verbraucht.")},
-        {QStringLiteral("Spracheingabe"),
-         QStringLiteral("Die Taste startet das Sprechen und beendet es wieder.")},
-        {QStringLiteral("Werkzeuge"),
-         QStringLiteral("Dieselben Kürzel wie in den Blop-Einstellungen.")},
-    };
-
-    auto addNav = [&](const QString &name, int index) {
-        auto *button = new QPushButton(name, nav);
-        button->setObjectName(QStringLiteral("navButton"));
-        button->setCheckable(true);
-        button->setCursor(Qt::PointingHandCursor);
-        button->setFocusPolicy(Qt::NoFocus);
-        navLayout->addWidget(button);
-        group->addButton(button);
-        connect(button, &QPushButton::clicked, this, [this, pages, index]() {
-            pages->setCurrentIndex(index);
-            showPage(index);
-        });
-        return button;
-    };
-
-    auto *account = new QWidget(pages);
-    account->setObjectName(QStringLiteral("page"));
-    account->setAttribute(Qt::WA_StyledBackground, true);
-    auto *accountLayout = new QVBoxLayout(account);
-    accountLayout->setContentsMargins(28, 8, 28, 24);
-    accountLayout->setSpacing(16);
-
-    auto *accountCard = new QWidget(account);
-    accountCard->setObjectName(QStringLiteral("card"));
-    accountCard->setAttribute(Qt::WA_StyledBackground, true);
-    auto *accountCardLayout = new QVBoxLayout(accountCard);
-    accountCardLayout->setContentsMargins(0, 6, 0, 6);
-    accountCardLayout->setSpacing(0);
-    auto googleRow = [&](const QString &label, QLabel **value) {
-        auto *row = new QWidget(accountCard);
-        row->setObjectName(QStringLiteral("fieldRow"));
-        row->setFixedHeight(52);
-        auto *box = new QHBoxLayout(row);
-        box->setContentsMargins(16, 8, 16, 8);
-        auto *name = new QLabel(label, row);
-        name->setObjectName(QStringLiteral("fieldLabel"));
-        *value = new QLabel(row);
-        (*value)->setObjectName(QStringLiteral("value"));
-        box->addWidget(name);
-        box->addStretch(1);
-        box->addWidget(*value);
-        return row;
-    };
-    accountCardLayout->addWidget(googleRow(QStringLiteral("Google"), &m_googleValue));
-    accountCardLayout->addWidget(hairline(accountCard));
-    accountCardLayout->addWidget(googleRow(QStringLiteral("Blop-Sitzung"), &m_sessionValue));
-    accountLayout->addWidget(accountCard);
-
-    auto *actions = new QHBoxLayout;
-    actions->setSpacing(8);
-    auto *google = new QPushButton(QStringLiteral("Mit Google anmelden"), account);
-    google->setObjectName(QStringLiteral("primary"));
-    google->setCursor(Qt::PointingHandCursor);
-    auto *pull = new QPushButton(QStringLiteral("Einstellungen laden"), account);
-    pull->setObjectName(QStringLiteral("quiet"));
-    pull->setCursor(Qt::PointingHandCursor);
-    actions->addWidget(google);
-    actions->addWidget(pull);
-    actions->addStretch(1);
-    accountLayout->addLayout(actions);
-    accountLayout->addStretch(1);
-
-    auto *voicePage = new QWidget(pages);
-    voicePage->setObjectName(QStringLiteral("page"));
-    voicePage->setAttribute(Qt::WA_StyledBackground, true);
-    auto *voiceLayout = new QVBoxLayout(voicePage);
-    voiceLayout->setContentsMargins(28, 8, 28, 24);
-    voiceLayout->setSpacing(0);
-    auto *voiceCard = new QWidget(voicePage);
-    voiceCard->setObjectName(QStringLiteral("card"));
-    voiceCard->setAttribute(Qt::WA_StyledBackground, true);
-    auto *voiceCardLayout = new QVBoxLayout(voiceCard);
-    voiceCardLayout->setContentsMargins(0, 6, 0, 6);
-    auto *voice = new QKeySequenceEdit(
-        QKeySequence(SettingsSync::voiceHotkey(), QKeySequence::PortableText), voiceCard);
-    styleKeyEdit(voice);
-    voiceCardLayout->addWidget(fieldRow(voiceCard, QStringLiteral("Taste"), voice));
-    voiceLayout->addWidget(voiceCard);
-    voiceLayout->addStretch(1);
-
-    auto *toolsPage = new QWidget(pages);
-    toolsPage->setObjectName(QStringLiteral("page"));
-    toolsPage->setAttribute(Qt::WA_StyledBackground, true);
-    auto *toolsOuter = new QVBoxLayout(toolsPage);
-    toolsOuter->setContentsMargins(28, 8, 28, 24);
-    toolsOuter->setSpacing(0);
-    auto *toolsCard = new QWidget(toolsPage);
-    toolsCard->setObjectName(QStringLiteral("card"));
-    toolsCard->setAttribute(Qt::WA_StyledBackground, true);
-    auto *columns = new QHBoxLayout(toolsCard);
-    columns->setContentsMargins(0, 6, 0, 6);
-    columns->setSpacing(0);
-    auto *leftCol = new QVBoxLayout;
-    auto *rightCol = new QVBoxLayout;
-    leftCol->setSpacing(0);
-    rightCol->setSpacing(0);
-    const QVector<ToolBinding> bindings = SettingsSync::toolBindings();
-    const int splitAt = (bindings.size() + 1) / 2;
-    for (int i = 0; i < bindings.size(); ++i) {
-        const ToolBinding &binding = bindings.at(i);
-        auto *edit = new QKeySequenceEdit(
-            QKeySequence(binding.keys, QKeySequence::PortableText), toolsCard);
-        styleKeyEdit(edit);
-        QVBoxLayout *column = i < splitAt ? leftCol : rightCol;
-        if (column->count() > 0)
-            column->addWidget(hairline(toolsCard));
-        column->addWidget(fieldRow(toolsCard, binding.label, edit));
-        m_toolEdits.insert(binding.id, edit);
-        const QString id = binding.id;
-        connect(edit, &QKeySequenceEdit::editingFinished, this, [this, edit, id]() {
-            SettingsSync::setToolBinding(id, portable(edit));
-            if (SettingsSync::signedIn()) {
-                QString error;
-                SettingsSync::upload(&error);
-            }
-        });
-    }
-    columns->addLayout(leftCol, 1);
-    auto *split = new QFrame(toolsCard);
-    split->setObjectName(QStringLiteral("split"));
-    split->setAttribute(Qt::WA_StyledBackground, true);
-    split->setFrameShape(QFrame::NoFrame);
-    split->setFixedWidth(1);
-    columns->addWidget(split);
-    columns->addLayout(rightCol, 1);
-    toolsOuter->addWidget(toolsCard);
-    toolsOuter->addStretch(1);
-
-    pages->addWidget(account);
-    pages->addWidget(voicePage);
-    pages->addWidget(toolsPage);
-
-    QPushButton *accountNav = addNav(QStringLiteral("Konto"), 0);
-    addNav(QStringLiteral("Sprache"), 1);
-    addNav(QStringLiteral("Werkzeuge"), 2);
-    accountNav->setChecked(true);
-    navLayout->addStretch(1);
-
-    auto *chip = new QWidget(nav);
-    chip->setObjectName(QStringLiteral("chip"));
-    chip->setAttribute(Qt::WA_StyledBackground, true);
-    auto *chipLayout = new QVBoxLayout(chip);
-    chipLayout->setContentsMargins(12, 10, 12, 10);
-    chipLayout->setSpacing(2);
-    m_chipGoogle = new QLabel(chip);
-    m_chipGoogle->setObjectName(QStringLiteral("chipLine"));
-    m_chipSession = new QLabel(chip);
-    m_chipSession->setObjectName(QStringLiteral("chipMuted"));
-    chipLayout->addWidget(m_chipGoogle);
-    chipLayout->addWidget(m_chipSession);
-    navLayout->addWidget(chip);
+    m_navSearch = new QLineEdit(nav);
+    m_navSearch->setObjectName(QStringLiteral("search"));
+    m_navSearch->setPlaceholderText(QStringLiteral("Suche"));
+    m_navSearch->setClearButtonEnabled(true);
+    m_navSearch->setFixedHeight(34);
+    navLayout->addWidget(m_navSearch);
+    auto *section = new QLabel(QStringLiteral("ASSISTENT"), nav);
+    section->setObjectName(QStringLiteral("section"));
+    navLayout->addWidget(section);
 
     auto *content = new QWidget(this);
     content->setObjectName(QStringLiteral("content"));
@@ -319,73 +165,218 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
     auto *header = new QWidget(content);
     header->setObjectName(QStringLiteral("header"));
     header->setAttribute(Qt::WA_StyledBackground, true);
-    header->setFixedHeight(84);
     auto *headerLayout = new QHBoxLayout(header);
-    headerLayout->setContentsMargins(28, 16, 20, 12);
-    headerLayout->setSpacing(16);
-    auto *titles = new QVBoxLayout;
-    titles->setSpacing(2);
-    m_pageTitle = new QLabel(copy[0].title, header);
+    headerLayout->setContentsMargins(22, 14, 16, 8);
+    headerLayout->setSpacing(12);
+    m_pageSearch = new QLineEdit(header);
+    m_pageSearch->setObjectName(QStringLiteral("search"));
+    m_pageSearch->setPlaceholderText(QStringLiteral("Suchen…"));
+    m_pageSearch->setClearButtonEnabled(true);
+    m_pageSearch->setFixedHeight(34);
+    headerLayout->addWidget(m_pageSearch, 1);
+    auto *done = new QPushButton(QStringLiteral("Fertig"), header);
+    done->setObjectName(QStringLiteral("fertig"));
+    done->setCursor(Qt::PointingHandCursor);
+    done->setFocusPolicy(Qt::NoFocus);
+    headerLayout->addWidget(done);
+    contentLayout->addWidget(header);
+
+    m_pages = new QStackedWidget(content);
+    auto *pages = m_pages;
+    pages->setObjectName(QStringLiteral("pages"));
+    pages->setAttribute(Qt::WA_StyledBackground, true);
+
+    const Glyph glyphs[] = {Glyph::Person, Glyph::Wave, Glyph::Pen};
+    const QString names[] = {QStringLiteral("Konto"), QStringLiteral("Sprache"),
+                             QStringLiteral("Werkzeuge")};
+    const QString pageTitles[] = {QStringLiteral("Konto"), QStringLiteral("Spracheingabe"),
+                                  QStringLiteral("Werkzeuge")};
+    const QString leads[] = {
+        QStringLiteral("Anmeldung und die Sitzung, über die die KI Tokens verbraucht."),
+        QStringLiteral("Die Taste startet das Sprechen und beendet es wieder."),
+        QStringLiteral("Dieselben Kürzel wie in den Blop-Einstellungen."),
+    };
+    const QString keywords[] = {
+        QStringLiteral("konto google sitzung anmeldung laden"),
+        QStringLiteral("sprache spracheingabe taste hotkey"),
+        QStringLiteral("werkzeuge werkzeug kürzel stift radierer marker text hand"),
+    };
+
+    auto *account = new QWidget(pages);
+    account->setObjectName(QStringLiteral("page"));
+    account->setAttribute(Qt::WA_StyledBackground, true);
+    auto *accountLayout = new QVBoxLayout(account);
+    accountLayout->setContentsMargins(28, 8, 28, 28);
+    accountLayout->setSpacing(0);
+
+    m_googleValue = new QLabel(account);
+    m_googleValue->setObjectName(QStringLiteral("value"));
+    m_sessionValue = new QLabel(account);
+    m_sessionValue->setObjectName(QStringLiteral("value"));
+    auto *google = new QPushButton(QStringLiteral("Anmelden"), account);
+    google->setObjectName(QStringLiteral("link"));
+    google->setCursor(Qt::PointingHandCursor);
+    auto *pull = new QPushButton(QStringLiteral("Laden"), account);
+    pull->setObjectName(QStringLiteral("link"));
+    pull->setCursor(Qt::PointingHandCursor);
+    accountLayout->addWidget(
+        fieldRow(account, QStringLiteral("Google"), m_googleValue, 0, QStringLiteral("google"),
+                 &m_rows));
+    accountLayout->addWidget(fieldRow(account, QStringLiteral("Anmeldung"), google, 0,
+                                      QStringLiteral("anmeldung anmelden google"), &m_rows));
+    accountLayout->addWidget(fieldRow(account, QStringLiteral("Blop-Sitzung"), m_sessionValue, 0,
+                                      QStringLiteral("sitzung blop"), &m_rows));
+    accountLayout->addWidget(fieldRow(account, QStringLiteral("Einstellungen"), pull, 0,
+                                      QStringLiteral("einstellungen laden"), &m_rows));
+    accountLayout->addStretch(1);
+
+    auto *voicePage = new QWidget(pages);
+    voicePage->setObjectName(QStringLiteral("page"));
+    voicePage->setAttribute(Qt::WA_StyledBackground, true);
+    auto *voiceLayout = new QVBoxLayout(voicePage);
+    voiceLayout->setContentsMargins(28, 8, 28, 28);
+    voiceLayout->setSpacing(0);
+    auto *voice = new QKeySequenceEdit(
+        QKeySequence(SettingsSync::voiceHotkey(), QKeySequence::PortableText), voicePage);
+    voice->setMaximumSequenceLength(1);
+    voice->setClearButtonEnabled(true);
+    voice->setFixedSize(148, 30);
+    voiceLayout->addWidget(
+        fieldRow(voicePage, QStringLiteral("Taste"), voice, 1, QStringLiteral("taste sprache"),
+                 &m_rows));
+    voiceLayout->addStretch(1);
+
+    auto *toolsPage = new QWidget(pages);
+    toolsPage->setObjectName(QStringLiteral("page"));
+    toolsPage->setAttribute(Qt::WA_StyledBackground, true);
+    auto *toolsLayout = new QVBoxLayout(toolsPage);
+    toolsLayout->setContentsMargins(28, 8, 28, 28);
+    toolsLayout->setSpacing(0);
+    for (const ToolBinding &binding : SettingsSync::toolBindings()) {
+        auto *edit = new QKeySequenceEdit(
+            QKeySequence(binding.keys, QKeySequence::PortableText), toolsPage);
+        edit->setMaximumSequenceLength(1);
+        edit->setClearButtonEnabled(true);
+        edit->setFixedSize(148, 30);
+        toolsLayout->addWidget(
+            fieldRow(toolsPage, binding.label, edit, 2, binding.label, &m_rows));
+        m_toolEdits.insert(binding.id, edit);
+        const QString id = binding.id;
+        connect(edit, &QKeySequenceEdit::editingFinished, this, [this, edit, id]() {
+            SettingsSync::setToolBinding(id, portable(edit));
+            if (SettingsSync::signedIn()) {
+                QString error;
+                SettingsSync::upload(&error);
+            }
+        });
+    }
+    toolsLayout->addStretch(1);
+
+    pages->addWidget(account);
+    pages->addWidget(voicePage);
+    pages->addWidget(toolsPage);
+
+    auto *titleBlock = new QWidget(content);
+    titleBlock->setObjectName(QStringLiteral("titles"));
+    titleBlock->setAttribute(Qt::WA_StyledBackground, true);
+    auto *titleLayout = new QVBoxLayout(titleBlock);
+    titleLayout->setContentsMargins(28, 6, 28, 10);
+    titleLayout->setSpacing(2);
+    m_pageTitle = new QLabel(titleBlock);
     m_pageTitle->setObjectName(QStringLiteral("pageTitle"));
-    m_pageLead = new QLabel(copy[0].lead, header);
+    m_pageLead = new QLabel(titleBlock);
     m_pageLead->setObjectName(QStringLiteral("pageLead"));
     m_pageLead->setWordWrap(true);
-    titles->addWidget(m_pageTitle);
-    titles->addWidget(m_pageLead);
-    headerLayout->addLayout(titles, 1);
-    auto *start = new QPushButton(QStringLiteral("Fertig"), header);
-    start->setObjectName(QStringLiteral("primary"));
-    start->setCursor(Qt::PointingHandCursor);
-    start->setFixedHeight(34);
-    headerLayout->addWidget(start, 0, Qt::AlignTop);
-    contentLayout->addWidget(header);
+    titleLayout->addWidget(m_pageTitle);
+    titleLayout->addWidget(m_pageLead);
+
+    contentLayout->addWidget(titleBlock);
     contentLayout->addWidget(pages, 1);
 
+    for (int i = 0; i < 3; ++i) {
+        auto *railButton = new QToolButton(rail);
+        railButton->setObjectName(QStringLiteral("railButton"));
+        railButton->setCheckable(true);
+        railButton->setAutoRaise(true);
+        railButton->setFocusPolicy(Qt::NoFocus);
+        railButton->setCursor(Qt::PointingHandCursor);
+        railButton->setFixedSize(36, 36);
+        railButton->setIconSize(QSize(18, 18));
+        railButton->setToolTip(names[i]);
+        railLayout->addWidget(railButton, 0, Qt::AlignHCenter);
+        m_railButtons.append(railButton);
+
+        auto *navButton = new QPushButton(names[i], nav);
+        navButton->setObjectName(QStringLiteral("navButton"));
+        navButton->setCheckable(true);
+        navButton->setFocusPolicy(Qt::NoFocus);
+        navButton->setCursor(Qt::PointingHandCursor);
+        navButton->setIconSize(QSize(16, 16));
+        navButton->setProperty("keywords", keywords[i]);
+        navButton->setProperty("title", pageTitles[i]);
+        navButton->setProperty("lead", leads[i]);
+        navLayout->addWidget(navButton);
+        m_navButtons.append(navButton);
+
+        connect(railButton, &QToolButton::clicked, this, [this, i]() { showPage(i); });
+        connect(navButton, &QPushButton::clicked, this, [this, i]() { showPage(i); });
+    }
+    railLayout->addStretch(1);
+    navLayout->addStretch(1);
+
+    root->addWidget(rail);
     root->addWidget(nav);
     root->addWidget(content, 1);
 
-    setProperty("pageCopy0", copy[0].title);
-    setProperty("pageLead0", copy[0].lead);
-    setProperty("pageCopy1", copy[1].title);
-    setProperty("pageLead1", copy[1].lead);
-    setProperty("pageCopy2", copy[2].title);
-    setProperty("pageLead2", copy[2].lead);
-
     setStyleSheet(QStringLiteral(
         "QWidget#setup { background: #23252A; }"
-        "QWidget#nav { background: #1A1916; }"
-        "QWidget#content, QWidget#pages, QWidget#page, QWidget#header { background: #23252A; }"
-        "QLabel#brand { color: #F4F5F7; font-size: 14px; font-weight: 650; background: transparent; }"
-        "QLabel#brandSub, QLabel#pageLead, QLabel#chipMuted { color: #B8BCC4; font-size: 12px;"
+        "QWidget#rail, QWidget#nav { background: #1A1916; }"
+        "QWidget#nav { border-right: 1px solid rgba(255,255,255,0.06); }"
+        "QWidget#content, QWidget#pages, QWidget#page, QWidget#header, QWidget#titles {"
+        " background: #23252A; }"
+        "QLabel#section { color: #8B909A; font-size: 11px; font-weight: 700;"
+        " padding: 16px 10px 6px 10px; background: transparent; }"
+        "QLabel#pageTitle { color: #F4F5F7; font-size: 20px; font-weight: 650;"
         " background: transparent; }"
-        "QLabel#pageTitle { color: #F4F5F7; font-size: 22px; font-weight: 650; background: transparent; }"
+        "QLabel#pageLead { color: #9AA0AA; font-size: 13px; background: transparent; }"
         "QLabel#fieldLabel { color: #F4F5F7; font-size: 13px; background: transparent; }"
-        "QLabel#value, QLabel#chipLine { color: #F4F5F7; font-size: 13px; font-weight: 600;"
-        " background: transparent; }"
-        "QWidget#card { background: #2A2D33; border: 1px solid rgba(255,255,255,0.08);"
-        " border-radius: 12px; }"
-        "QWidget#fieldRow { background: transparent; }"
-        "QFrame#hairline { background: rgba(255,255,255,0.08); border: none; max-height: 1px; }"
-        "QFrame#split { background: rgba(255,255,255,0.08); border: none; }"
-        "QWidget#chip { background: rgba(255,255,255,0.05);"
-        " border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; }"
-        "QPushButton#navButton { background: transparent; color: #B8BCC4; border: 1px solid transparent;"
-        " border-radius: 8px; padding: 9px 12px; text-align: left; font-size: 13px; font-weight: 500; }"
-        "QPushButton#navButton:hover { background: rgba(255,255,255,0.05); color: #F4F5F7; }"
-        "QPushButton#navButton:checked { background: rgba(91,157,255,0.18); color: #F4F5F7;"
-        " border: 1px solid rgba(91,157,255,0.45); font-weight: 600; }"
-        "QKeySequenceEdit { background: #1A1916; color: #F4F5F7;"
-        " border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 0 8px;"
-        " selection-background-color: #5B9DFF; }"
-        "QKeySequenceEdit:focus { border: 1px solid rgba(91,157,255,0.75); }"
-        "QPushButton#primary { background: #5B9DFF; color: #0E1116; border: none;"
-        " border-radius: 8px; padding: 8px 16px; font-weight: 650; }"
-        "QPushButton#primary:hover { background: #74ABFF; }"
-        "QPushButton#primary:pressed { background: #3E86F5; }"
-        "QPushButton#quiet { background: transparent; color: #F4F5F7;"
-        " border: 1px solid rgba(255,255,255,0.16); border-radius: 8px;"
-        " padding: 8px 16px; font-weight: 600; }"
-        "QPushButton#quiet:hover { background: rgba(91,157,255,0.12); }"));
+        "QLabel#value { color: #C8CDD6; font-size: 13px; background: transparent; }"
+        "QWidget#row { background: transparent; border-bottom: 1px solid rgba(255,255,255,0.08); }"
+        "QLineEdit#search { background: rgba(255,255,255,0.07); color: #F4F5F7; border: none;"
+        " border-radius: 8px; padding: 6px 12px; }"
+        "QLineEdit#search:focus { background: rgba(255,255,255,0.10);"
+        " border: 1px solid rgba(62,123,255,0.55); }"
+        "QToolButton#railButton { background: transparent; border: none; border-radius: 8px; }"
+        "QToolButton#railButton:hover { background: rgba(255,255,255,0.06); }"
+        "QToolButton#railButton:checked { background: rgba(62,123,255,0.22); }"
+        "QPushButton#navButton { background: transparent; color: #C8CDD6; border: none;"
+        " border-radius: 8px; padding: 8px 10px; text-align: left; font-size: 13px; font-weight: 500; }"
+        "QPushButton#navButton:hover:!checked { background: rgba(255,255,255,0.05); color: #F4F5F7; }"
+        "QPushButton#navButton:checked { background: #3E7BFF; color: #FFFFFF; font-weight: 600; }"
+        "QKeySequenceEdit { background: rgba(255,255,255,0.07); color: #F4F5F7; border: none;"
+        " border-radius: 6px; padding: 0 8px; selection-background-color: #3E7BFF; }"
+        "QKeySequenceEdit:focus { border: 1px solid rgba(62,123,255,0.7); }"
+        "QPushButton#fertig, QPushButton#link { background: transparent; color: #5B9DFF;"
+        " border: none; font-weight: 600; }"
+        "QPushButton#fertig { border-radius: 6px; padding: 6px 10px; }"
+        "QPushButton#fertig:hover { background: rgba(255,255,255,0.08); }"
+        "QPushButton#link:hover { color: #8BB6FF; }"));
+
+    auto bindSearch = [this](QLineEdit *edit) {
+        connect(edit, &QLineEdit::textChanged, this, [this, edit](const QString &text) {
+            if (m_filterLock)
+                return;
+            m_filterLock = true;
+            if (edit != m_navSearch)
+                m_navSearch->setText(text);
+            if (edit != m_pageSearch)
+                m_pageSearch->setText(text);
+            m_filterLock = false;
+            applyFilter(text);
+        });
+    };
+    bindSearch(m_navSearch);
+    bindSearch(m_pageSearch);
 
     connect(google, &QPushButton::clicked, this, [this]() {
         m_googleValue->setText(QStringLiteral("Browser öffnet sich …"));
@@ -419,33 +410,76 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
         }
         emit voiceHotkeyChanged();
     });
-    connect(start, &QPushButton::clicked, this, &SetupWindow::saveAndClose);
+    connect(done, &QPushButton::clicked, this, &SetupWindow::saveAndClose);
 
     showPage(0);
     refresh();
 }
 
 void SetupWindow::showPage(int index) {
-    const QString titleKey = QStringLiteral("pageCopy%1").arg(index);
-    const QString leadKey = QStringLiteral("pageLead%1").arg(index);
+    if (index < 0 || index >= m_navButtons.size())
+        return;
+    m_page = index;
+    if (m_pages)
+        m_pages->setCurrentIndex(index);
+    for (int i = 0; i < m_navButtons.size(); ++i) {
+        m_navButtons.at(i)->setChecked(i == index);
+        m_railButtons.at(i)->setChecked(i == index);
+        const bool on = i == index;
+        const Glyph glyph = i == 0 ? Glyph::Person : (i == 1 ? Glyph::Wave : Glyph::Pen);
+        m_navButtons.at(i)->setIcon(glyphIcon(glyph, on ? Qt::white : QColor(0xB8, 0xBC, 0xC4), 16));
+        m_railButtons.at(i)->setIcon(
+            glyphIcon(glyph, on ? QColor(0x3E, 0x7B, 0xFF) : QColor(0xB8, 0xBC, 0xC4), 18));
+    }
     if (m_pageTitle)
-        m_pageTitle->setText(property(titleKey.toUtf8().constData()).toString());
+        m_pageTitle->setText(m_navButtons.at(index)->property("title").toString());
     if (m_pageLead)
-        m_pageLead->setText(property(leadKey.toUtf8().constData()).toString());
+        m_pageLead->setText(m_navButtons.at(index)->property("lead").toString());
+}
+
+void SetupWindow::applyFilter(const QString &text) {
+    const QString needle = text.trimmed().toLower();
+    QList<bool> titleHit;
+    titleHit.reserve(m_navButtons.size());
+    for (QPushButton *button : m_navButtons) {
+        const QString keywords = button->property("keywords").toString();
+        titleHit.append(needle.isEmpty() || button->text().toLower().contains(needle) ||
+                        keywords.contains(needle));
+    }
+    QList<bool> rowHit;
+    rowHit.reserve(m_navButtons.size());
+    for (int i = 0; i < m_navButtons.size(); ++i)
+        rowHit.append(false);
+    for (QWidget *row : m_rows) {
+        const int page = row->property("page").toInt();
+        const bool hit = needle.isEmpty() || titleHit.value(page) ||
+                         row->property("needle").toString().contains(needle);
+        if (hit && page >= 0 && page < rowHit.size())
+            rowHit[page] = true;
+        row->setVisible(hit);
+    }
+    int first = -1;
+    for (int i = 0; i < m_navButtons.size(); ++i) {
+        const bool show = needle.isEmpty() || titleHit.at(i) || rowHit.at(i);
+        m_navButtons.at(i)->setVisible(show);
+        m_railButtons.at(i)->setVisible(show);
+        if (show && first < 0)
+            first = i;
+    }
+    if (first >= 0 && !m_navButtons.at(m_page)->isVisible())
+        showPage(first);
 }
 
 void SetupWindow::showEvent(QShowEvent *event) {
     QWidget::showEvent(event);
 #if defined(Q_OS_WIN)
     darkCaption(reinterpret_cast<HWND>(winId()));
-#else
-    Q_UNUSED(event);
 #endif
 }
 
 void SetupWindow::present() {
-    resize(980, 540);
-    setMinimumSize(860, 480);
+    resize(1080, 640);
+    setMinimumSize(920, 520);
     if (QScreen *screen = QGuiApplication::primaryScreen()) {
         const QRect area = screen->availableGeometry();
         move(area.center().x() - width() / 2, area.center().y() - height() / 2);
@@ -458,20 +492,12 @@ void SetupWindow::present() {
 void SetupWindow::refresh() {
     const bool google = SettingsSync::signedIn();
     const bool study = !SettingsSync::studySessionId().isEmpty();
-    const QString googleText =
-        google ? QStringLiteral("Verbunden") : QStringLiteral("Nicht verbunden");
-    const QString sessionText =
-        study ? QStringLiteral("Angemeldet") : QStringLiteral("Nicht angemeldet");
     if (m_googleValue)
-        m_googleValue->setText(googleText);
+        m_googleValue->setText(google ? QStringLiteral("Verbunden")
+                                      : QStringLiteral("Nicht verbunden"));
     if (m_sessionValue)
-        m_sessionValue->setText(sessionText);
-    if (m_chipGoogle)
-        m_chipGoogle->setText(google ? QStringLiteral("Google verbunden")
-                                     : QStringLiteral("Google offen"));
-    if (m_chipSession)
-        m_chipSession->setText(study ? QStringLiteral("Blop angemeldet")
-                                     : QStringLiteral("Blop nicht angemeldet"));
+        m_sessionValue->setText(study ? QStringLiteral("Angemeldet")
+                                      : QStringLiteral("Nicht angemeldet"));
 }
 
 void SetupWindow::saveAndClose() {

@@ -9,6 +9,8 @@ class QLabel;
 class QLineEdit;
 class QPushButton;
 class QShowEvent;
+class QStackedWidget;
+class QToolButton;
 
 class SetupWindow : public QWidget {
     Q_OBJECT
@@ -37,7 +39,8 @@ private:
     QLineEdit *m_navSearch = nullptr;
     QLineEdit *m_pageSearch = nullptr;
     QList<QPushButton *> m_navButtons;
-    QList<QPushButton *> m_railButtons;
+    QList<QToolButton *> m_railButtons;
+    QStackedWidget *m_pages = nullptr;
     QList<QWidget *> m_rows;
     QHash<QString, QKeySequenceEdit *> m_toolEdits;
     int m_page = 0;
