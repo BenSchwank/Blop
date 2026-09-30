@@ -40,5 +40,6 @@ private:
     QList<QPushButton *> m_railButtons;
     QList<QWidget *> m_rows;
     QHash<QString, QKeySequenceEdit *> m_toolEdits;
+    int m_page = 0;
     bool m_filterLock = false;
 };
