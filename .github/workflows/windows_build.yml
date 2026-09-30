@@ -104,6 +104,10 @@ jobs:
         working-directory: build
         run: nmake
 
+      - name: Build Blop Assistent
+        working-directory: build
+        run: cmake --build . --target BlopAssistent
+
       - name: Build micro-benchmark (additive; not bundled in installer)
         working-directory: build
         run: cmake --build . --target blop_benchmark_math
@@ -284,6 +288,33 @@ jobs:
           }
           Write-Host "Using NSIS at: $nsisPath"
           & $nsisPath installer.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $assistantExe = @(
+            "build\BlopAssistent.exe",
+            "build\assistant\BlopAssistent.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $assistantExe) { throw "BlopAssistent.exe was not built" }
+          $assistantDeploy = "assistant\deployment"
+          if (Test-Path $assistantDeploy) { Remove-Item $assistantDeploy -Recurse -Force }
+          New-Item -ItemType Directory -Path $assistantDeploy | Out-Null
+          Copy-Item $assistantExe (Join-Path $assistantDeploy "BlopAssistent.exe") -Force
+          windeployqt --dir $assistantDeploy (Join-Path $assistantDeploy "BlopAssistent.exe") --release --compiler-runtime --no-translations
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path (Join-Path $assistantDeploy "platforms\qwindows.dll"))) {
+            throw "Blop Assistent is missing platforms\qwindows.dll"
+          }
+          Push-Location assistant
+          try {
+            & $nsisPath installer.nsi
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path "assistant\BlopAssistent_Windows_Installer.exe")) {
+            throw "BlopAssistent_Windows_Installer.exe was not created"
+          }
+          Copy-Item "assistant\BlopAssistent_Windows_Installer.exe" "BlopAssistent_Windows_Installer.exe" -Force
 
       - name: Upload Versioned Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -293,6 +324,7 @@ jobs:
           files: |
             deployment/Blop_Windows.zip
             Blop_Windows_Installer.exe
+            BlopAssistent_Windows_Installer.exe
             BlopTrace.exe
           draft: false
           prerelease: false
@@ -305,10 +337,11 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN }}
           tag_name: nightly
           name: Nightly Build (Latest)
-          body: "Neuester automatischer Build mit WebEngine und Installer."
+          body: "Neuester automatischer Build mit WebEngine, Blop-Installer und Blop-Assistent-Installer."
           files: |
             deployment/Blop_Windows.zip
             Blop_Windows_Installer.exe
+            BlopAssistent_Windows_Installer.exe
             BlopTrace.exe
           draft: false
           prerelease: true
