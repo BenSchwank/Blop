@@ -4,6 +4,7 @@
 #include <QString>
 
 class QProcess;
+class QTimer;
 
 class SpeechInput : public QObject {
     Q_OBJECT
@@ -25,9 +26,11 @@ signals:
 
 private:
     void report(const QString &text, bool ok);
+    void pollHeard();
 
     bool m_listening = false;
     bool m_reported = false;
     QString m_stopFile;
     QProcess *m_proc = nullptr;
+    QTimer *m_poll = nullptr;
 };

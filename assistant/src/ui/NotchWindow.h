@@ -47,6 +47,7 @@ private:
     void registerHotkey();
     void setListening(bool on);
     void toggleSpeech();
+    void scheduleIdle();
     bool surfaceOpen() const;
 
     CommandEngine m_engine;

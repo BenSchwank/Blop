@@ -163,12 +163,14 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
         if (!m_expanded)
             expand();
         runCommand(text);
+        scheduleIdle();
     });
     connect(m_speech, &SpeechInput::failed, this, [this](const QString &reason) {
         if (!m_expanded)
             expand();
         m_status->setText(reason);
         applyChrome();
+        scheduleIdle();
     });
     connect(m_speech, &SpeechInput::listeningChanged, this, &NotchWindow::setListening);
 
@@ -256,7 +258,7 @@ void NotchWindow::applyChrome() {
     style()->polish(this);
     if (!open) {
         layout()->setContentsMargins(0, 0, 0, 0);
-        setFixedSize(92, 8);
+        setFixedSize(48, 2);
     } else {
         layout()->setContentsMargins(14, 2, 12, 12);
         m_status->setFixedWidth(392);
@@ -274,8 +276,9 @@ void NotchWindow::pinToTop() {
         screen = QGuiApplication::primaryScreen();
     if (!screen)
         return;
-    const QRect area = screen->geometry();
-    move(area.center().x() - width() / 2, area.top());
+    const QRect full = screen->geometry();
+    const int top = screen->availableGeometry().top();
+    move(full.center().x() - width() / 2, top);
 }
 
 void NotchWindow::runCommand(const QString &text) {
@@ -335,6 +338,19 @@ void NotchWindow::setListening(bool on) {
     applyChrome();
 }
 
+void NotchWindow::scheduleIdle() {
+    QTimer::singleShot(1400, this, [this]() {
+        if (m_listening)
+            return;
+        if (rect().contains(mapFromGlobal(QCursor::pos())))
+            return;
+        m_edit->clearFocus();
+        m_hovered = false;
+        m_expanded = false;
+        applyChrome();
+    });
+}
+
 void NotchWindow::toggleSpeech() {
     show();
     if (!m_expanded)
@@ -357,8 +373,10 @@ void NotchWindow::leaveEvent(QEvent *event) {
         if (rect().contains(mapFromGlobal(QCursor::pos())))
             return;
         m_hovered = false;
-        if (!m_edit->hasFocus() && !m_listening)
+        if (!m_listening) {
+            m_edit->clearFocus();
             m_expanded = false;
+        }
         applyChrome();
     });
 }
@@ -385,8 +403,10 @@ bool NotchWindow::eventFilter(QObject *watched, QEvent *event) {
             if (rect().contains(mapFromGlobal(QCursor::pos())))
                 return;
             m_hovered = false;
-            if (!m_edit->hasFocus() && !m_listening)
+            if (!m_listening) {
+                m_edit->clearFocus();
                 m_expanded = false;
+            }
             applyChrome();
         });
     }
