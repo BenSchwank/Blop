@@ -6,6 +6,8 @@
 #include "notechrome.h"
 #include "notechromeedge.h"
 #include "toolpropertiespanel.h"
+#include "tooloptionsstrip.h"
+#include <QGraphicsTextItem>
 #include "allpagesoverlay.h"
 #include "blop_inwindow_menu.h"
 #include "androidphonetoolbar.h"
@@ -4785,6 +4787,8 @@ void MainWindow::switchToWorkspaceChrome() {
   }
   refreshNoteTitleChrome(false);
   refreshTopNavChrome();
+  if (m_toolOptionsStrip)
+    m_toolOptionsStrip->hide();
 #endif
   updateSidebarState();
 }
@@ -7161,6 +7165,35 @@ void MainWindow::setupUi() {
   if (m_titleBarWidget) {
     mainLayout->addWidget(m_titleBarWidget);
   }
+  m_toolOptionsStrip = new ToolOptionsStrip(this);
+  m_toolOptionsStrip->hide();
+  m_toolOptionsStrip->setEditingResolver([this]() -> QGraphicsTextItem * {
+    auto find = [](QGraphicsScene *scene) -> QGraphicsTextItem * {
+      if (!scene)
+        return nullptr;
+      if (auto *focus =
+              qgraphicsitem_cast<QGraphicsTextItem *>(scene->focusItem())) {
+        if (focus->textInteractionFlags() & Qt::TextEditorInteraction)
+          return focus;
+      }
+      for (QGraphicsItem *it : scene->items()) {
+        auto *ti = qgraphicsitem_cast<QGraphicsTextItem *>(it);
+        if (!ti || ti->data(0).toString() != QLatin1String("text_item"))
+          continue;
+        if (ti->textInteractionFlags() & Qt::TextEditorInteraction)
+          return ti;
+      }
+      return nullptr;
+    };
+    if (auto *view = currentNoteView()) {
+      if (auto *item = find(view->scene()))
+        return item;
+    }
+    if (auto *canvas = getCurrentCanvas())
+      return find(canvas->scene());
+    return nullptr;
+  });
+  mainLayout->addWidget(m_toolOptionsStrip);
 
   // ── Single ModernToolbar instance replaces the docked bar ────────────────
   // (m_floatingTools initialized in setupRightSidebar/setupFloatingToolbar)
@@ -12149,6 +12182,8 @@ void MainWindow::switchToStrukturChrome() {
     m_radialFab->hide();
   if (m_toolPropertiesPanel)
     m_toolPropertiesPanel->hide();
+  if (m_toolOptionsStrip)
+    m_toolOptionsStrip->hide();
   if (m_noteToolbars)
     m_noteToolbars->setVisible(false);
 #ifndef Q_OS_ANDROID
@@ -12180,6 +12215,8 @@ void MainWindow::switchToEditorChrome() {
   }
 #endif
   applyNoteChromeTheme();
+  if (m_toolOptionsStrip)
+    m_toolOptionsStrip->show();
   setActiveTool(m_activeToolType);
   updateSidebarState();
 #ifndef Q_OS_ANDROID
@@ -12486,7 +12523,7 @@ void MainWindow::onNewPage() {
   NewNoteDialog dlg(this);
   // Pick startet kompakt; Dialog wächst intern nach Formatwahl.
   BlopModal::Mode mode = BlopModal::Mode::Float;
-  int preferredW = UiScale::dp(560);
+  int preferredW = UiScale::dp(440);
   if (UiScale::isAndroidPhoneUi(this)) {
     mode = BlopModal::Mode::BottomSheet;
     preferredW = UiScale::androidScreenWidthPx(this);
@@ -15674,6 +15711,8 @@ void MainWindow::onBackToOverview() {
   if (m_documentTabBar)
     m_documentTabBar->setNoteChromeMode(false);
   refreshNoteTitleChrome(false);
+  if (m_toolOptionsStrip)
+    m_toolOptionsStrip->hide();
   if (m_rightStack) {
     const int overviewIdx = m_rightStack->indexOf(m_overviewContainer);
 #ifdef Q_OS_ANDROID
@@ -17885,6 +17924,8 @@ void MainWindow::applyNoteChromeTheme() {
     m_toolPropertiesPanel->setAccentColor(NoteChrome::accent());
     m_toolPropertiesPanel->syncFromToolManager();
   }
+  if (m_toolOptionsStrip)
+    m_toolOptionsStrip->refreshTheme();
   if (auto *view = currentNoteView())
     view->applyNoteChrome();
   if (m_allPagesOverlay)

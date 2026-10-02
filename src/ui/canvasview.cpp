@@ -16,6 +16,7 @@
 #include "tools/GraphCanvasItem.h"
 #include "graphaxissettingsdialog.h"
 #include "uiscale.h"
+#include "wordtextframe.h"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -684,6 +685,20 @@ bool CanvasView::saveToFile() {
     out << card->pos() << r.width() << r.height() << card->brush().color()
         << fontPt << text;
   }
+
+  QList<QGraphicsTextItem *> texts;
+  for (auto *item : std::as_const(items)) {
+    if (item->data(0).toString() != QLatin1String("text_item"))
+      continue;
+    if (auto *ti = qgraphicsitem_cast<QGraphicsTextItem *>(item))
+      texts.append(ti);
+  }
+  out << (qint32)texts.size();
+  for (QGraphicsTextItem *ti : texts) {
+    const TextObject data = WordText::toObject(ti);
+    out << data.pos << data.width << data.html << data.text << data.color
+        << (qint32)data.fontPointSize << data.fontFamily << data.freeMove;
+  }
   return true;
 }
 
@@ -785,6 +800,30 @@ bool CanvasView::loadFromFile() {
       ti->setTextInteractionFlags(Qt::TextEditorInteraction);
       ti->setFlag(QGraphicsItem::ItemIsFocusable, true);
       m_scene->addItem(card);
+    }
+  }
+
+  if (magic >= 0xB10B0005 && !in.atEnd()) {
+    qint32 textCount = 0;
+    in >> textCount;
+    if (in.status() == QDataStream::Ok && textCount > 0 && textCount < 100000) {
+      for (qint32 i = 0; i < textCount; ++i) {
+        TextObject data;
+        qint32 fontPt = 16;
+        in >> data.pos >> data.width >> data.html >> data.text >> data.color >>
+            fontPt >> data.fontFamily >> data.freeMove;
+        data.fontPointSize = fontPt;
+        if (in.status() != QDataStream::Ok)
+          break;
+        auto *word = WordText::make();
+        WordText::loadContent(word, data, m_gridSize);
+        m_scene->addItem(word);
+        if (!word->property("wordSaveHook").toBool()) {
+          word->setProperty("wordSaveHook", true);
+          connect(word->document(), &QTextDocument::contentsChanged, this,
+                  [this]() { emit contentModified(); });
+        }
+      }
     }
   }
 
@@ -1537,8 +1576,25 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
     // exposes lastCompletedItem() for that purpose (see release path
     // below), which is O(1) instead of an O(N) scene walk + N hash
     // lookups on every stroke press.
+    if (m_toolManager->activeTool()->mode() == ToolMode::Text && m_scene) {
+      m_scene->setProperty("wordGrid", m_gridSize);
+      m_scene->setProperty("wordPageWidth",
+                           m_isInfinite ? 0.0 : double(pageWidthPx()));
+      m_scene->setProperty("wordPageHeight",
+                           m_isInfinite ? 0.0 : double(pageHeightPx()));
+    }
     if (m_toolManager->activeTool()->handleMousePress(&scEvent, m_scene)) {
       m_isDrawing = true;
+      if (m_toolManager->activeTool()->mode() == ToolMode::Text) {
+        if (auto *ti = qgraphicsitem_cast<QGraphicsTextItem *>(
+                m_toolManager->activeTool()->lastCompletedItem())) {
+          if (!ti->property("wordSaveHook").toBool()) {
+            ti->setProperty("wordSaveHook", true);
+            connect(ti->document(), &QTextDocument::contentsChanged, this,
+                    [this]() { emit contentModified(); });
+          }
+        }
+      }
       event->accept();
       return;
     }
@@ -1565,6 +1621,28 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
     }
   }
   QGraphicsView::mousePressEvent(event);
+}
+
+void CanvasView::mouseDoubleClickEvent(QMouseEvent *event) {
+  if (m_toolManager && m_toolManager->activeToolMode() == ToolMode::Text &&
+      event->button() == Qt::LeftButton) {
+    QGraphicsItem *clicked = itemAt(event->pos());
+    while (clicked &&
+           clicked->data(0).toString() != QLatin1String("text_item"))
+      clicked = clicked->parentItem();
+    if (auto *ti = qgraphicsitem_cast<QGraphicsTextItem *>(clicked)) {
+      ti->setTextInteractionFlags(Qt::TextEditorInteraction);
+      ti->setFocus(Qt::MouseFocusReason);
+      if (!ti->property("wordSaveHook").toBool()) {
+        ti->setProperty("wordSaveHook", true);
+        connect(ti->document(), &QTextDocument::contentsChanged, this,
+                [this]() { emit contentModified(); });
+      }
+      event->accept();
+      return;
+    }
+  }
+  QGraphicsView::mouseDoubleClickEvent(event);
 }
 
 void CanvasView::mouseMoveEvent(QMouseEvent *event) {

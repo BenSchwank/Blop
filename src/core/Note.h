@@ -65,9 +65,11 @@ struct TextObject {
     QPointF pos{0, 0}; // page-local top-left
     qreal width{300.0};
     QString text;
+    QString html;          // rich text; empty on older notes
     QColor color{Qt::black};
     QString fontFamily;   // empty = default application font
     int fontPointSize{14};
+    bool freeMove{false}; // off the invisible layout grid
 };
 
 struct NotePage {

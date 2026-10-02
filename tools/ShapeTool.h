@@ -48,14 +48,14 @@ public:
         }
         case ShapeToolKind::Line: {
             QPainterPath p;
-            p.moveTo(rn.topLeft());
-            p.lineTo(rn.bottomRight());
+            p.moveTo(dragRect.topLeft());
+            p.lineTo(dragRect.bottomRight());
             return p;
         }
         case ShapeToolKind::Arrow: {
             QPainterPath p;
-            const QPointF a = rn.topLeft();
-            const QPointF b = rn.bottomRight();
+            const QPointF a = dragRect.topLeft();
+            const QPointF b = dragRect.bottomRight();
             p.moveTo(a);
             p.lineTo(b);
             QLineF stem(a, b);

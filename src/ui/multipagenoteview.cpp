@@ -17,6 +17,7 @@
 #include "overlayscrollindicator.h"
 #include "uiscale.h"
 #include "notepagerenderer.h"
+#include "wordtextframe.h"
 #include "tools/AbstractTool.h"
 #include "tools/AbstractStrokeTool.h"
 #include "tools/RulerTool.h" // NEU: Lineal-Werkzeug
@@ -245,7 +246,8 @@ bool textPagesMatch(const QVector<NotePage> &a, const QVector<NotePage> &b) {
     if (ta.size() != tb.size())
       return false;
     for (int j = 0; j < ta.size(); ++j) {
-      if (ta[j].text != tb[j].text || ta[j].pos != tb[j].pos ||
+      if (ta[j].text != tb[j].text || ta[j].html != tb[j].html ||
+          ta[j].pos != tb[j].pos || ta[j].freeMove != tb[j].freeMove ||
           ta[j].fontFamily != tb[j].fontFamily ||
           ta[j].fontPointSize != tb[j].fontPointSize ||
           ta[j].color != tb[j].color ||
@@ -3129,15 +3131,21 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
       pIdx = qBound(0, currentPage_, pageItems_.size() - 1);
 
     const QVector<NotePage> before = note_->pages;
+    const ToolConfig cfg = ToolManager::instance().config();
+    const WordText::Placement place = WordText::placementFor(
+        pageItems_[pIdx]->mapFromScene(scenePos), a4wPx(), a4hPx(),
+        WordText::kGrid);
     TextObject to;
-    to.pos = pageItems_[pIdx]->mapFromScene(scenePos);
-    to.width = 300.0;
-    to.color = ToolManager::instance().config().penColor.isValid()
-                   ? ToolManager::instance().config().penColor
-                   : QColor(Qt::black);
+    to.pos = place.pos;
+    to.width = place.width;
+    to.color = cfg.penColor.isValid() ? cfg.penColor : QColor(Qt::black);
+    to.fontFamily = cfg.fontFamily;
+    to.fontPointSize = qBound(10, cfg.penWidth > 0 ? cfg.penWidth : 16, 48);
     note_->ensurePage(pIdx);
     note_->pages[pIdx].texts.push_back(to);
     auto *item = createTextItem(to, pIdx);
+    if (auto *word = dynamic_cast<WordText::Item *>(item))
+      WordText::applyNewFrameStyle(word, cfg);
     if (item)
       startEditingTextItem(item, before);
     if (onSaveRequested)
@@ -4315,13 +4323,8 @@ void MultiPageNoteView::duplicateSelection() {
       int pIdx = pageAt(src->sceneBoundingRect().center());
       if (pIdx < 0)
         pIdx = qBound(0, currentPage_, pageItems_.size() - 1);
-      TextObject to;
+      TextObject to = WordText::toObject(src);
       to.pos = src->pos() + offset;
-      to.width = src->textWidth();
-      to.text = src->toPlainText();
-      to.color = src->defaultTextColor();
-      to.fontFamily = src->font().family();
-      to.fontPointSize = src->font().pointSize();
       note_->ensurePage(pIdx);
       if (auto *copy = createTextItem(to, pIdx))
         copy->setSelected(true);
@@ -5346,22 +5349,8 @@ MultiPageNoteView::createTextItem(const TextObject &data, int pageIndex) {
   if (pageIndex < 0 || pageIndex >= pageItems_.size())
     return nullptr;
 
-  auto *text = new QGraphicsTextItem();
-  text->setParentItem(pageItems_[pageIndex]);
-  text->setPos(data.pos);
-  text->setTextWidth(qMax(20.0, data.width));
-  text->setDefaultTextColor(data.color.isValid() ? data.color : Qt::black);
-  QFont font = text->font();
-  if (!data.fontFamily.isEmpty())
-    font.setFamily(data.fontFamily);
-  font.setPointSize(qBound(8, data.fontPointSize, 72));
-  text->setFont(font);
-  text->setPlainText(data.text);
-  text->setFlags(QGraphicsItem::ItemIsSelectable |
-                 QGraphicsItem::ItemIsMovable |
-                 QGraphicsItem::ItemSendsGeometryChanges);
-  text->setZValue(5);
-  text->setData(0, QStringLiteral("text_item"));
+  auto *text = WordText::make(pageItems_[pageIndex]);
+  WordText::loadContent(text, data, WordText::kGrid);
   bindTextItemSignals(text);
   return text;
 }
@@ -5484,17 +5473,17 @@ void MultiPageNoteView::syncTextItemsToNote() {
 
     if (text->parentItem() != pageItems_[pIdx]) {
       const QPointF sceneTopLeft = text->sceneBoundingRect().topLeft();
+      const bool wasFree = dynamic_cast<WordText::Item *>(text) &&
+                           static_cast<WordText::Item *>(text)->freeMove();
+      if (auto *word = dynamic_cast<WordText::Item *>(text))
+        word->setFreeMove(true);
       text->setParentItem(pageItems_[pIdx]);
       text->setPos(pageItems_[pIdx]->mapFromScene(sceneTopLeft));
+      if (auto *word = dynamic_cast<WordText::Item *>(text))
+        word->setFreeMove(wasFree);
     }
 
-    TextObject to;
-    to.pos = text->pos();
-    to.width = text->textWidth();
-    to.text = text->toPlainText();
-    to.color = text->defaultTextColor();
-    to.fontFamily = text->font().family();
-    to.fontPointSize = text->font().pointSize();
+    TextObject to = WordText::toObject(text);
     note_->ensurePage(pIdx);
     note_->pages[pIdx].texts.push_back(std::move(to));
   }
@@ -5506,7 +5495,8 @@ void MultiPageNoteView::syncTextItemsToNote() {
 
   // If the previously active text box lost focus, close the edit session
   // so typing becomes a single undo step.
-  const bool lostFocus = m_activeTextItem && !m_activeTextItem->hasFocus();
+  const bool lostFocus = m_activeTextItem && !m_activeTextItem->hasFocus() &&
+                         !WordText::chromeHoldsFocus();
   if (lostFocus) {
     m_activeTextItem->setTextInteractionFlags(Qt::NoTextInteraction);
     m_activeTextItem.clear();

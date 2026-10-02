@@ -89,6 +89,11 @@ struct ToolConfig {
     QColor stickyBgColor{QColor(255, 236, 120)}; ///< Sticky note card fill
     /// 0=left, 1=center, 2=right — applied to new TextTool items.
     int textAlign{0};
+    bool textBold{false};
+    bool textItalic{false};
+    bool textUnderline{false};
+    /// 0 = none, 1 = bullets, 2 = numbers. Applied to the next text frame.
+    int textListKind{0};
 
     // 11. Formen-Werkzeug (ShapeTool)
     ShapeToolKind shapeToolKind = ShapeToolKind::Rectangle;

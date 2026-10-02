@@ -28,6 +28,8 @@
 #include <QTouchEvent>
 #include <QVBoxLayout>
 
+#include <functional>
+
 namespace {
 // v3.18.2: aligned to BlopMotion tokens.
 constexpr int kBackdropFadeMs = BlopMotion::kFast;
@@ -120,6 +122,14 @@ int BlopModal::execBlocking(QWidget *parent, QDialog *dlg, Mode mode,
   dlg->show();
   loop.exec();
 
+  // The dialog is usually a stack object in the caller. The modal reparents
+  // it into the card and deletes children on close. A nested event loop
+  // (cloud mirror) then frees that stack object and the heap dies.
+  if (dlg) {
+    dlg->hide();
+    dlg->setParent(nullptr);
+  }
+
   // If the dialog itself reached finished() the modal is still open ->
   // dismiss it and wait for the dismiss animation to finish so the
   // caller's next setStyleSheet/show isn't racing with a stale backdrop.
@@ -138,6 +148,25 @@ int BlopModal::execBlocking(QWidget *parent, QDialog *dlg, Mode mode,
   }
 
   return result;
+}
+
+BlopModal::~BlopModal() {
+  if (m_parentFilterTarget)
+    m_parentFilterTarget->removeEventFilter(this);
+  // Animations emit finished while their destructor runs. Those slots must
+  // not deleteLater anything once this object is already going away.
+  const std::function<void(QObject *)> silence = [&](QObject *obj) {
+    if (!obj)
+      return;
+    const QObjectList kids = obj->children();
+    for (QObject *child : kids)
+      silence(child);
+    obj->blockSignals(true);
+    obj->disconnect();
+  };
+  silence(this);
+  m_cardAnim = nullptr;
+  m_backdropAnim = nullptr;
 }
 
 BlopModal::BlopModal(QWidget *parent, QWidget *content, Mode mode,
@@ -243,14 +272,14 @@ void BlopModal::setPreferredCardWidth(int px) {
 }
 
 void BlopModal::setPreferredCardHeightFrac(qreal frac) {
-  m_preferredCardHeightFrac = qBound(0.35, frac, 0.95);
+  m_preferredCardHeightFrac = qBound(0.22, frac, 0.95);
   layoutContent();
 }
 
 void BlopModal::preparePreferredSize(int widthPx, qreal heightFrac) {
   if (widthPx > 0)
     m_preferredCardWidth = widthPx;
-  m_preferredCardHeightFrac = qBound(0.35, heightFrac, 0.95);
+  m_preferredCardHeightFrac = qBound(0.22, heightFrac, 0.95);
 }
 
 BlopModal *BlopModal::hostOf(QWidget *content) {
@@ -282,11 +311,12 @@ QRect BlopModal::preferredCardRect() const {
     const int maxW = qMax(1, W - 2 * gap);
     const int maxH = qMax(1, H - 2 * gap);
     int cardW = m_preferredCardWidth > 0 ? m_preferredCardWidth : int(W * 0.58);
-    cardW = fitSpan(cardW, UiScale::dp(420), maxW);
     const qreal frac =
         m_preferredCardHeightFrac > 0.0 ? m_preferredCardHeightFrac : 0.72;
+    const bool compact = frac < 0.45;
+    cardW = fitSpan(cardW, UiScale::dp(compact ? 280 : 420), maxW);
     int cardH = int(H * frac);
-    cardH = fitSpan(cardH, UiScale::dp(360), maxH);
+    cardH = fitSpan(cardH, UiScale::dp(compact ? 220 : 360), maxH);
     return QRect((W - cardW) / 2, (H - cardH) / 2, cardW, cardH);
   }
   // Fallback: current geometry after a layout pass would be needed; return
@@ -305,9 +335,10 @@ void BlopModal::animateCardToPreferred(int durationMs) {
   if (m_cardAnim) {
     QPropertyAnimation *old = m_cardAnim;
     m_cardAnim = nullptr;
-    old->disconnect(this);
+    old->disconnect();
     old->stop();
-    old->deleteLater();
+    old->setParent(nullptr);
+    delete old;
   }
   // Keep preferred values in sync so resizeEvent / layoutContent match.
   // Width/height already stored via setters; just animate geometry.
@@ -327,10 +358,10 @@ void BlopModal::animateCardToPreferred(int durationMs) {
     auto *anim = qobject_cast<QPropertyAnimation *>(sender());
     if (anim && m_cardAnim == anim)
       m_cardAnim = nullptr;
-    if (m_card)
-      layoutContent();
-    if (anim)
-      anim->deleteLater();
+    QTimer::singleShot(0, this, [this]() {
+      if (!m_cardAnim)
+        layoutContent();
+    });
   });
   m_cardAnim->start();
 }
@@ -592,7 +623,8 @@ void BlopModal::layoutContent() {
     }
     layoutBlurLayers();
   } else if (m_mode == Mode::Float) {
-    // Format-Deck / Neue Notiz: size driven by preferred width + height frac.
+    if (m_cardAnim && m_cardAnim->state() == QAbstractAnimation::Running)
+      return;
     const QRect r = preferredCardRect();
     m_card->setGeometry(r);
     if (m_content) {
@@ -698,7 +730,7 @@ void BlopModal::startOpenAnim() {
   m_backdropAnim->setStartValue(0.0);
   m_backdropAnim->setEndValue(1.0);
   m_backdropAnim->setEasingCurve(BlopMotion::kEaseStandard);
-  m_backdropAnim->start(QAbstractAnimation::DeleteWhenStopped);
+  m_backdropAnim->start();
 
   if (m_card) {
     const QRect endGeom = m_card->geometry();
@@ -720,8 +752,6 @@ void BlopModal::startOpenAnim() {
       auto *anim = qobject_cast<QPropertyAnimation *>(sender());
       if (anim && m_cardAnim == anim)
         m_cardAnim = nullptr;
-      if (anim)
-        anim->deleteLater();
     });
     m_cardAnim->start();
   }
@@ -747,13 +777,18 @@ void BlopModal::startDismissAnim() {
   auto *opacity = new QGraphicsOpacityEffect(this);
   opacity->setOpacity(1.0);
   setGraphicsEffect(opacity);
-  auto *fadeOut = new QPropertyAnimation(opacity, "opacity", this);
+  auto *fadeOut = new QPropertyAnimation(opacity, "opacity", opacity);
   fadeOut->setDuration(kBackdropFadeOutMs);
   fadeOut->setStartValue(1.0);
   fadeOut->setEndValue(0.0);
   fadeOut->setEasingCurve(QEasingCurve::InCubic);
 
   if (m_card) {
+    if (m_cardAnim) {
+      m_cardAnim->disconnect();
+      m_cardAnim->stop();
+      m_cardAnim = nullptr;
+    }
     const QRect startGeom = m_card->geometry();
     QRect endGeom = startGeom;
     if (m_mode == Mode::BottomSheet) {
@@ -763,12 +798,12 @@ void BlopModal::startDismissAnim() {
     } else {
       endGeom.translate(0, UiScale::dp(10));
     }
-    auto *cardAnim = new QPropertyAnimation(m_card, "geometry", this);
+    auto *cardAnim = new QPropertyAnimation(m_card, "geometry", m_card);
     cardAnim->setDuration(kCardExitMs);
     cardAnim->setStartValue(startGeom);
     cardAnim->setEndValue(endGeom);
     cardAnim->setEasingCurve(QEasingCurve::InCubic);
-    cardAnim->start(QAbstractAnimation::DeleteWhenStopped);
+    cardAnim->start();
   }
 
   QPointer<BlopModal> self(this);
@@ -780,7 +815,7 @@ void BlopModal::startDismissAnim() {
   };
   connect(fadeOut, &QPropertyAnimation::finished, this, finish);
   QTimer::singleShot(kBackdropFadeOutMs + 120, this, finish);
-  fadeOut->start(QAbstractAnimation::DeleteWhenStopped);
+  fadeOut->start();
 #endif
 }
 

@@ -623,6 +623,7 @@ private:
   bool m_brandIsBanner{false};
   QFrame *m_titleBarSep{nullptr};
   QWidget *m_titleBarWidget{nullptr};
+  class ToolOptionsStrip *m_toolOptionsStrip{nullptr};
   QWidget *m_topNavControls{nullptr};
   /// Home + note tabs row in title bar (hidden in Study / web bookmarks).
   DocumentTabBar *m_documentTabBar{nullptr};

@@ -106,19 +106,6 @@ public:
     QString name() const override { return "Marker"; }
     QString iconName() const override { return "highlighter"; }
 
-    bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        if (m_config.smartLine && m_currentItem && !m_pointsBuffer.isEmpty()) {
-            QPointF start = m_pointsBuffer.first().pos;
-            QPointF current = event->scenePos();
-            m_currentPath = QPainterPath();
-            m_currentPath.moveTo(start);
-            m_currentPath.lineTo(current);
-            m_currentItem->setPath(m_currentPath);
-            return true;
-        }
-        return AbstractStrokeTool::handleMouseMove(event, scene);
-    }
-    
     StrokeItem::StrokeStyle strokeStyle() const override {
         return m_config.drawBehind ? StrokeItem::Highlighter : StrokeItem::Normal;
     }

@@ -169,6 +169,10 @@ qt_add_executable(Blop
     src/ui/noteleftrail.h
     src/ui/toolpropertiespanel.cpp
     src/ui/toolpropertiespanel.h
+    src/ui/wordtextframe.cpp
+    src/ui/wordtextframe.h
+    src/ui/tooloptionsstrip.cpp
+    src/ui/tooloptionsstrip.h
     src/ui/allpagesoverlay.cpp
     src/ui/allpagesoverlay.h
     src/ui/toolpickeroverlay.cpp

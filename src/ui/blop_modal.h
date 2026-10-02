@@ -66,6 +66,8 @@ public:
                           Mode mode = Mode::Auto,
                           int preferredCardWidth = 0);
 
+  ~BlopModal() override;
+
   void dismiss();
 
   /// Override the default card width on desktop. Ignored in BottomSheet /

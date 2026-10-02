@@ -37,10 +37,10 @@ public:
 
     // --- TABLET ---
     bool handleTabletEvent(QTabletEvent* event, const QPointF& scenePos) override {
-        if (m_sceneRef) {
+        Q_UNUSED(event);
+        if (m_sceneRef)
             eraseAt(scenePos, m_sceneRef);
-        }
-        return AbstractStrokeTool::handleTabletEvent(event, scenePos);
+        return true;
     }
 
 protected:
@@ -51,8 +51,10 @@ private:
     void eraseAt(QPointF pos, QGraphicsScene* scene) {
         if (!scene) return;
 
-        // Radius
-        double r = (m_config.eraserMode == EraserMode::Pixel) ? (m_config.penWidth / 2.0) : 5.0;
+        // Radius follows the pen width in both modes.
+        double r = m_config.penWidth / 2.0;
+        if (r < 1.0)
+            r = 1.0;
 
         // Bereich um die Maus
         QRectF rect(pos.x() - r, pos.y() - r, 2*r, 2*r);
@@ -85,10 +87,10 @@ private:
             // Bereits zum Löschen vorgemerkt – überspringen
             if (toDeleteSet.contains(item)) continue;
 
-            // Precise hit test (replaces the IntersectsItemShape on
-            // scene->items): only continue if the eraser ellipse
-            // actually intersects the item's shape.
-            if (!item->shape().intersects(item->mapFromScene(eraserShape))) continue;
+            // Precise hit test in item coordinates so a moved stroke
+            // is cut where it is drawn.
+            const QPainterPath eraserInItem = item->mapFromScene(eraserShape);
+            if (!item->shape().intersects(eraserInItem)) continue;
 
             // FEATURE: "Nur Textmarker löschen"
             // Marker liegen auf Z <= 5 (DrawBehind=-10, Normal=5). Tinte >= 10.
@@ -103,6 +105,16 @@ private:
             // --- MODUS 2: PIXEL RADIERER (Schneiden) ---
             else {
                 QPainterPath currentPath = pathItem->path();
+                if (auto *si = dynamic_cast<StrokeItem *>(pathItem)) {
+                    const auto pts = si->points();
+                    if (pts.size() > 1 && pathItem->pen().style() != Qt::NoPen) {
+                        QVector<QPointF> center;
+                        center.reserve(pts.size());
+                        for (const StrokePoint &sp : pts)
+                            center.append(sp.pos);
+                        currentPath = smoothStrokePath(center);
+                    }
+                }
 
                 // FIX: "Linie wird zur Form"-Problem beheben
                 // Wenn das Item noch ein Strich ist (hat einen Pen), müssen wir es
@@ -118,7 +130,7 @@ private:
                     QPainterPath outline = stroker.createStroke(currentPath);
 
                     // Jetzt subtrahieren wir den Radierer von der Fläche
-                    QPainterPath newPath = outline.subtracted(eraserShape);
+                    QPainterPath newPath = outline.subtracted(eraserInItem);
 
                     // Das Item ist jetzt eine Fläche, kein Strich mehr!
                     pathItem->setPath(newPath);
@@ -126,11 +138,13 @@ private:
                     // WICHTIG: Stift entfernen, dafür Pinsel setzen (mit der Farbe des alten Stifts)
                     pathItem->setBrush(pathItem->pen().brush());
                     pathItem->setPen(Qt::NoPen);
+                    if (auto *strokeItem = dynamic_cast<StrokeItem *>(pathItem))
+                        strokeItem->setPoints({});
                 }
                 else {
                     // Das Item ist bereits eine Fläche (wurde schonmal radiert)
                     // Einfach weiter subtrahieren
-                    QPainterPath newPath = currentPath.subtracted(eraserShape);
+                    QPainterPath newPath = currentPath.subtracted(eraserInItem);
                     pathItem->setPath(newPath);
                 }
 

@@ -9,6 +9,26 @@ struct StrokePoint {
     qreal pressure;
 };
 
+inline QPainterPath smoothStrokePath(const QVector<QPointF> &pts) {
+    QPainterPath path;
+    if (pts.isEmpty())
+        return path;
+    path.moveTo(pts[0]);
+    if (pts.size() == 1)
+        return path;
+    if (pts.size() == 2) {
+        path.lineTo(pts[1]);
+        return path;
+    }
+    for (int i = 1; i < pts.size() - 1; ++i) {
+        const QPointF mid((pts[i].x() + pts[i + 1].x()) * 0.5,
+                          (pts[i].y() + pts[i + 1].y()) * 0.5);
+        path.quadTo(pts[i], mid);
+    }
+    path.lineTo(pts.last());
+    return path;
+}
+
 class StrokeItem : public QGraphicsPathItem {
 public:
     enum { Type = UserType + 1 };
@@ -45,6 +65,7 @@ public:
     }
 
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override {
+        painter->setRenderHint(QPainter::Antialiasing, true);
         if (m_style == Highlighter) {
             painter->setCompositionMode(QPainter::CompositionMode_Multiply);
         }
@@ -52,35 +73,37 @@ public:
             painter->setCompositionMode(QPainter::CompositionMode_DestinationOut);
         }
 
-        if (!m_points.isEmpty() && m_points.size() > 1 && m_style != Highlighter) {
-            // v119 perf: reuse a single QPen across all segments instead
-            // of constructing a fresh pen per segment. setWidthF mutates
-            // the existing pen in-place; the painter only needs to be
-            // re-set when the width actually changes (cuts allocations
-            // and unnecessary state changes by ~Nx for an N-segment
-            // pressure stroke).
-            QPen segPen = pen();
-            const qreal baseWidth = segPen.widthF();
-            qreal lastWidth = -1.0;
-            for (int i = 0; i < m_points.size() - 1; ++i) {
-                const StrokePoint& p1 = m_points[i];
-                const StrokePoint& p2 = m_points[i+1];
-
-                // Pressure usually 0.0 to 1.0. Wir cappen bei 0.1, damit es nicht unsichtbar wird.
-                qreal avgPressure = (p1.pressure + p2.pressure) / 2.0;
-                qreal w = baseWidth * qMax(0.1, avgPressure);
-
-                if (w != lastWidth) {
-                    segPen.setWidthF(w);
-                    painter->setPen(segPen);
-                    lastWidth = w;
-                }
-                painter->drawLine(p1.pos, p2.pos);
-            }
-        } else {
+        if (pen().style() == Qt::NoPen || m_points.size() < 2 || m_style == Highlighter) {
             QStyleOptionGraphicsItem opt = *option;
             opt.state &= ~(QStyle::State_Selected | QStyle::State_HasFocus);
             QGraphicsPathItem::paint(painter, &opt, widget);
+            return;
+        }
+
+        QPen segPen = pen();
+        segPen.setCapStyle(Qt::RoundCap);
+        segPen.setJoinStyle(Qt::RoundJoin);
+        const qreal baseWidth = segPen.widthF();
+        auto widthAt = [&](int seg) {
+            const qreal avg = (m_points[seg].pressure + m_points[seg + 1].pressure) * 0.5;
+            return baseWidth * qMax(0.1, avg);
+        };
+
+        painter->setBrush(Qt::NoBrush);
+        const int lastSeg = m_points.size() - 2;
+        for (int i = 0; i <= lastSeg; ) {
+            const qreal w = widthAt(i);
+            int j = i;
+            while (j < lastSeg && qAbs(widthAt(j + 1) - w) <= 0.35)
+                ++j;
+            QVector<QPointF> pts;
+            pts.reserve(j - i + 2);
+            for (int k = i; k <= j + 1; ++k)
+                pts.append(m_points[k].pos);
+            segPen.setWidthF(w);
+            painter->setPen(segPen);
+            painter->drawPath(smoothStrokePath(pts));
+            i = j + 1;
         }
     }
 

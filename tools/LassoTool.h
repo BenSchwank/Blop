@@ -75,7 +75,10 @@ public:
             m_currentPath.lineTo(event->scenePos());
         }
 
-        m_selectionItem->setPath(m_currentPath);
+        QPainterPath shown = m_currentPath;
+        if (m_config.lassoMode != LassoMode::Rectangle)
+            shown.closeSubpath();
+        m_selectionItem->setPath(shown);
         scene->update();
         return true;
     }

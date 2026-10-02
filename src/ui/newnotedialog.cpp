@@ -32,10 +32,10 @@
 
 namespace {
 
-constexpr int kPickWidthDp = 620;
-constexpr qreal kPickHeightFrac = 0.48;
-constexpr int kExpandWidthDp = 720;
-constexpr qreal kExpandHeightFrac = 0.72;
+constexpr int kPickWidthDp = 440;
+constexpr qreal kPickHeightFrac = 0.32;
+constexpr int kExpandWidthDp = 680;
+constexpr qreal kExpandHeightFrac = 0.62;
 
 QIcon pageTemplateIcon(int backgroundType, int w, int h, const QColor &paper)
 {
@@ -75,7 +75,7 @@ NewNoteFormatCard::NewNoteFormatCard(int formatId, const QString &title,
     m_icon = new QLabel(this);
     m_icon->setObjectName(QStringLiteral("NewNoteCardIcon"));
     m_icon->setAlignment(Qt::AlignCenter);
-    m_icon->setFixedHeight(UiScale::dp(64));
+    m_icon->setFixedHeight(UiScale::dp(44));
     m_icon->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     lay->addWidget(m_icon);
 
@@ -220,7 +220,19 @@ NewNoteDialog::DeckTokens NewNoteDialog::tokens() const
         t.inputQss = BlopTheme::inputQss();
         t.primaryBtnQss = BlopTheme::primaryButtonQss();
         t.secondaryBtnQss = BlopTheme::secondaryButtonQss();
-        t.scrollQss = QString();
+        t.scrollQss = QStringLiteral(
+            "QScrollBar:vertical {"
+            "  background: transparent; width: 8px; margin: 4px 2px; border: none;"
+            "}"
+            "QScrollBar::handle:vertical {"
+            "  background: rgba(255,255,255,0.22); border-radius: 4px; min-height: 24px;"
+            "}"
+            "QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.34); }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+            "  height: 0; width: 0; background: none; border: none;"
+            "}"
+            "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }"
+            "QScrollBar:horizontal { height: 0; }");
     } else {
         t.surface = BlopStyle::paperSurface();
         t.surfaceAlt = BlopStyle::paperBg();
@@ -414,6 +426,24 @@ void NewNoteDialog::setupUi()
     titleCol->addWidget(m_formatChipBar);
     composerLay->addWidget(titleBar);
 
+    auto *titleBlock = new QWidget(m_composer);
+    titleBlock->setObjectName(QStringLiteral("NewNoteTitleBlock"));
+    auto *titleLay = new QVBoxLayout(titleBlock);
+    titleLay->setContentsMargins(UiScale::dp(22), UiScale::dp(12),
+                                 UiScale::dp(18), UiScale::dp(4));
+    titleLay->setSpacing(UiScale::dp(6));
+    auto *titleLbl = new QLabel(QStringLiteral("Titel"), titleBlock);
+    titleLbl->setObjectName(QStringLiteral("NewNoteNameLabel"));
+    titleLay->addWidget(titleLbl);
+    m_nameInput = new QLineEdit(titleBlock);
+    m_nameInput->setPlaceholderText(QStringLiteral("Neue Notiz"));
+    m_nameInput->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
+    titleLay->addWidget(m_nameInput);
+    connect(m_nameInput, &QLineEdit::returnPressed, this, &QDialog::accept);
+    connect(m_nameInput, &QLineEdit::textChanged, this,
+            [this](const QString &) { refreshLivePreview(); });
+    composerLay->addWidget(titleBlock);
+
     auto *bodySplit = new QWidget(m_composer);
     bodySplit->setObjectName(QStringLiteral("NewNoteBodySplit"));
     auto *splitLay = new QHBoxLayout(bodySplit);
@@ -439,20 +469,11 @@ void NewNoteDialog::setupUi()
         auto *lbl = new QLabel(text, parent);
         lbl->setProperty("blopSection", true);
         lbl->setStyleSheet(QStringLiteral(
-            "font-size: 10px; color: %1; font-weight: 700; letter-spacing: 0.6px;"
-            "background: transparent; padding-top: 2px;")
+            "font-size: 12px; color: %1; font-weight: 650;"
+            "background: transparent;")
                                .arg(muted.name(QColor::HexRgb)));
         return lbl;
     };
-
-    bodyLay->addWidget(sectionLabel(QStringLiteral("TITEL"), body, tok.muted));
-    m_nameInput = new QLineEdit(body);
-    m_nameInput->setPlaceholderText(QStringLiteral("Neue Notiz"));
-    m_nameInput->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
-    bodyLay->addWidget(m_nameInput);
-    connect(m_nameInput, &QLineEdit::returnPressed, this, &QDialog::accept);
-    connect(m_nameInput, &QLineEdit::textChanged, this,
-            [this](const QString &) { refreshLivePreview(); });
 
     m_layoutSection = new QWidget(body);
     m_layoutSection->setObjectName(QStringLiteral("NewNoteLayoutSection"));
@@ -464,11 +485,8 @@ void NewNoteDialog::setupUi()
 
     m_groupLayout = new QButtonGroup(this);
     m_groupLayout->setExclusive(true);
-    auto *tplGrid = new QGridLayout();
-    tplGrid->setHorizontalSpacing(UiScale::dp(8));
-    tplGrid->setVerticalSpacing(UiScale::dp(8));
-    tplGrid->setColumnStretch(0, 1);
-    tplGrid->setColumnStretch(1, 1);
+    auto *tplRow = new QHBoxLayout();
+    tplRow->setSpacing(UiScale::dp(8));
 
     struct LayoutOpt {
         int type;
@@ -478,9 +496,7 @@ void NewNoteDialog::setupUi()
         {0, "Leer"}, {1, "Liniert"}, {2, "Kariert"},
         {3, "Punktiert"}, {4, "Legal"},
     };
-    constexpr int kIcon = 48;
-    int col = 0;
-    int row = 0;
+    constexpr int kIcon = 32;
     for (const auto &opt : opts) {
         auto *tb = new QToolButton(m_layoutSection);
         tb->setText(QString::fromUtf8(opt.name));
@@ -489,25 +505,21 @@ void NewNoteDialog::setupUi()
         tb->setCursor(Qt::PointingHandCursor);
         tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         tb->setIconSize(QSize(UiScale::dp(kIcon), UiScale::dp(kIcon)));
-        tb->setMinimumSize(UiScale::dp(96), UiScale::dp(96));
+        tb->setMinimumHeight(UiScale::dp(68));
         tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         tb->setProperty("blopBgType", opt.type);
         m_groupLayout->addButton(tb, opt.type);
         if (opt.type == m_backgroundType)
             tb->setChecked(true);
-        tplGrid->addWidget(tb, row, col);
+        tplRow->addWidget(tb, 1);
         BlopRipple::attachPressFeedback(tb, 0.96);
-        if (++col >= 2) {
-            col = 0;
-            ++row;
-        }
     }
     connect(m_groupLayout, &QButtonGroup::idClicked, this, [this](int id) {
         m_backgroundType = id;
         refreshDeckPreviews();
         refreshLivePreview();
     });
-    layoutSectionLay->addLayout(tplGrid);
+    layoutSectionLay->addLayout(tplRow);
 
     m_paperSection = new QWidget(m_layoutSection);
     auto *paperLay = new QHBoxLayout(m_paperSection);
@@ -595,9 +607,10 @@ void NewNoteDialog::setupUi()
     m_tagList->setSelectionMode(QAbstractItemView::MultiSelection);
     m_tagList->setFrameShape(QFrame::NoFrame);
     m_tagList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_tagList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    m_tagList->setMinimumHeight(UiScale::dp(72));
-    bodyLay->addWidget(m_tagList, 1);
+    m_tagList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_tagList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_tagList->setFixedHeight(UiScale::dp(88));
+    bodyLay->addWidget(m_tagList);
 
     auto addTagFromInput = [this]() {
         const QString n = LibraryTagStore::normalize(m_tagInput->text());
@@ -768,6 +781,11 @@ void NewNoteDialog::applyChrome()
         m_composerTitle->setStyleSheet(QStringLiteral(
             "font-size: 15px; font-weight: 700; color: %1; background: transparent;")
                                            .arg(ink));
+    }
+    if (auto *nameLbl = findChild<QLabel *>(QStringLiteral("NewNoteNameLabel"))) {
+        nameLbl->setStyleSheet(QStringLiteral(
+            "font-size: 14px; font-weight: 650; color: %1; background: transparent;")
+                                   .arg(ink));
     }
     if (m_btnBackToDeck) {
         m_btnBackToDeck->setStyleSheet(QStringLiteral(

@@ -170,6 +170,10 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       to["y"] = t.pos.y();
       to["w"] = t.width;
       to["text"] = t.text;
+      if (!t.html.isEmpty())
+        to["html"] = t.html;
+      if (t.freeMove)
+        to["free"] = true;
       to["c"] = t.color.name(QColor::HexArgb);
       to["font"] = t.fontFamily;
       to["size"] = t.fontPointSize;
@@ -345,6 +349,8 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       t.pos = QPointF(to.value("x").toDouble(0.0), to.value("y").toDouble(0.0));
       t.width = to.value("w").toDouble(300.0);
       t.text = to.value("text").toString();
+      t.html = to.value("html").toString();
+      t.freeMove = to.value("free").toBool(false);
       {
         const QString cn = to.value("c").toString();
         QColor c(cn);

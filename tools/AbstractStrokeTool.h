@@ -233,6 +233,22 @@ protected:
             return true;
         } else {
             if (m_currentItem) {
+                if (mode() == ToolMode::Highlighter && m_config.smartLine &&
+                    !m_pointsBuffer.isEmpty()) {
+                    const StrokePoint startPt = m_pointsBuffer.first();
+                    const StrokePoint endPt{scenePos, m_lastPressure};
+                    m_pointsBuffer = {startPt, endPt};
+                    m_currentPath = QPainterPath();
+                    m_currentPath.moveTo(startPt.pos);
+                    m_currentPath.lineTo(endPt.pos);
+                    m_currentItem->setPath(m_currentPath);
+                    auto *typedItem = static_cast<StrokeItem *>(m_currentItem);
+                    typedItem->setPoints({});
+                    typedItem->addPoint(startPt);
+                    typedItem->addPoint(endPt);
+                    m_lastKnownScenePos = scenePos;
+                    return true;
+                }
                 m_lastKnownScenePos = scenePos;
                 QPointF newPos = scenePos;
                 if (!m_longPressStraightMode && m_lastMotionTimer.isValid()) {
@@ -287,7 +303,7 @@ protected:
 
                 if (m_pointsBuffer.isEmpty() || QLineF(newPos, m_pointsBuffer.last().pos).length() > 1.5) {
                     m_pointsBuffer.append({newPos, m_lastPressure});
-                    m_currentPath.lineTo(newPos);
+                    m_currentPath = smoothPathFromBuffer();
                     auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
                     typedItem->addPoint({newPos, m_lastPressure});
 
@@ -1062,17 +1078,21 @@ protected:
         return best;
     }
 
+    QPainterPath smoothPathFromBuffer() const {
+        QVector<QPointF> pts;
+        pts.reserve(m_pointsBuffer.size());
+        for (const StrokePoint &p : m_pointsBuffer)
+            pts.append(p.pos);
+        return smoothStrokePath(pts);
+    }
+
     void rebuildFreehandPathFromPoints() {
         if (!m_currentItem || m_pointsBuffer.isEmpty()) return;
-        m_currentPath = QPainterPath();
-        m_currentPath.moveTo(m_pointsBuffer.first().pos);
+        m_currentPath = smoothPathFromBuffer();
         QVector<StrokePoint> freePts;
         freePts.reserve(m_pointsBuffer.size());
-        freePts.append(m_pointsBuffer.first());
-        for (int i = 1; i < m_pointsBuffer.size(); ++i) {
-            m_currentPath.lineTo(m_pointsBuffer[i].pos);
-            freePts.append(m_pointsBuffer[i]);
-        }
+        for (const StrokePoint &p : m_pointsBuffer)
+            freePts.append(p);
         m_currentItem->setPath(m_currentPath);
         auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
         typedItem->setPoints(freePts);
