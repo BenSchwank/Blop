@@ -27,10 +27,12 @@ signals:
 private:
     void report(const QString &text, bool ok);
     void pollHeard();
+    void warm();
 
     bool m_listening = false;
     bool m_reported = false;
-    QString m_stopFile;
+    QString m_ear;
+    QString m_bootError;
     QProcess *m_proc = nullptr;
     QTimer *m_poll = nullptr;
 };

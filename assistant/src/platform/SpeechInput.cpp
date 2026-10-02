@@ -33,11 +33,15 @@ QString readUtf8(const QString &path) {
 
 const char kListenScript[] = R"ps1(
 param(
-    [Parameter(Mandatory = $true)][string]$StopFile
+    [Parameter(Mandatory = $true)][string]$Ear
 )
 $ErrorActionPreference = 'Stop'
-$outFile = "$StopFile.out"
-$errFile = "$StopFile.err"
+$goFile = $Ear + '.go'
+$stopFile = $Ear + '.stop'
+$outFile = $Ear + '.out'
+$errFile = $Ear + '.err'
+$doneFile = $Ear + '.done'
+$quitFile = $Ear + '.quit'
 try {
     Add-Type -AssemblyName System.Speech
     $engine = $null
@@ -59,7 +63,6 @@ try {
         $engine.EndSilenceTimeout = [TimeSpan]::FromMilliseconds(450)
         $engine.EndSilenceTimeoutAmbiguous = [TimeSpan]::FromMilliseconds(700)
     } catch {}
-    if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force }
     $utf8 = New-Object System.Text.UTF8Encoding $false
     $engine.add_SpeechRecognized({
         param($sender, $e)
@@ -69,16 +72,35 @@ try {
         }
     }.GetNewClosure())
     Add-Type -AssemblyName System.Windows.Forms
-    $engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
-    $deadline = (Get-Date).AddSeconds(20)
-    while (-not (Test-Path -LiteralPath $StopFile)) {
-        if ((Get-Date) -gt $deadline) { break }
-        [System.Windows.Forms.Application]::DoEvents()
-        Start-Sleep -Milliseconds 50
+    while (-not (Test-Path -LiteralPath $quitFile)) {
+        while (-not (Test-Path -LiteralPath $goFile) -and -not (Test-Path -LiteralPath $quitFile)) {
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 40
+        }
+        if (Test-Path -LiteralPath $quitFile) { break }
+        if (Test-Path -LiteralPath $stopFile) {
+            if (Test-Path -LiteralPath $goFile) { Remove-Item -LiteralPath $goFile -Force }
+            [System.IO.File]::WriteAllText($doneFile, '1', $utf8)
+            Remove-Item -LiteralPath $stopFile -Force -ErrorAction SilentlyContinue
+            continue
+        }
+        foreach ($path in @($outFile, $errFile, $doneFile)) {
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+        }
+        $engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
+        $deadline = (Get-Date).AddSeconds(60)
+        while (-not (Test-Path -LiteralPath $stopFile) -and -not (Test-Path -LiteralPath $quitFile)) {
+            if ((Get-Date) -gt $deadline) { break }
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 30
+        }
+        try { $engine.RecognizeAsyncStop() } catch {}
+        Start-Sleep -Milliseconds 350
+        try { $engine.RecognizeAsyncCancel() } catch {}
+        [System.IO.File]::WriteAllText($doneFile, '1', $utf8)
+        Remove-Item -LiteralPath $goFile -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stopFile -Force -ErrorAction SilentlyContinue
     }
-    try { $engine.RecognizeAsyncStop() } catch {}
-    Start-Sleep -Milliseconds 350
-    try { $engine.RecognizeAsyncCancel() } catch {}
     exit 0
 } catch {
     $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -106,13 +128,19 @@ SpeechInput::SpeechInput(QObject *parent) : QObject(parent) {
     m_poll = new QTimer(this);
     m_poll->setInterval(100);
     connect(m_poll, &QTimer::timeout, this, &SpeechInput::pollHeard);
+    warm();
 }
 
 SpeechInput::~SpeechInput() {
-    if (m_proc && m_proc->state() != QProcess::NotRunning) {
-        QFile stop(m_stopFile);
+    if (!m_ear.isEmpty()) {
+        QFile quit(m_ear + QStringLiteral(".quit"));
+        if (quit.open(QIODevice::WriteOnly))
+            quit.close();
+        QFile stop(m_ear + QStringLiteral(".stop"));
         if (stop.open(QIODevice::WriteOnly))
             stop.close();
+    }
+    if (m_proc && m_proc->state() != QProcess::NotRunning) {
         m_proc->waitForFinished(800);
         if (m_proc->state() != QProcess::NotRunning)
             m_proc->kill();
@@ -207,22 +235,53 @@ void SpeechInput::start() {
         });
     return;
 #elif defined(Q_OS_WIN)
+    warm();
+    if (!m_proc || m_proc->state() == QProcess::NotRunning) {
+        const QString err = m_bootError.isEmpty()
+                                ? readUtf8(m_ear + QStringLiteral(".err"))
+                                : m_bootError;
+        m_bootError.clear();
+        report(friendlySpeechError(err), false);
+        return;
+    }
+    for (const QString &suffix :
+         {QStringLiteral(".out"), QStringLiteral(".err"), QStringLiteral(".done"),
+          QStringLiteral(".stop")})
+        QFile::remove(m_ear + suffix);
+    QFile go(m_ear + QStringLiteral(".go"));
+    if (!go.open(QIODevice::WriteOnly)) {
+        report(QStringLiteral("Spracherkennung ist nicht verfügbar. Bitte tippen."), false);
+        return;
+    }
+    go.close();
+    m_listening = true;
+    emit listeningChanged(true);
+    m_poll->start();
+#else
+    report(QStringLiteral("Spracherkennung ist hier nicht verfügbar. Bitte tippen."), false);
+#endif
+}
+
+void SpeechInput::warm() {
+#if defined(Q_OS_WIN)
+    if (m_proc && m_proc->state() != QProcess::NotRunning)
+        return;
     const QString dir = tempDir();
     const QString scriptPath = dir + QStringLiteral("/listen.ps1");
     QFile script(scriptPath);
     if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        report(QStringLiteral("Spracherkennung ist nicht verfügbar. Bitte tippen."), false);
+        m_bootError = QStringLiteral("Spracherkennung ist nicht verfügbar. Bitte tippen.");
         return;
     }
     script.write("\xEF\xBB\xBF");
     script.write(kListenScript);
     script.close();
 
-    m_stopFile = dir + QStringLiteral("/stop-") +
-                 QUuid::createUuid().toString(QUuid::Id128);
-    QFile::remove(m_stopFile);
-    QFile::remove(m_stopFile + QStringLiteral(".out"));
-    QFile::remove(m_stopFile + QStringLiteral(".err"));
+    m_ear = dir + QStringLiteral("/ear-") + QUuid::createUuid().toString(QUuid::Id128);
+    for (const QString &suffix :
+         {QStringLiteral(".go"), QStringLiteral(".stop"), QStringLiteral(".out"),
+          QStringLiteral(".err"), QStringLiteral(".done"), QStringLiteral(".quit")})
+        QFile::remove(m_ear + suffix);
 
     const QString powershell =
         QFileInfo::exists(QStringLiteral(
@@ -236,17 +295,17 @@ void SpeechInput::start() {
     m_proc->setProgram(powershell);
     m_proc->setArguments({QStringLiteral("-NoProfile"), QStringLiteral("-STA"),
                           QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
-                          QStringLiteral("-File"), scriptPath, QStringLiteral("-StopFile"),
-                          m_stopFile});
+                          QStringLiteral("-File"), scriptPath, QStringLiteral("-Ear"), m_ear});
     connect(m_proc, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
-        const QString heard = readUtf8(m_stopFile + QStringLiteral(".out")).simplified();
-        const QString err = readUtf8(m_stopFile + QStringLiteral(".err"));
-        QFile::remove(m_stopFile);
-        QFile::remove(m_stopFile + QStringLiteral(".out"));
-        QFile::remove(m_stopFile + QStringLiteral(".err"));
-        m_stopFile.clear();
+        const QString heard = readUtf8(m_ear + QStringLiteral(".out")).simplified();
+        const QString err = readUtf8(m_ear + QStringLiteral(".err"));
         if (m_reported)
             return;
+        if (!m_listening) {
+            if (code != 0)
+                m_bootError = friendlySpeechError(err);
+            return;
+        }
         if (!heard.isEmpty())
             report(heard, true);
         else if (code != 0)
@@ -255,34 +314,35 @@ void SpeechInput::start() {
             report(QStringLiteral("Nichts erkannt."), false);
     });
     connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
-        if (error == QProcess::FailedToStart)
-            report(QStringLiteral("Spracherkennung ist nicht verfügbar. Bitte tippen."), false);
+        if (error != QProcess::FailedToStart)
+            return;
+        m_bootError = QStringLiteral("Spracherkennung ist nicht verfügbar. Bitte tippen.");
+        if (m_listening && !m_reported)
+            report(m_bootError, false);
     });
-
-    m_listening = true;
-    emit listeningChanged(true);
     m_proc->start();
-    m_poll->start();
 #else
-    report(QStringLiteral("Spracherkennung ist hier nicht verfügbar. Bitte tippen."), false);
+    return;
 #endif
 }
 
 void SpeechInput::pollHeard() {
 #if defined(Q_OS_WIN)
-    if (m_reported || m_stopFile.isEmpty())
+    if (m_reported || !m_listening || m_ear.isEmpty())
         return;
-    const QString err = readUtf8(m_stopFile + QStringLiteral(".err")).trimmed();
+    const QString err = readUtf8(m_ear + QStringLiteral(".err")).trimmed();
     if (!err.isEmpty()) {
         stop();
         report(friendlySpeechError(err), false);
         return;
     }
-    const QString heard = readUtf8(m_stopFile + QStringLiteral(".out")).simplified();
-    if (heard.isEmpty())
+    if (!QFile::exists(m_ear + QStringLiteral(".done")))
         return;
-    stop();
-    report(heard, true);
+    const QString heard = readUtf8(m_ear + QStringLiteral(".out")).simplified();
+    if (heard.isEmpty())
+        report(QStringLiteral("Nichts erkannt."), false);
+    else
+        report(heard, true);
 #else
     return;
 #endif
@@ -292,9 +352,9 @@ void SpeechInput::stop() {
 #if defined(Q_OS_ANDROID)
     return;
 #else
-    if (m_stopFile.isEmpty() || QFile::exists(m_stopFile))
+    if (!m_listening || m_ear.isEmpty() || QFile::exists(m_ear + QStringLiteral(".stop")))
         return;
-    QFile stop(m_stopFile);
+    QFile stop(m_ear + QStringLiteral(".stop"));
     if (stop.open(QIODevice::WriteOnly))
         stop.close();
 #endif

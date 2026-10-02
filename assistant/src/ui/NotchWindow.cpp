@@ -15,6 +15,9 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPaintEvent>
 #include <QPushButton>
 #include <QScreen>
 #include <QShowEvent>
@@ -99,6 +102,7 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint |
                    Qt::NoDropShadowWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
+    setAttribute(Qt::WA_StyledBackground, true);
     setAttribute(Qt::WA_Hover);
     setMouseTracking(true);
 
@@ -140,11 +144,7 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     layout->addWidget(m_status);
 
     setStyleSheet(QStringLiteral(
-        "QWidget#notch { background: #24262B; border: none;"
-        " border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }"
-        "QWidget#notch[resting=\"true\"] { background: #2C3036;"
-        " border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }"
-        "QWidget#notch[resting=\"true\"][listening=\"true\"] { background: #5B9DFF; }"
+        "QWidget#notch { background: transparent; border: none; }"
         "QLabel#status { color: #D5D8DE; }"
         "QLineEdit { background: #16181C; color: #F4F6F8; border: 1px solid #3A3F48;"
         " border-radius: 10px; padding: 6px 10px; selection-background-color: #5B9DFF; }"
@@ -176,6 +176,10 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
 
     m_status->installEventFilter(this);
 
+    m_holdTimer = new QTimer(this);
+    m_holdTimer->setInterval(30);
+    connect(m_holdTimer, &QTimer::timeout, this, &NotchWindow::pollHold);
+
     applyChrome();
     qApp->installNativeEventFilter(this);
     registerHotkey();
@@ -196,7 +200,7 @@ bool NotchWindow::nativeEventFilter(const QByteArray &eventType, void *message, 
         return false;
     const auto *msg = static_cast<MSG *>(message);
     if (msg->message == WM_HOTKEY && msg->wParam == kHotkeyId) {
-        QMetaObject::invokeMethod(this, [this]() { toggleSpeech(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, [this]() { beginHold(); }, Qt::QueuedConnection);
         return true;
     }
 #else
@@ -204,6 +208,23 @@ bool NotchWindow::nativeEventFilter(const QByteArray &eventType, void *message, 
     Q_UNUSED(message);
 #endif
     return false;
+}
+
+void NotchWindow::paintEvent(QPaintEvent *) {
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    if (!surfaceOpen()) {
+        painter.setBrush(m_listening ? QColor(0x5B, 0x9D, 0xFF) : QColor(0x11, 0x12, 0x14));
+        const qreal radius = height() / 2.0;
+        painter.setClipRect(rect());
+        QPainterPath path;
+        path.addRoundedRect(QRectF(0, -radius, width(), height() + radius), radius, radius);
+        painter.drawPath(path);
+        return;
+    }
+    painter.setBrush(QColor(0x24, 0x26, 0x2B));
+    painter.drawRoundedRect(QRectF(rect()), 14, 14);
 }
 
 void NotchWindow::showEvent(QShowEvent *event) {
@@ -241,26 +262,44 @@ void NotchWindow::collapse() {
 }
 
 bool NotchWindow::surfaceOpen() const {
-    return m_hovered || m_expanded || m_listening;
+    return m_hovered || m_expanded;
 }
 
 void NotchWindow::applyChrome() {
     const bool open = surfaceOpen();
+    const bool pill = !open;
+    const int pillWidth = m_listening ? 210 : 168;
+    const int pillHeight = m_listening ? 36 : 34;
+    const int markSide = open ? 22 : 18;
     m_edit->setVisible(open);
     m_gear->setVisible(open);
-    if (m_mark)
-        m_mark->setVisible(open);
+    if (m_mark) {
+        m_mark->setVisible(true);
+        m_mark->setPixmap(assistantLogoPixmap(markSide));
+        m_mark->setFixedSize(markSide, markSide);
+    }
     const bool showStatus = open && !m_status->text().isEmpty();
     m_status->setVisible(showStatus);
-    setProperty("resting", !open);
+    setProperty("resting", pill);
     setProperty("listening", m_listening);
     style()->unpolish(this);
     style()->polish(this);
-    if (!open) {
+    auto *row = qobject_cast<QHBoxLayout *>(layout()->itemAt(0)->layout());
+    if (pill) {
         layout()->setContentsMargins(0, 0, 0, 0);
-        setFixedSize(48, 2);
+        if (row) {
+            row->setStretch(1, 0);
+            const int side = qMax(0, (pillWidth - markSide) / 2);
+            const int top = qMax(0, (pillHeight - markSide) / 2);
+            row->setContentsMargins(side, top, 0, 0);
+        }
+        setFixedSize(pillWidth, pillHeight);
     } else {
         layout()->setContentsMargins(14, 2, 12, 12);
+        if (row) {
+            row->setStretch(1, 1);
+            row->setContentsMargins(12, 4, 8, 0);
+        }
         m_status->setFixedWidth(392);
         int height = 36 + m_edit->sizeHint().height();
         if (showStatus)
@@ -327,8 +366,12 @@ void NotchWindow::registerHotkey() {
     UINT mods = 0;
     UINT vk = 0;
     const QKeySequence sequence(SettingsSync::voiceHotkey(), QKeySequence::PortableText);
+    m_hotMods = 0;
+    m_hotVk = 0;
     if (!winHotkey(sequence, &mods, &vk))
         return;
+    m_hotMods = mods;
+    m_hotVk = vk;
     m_hotkey = RegisterHotKey(nullptr, kHotkeyId, mods, vk);
 #endif
 }
@@ -351,14 +394,39 @@ void NotchWindow::scheduleIdle() {
     });
 }
 
-void NotchWindow::toggleSpeech() {
+void NotchWindow::beginHold() {
     show();
-    if (!m_expanded)
-        expand();
+    if (!m_speech->listening())
+        m_speech->start();
+    if (m_holdTimer && !m_holdTimer->isActive())
+        m_holdTimer->start();
+}
+
+void NotchWindow::pollHold() {
+#if defined(Q_OS_WIN)
+    const auto down = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
+    const bool keyDown = m_hotVk != 0 && down(static_cast<int>(m_hotVk));
+    bool modsDown = true;
+    if (m_hotMods & MOD_CONTROL)
+        modsDown = modsDown && (down(VK_CONTROL) || down(VK_LCONTROL) || down(VK_RCONTROL));
+    if (m_hotMods & MOD_SHIFT)
+        modsDown = modsDown && (down(VK_SHIFT) || down(VK_LSHIFT) || down(VK_RSHIFT));
+    if (m_hotMods & MOD_ALT)
+        modsDown = modsDown && (down(VK_MENU) || down(VK_LMENU) || down(VK_RMENU));
+    if (m_hotMods & MOD_WIN)
+        modsDown = modsDown && (down(VK_LWIN) || down(VK_RWIN));
+    if (keyDown && modsDown)
+        return;
+#else
+    const bool keyDown = false;
+    const bool modsDown = false;
+    Q_UNUSED(keyDown);
+    Q_UNUSED(modsDown);
+#endif
+    if (m_holdTimer)
+        m_holdTimer->stop();
     if (m_speech->listening())
         m_speech->stop();
-    else
-        m_speech->start();
 }
 
 void NotchWindow::enterEvent(QEnterEvent *event) {
