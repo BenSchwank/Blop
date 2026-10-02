@@ -4,6 +4,8 @@
 #include "core/SettingsSync.h"
 #include "platform/SpeechInput.h"
 
+#include <atomic>
+
 #include <QApplication>
 #include <QCursor>
 #include <QEnterEvent>
@@ -37,6 +39,38 @@
 
 namespace {
 constexpr int kHotkeyId = 0xB107;
+
+#if defined(Q_OS_WIN)
+HHOOK g_holdHook = nullptr;
+std::atomic<unsigned> g_hotVk{0};
+std::atomic<unsigned> g_hotMods{0};
+std::atomic<unsigned> g_releasedVk{0};
+
+bool holdVkMatches(unsigned vk) {
+    const unsigned hotVk = g_hotVk.load();
+    const unsigned mods = g_hotMods.load();
+    if (hotVk != 0 && vk == hotVk)
+        return true;
+    if ((mods & MOD_CONTROL) && (vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL))
+        return true;
+    if ((mods & MOD_SHIFT) && (vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT))
+        return true;
+    if ((mods & MOD_ALT) && (vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU))
+        return true;
+    if ((mods & MOD_WIN) && (vk == VK_LWIN || vk == VK_RWIN))
+        return true;
+    return false;
+}
+
+LRESULT CALLBACK holdHookProc(int code, WPARAM wParam, LPARAM lParam) {
+    if (code == HC_ACTION && (wParam == WM_KEYUP || wParam == WM_SYSKEYUP)) {
+        const auto *info = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
+        if (info && holdVkMatches(info->vkCode))
+            g_releasedVk.store(info->vkCode);
+    }
+    return CallNextHookEx(g_holdHook, code, wParam, lParam);
+}
+#endif
 
 #if defined(Q_OS_WIN)
 UINT virtualKey(int key) {
@@ -183,12 +217,19 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     applyChrome();
     qApp->installNativeEventFilter(this);
     registerHotkey();
+#if defined(Q_OS_WIN)
+    g_holdHook = SetWindowsHookExW(WH_KEYBOARD_LL, holdHookProc, GetModuleHandleW(nullptr), 0);
+#endif
 }
 
 NotchWindow::~NotchWindow() {
     if (qApp)
         qApp->removeNativeEventFilter(this);
 #if defined(Q_OS_WIN)
+    if (g_holdHook) {
+        UnhookWindowsHookEx(g_holdHook);
+        g_holdHook = nullptr;
+    }
     if (m_hotkey)
         UnregisterHotKey(nullptr, kHotkeyId);
 #endif
@@ -368,10 +409,14 @@ void NotchWindow::registerHotkey() {
     const QKeySequence sequence(SettingsSync::voiceHotkey(), QKeySequence::PortableText);
     m_hotMods = 0;
     m_hotVk = 0;
+    g_hotMods.store(0);
+    g_hotVk.store(0);
     if (!winHotkey(sequence, &mods, &vk))
         return;
     m_hotMods = mods;
     m_hotVk = vk;
+    g_hotMods.store(mods);
+    g_hotVk.store(vk);
     m_hotkey = RegisterHotKey(nullptr, kHotkeyId, mods, vk);
 #endif
 }
@@ -396,14 +441,51 @@ void NotchWindow::scheduleIdle() {
 
 void NotchWindow::beginHold() {
     show();
+    m_sawHold = false;
+#if defined(Q_OS_WIN)
+    g_releasedVk.store(0);
+#endif
     if (!m_speech->listening())
         m_speech->start();
     if (m_holdTimer && !m_holdTimer->isActive())
         m_holdTimer->start();
 }
 
+void NotchWindow::finishHold() {
+    if (m_holdTimer)
+        m_holdTimer->stop();
+    if (m_speech->listening())
+        m_speech->stop();
+}
+
+void NotchWindow::releaseHoldKey(quint32 vk) {
+    if (!m_speech || !m_speech->listening())
+        return;
+#if defined(Q_OS_WIN)
+    const bool mainUp = m_hotVk != 0 && vk == m_hotVk;
+    bool modUp = false;
+    if (m_hotMods & MOD_CONTROL)
+        modUp = vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL;
+    if (m_hotMods & MOD_SHIFT)
+        modUp = modUp || vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT;
+    if (m_hotMods & MOD_ALT)
+        modUp = modUp || vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU;
+    if (m_hotMods & MOD_WIN)
+        modUp = modUp || vk == VK_LWIN || vk == VK_RWIN;
+    if (mainUp || modUp)
+        finishHold();
+#else
+    Q_UNUSED(vk);
+#endif
+}
+
 void NotchWindow::pollHold() {
 #if defined(Q_OS_WIN)
+    const unsigned released = g_releasedVk.exchange(0);
+    if (released != 0)
+        releaseHoldKey(static_cast<quint32>(released));
+    if (!m_speech->listening())
+        return;
     const auto down = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
     const bool keyDown = m_hotVk != 0 && down(static_cast<int>(m_hotVk));
     bool modsDown = true;
@@ -415,18 +497,16 @@ void NotchWindow::pollHold() {
         modsDown = modsDown && (down(VK_MENU) || down(VK_LMENU) || down(VK_RMENU));
     if (m_hotMods & MOD_WIN)
         modsDown = modsDown && (down(VK_LWIN) || down(VK_RWIN));
-    if (keyDown && modsDown)
+    if (keyDown && modsDown) {
+        m_sawHold = true;
+        return;
+    }
+    if (!m_sawHold)
         return;
 #else
-    const bool keyDown = false;
-    const bool modsDown = false;
-    Q_UNUSED(keyDown);
-    Q_UNUSED(modsDown);
+    return;
 #endif
-    if (m_holdTimer)
-        m_holdTimer->stop();
-    if (m_speech->listening())
-        m_speech->stop();
+    finishHold();
 }
 
 void NotchWindow::enterEvent(QEnterEvent *event) {

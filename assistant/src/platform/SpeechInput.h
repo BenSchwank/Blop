@@ -31,6 +31,7 @@ private:
 
     bool m_listening = false;
     bool m_reported = false;
+    int m_emptyReads = 0;
     QString m_ear;
     QString m_bootError;
     QProcess *m_proc = nullptr;

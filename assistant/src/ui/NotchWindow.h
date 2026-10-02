@@ -51,6 +51,8 @@ private:
     void setListening(bool on);
     void beginHold();
     void pollHold();
+    Q_INVOKABLE void releaseHoldKey(quint32 vk);
+    void finishHold();
     void scheduleIdle();
     bool surfaceOpen() const;
 
@@ -66,6 +68,7 @@ private:
     bool m_hovered = false;
     bool m_hotkey = false;
     bool m_listening = false;
+    bool m_sawHold = false;
     quint32 m_hotMods = 0;
     quint32 m_hotVk = 0;
     QTimer *m_holdTimer = nullptr;

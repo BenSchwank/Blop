@@ -63,14 +63,18 @@ try {
         $engine.EndSilenceTimeout = [TimeSpan]::FromMilliseconds(450)
         $engine.EndSilenceTimeoutAmbiguous = [TimeSpan]::FromMilliseconds(700)
     } catch {}
-    $utf8 = New-Object System.Text.UTF8Encoding $false
+    $script:BlopOut = $outFile
+    $script:BlopUtf8 = New-Object System.Text.UTF8Encoding $false
+    $utf8 = $script:BlopUtf8
     $engine.add_SpeechRecognized({
-        param($sender, $e)
+        $e = $null
+        if ($args.Count -gt 1) { $e = $args[1] }
+        if (-not $e -or -not $e.Result) { return }
         $text = $e.Result.Text
         if ($text) {
-            [System.IO.File]::AppendAllText($outFile, $text + [Environment]::NewLine, $utf8)
+            [System.IO.File]::AppendAllText($script:BlopOut, $text + [Environment]::NewLine, $script:BlopUtf8)
         }
-    }.GetNewClosure())
+    })
     Add-Type -AssemblyName System.Windows.Forms
     while (-not (Test-Path -LiteralPath $quitFile)) {
         while (-not (Test-Path -LiteralPath $goFile) -and -not (Test-Path -LiteralPath $quitFile)) {
@@ -95,7 +99,16 @@ try {
             Start-Sleep -Milliseconds 30
         }
         try { $engine.RecognizeAsyncStop() } catch {}
-        Start-Sleep -Milliseconds 350
+        $flushUntil = (Get-Date).AddMilliseconds(1600)
+        while ((Get-Date) -lt $flushUntil) {
+            [System.Windows.Forms.Application]::DoEvents()
+            if (Test-Path -LiteralPath $outFile) {
+                Start-Sleep -Milliseconds 150
+                [System.Windows.Forms.Application]::DoEvents()
+                break
+            }
+            Start-Sleep -Milliseconds 30
+        }
         try { $engine.RecognizeAsyncCancel() } catch {}
         [System.IO.File]::WriteAllText($doneFile, '1', $utf8)
         Remove-Item -LiteralPath $goFile -Force -ErrorAction SilentlyContinue
@@ -254,6 +267,7 @@ void SpeechInput::start() {
         return;
     }
     go.close();
+    m_emptyReads = 0;
     m_listening = true;
     emit listeningChanged(true);
     m_poll->start();
@@ -339,6 +353,10 @@ void SpeechInput::pollHeard() {
     if (!QFile::exists(m_ear + QStringLiteral(".done")))
         return;
     const QString heard = readUtf8(m_ear + QStringLiteral(".out")).simplified();
+    if (heard.isEmpty() && m_emptyReads < 6) {
+        ++m_emptyReads;
+        return;
+    }
     if (heard.isEmpty())
         report(QStringLiteral("Nichts erkannt."), false);
     else
