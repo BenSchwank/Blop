@@ -60,3 +60,17 @@ if(ANDROID)
 endif()
 
 message(STATUS "Blop Assistent: separate target BlopAssistent (not linked into Blop)")
+
+if(NOT ANDROID)
+    qt_add_executable(BlopSpeechSimTest
+        tests/speech_sim_test.cpp
+        src/platform/SpeechInput.cpp
+    )
+    target_include_directories(BlopSpeechSimTest PRIVATE src)
+    target_link_libraries(BlopSpeechSimTest PRIVATE Qt6::Core)
+    set_target_properties(BlopSpeechSimTest PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        EXCLUDE_FROM_ALL TRUE
+    )
+endif()
