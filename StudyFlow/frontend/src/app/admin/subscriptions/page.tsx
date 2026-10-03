@@ -93,11 +93,11 @@ export default function AdminSubscriptionsPage() {
     if (isAdmin === null) {
         if (bootError) {
             return (
-                <div className="min-h-screen bg-[#0B0B1A] flex flex-col items-center justify-center gap-4 p-6 text-center">
+                <div className="min-h-screen bg-[#23252A] flex flex-col items-center justify-center gap-4 p-6 text-center">
                     <p className="text-red-400 text-sm max-w-md">{bootError}</p>
                     <button
                         onClick={() => setRefresh((value) => value + 1)}
-                        className="px-4 py-2 rounded-lg bg-[#5E5CE6] text-white text-sm"
+                        className="px-4 py-2 rounded-lg bg-[#5B9DFF] text-white text-sm"
                     >
                         Erneut versuchen
                     </button>
@@ -105,17 +105,17 @@ export default function AdminSubscriptionsPage() {
             );
         }
         return (
-            <div className="min-h-screen bg-[#0B0B1A] flex items-center justify-center">
-                <Loader2 className="animate-spin text-[#5E5CE6]" size={32} />
+            <div className="min-h-screen bg-[#23252A] flex items-center justify-center">
+                <Loader2 className="animate-spin text-[#5B9DFF]" size={32} />
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-[#0B0B1A] text-white p-6 md:p-10">
+        <div className="min-h-screen bg-[#23252A] text-white p-6 md:p-10">
             <div className="max-w-6xl mx-auto">
                 <div className="flex items-center gap-3 mb-8">
-                    <div className="p-2.5 bg-[#5E5CE6]/20 rounded-xl text-[#5E5CE6]">
+                    <div className="p-2.5 bg-[#5B9DFF]/20 rounded-xl text-[#5B9DFF]">
                         <Shield size={24} />
                     </div>
                     <div>
@@ -130,7 +130,7 @@ export default function AdminSubscriptionsPage() {
                     </div>
                 )}
 
-                <div className="flex gap-2 mb-8 border-b border-[#2A2A40]">
+                <div className="flex gap-2 mb-8 border-b border-[#45484F]">
                     {[
                         { id: 'subscriptions', label: 'User-Abos', icon: Users },
                         { id: 'tiers', label: 'Tiers', icon: Layers },
@@ -141,7 +141,7 @@ export default function AdminSubscriptionsPage() {
                             onClick={() => setActiveTab(tab.id as any)}
                             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
                                 activeTab === tab.id
-                                    ? 'border-[#5E5CE6] text-[#5E5CE6]'
+                                    ? 'border-[#5B9DFF] text-[#5B9DFF]'
                                     : 'border-transparent text-gray-400 hover:text-white'
                             }`}
                         >
@@ -153,7 +153,7 @@ export default function AdminSubscriptionsPage() {
 
                 {loading ? (
                     <div className="flex items-center justify-center py-20">
-                        <Loader2 className="animate-spin text-[#5E5CE6]" size={32} />
+                        <Loader2 className="animate-spin text-[#5B9DFF]" size={32} />
                     </div>
                 ) : (
                     <>
@@ -248,12 +248,12 @@ function SubscriptionsPanel({
 
     return (
         <div className="space-y-4">
-            <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-5 space-y-4">
+            <div className="bg-[#353840] border border-[#45484F] rounded-2xl p-5 space-y-4">
                 <div className="flex flex-wrap gap-3">
                     <button
                         onClick={() => reconcileStripe(false)}
                         disabled={reconciling}
-                        className="px-4 py-2 rounded-xl bg-[#2A2A40] text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                        className="px-4 py-2 rounded-xl bg-[#45484F] text-sm font-medium flex items-center gap-2 disabled:opacity-50"
                     >
                         {reconciling ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
                         Stripe Dry Run
@@ -261,7 +261,7 @@ function SubscriptionsPanel({
                     <button
                         onClick={() => reconcileStripe(true)}
                         disabled={reconciling}
-                        className="px-4 py-2 rounded-xl bg-[#5E5CE6] text-sm font-medium disabled:opacity-50"
+                        className="px-4 py-2 rounded-xl bg-[#5B9DFF] text-sm font-medium disabled:opacity-50"
                     >
                         Eindeutige Treffer übernehmen
                     </button>
@@ -271,13 +271,13 @@ function SubscriptionsPanel({
                         value={repairUsername}
                         onChange={(event) => setRepairUsername(event.target.value)}
                         placeholder="Username"
-                        className="bg-[#0B0B1A] border border-[#2A2A40] rounded-xl px-3 py-2 text-sm"
+                        className="bg-[#23252A] border border-[#45484F] rounded-xl px-3 py-2 text-sm"
                     />
                     <input
                         value={repairSubscriptionId}
                         onChange={(event) => setRepairSubscriptionId(event.target.value)}
                         placeholder="sub_... (nur Notfall)"
-                        className="bg-[#0B0B1A] border border-[#2A2A40] rounded-xl px-3 py-2 text-sm"
+                        className="bg-[#23252A] border border-[#45484F] rounded-xl px-3 py-2 text-sm"
                     />
                     <button
                         onClick={repairStripe}
@@ -297,13 +297,13 @@ function SubscriptionsPanel({
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="User suchen..."
-                    className="w-full md:w-80 bg-[#151525] border border-[#2A2A40] rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#5E5CE6]"
+                    className="w-full md:w-80 bg-[#353840] border border-[#45484F] rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#5B9DFF]"
                 />
             </div>
 
-            <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl overflow-hidden">
+            <div className="bg-[#353840] border border-[#45484F] rounded-2xl overflow-hidden">
                 <table className="w-full text-sm">
-                    <thead className="bg-[#1C1C33] text-gray-400">
+                    <thead className="bg-[#3A3D45] text-gray-400">
                         <tr>
                             <th className="text-left px-4 py-3 font-medium">User</th>
                             <th className="text-left px-4 py-3 font-medium">Tier</th>
@@ -313,12 +313,12 @@ function SubscriptionsPanel({
                             <th className="text-right px-4 py-3 font-medium">Aktion</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#2A2A40]">
+                    <tbody className="divide-y divide-[#45484F]">
                         {filtered.map((sub) => (
-                            <tr key={sub.username} className="hover:bg-[#1C1C33]/50">
+                            <tr key={sub.username} className="hover:bg-[#3A3D45]/50">
                                 <td className="px-4 py-3 font-medium">{sub.username}</td>
                                 <td className="px-4 py-3">
-                                    <span className="px-2 py-1 rounded-md bg-[#2A2A40] text-xs">{sub.tier}</span>
+                                    <span className="px-2 py-1 rounded-md bg-[#45484F] text-xs">{sub.tier}</span>
                                 </td>
                                 <td className="px-4 py-3">{sub.status}</td>
                                 <td className="px-4 py-3">{sub.provider}</td>
@@ -330,7 +330,7 @@ function SubscriptionsPanel({
                                 <td className="px-4 py-3 text-right">
                                     <button
                                         onClick={() => setEditing(sub)}
-                                        className="text-[#5E5CE6] hover:text-white text-sm font-medium"
+                                        className="text-[#5B9DFF] hover:text-white text-sm font-medium"
                                     >
                                         Bearbeiten
                                     </button>
@@ -378,7 +378,7 @@ function EditSubscriptionDialog({
             <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-6 w-full max-w-md"
+                className="bg-[#353840] border border-[#45484F] rounded-2xl p-6 w-full max-w-md"
             >
                 <h3 className="text-lg font-bold mb-4">Abo bearbeiten: {subscription.username}</h3>
                 <div className="space-y-4">
@@ -387,7 +387,7 @@ function EditSubscriptionDialog({
                         <select
                             value={tier}
                             onChange={(e) => setTier(e.target.value)}
-                            className="w-full bg-[#0B0B1A] border border-[#2A2A40] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#5E5CE6]"
+                            className="w-full bg-[#23252A] border border-[#45484F] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#5B9DFF]"
                         >
                             {tiers.map((t) => (
                                 <option key={t.name} value={t.name}>
@@ -403,21 +403,21 @@ function EditSubscriptionDialog({
                             min={1}
                             value={months}
                             onChange={(e) => setMonths(parseInt(e.target.value || '1', 10))}
-                            className="w-full bg-[#0B0B1A] border border-[#2A2A40] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#5E5CE6]"
+                            className="w-full bg-[#23252A] border border-[#45484F] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#5B9DFF]"
                         />
                     </div>
                 </div>
                 <div className="flex gap-3 mt-6">
                     <button
                         onClick={onClose}
-                        className="flex-1 py-2.5 rounded-xl border border-[#2A2A40] text-sm font-medium text-gray-300 hover:bg-[#2A2A40]"
+                        className="flex-1 py-2.5 rounded-xl border border-[#45484F] text-sm font-medium text-gray-300 hover:bg-[#45484F]"
                     >
                         Abbrechen
                     </button>
                     <button
                         onClick={() => onSave(months, tier)}
                         disabled={saving}
-                        className="flex-1 py-2.5 rounded-xl bg-[#5E5CE6] text-sm font-medium text-white hover:bg-[#4d4ac9] disabled:opacity-50 flex items-center justify-center gap-2"
+                        className="flex-1 py-2.5 rounded-xl bg-[#5B9DFF] text-sm font-medium text-white hover:bg-[#4A8AE6] disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                         {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                         Speichern
@@ -439,7 +439,7 @@ function TiersPanel({ tiers, onRefresh, onError }: { tiers: Tier[]; onRefresh: (
             <div className="flex justify-end">
                 <button
                     onClick={() => setIsCreating(true)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#5E5CE6] text-sm font-medium text-white hover:bg-[#4d4ac9]"
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#5B9DFF] text-sm font-medium text-white hover:bg-[#4A8AE6]"
                 >
                     <Plus size={16} />
                     Neues Tier
@@ -448,7 +448,7 @@ function TiersPanel({ tiers, onRefresh, onError }: { tiers: Tier[]; onRefresh: (
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {tiers.map((tier) => (
-                    <div key={tier.name} className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-5">
+                    <div key={tier.name} className="bg-[#353840] border border-[#45484F] rounded-2xl p-5">
                         <div className="flex justify-between items-start mb-4">
                             <div>
                                 <h3 className="font-bold text-lg">{tier.display_name}</h3>
@@ -457,7 +457,7 @@ function TiersPanel({ tiers, onRefresh, onError }: { tiers: Tier[]; onRefresh: (
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => setEditing(tier)}
-                                    className="p-2 rounded-lg hover:bg-[#2A2A40] text-gray-400 hover:text-white"
+                                    className="p-2 rounded-lg hover:bg-[#45484F] text-gray-400 hover:text-white"
                                     title="Bearbeiten"
                                 >
                                     <Pencil size={16} />
@@ -515,12 +515,12 @@ function DeleteTierButton({ tierName, onRefresh, onError }: { tierName: string; 
     if (confirming) {
         return (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-6 max-w-sm w-full">
+                <div className="bg-[#353840] border border-[#45484F] rounded-2xl p-6 max-w-sm w-full">
                     <p className="text-sm text-gray-300 mb-4">
                         Tier <strong>{tierName}</strong> wirklich löschen? Alle betroffenen User werden auf das Default-Tier zurückgesetzt.
                     </p>
                     <div className="flex gap-3">
-                        <button onClick={() => setConfirming(false)} className="flex-1 py-2 rounded-xl border border-[#2A2A40] text-sm">Abbrechen</button>
+                        <button onClick={() => setConfirming(false)} className="flex-1 py-2 rounded-xl border border-[#45484F] text-sm">Abbrechen</button>
                         <button onClick={doDelete} disabled={deleting} className="flex-1 py-2 rounded-xl bg-red-500 text-sm text-white flex items-center justify-center gap-2">
                             {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
                             Löschen
@@ -588,7 +588,7 @@ function EditTierDialog({
             <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-6 w-full max-w-lg"
+                className="bg-[#353840] border border-[#45484F] rounded-2xl p-6 w-full max-w-lg"
             >
                 <h3 className="text-lg font-bold mb-4">{isCreating ? 'Neues Tier' : `Tier bearbeiten: ${tier?.display_name}`}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -603,7 +603,7 @@ function EditTierDialog({
                                 type="checkbox"
                                 checked={form.is_admin_only}
                                 onChange={(e) => setForm({ ...form, is_admin_only: e.target.checked })}
-                                className="rounded border-[#2A2A40] bg-[#0B0B1A] text-[#5E5CE6] focus:ring-0"
+                                className="rounded border-[#45484F] bg-[#23252A] text-[#5B9DFF] focus:ring-0"
                             />
                             Nur Admin kann vergeben
                         </label>
@@ -612,20 +612,20 @@ function EditTierDialog({
                                 type="checkbox"
                                 checked={form.is_default}
                                 onChange={(e) => setForm({ ...form, is_default: e.target.checked })}
-                                className="rounded border-[#2A2A40] bg-[#0B0B1A] text-[#5E5CE6] focus:ring-0"
+                                className="rounded border-[#45484F] bg-[#23252A] text-[#5B9DFF] focus:ring-0"
                             />
                             Default-Tier für neue User
                         </label>
                     </div>
                 </div>
                 <div className="flex gap-3 mt-6">
-                    <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-[#2A2A40] text-sm font-medium text-gray-300 hover:bg-[#2A2A40]">
+                    <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-[#45484F] text-sm font-medium text-gray-300 hover:bg-[#45484F]">
                         Abbrechen
                     </button>
                     <button
                         onClick={save}
                         disabled={saving}
-                        className="flex-1 py-2.5 rounded-xl bg-[#5E5CE6] text-sm font-medium text-white hover:bg-[#4d4ac9] disabled:opacity-50 flex items-center justify-center gap-2"
+                        className="flex-1 py-2.5 rounded-xl bg-[#5B9DFF] text-sm font-medium text-white hover:bg-[#4A8AE6] disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                         {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                         Speichern
@@ -645,7 +645,7 @@ function Field({ label, value, onChange, disabled = false }: { label: string; va
                 value={value}
                 disabled={disabled}
                 onChange={(e) => onChange(e.target.value)}
-                className="w-full bg-[#0B0B1A] border border-[#2A2A40] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#5E5CE6] disabled:opacity-50"
+                className="w-full bg-[#23252A] border border-[#45484F] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#5B9DFF] disabled:opacity-50"
             />
         </div>
     );
@@ -659,7 +659,7 @@ function NumberField({ label, value, onChange, integer = false }: { label: strin
                 type="number"
                 value={value}
                 onChange={(e) => onChange(integer ? parseInt(e.target.value || '0', 10) : parseFloat(e.target.value || '0'))}
-                className="w-full bg-[#0B0B1A] border border-[#2A2A40] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#5E5CE6]"
+                className="w-full bg-[#23252A] border border-[#45484F] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#5B9DFF]"
             />
         </div>
     );
@@ -693,7 +693,7 @@ function FeaturesPanel({ tiers, onRefresh, onError }: { tiers: Tier[]; onRefresh
                 <select
                     value={selectedTier}
                     onChange={(e) => setSelectedTier(e.target.value)}
-                    className="bg-[#151525] border border-[#2A2A40] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#5E5CE6]"
+                    className="bg-[#353840] border border-[#45484F] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#5B9DFF]"
                 >
                     {tiers.map((t) => (
                         <option key={t.name} value={t.name}>
@@ -704,19 +704,19 @@ function FeaturesPanel({ tiers, onRefresh, onError }: { tiers: Tier[]; onRefresh
             </div>
 
             {currentTier && (
-                <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl overflow-hidden">
+                <div className="bg-[#353840] border border-[#45484F] rounded-2xl overflow-hidden">
                     <table className="w-full text-sm">
-                        <thead className="bg-[#1C1C33] text-gray-400">
+                        <thead className="bg-[#3A3D45] text-gray-400">
                             <tr>
                                 <th className="text-left px-4 py-3 font-medium">Feature</th>
                                 <th className="text-right px-4 py-3 font-medium">Erlaubt</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#2A2A40]">
+                        <tbody className="divide-y divide-[#45484F]">
                             {ALL_FEATURES.map((key) => {
                                 const allowed = currentTier.features[key] ?? false;
                                 return (
-                                    <tr key={key} className="hover:bg-[#1C1C33]/50">
+                                    <tr key={key} className="hover:bg-[#3A3D45]/50">
                                         <td className="px-4 py-3">{FEATURE_LABELS[key]}</td>
                                         <td className="px-4 py-3 text-right">
                                             <button

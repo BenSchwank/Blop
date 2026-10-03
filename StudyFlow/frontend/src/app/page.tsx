@@ -35,12 +35,12 @@ function FolderCardMenu({ onRename, onDelete }: { onRename: (e: React.MouseEvent
           e.stopPropagation();
           setOpen((value) => !value);
         }}
-        className="min-h-10 min-w-10 flex items-center justify-center text-gray-300 hover:text-white rounded-lg hover:bg-[#2A2A40]"
+        className="min-h-10 min-w-10 flex items-center justify-center text-gray-300 hover:text-white rounded-lg hover:bg-[#45484F]"
       >
         <MoreVertical size={18} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-44 bg-[#0B0B1A] border border-[#2A2A40] rounded-xl shadow-2xl overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 w-44 bg-[#23252A] border border-[#45484F] rounded-[10px] shadow-2xl overflow-hidden">
           <button
             type="button"
             onClick={(e) => {
@@ -48,7 +48,7 @@ function FolderCardMenu({ onRename, onDelete }: { onRename: (e: React.MouseEvent
               setOpen(false);
               onRename(e);
             }}
-            className="w-full min-h-10 flex items-center gap-2 px-4 text-sm text-gray-200 hover:bg-[#1C1C33]"
+            className="w-full min-h-10 flex items-center gap-2 px-4 text-sm text-gray-200 hover:bg-[#3A3D45]"
           >
             <Edit size={15} />
             Umbenennen
@@ -60,7 +60,7 @@ function FolderCardMenu({ onRename, onDelete }: { onRename: (e: React.MouseEvent
               setOpen(false);
               onDelete(e);
             }}
-            className="w-full min-h-10 flex items-center gap-2 px-4 text-sm text-red-400 hover:bg-[#1C1C33]"
+            className="w-full min-h-10 flex items-center gap-2 px-4 text-sm text-red-400 hover:bg-[#3A3D45]"
           >
             <Trash2 size={15} />
             Löschen
@@ -98,14 +98,14 @@ function DraggableFolder({ folder, onClick, onRename, onDelete }: { folder: Fold
       {...attributes}
       {...listeners}
       onClick={onClick}
-      className={`group relative bg-[#151525] border rounded-[18px] p-5 transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center gap-3 min-h-[150px] text-center
-        ${isOver ? 'border-[#5E5CE6] bg-[#1C1C33] shadow-lg shadow-[#5E5CE6]/20 scale-105' : 'border-[#2A2A40] hover:bg-[#1C1C33] hover:border-[#5E5CE6]/50 hover:shadow-lg hover:shadow-[#5E5CE6]/10'}
+      className={`group relative bg-[#353840] border rounded-[10px] p-5 transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center gap-3 min-h-[150px] text-center
+        ${isOver ? 'border-[#5B9DFF] bg-[#3A3D45] shadow-lg shadow-[#5B9DFF]/20 scale-105' : 'border-[#45484F] hover:bg-[#3A3D45] hover:border-[#5B9DFF]/50 hover:shadow-lg hover:shadow-[#5B9DFF]/10'}
       `}
     >
       <FolderCardMenu onRename={onRename} onDelete={onDelete} />
 
-      <div className="p-3.5 bg-[#0B0B1A] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
-        <Folder size={40} className="text-gray-400 group-hover:text-[#5E5CE6] transition-colors" fill="currentColor" fillOpacity={isOver ? 0.3 : 0.1} />
+      <div className="p-3.5 bg-[#23252A] group-hover:bg-[#5B9DFF]/10 rounded-full transition-colors duration-300">
+        <Folder size={40} className="text-gray-400 group-hover:text-[#5B9DFF] transition-colors" fill="currentColor" fillOpacity={isOver ? 0.3 : 0.1} />
       </div>
 
       <div className="w-full px-2">
@@ -361,27 +361,37 @@ export default function Dashboard() {
   // Show a blank/loading screen while auth is being checked (prevents flash)
   if (!authChecked) {
     return (
-      <div className="bg-[#0B0B1A] min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#5E5CE6] border-t-transparent rounded-full animate-spin" />
+      <div className="bg-[#23252A] min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#5B9DFF] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 11 ? 'Guten Morgen' : hour < 18 ? 'Guten Tag' : 'Guten Abend';
+  const dateLine = new Intl.DateTimeFormat('de-DE', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date());
+  const folderCount = filteredFolders.length;
+
   return (
-    <div className="bg-[#0B0B1A] min-h-screen relative">
+    <div className="bg-[#23252A] min-h-screen relative">
       {/* Main Container - Professional Width */}
       <div className="mx-auto w-full max-w-[1400px] px-4 py-6 md:px-8 md:py-12 xl:px-10">
 
-        {/* Header */}
-        <div className="mb-9 flex items-center justify-between min-w-0">
-          <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2 break-words">
-              Willkommen zurück! 👋
-            </h1>
-            <p className="text-base text-gray-400">
-              Bereit zum Lernen? Hier sind deine Ordner.
-            </p>
-          </div>
+        {/* Header — Notes-style greeting desk */}
+        <div className="mb-8 min-w-0">
+          <h1 className="text-[28px] sm:text-[30px] font-bold text-[#F4F5F7] tracking-tight mb-1.5 break-words">
+            {greeting}
+          </h1>
+          <p className="text-[13px] text-[#B8BEC9] font-normal">
+            {dateLine}
+            <span className="mx-1.5 opacity-50">·</span>
+            {folderCount === 1 ? '1 Ordner' : `${folderCount} Ordner`}
+          </p>
         </div>
 
         {/* Search Bar & Actions Row - GRID LAYOUT */}
@@ -398,7 +408,7 @@ export default function Dashboard() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{ paddingLeft: '68px' }} // Force padding to ensure icon doesn't overlap
-              className="w-full h-full pr-4 bg-[#151525] text-white text-sm rounded-xl border border-[#2A2A40] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
+              className="w-full h-full pr-4 bg-[#353840] text-white text-sm rounded-[10px] border border-[#45484F] focus:border-[#5B9DFF] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
             />
           </div>
 
@@ -406,7 +416,7 @@ export default function Dashboard() {
           <div className="flex flex-col sm:flex-row gap-3 xl:justify-end h-full">
             <button
               onClick={() => setIsSummaryOpen(true)}
-              className="h-10 sm:h-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-4 sm:px-6 rounded-xl text-[13px] sm:text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all shadow-md min-w-[120px] sm:min-w-[140px]"
+              className="h-10 sm:h-full flex items-center justify-center gap-2 bg-[#5B9DFF] hover:bg-[#7EB2FF] text-white px-4 sm:px-5 rounded-[10px] text-[13px] sm:text-sm font-semibold transition-all min-w-[120px] sm:min-w-[140px]"
             >
               <Sparkles size={18} />
               <span>AI-Summary</span>
@@ -414,7 +424,7 @@ export default function Dashboard() {
 
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="h-10 sm:h-full flex items-center justify-center gap-2 bg-[#151525] hover:bg-[#1C1C33] text-white px-4 sm:px-6 rounded-xl text-[13px] sm:text-sm font-semibold border border-[#2A2A40] transition-all shadow-md min-w-[120px] sm:min-w-[140px]"
+              className="h-10 sm:h-full flex items-center justify-center gap-2 bg-[#353840] hover:bg-[#3A3D45] text-[#F4F5F7] px-4 sm:px-5 rounded-[10px] text-[13px] sm:text-sm font-semibold border border-white/10 transition-all min-w-[120px] sm:min-w-[140px]"
             >
               <Folder size={18} />
               <span>Neuer Ordner</span>
@@ -430,10 +440,10 @@ export default function Dashboard() {
 
           {loading ? (
             <div className="flex justify-center py-20">
-              <Loader2 className="animate-spin text-[#5E5CE6]" size={32} />
+              <Loader2 className="animate-spin text-[#5B9DFF]" size={32} />
             </div>
           ) : error ? (
-            <div className="bg-[#151525] border border-red-500/30 rounded-2xl p-10 text-center">
+            <div className="bg-[#353840] border border-red-500/30 rounded-[10px] p-10 text-center">
               <div className="text-red-400 font-semibold mb-2">{error}</div>
               <p className="text-gray-500 text-sm mb-4">Prüfe die Render-URL in den Vercel Settings.</p>
               <button onClick={fetchFolders} className="text-sm bg-red-500/10 text-red-400 px-4 py-2 rounded-lg hover:bg-red-500/20 transition-colors">
@@ -442,9 +452,9 @@ export default function Dashboard() {
             </div>
           ) : folders.length === 0 ? (
             /* Empty State */
-            <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-12 text-center border-dashed">
+            <div className="bg-[#353840] border border-[#45484F] rounded-[10px] p-12 text-center border-dashed">
               <div className="flex justify-center mb-4">
-                <div className="w-12 h-12 bg-[#0B0B1A] rounded-xl flex items-center justify-center border border-[#2A2A40] shadow-inner">
+                <div className="w-12 h-12 bg-[#23252A] rounded-[10px] flex items-center justify-center border border-[#45484F] shadow-inner">
                   <FolderOpen size={24} className="text-gray-500" />
                 </div>
               </div>
@@ -459,7 +469,7 @@ export default function Dashboard() {
 
               <button
                 onClick={() => setIsCreateOpen(true)}
-                className="inline-flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] text-white px-4 py-2 rounded-lg text-sm font-medium transition-all border border-[#2A2A40]"
+                className="inline-flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] text-white px-4 py-2 rounded-lg text-sm font-medium transition-all border border-[#45484F]"
               >
                 <Plus size={16} />
                 <span>Ordner erstellen</span>
@@ -495,9 +505,9 @@ export default function Dashboard() {
 
                 <DragOverlay dropAnimation={{ duration: 250, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
                   {activeDragFolder ? (
-                    <div className="bg-[#1C1C33] border border-[#5E5CE6] rounded-[18px] p-5 shadow-2xl flex flex-col items-center justify-center gap-3 min-h-[150px] text-center opacity-90 scale-105">
-                      <div className="p-3.5 bg-[#0B0B1A] rounded-full">
-                        <Folder size={40} className="text-[#5E5CE6]" fill="currentColor" fillOpacity={0.2} />
+                    <div className="bg-[#3A3D45] border border-[#5B9DFF] rounded-[10px] p-5 shadow-2xl flex flex-col items-center justify-center gap-3 min-h-[150px] text-center opacity-90 scale-105">
+                      <div className="p-3.5 bg-[#23252A] rounded-full">
+                        <Folder size={40} className="text-[#5B9DFF]" fill="currentColor" fillOpacity={0.2} />
                       </div>
                       <div className="w-full px-2">
                         <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{activeDragFolder.name}</h3>
@@ -519,7 +529,7 @@ export default function Dashboard() {
                       exit={{ opacity: 0, scale: 0.9, y: 10 }}
                       transition={{ duration: 0.2, type: "spring", bounce: 0.3 }}
                       onClick={() => router.push(`/folder/${folder.id}`)}
-                      className="group relative bg-[#151525] border rounded-[18px] p-5 transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center gap-3 min-h-[150px] text-center border-[#2A2A40] hover:bg-[#1C1C33] hover:border-[#5E5CE6]/50 hover:shadow-lg hover:shadow-[#5E5CE6]/10"
+                      className="group relative bg-[#353840] border rounded-[10px] p-5 transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center gap-3 min-h-[150px] text-center border-[#45484F] hover:bg-[#3A3D45] hover:border-[#5B9DFF]/50 hover:shadow-lg hover:shadow-[#5B9DFF]/10"
                     >
                       <FolderCardMenu
                         onRename={(e) => {
@@ -530,8 +540,8 @@ export default function Dashboard() {
                         }}
                         onDelete={(e) => handleDeleteFolder(folder.id, e)}
                       />
-                      <div className="p-3.5 bg-[#0B0B1A] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
-                        <Folder size={40} className="text-gray-400 group-hover:text-[#5E5CE6] transition-colors" fill="currentColor" fillOpacity={0.1} />
+                      <div className="p-3.5 bg-[#23252A] group-hover:bg-[#5B9DFF]/10 rounded-full transition-colors duration-300">
+                        <Folder size={40} className="text-gray-400 group-hover:text-[#5B9DFF] transition-colors" fill="currentColor" fillOpacity={0.1} />
                       </div>
                       <div className="w-full px-2">
                         <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{folder.name}</h3>
@@ -550,7 +560,7 @@ export default function Dashboard() {
       {/* Create Folder Modal */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-[#1e1e1e] border border-[#333] rounded-xl w-full max-w-sm p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+          <div className="bg-[#1A1916] border border-[#333] rounded-[10px] w-full max-w-sm p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-white">Neuer Ordner</h3>
               <button onClick={() => setIsCreateOpen(false)} className="text-gray-400 hover:text-white">
@@ -565,7 +575,7 @@ export default function Dashboard() {
                 placeholder="Name des Ordners..."
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
-                className="w-full bg-[#252526] border border-[#333] text-white rounded-lg px-4 py-2.5 mb-4 focus:ring-2 focus:ring-[#5E5CE6] focus:border-transparent outline-none placeholder:text-gray-500"
+                className="w-full bg-[#252526] border border-[#333] text-white rounded-lg px-4 py-2.5 mb-4 focus:ring-2 focus:ring-[#5B9DFF] focus:border-transparent outline-none placeholder:text-gray-500"
               />
 
               <div className="flex justify-end gap-2">
@@ -579,7 +589,7 @@ export default function Dashboard() {
                 <button
                   type="submit"
                   disabled={!newFolderName.trim() || isCreating}
-                  className="px-4 py-2 text-sm font-medium bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="px-4 py-2 text-sm font-medium bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {isCreating && <Loader2 size={14} className="animate-spin" />}
                   Erstellen
@@ -593,7 +603,7 @@ export default function Dashboard() {
       {/* Rename Folder Modal */}
       {isRenameOpen && folderToRename && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-[#1e1e1e] border border-[#333] rounded-xl w-full max-w-sm p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+          <div className="bg-[#1A1916] border border-[#333] rounded-[10px] w-full max-w-sm p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-white">Ordner umbenennen</h3>
               <button
@@ -614,7 +624,7 @@ export default function Dashboard() {
                 placeholder="Neuer Name..."
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
-                className="w-full bg-[#252526] border border-[#333] text-white rounded-lg px-4 py-2.5 mb-4 focus:ring-2 focus:ring-[#5E5CE6] focus:border-transparent outline-none placeholder:text-gray-500"
+                className="w-full bg-[#252526] border border-[#333] text-white rounded-lg px-4 py-2.5 mb-4 focus:ring-2 focus:ring-[#5B9DFF] focus:border-transparent outline-none placeholder:text-gray-500"
               />
 
               <div className="flex justify-end gap-2">
@@ -631,7 +641,7 @@ export default function Dashboard() {
                 <button
                   type="submit"
                   disabled={!renameValue.trim() || isRenaming || renameValue === folderToRename.name}
-                  className="px-4 py-2 text-sm font-medium bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="px-4 py-2 text-sm font-medium bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {isRenaming && <Loader2 size={14} className="animate-spin" />}
                   Speichern
@@ -645,7 +655,7 @@ export default function Dashboard() {
       {/* Selection Modal for AI-Summary */}
       {isSummaryOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl p-6 transform scale-100 transition-all">
+          <div className="bg-[#1A1916] border border-[#333] rounded-[10px] w-full max-w-md shadow-2xl p-6 transform scale-100 transition-all">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-white">Wähle einen Ordner</h2>
               <button onClick={() => setIsSummaryOpen(false)} className="text-gray-400 hover:text-white transition-colors">
@@ -661,10 +671,10 @@ export default function Dashboard() {
                   <button
                     key={folder.id}
                     onClick={() => handleFolderSelect(folder.id)}
-                    className="flex items-center gap-3 p-3 rounded-xl hover:bg-[#252526] border border-transparent hover:border-[#333] transition-all text-left group"
+                    className="flex items-center gap-3 p-3 rounded-[10px] hover:bg-[#252526] border border-transparent hover:border-[#333] transition-all text-left group"
                   >
                     <div className="p-2 bg-[#252526] group-hover:bg-[#333] rounded-lg transition-colors">
-                      <FolderOpen size={20} className="text-[#5E5CE6]" />
+                      <FolderOpen size={20} className="text-[#5B9DFF]" />
                     </div>
                     <span className="text-gray-200 font-medium">{folder.name}</span>
                   </button>

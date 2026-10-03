@@ -71,9 +71,9 @@ export default function GlobalQueueStatus() {
                     aria-expanded={expanded}
                     aria-label="Globale Warteschlange"
                     title={`${queue.active.length} laufend · ${queue.recent.length} zuletzt`}
-                    className="flex flex-col items-center gap-1 rounded-lg px-1.5 py-2 text-white hover:bg-[#151525] transition-colors"
+                    className="flex flex-col items-center gap-1 rounded-lg px-1.5 py-2 text-white hover:bg-[#353840] transition-colors"
                 >
-                    <ListTodo size={18} className="text-[#5E5CE6] shrink-0" />
+                    <ListTodo size={18} className="text-[#5B9DFF] shrink-0" />
                     <span className="text-[9px] text-gray-300 tabular-nums leading-tight text-center px-0.5">
                         {queue.active.length} / {queue.recent.length}
                     </span>
@@ -96,7 +96,7 @@ export default function GlobalQueueStatus() {
                             {queue.active.map((job) => (
                                 <li
                                     key={job.id}
-                                    className="flex items-center gap-1 rounded-lg border border-[#2A2A40] bg-[#151525] px-2 py-2 text-sm text-gray-200"
+                                    className="flex items-center gap-1 rounded-lg border border-[#45484F] bg-[#353840] px-2 py-2 text-sm text-gray-200"
                                 >
                                     <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
                                     <span className="truncate flex-1 min-w-0">{job.label}</span>
@@ -131,7 +131,7 @@ export default function GlobalQueueStatus() {
                                             aria-label="Eintrag entfernen"
                                             title="Entfernen"
                                             onClick={() => dismissRecentJobById(job.id)}
-                                            className="p-1 rounded text-gray-500 hover:bg-[#1C1C33] hover:text-gray-300 shrink-0"
+                                            className="p-1 rounded text-gray-500 hover:bg-[#3A3D45] hover:text-gray-300 shrink-0"
                                         >
                                             <X size={12} />
                                         </button>

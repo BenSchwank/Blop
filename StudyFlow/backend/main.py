@@ -4045,16 +4045,30 @@ def tts_preview(request: TtsPreviewRequest):
         voice = (request.voice or "alloy").strip().lower()
         text = (request.text or "").strip()
         instructions = None
-        from podcast_dialogue import ALEX_STYLE, PODCAST_VOICES, SAM_STYLE
+        from podcast_dialogue import (
+            PODCAST_VOICES,
+            spoken_podcast_line,
+            style_for_voice,
+            tts_instructions_for_turn,
+        )
+        instructions = None
         if voice in PODCAST_VOICES:
-            instructions = ALEX_STYLE if voice in {"aoede", "leda", "zephyr"} else SAM_STYLE
+            speaker = "ALEX" if voice in {"aoede", "leda", "zephyr"} else "SAM"
             if not text:
-                text = "Warte mal, das heißt also, man merkt sich das am besten an einem kleinen Beispiel. Soll ich das nochmal anders erklären?"
-        elif not text:
-            text = (
-                "Hallo, das ist eine kurze Stimmprobe. "
-                "So klingt diese Stimme in Blop Study."
-            )
+                text = (
+                    "Warte mal… [lacht leise] also genau, man merkt sich das am besten "
+                    "an einem kleinen Beispiel aus dem Alltag. "
+                    "Soll ich das nochmal ganz einfach erklären?"
+                )
+            instructions = tts_instructions_for_turn(speaker, voice, text)
+            text = spoken_podcast_line(text)
+        else:
+            if not text:
+                text = (
+                    "Hallo, das ist eine kurze Stimmprobe. "
+                    "So klingt diese Stimme in Blop Study."
+                )
+            instructions = style_for_voice(voice, "ALEX")
         mp3 = openai_tts_speech_mp3(text, voice=voice, instructions=instructions)
         return Response(content=mp3, media_type="audio/mpeg")
     except HTTPException:

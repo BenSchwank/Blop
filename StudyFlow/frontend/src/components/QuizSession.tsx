@@ -51,14 +51,14 @@ export default function QuizSession({ questions }: Props) {
         const pct = Math.round((100 * correctCount) / items.length);
         return (
             <div className="max-w-xl mx-auto space-y-6 pb-12">
-                <div className="rounded-2xl border border-[#2A2A40] bg-[#151525] p-8 text-center">
+                <div className="rounded-2xl border border-[#45484F] bg-[#353840] p-8 text-center">
                     <p className="text-xs uppercase tracking-widest text-[#8B89F0] mb-2">Ergebnis</p>
                     <p className="text-5xl font-semibold text-white mb-2">{pct}%</p>
                     <p className="text-sm text-gray-400">
                         {correctCount} richtig · {wrongCount} falsch · {items.length} Fragen
                     </p>
-                    <div className="mt-6 h-2 rounded-full bg-[#0B0B1A] overflow-hidden border border-[#2A2A40]">
-                        <div className="h-full bg-[#5E5CE6] transition-all" style={{ width: `${pct}%` }} />
+                    <div className="mt-6 h-2 rounded-full bg-[#23252A] overflow-hidden border border-[#45484F]">
+                        <div className="h-full bg-[#5B9DFF] transition-all" style={{ width: `${pct}%` }} />
                     </div>
                 </div>
                 <div className="flex flex-wrap gap-3 justify-center">
@@ -86,7 +86,7 @@ export default function QuizSession({ questions }: Props) {
                             setSelected(null);
                             setPhase("question");
                         }}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#5E5CE6] text-white text-sm font-semibold hover:bg-[#4d4ac9]"
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#5B9DFF] text-white text-sm font-semibold hover:bg-[#4A8AE6]"
                     >
                         Nochmal von vorn
                     </button>
@@ -138,19 +138,19 @@ export default function QuizSession({ questions }: Props) {
                 </span>
                 <span>{progress}%</span>
             </div>
-            <div className="h-1.5 rounded-full bg-[#0B0B1A] border border-[#2A2A40] overflow-hidden">
-                <div className="h-full bg-[#5E5CE6] transition-all duration-300" style={{ width: `${((index) / Math.max(total, 1)) * 100}%` }} />
+            <div className="h-1.5 rounded-full bg-[#23252A] border border-[#45484F] overflow-hidden">
+                <div className="h-full bg-[#5B9DFF] transition-all duration-300" style={{ width: `${((index) / Math.max(total, 1)) * 100}%` }} />
             </div>
 
-            <div className="rounded-2xl border border-[#2A2A40] bg-[#151525] p-6 shadow-md">
+            <div className="rounded-2xl border border-[#45484F] bg-[#353840] p-6 shadow-md">
                 <p className="text-lg font-medium text-white leading-relaxed mb-5">{q.question}</p>
                 <div className="space-y-3">
                     {options.map((opt, idx) => {
                         const isSelected = selected === opt;
                         const isCorrect = opt === q.answer;
-                        let styles = "border-[#3B3B55] hover:bg-[#1C1C33] cursor-pointer text-gray-300";
+                        let styles = "border-[#4A4E58] hover:bg-[#3A3D45] cursor-pointer text-gray-300";
                         if (revealed) {
-                            styles = "border-[#2A2A40] opacity-60 cursor-default";
+                            styles = "border-[#45484F] opacity-60 cursor-default";
                             if (isCorrect) styles = "border-green-500/50 bg-green-500/10 text-green-400 font-medium opacity-100";
                             if (isSelected && !isCorrect) styles = "border-red-500/50 bg-red-500/10 text-red-400 font-medium opacity-100";
                         }
@@ -174,7 +174,7 @@ export default function QuizSession({ questions }: Props) {
                 {revealed ? (
                     <div className="mt-5 space-y-4">
                         {q.explanation ? (
-                            <div className="rounded-xl border border-[#2A2A40] bg-[#0B0B1A] px-4 py-3 text-sm text-gray-300 leading-relaxed">
+                            <div className="rounded-xl border border-[#45484F] bg-[#23252A] px-4 py-3 text-sm text-gray-300 leading-relaxed">
                                 <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Erklärung</p>
                                 {q.explanation}
                             </div>
@@ -182,7 +182,7 @@ export default function QuizSession({ questions }: Props) {
                         <button
                             type="button"
                             onClick={goNext}
-                            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white font-semibold"
+                            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold"
                         >
                             {index + 1 >= total ? "Ergebnis anzeigen" : "Weiter"}
                             <ChevronRight size={18} />

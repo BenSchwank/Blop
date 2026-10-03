@@ -109,12 +109,12 @@ export default function CommandMenu() {
 
     const getFileIcon = (type?: string) => {
         switch (type) {
-            case "plan": return <BrainCircuit size={16} className="text-purple-400" />;
+            case "plan": return <BrainCircuit size={16} className="text-blue-400" />;
             case "transcript": return <Youtube size={16} className="text-red-500" />;
             case "quiz": return <HelpCircle size={16} className="text-orange-400" />;
             case "flashcards": return <Layers size={16} className="text-green-400" />;
             case "summary": return <FileOutput size={16} className="text-blue-400" />;
-            default: return <FileText size={16} className="text-[#5E5CE6]" />;
+            default: return <FileText size={16} className="text-[#5B9DFF]" />;
         }
     };
 
@@ -137,10 +137,10 @@ export default function CommandMenu() {
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: -20 }}
                         transition={{ duration: 0.15, ease: "easeOut" }}
-                        className="no-print fixed top-[15%] left-1/2 -translate-x-1/2 w-full max-w-xl bg-[#151525] border border-[#333] rounded-2xl shadow-2xl z-[10000] overflow-hidden flex flex-col"
+                        className="no-print fixed top-[15%] left-1/2 -translate-x-1/2 w-full max-w-xl bg-[#353840] border border-[#333] rounded-2xl shadow-2xl z-[10000] overflow-hidden flex flex-col"
                     >
                         {/* Search Input Area */}
-                        <div className="flex items-center gap-3 px-4 py-4 border-b border-[#2A2A40]">
+                        <div className="flex items-center gap-3 px-4 py-4 border-b border-[#45484F]">
                             <Search size={22} className="text-gray-400" />
                             <input
                                 ref={inputRef}
@@ -151,7 +151,7 @@ export default function CommandMenu() {
                                 className="flex-1 bg-transparent border-none outline-none text-lg text-white placeholder:text-gray-500"
                             />
                             {isLoading && <Loader2 size={20} className="animate-spin text-gray-400" />}
-                            <div className="flex items-center gap-1 text-[10px] text-gray-500 font-medium bg-[#1C1C33] px-2 py-1 rounded border border-[#2A2A40]">
+                            <div className="flex items-center gap-1 text-[10px] text-gray-500 font-medium bg-[#3A3D45] px-2 py-1 rounded border border-[#45484F]">
                                 <span>ESC</span>
                             </div>
                         </div>
@@ -173,12 +173,12 @@ export default function CommandMenu() {
                                         return (
                                             <button
                                                 key={`${item.type}-${item.id}`}
-                                                className={`w-full flex items-center gap-4 p-3 rounded-xl text-left transition-colors ${isSelected ? "bg-[#5E5CE6]/10 border border-[#5E5CE6]/30" : "hover:bg-[#1C1C33] border border-transparent"
+                                                className={`w-full flex items-center gap-4 p-3 rounded-xl text-left transition-colors ${isSelected ? "bg-[#5B9DFF]/10 border border-[#5B9DFF]/30" : "hover:bg-[#3A3D45] border border-transparent"
                                                     }`}
                                                 onMouseEnter={() => setSelectedIndex(index)}
                                                 onClick={() => handleSelect(item)}
                                             >
-                                                <div className={`p-2 rounded-lg ${item.type === "folder" ? "bg-[#1C1C33] text-gray-400" : "bg-[#1C1C33]/50"
+                                                <div className={`p-2 rounded-lg ${item.type === "folder" ? "bg-[#3A3D45] text-gray-400" : "bg-[#3A3D45]/50"
                                                     }`}>
                                                     {item.type === "folder" ? <Folder size={18} /> : getFileIcon(item.file_type)}
                                                 </div>
@@ -203,12 +203,12 @@ export default function CommandMenu() {
                         </div>
 
                         {/* Footer Hints */}
-                        <div className="px-4 py-3 border-t border-[#2A2A40] bg-[#0B0B1A] flex items-center justify-between text-[11px] text-gray-500">
+                        <div className="px-4 py-3 border-t border-[#45484F] bg-[#23252A] flex items-center justify-between text-[11px] text-gray-500">
                             <div className="flex items-center gap-4">
-                                <span className="flex items-center gap-1.5"><span className="bg-[#1C1C33] p-1 rounded">↑</span><span className="bg-[#1C1C33] p-1 rounded">↓</span> Navigieren</span>
-                                <span className="flex items-center gap-1.5"><span className="bg-[#1C1C33] p-1 rounded">↵</span> Öffnen</span>
+                                <span className="flex items-center gap-1.5"><span className="bg-[#3A3D45] p-1 rounded">↑</span><span className="bg-[#3A3D45] p-1 rounded">↓</span> Navigieren</span>
+                                <span className="flex items-center gap-1.5"><span className="bg-[#3A3D45] p-1 rounded">↵</span> Öffnen</span>
                             </div>
-                            <div className="flex items-center gap-1.5 font-semibold text-[#5E5CE6]">Blop Search</div>
+                            <div className="flex items-center gap-1.5 font-semibold text-[#5B9DFF]">Blop Search</div>
                         </div>
                     </motion.div>
                 </>

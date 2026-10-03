@@ -150,13 +150,13 @@ export default function SmartLearningPage() {
     const hasChapters = Boolean(content && content.chapters.length > 0);
 
     return (
-        <div className="min-h-screen bg-[#0B0B1A] text-white">
+        <div className="min-h-screen bg-[#23252A] text-white">
             <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
                 <div className="flex items-center gap-3">
                     <button
                         type="button"
                         onClick={() => router.push(`/folder/${folderId}`)}
-                        className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-[#1C1C33]"
+                        className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-[#3A3D45]"
                     >
                         <ArrowLeft size={20} />
                     </button>
@@ -189,7 +189,7 @@ export default function SmartLearningPage() {
                         onClose={() => router.push(`/folder/${folderId}`)}
                     />
                 ) : (
-                    <div className="rounded-2xl border border-[#2A2A40] bg-[#151525] p-6 space-y-4">
+                    <div className="rounded-2xl border border-[#45484F] bg-[#353840] p-6 space-y-4">
                         <p className="text-sm text-gray-300">
                             {file
                                 ? "Smart Learning ist noch leer. Generiere die Kapitel neu aus PDF/YouTube-Material."
@@ -200,7 +200,7 @@ export default function SmartLearningPage() {
                             <input
                                 value={focus}
                                 onChange={(e) => setFocus(e.target.value)}
-                                className="w-full bg-[#0B0B1A] border border-[#2A2A40] rounded-xl px-3 py-2 text-sm"
+                                className="w-full bg-[#23252A] border border-[#45484F] rounded-xl px-3 py-2 text-sm"
                                 placeholder="z.B. Klausur Fokus"
                             />
                         </div>
@@ -210,14 +210,14 @@ export default function SmartLearningPage() {
                                 type="date"
                                 value={examDate}
                                 onChange={(e) => setExamDate(e.target.value)}
-                                className="w-full bg-[#0B0B1A] border border-[#2A2A40] rounded-xl px-3 py-2 text-sm"
+                                className="w-full bg-[#23252A] border border-[#45484F] rounded-xl px-3 py-2 text-sm"
                             />
                         </div>
                         <button
                             type="button"
                             onClick={() => void generate()}
                             disabled={generating}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white font-semibold disabled:opacity-50"
+                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold disabled:opacity-50"
                         >
                             {generating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
                             Smart Learning generieren

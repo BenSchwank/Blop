@@ -1203,38 +1203,43 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
         material_chars = sum(len(part) for part in material_parts if isinstance(part, str))
         last_exc: Optional[BaseException] = None
         for model_name in candidates:
-            token_cap = 8000
+            token_cap = 12000
             for _attempt in range(2):
                 try:
                     model = genai.GenerativeModel(
                         model_name,
                         generation_config={
-                            "temperature": 0.6,
+                            "temperature": 0.85,
                             "max_output_tokens": token_cap,
                             "reasoning_effort": "low",
                         },
                     )
                     prompt = """
-Du schreibst einen Lern-Podcast auf Deutsch. Alex und Sam sitzen zusammen und gehen den Stoff durch, bis man ihn wirklich verstanden hat. Kein kurzer Überblick von ein paar Minuten.
+Du schreibst einen echten Lern-Podcast auf Deutsch — wie zwei Menschen, die sich den Stoff wirklich erklären, nicht wie eine KI-Zusammenfassung.
 
-Länge:
-- Nimm jedes wichtige Thema aus dem Material mit, in dieser Reihenfolge. Was zum Verständnis nötig ist, darf nicht fehlen.
-- Pro Thema mehrere Wechsel: Frage, Erklärung, Nachfrage, Beispiel, ein häufiger Irrtum, nochmal in einfachen Worten.
-- Ein Beitrag hat zwei bis fünf gesprochene Sätze. Keine Ein-Satz-Telegramme.
-- Wenig Stoff: mindestens 24 Beiträge. Ein normales Kapitel: 36 bis 56 Beiträge. Viel Stoff: bis 64. Höchstens 64.
-- Lieber ein Thema gründlich als viele Themen nur antippen.
+Ziel-Länge (gesprochen):
+- Wenig Stoff: etwa 10–14 Minuten (mindestens 40 Beiträge).
+- Normales Kapitel: etwa 16–22 Minuten (48–72 Beiträge).
+- Viel Stoff: bis etwa 28 Minuten (höchstens 88 Beiträge).
+- Jedes wichtige Thema aus dem Material kommt vor, in sinnvoller Reihenfolge. Nichts Wesentliches nur antippen.
 
-Wie sie klingen:
-- Wie zwei Studierende am Tisch, nicht wie eine Ansage und nicht wie ein Lehrbuch.
-- Gesprochenes Deutsch: "also", "genau", "warte mal", "ah, okay", "das ist der Punkt".
-- Alex ist neugierig und hakt nach. Sam erklärt warm, mit einem Vergleich aus dem Alltag.
-- Eine Pause schreibst du nur als <short pause>, höchstens einmal in einem längeren Beitrag.
-- Kein Markdown, keine Überschriften, keine eckigen Klammern, keine Regie wie "lacht" oder "flüstert".
+Gesprächsdynamik:
+- Pro Thema mehrere echte Wechsel: Einstieg/Neugier → Erklärung → Nachfrage → Beispiel aus dem Alltag → häufiger Irrtum → „nochmal ganz einfach“ → kurzer Check („sitzt das?“).
+- Ein Beitrag: 2–5 gesprochene Sätze. Manchmal ein kurzer Impuls (1 Satz), dann wieder länger — wie im echten Gespräch.
+- Alex ist neugierig, unterbricht höflich, zweifelt laut, freut sich wenn’s klickt.
+- Sam erklärt warm, mit Bildern/Vergleichen, räumt Missverständnisse aus, feiert kleine Aha-Momente mit.
+
+Sprache — muss wie echte Menschen klingen:
+- Gesprochenes Deutsch: „also“, „warte mal“, „ähm“, „genau“, „ach so“, „das ist der Punkt“, „okay, check“.
+- Keine Lehrbuchsätze, keine Aufzählungsprosa, keine Meta-Ansagen („In diesem Podcast…“).
+- Emotion und Regie NUR in eckigen Klammern am Zeilenanfang oder mitten im Satz, z. B. [lacht], [überrascht], [nachdenklich], [begeistert], [beruhigend], [seufzt].
+  Diese Klammern werden später zur Stimme, nicht vorgelesen.
+- Höchstens eine Pause-Marke <short pause> in einem längeren Beitrag.
 
 Form:
-- Jede Zeile beginnt genau mit "ALEX:" oder "SAM:".
-- Alex beginnt, danach wechseln sie sich ab.
-- Kein Satz der Art "Hier ist der Podcast".
+- Jede Zeile beginnt genau mit „ALEX:“ oder „SAM:“.
+- Alex beginnt, danach wechseln sie sich ab (kein langer Monolog).
+- Kein Markdown, keine Überschriften, keine Nummerierung.
 
 Antworte NUR mit dem Dialog.
 """
@@ -1247,16 +1252,17 @@ Antworte NUR mit dem Dialog.
                     from podcast_dialogue import parse_podcast_dialogue
 
                     turns = parse_podcast_dialogue(text)
-                    if len(turns) < 28 and material_chars > 6000 and token_cap >= 2500:
+                    min_turns = 40 if material_chars > 2500 else 32
+                    if len(turns) < min_turns and token_cap >= 2500:
                         last_speaker = turns[-1][0] if turns else "SAM"
                         next_speaker = "SAM" if last_speaker == "ALEX" else "ALEX"
                         try:
                             follow = chat.send_message(
-                                "Das Gespräch ist zu kurz, mehrere Themen aus dem Material fehlen noch oder sind nur angetippt. "
-                                "Schreib NUR weitere Zeilen. Mindestens 20, höchstens 32. "
-                                "Nichts vom bisherigen Dialog wiederholen. "
+                                "Das Gespräch ist zu kurz und wirkt noch wie ein Überblick, nicht wie ein echtes Gespräch am Tisch. "
+                                "Schreib NUR weitere Zeilen. Mindestens 24, höchstens 40. "
+                                "Nichts vom bisherigen Dialog wiederholen. Fehlende Themen und Nachfragen nachziehen. "
                                 f'Die nächste Zeile beginnt mit "{next_speaker}:". Danach wechseln ALEX und SAM. '
-                                "Dieselbe gesprochene Sprache, zwei bis fünf Sätze pro Beitrag. "
+                                "Dieselbe gesprochene Sprache, Emotionen in [Klammern], 2–5 Sätze pro Beitrag. "
                                 "Antworte NUR mit den neuen Zeilen."
                             )
                             extra = (follow.text or "").strip()

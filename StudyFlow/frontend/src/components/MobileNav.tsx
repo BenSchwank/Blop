@@ -45,7 +45,7 @@ export default function MobileNav() {
         <div
             role="navigation"
             aria-label="Mobile"
-            className="no-print md:hidden fixed bottom-0 left-0 right-0 bg-[#1e1e1e]/90 backdrop-blur-lg border-t border-[#333] z-50 pt-1"
+            className="no-print md:hidden fixed bottom-0 left-0 right-0 bg-[#1A1916]/92 backdrop-blur-lg border-t border-white/10 z-50 pt-1"
             style={{
                 paddingBottom: isNativeApp ? "0px" : "calc(env(safe-area-inset-bottom, 0px) + 8px)",
                 borderTop: isNativeApp ? "0px solid transparent" : undefined,
@@ -62,7 +62,7 @@ export default function MobileNav() {
                             href={item.href}
                             className={`
                                 flex flex-col items-center justify-center w-full h-full space-y-1
-                                ${isActive ? 'text-[#5E5CE6]' : 'text-[#888] hover:text-[#DDD]'}
+                                ${isActive ? 'text-[#5B9DFF]' : 'text-[#888] hover:text-[#DDD]'}
                             `}
                         >
                             <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />

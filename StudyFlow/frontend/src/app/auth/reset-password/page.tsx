@@ -76,10 +76,10 @@ export default function ResetPasswordPage() {
     };
 
     return (
-        <div className="min-h-screen bg-[#1e1e1e] flex flex-col items-center justify-center p-4">
+        <div className="min-h-screen bg-[#1A1916] flex flex-col items-center justify-center p-4">
             <div className="w-full max-w-md blop-card p-8">
                 <div className="flex items-center gap-2 mb-6 text-white">
-                    <KeyRound className="text-[#5E5CE6]" size={28} />
+                    <KeyRound className="text-[#5B9DFF]" size={28} />
                     <h1 className="text-xl font-bold">Neues Passwort setzen</h1>
                 </div>
 
@@ -102,7 +102,7 @@ export default function ResetPasswordPage() {
                                 required
                                 minLength={8}
                                 autoComplete="new-password"
-                                className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20"
+                                className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5B9DFF] focus:ring-2 focus:ring-[#5B9DFF]/20"
                                 placeholder="Mindestens 8 Zeichen"
                             />
                         </div>
@@ -115,7 +115,7 @@ export default function ResetPasswordPage() {
                                 required
                                 minLength={8}
                                 autoComplete="new-password"
-                                className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20"
+                                className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5B9DFF] focus:ring-2 focus:ring-[#5B9DFF]/20"
                                 placeholder="Noch einmal eingeben"
                             />
                         </div>
@@ -127,7 +127,7 @@ export default function ResetPasswordPage() {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full py-3.5 bg-[#5E5CE6] rounded-lg text-white font-semibold hover:bg-[#7D7AFF] disabled:opacity-50"
+                            className="w-full py-3.5 bg-[#5B9DFF] rounded-lg text-white font-semibold hover:bg-[#7EB2FF] disabled:opacity-50"
                         >
                             {loading ? "Wird gespeichert …" : "Passwort speichern"}
                         </button>
@@ -135,7 +135,7 @@ export default function ResetPasswordPage() {
                 )}
 
                 <p className="mt-6 text-center text-sm text-[#888]">
-                    <Link href="/login" className="text-[#5E5CE6] hover:underline">
+                    <Link href="/login" className="text-[#5B9DFF] hover:underline">
                         Zurück zur Anmeldung
                     </Link>
                 </p>

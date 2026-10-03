@@ -251,7 +251,7 @@ export default function LoginPage() {
 
     return (
         <div
-            className={`min-h-screen bg-[#0B0B1A] flex flex-col items-center p-4 ${
+            className={`min-h-screen bg-[#23252A] flex flex-col items-center p-4 ${
                 isNativeApp ? 'justify-start pt-6' : 'justify-center'
             }`}
             style={isNativeApp ? { paddingTop: 12 } : undefined}
@@ -259,7 +259,7 @@ export default function LoginPage() {
             <div className={`w-full max-w-md ${isNativeApp ? 'mt-2' : ''}`}>
                 {/* Logo */}
                 <div className={`text-center ${isNativeApp ? 'mb-5' : 'mb-8'}`}>
-                    <div className="w-20 h-20 rounded-2xl bg-[#5E5CE6] flex items-center justify-center mx-auto mb-4 overflow-hidden shadow-2xl shadow-[#5E5CE6]/20">
+                    <div className="w-20 h-20 rounded-2xl bg-[#5B9DFF] flex items-center justify-center mx-auto mb-4 overflow-hidden shadow-2xl shadow-[#5B9DFF]/20">
                         <Image src="/logo.jpg" alt="Blop Logo" width={80} height={80} className="object-cover w-full h-full" />
                     </div>
                     <h1 className="text-3xl font-bold text-white mb-2">Blop</h1>
@@ -281,7 +281,7 @@ export default function LoginPage() {
                                         value={forgotEmail}
                                         onChange={(e) => setForgotEmail(e.target.value)}
                                         required
-                                        className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20"
+                                        className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5B9DFF] focus:ring-2 focus:ring-[#5B9DFF]/20"
                                         placeholder="deine@email.de"
                                     />
                                 </div>
@@ -299,7 +299,7 @@ export default function LoginPage() {
                                 <button
                                     type="submit"
                                     disabled={forgotLoading}
-                                    className="w-full py-3.5 bg-[#5E5CE6] rounded-lg text-white font-semibold hover:bg-[#7D7AFF] disabled:opacity-50"
+                                    className="w-full py-3.5 bg-[#5B9DFF] rounded-lg text-white font-semibold hover:bg-[#7EB2FF] disabled:opacity-50"
                                 >
                                     {forgotLoading ? 'Wird gesendet …' : 'Link anfordern'}
                                 </button>
@@ -322,7 +322,7 @@ export default function LoginPage() {
                         <button
                             onClick={() => setIsLogin(true)}
                             className={`flex-1 py-3 rounded-lg font-semibold transition-all ${isLogin
-                                ? 'bg-[#5E5CE6] text-white'
+                                ? 'bg-[#5B9DFF] text-white'
                                 : 'bg-[#252526] text-[#888] hover:bg-[#333]'
                                 }`}
                         >
@@ -331,7 +331,7 @@ export default function LoginPage() {
                         <button
                             onClick={() => setIsLogin(false)}
                             className={`flex-1 py-3 rounded-lg font-semibold transition-all ${!isLogin
-                                ? 'bg-[#5E5CE6] text-white'
+                                ? 'bg-[#5B9DFF] text-white'
                                 : 'bg-[#252526] text-[#888] hover:bg-[#333]'
                                 }`}
                         >
@@ -349,7 +349,7 @@ export default function LoginPage() {
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 required
-                                className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20 transition-all"
+                                className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5B9DFF] focus:ring-2 focus:ring-[#5B9DFF]/20 transition-all"
                                 placeholder={isLogin ? 'Deine E-Mail oder dein Benutzername' : 'Dein sichtbarer Benutzername'}
                             />
                         </div>
@@ -364,7 +364,7 @@ export default function LoginPage() {
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     required
-                                    className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20 transition-all"
+                                    className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5B9DFF] focus:ring-2 focus:ring-[#5B9DFF]/20 transition-all"
                                     placeholder="Deine E-Mail Adresse"
                                 />
                             </div>
@@ -379,7 +379,7 @@ export default function LoginPage() {
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
-                                className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20 transition-all"
+                                className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5B9DFF] focus:ring-2 focus:ring-[#5B9DFF]/20 transition-all"
                                 placeholder="Dein Passwort"
                             />
                         </div>
@@ -393,7 +393,7 @@ export default function LoginPage() {
                                         setError('');
                                         if (username.includes('@')) setForgotEmail(username.trim());
                                     }}
-                                    className="text-sm text-[#5E5CE6] hover:text-[#7D7AFF] underline underline-offset-2"
+                                    className="text-sm text-[#5B9DFF] hover:text-[#7EB2FF] underline underline-offset-2"
                                 >
                                     Passwort vergessen?
                                 </button>
@@ -401,7 +401,7 @@ export default function LoginPage() {
                         )}
 
                         {oauthPending && !error && (
-                            <div className="p-3 rounded-lg text-sm bg-[#5E5CE6]/15 text-[#C4B5FF] border border-[#5E5CE6]/30">
+                            <div className="p-3 rounded-lg text-sm bg-[#5B9DFF]/15 text-[#C4B5FF] border border-[#5B9DFF]/30">
                                 Anmeldung wird abgeschlossen…
                             </div>
                         )}
@@ -418,7 +418,7 @@ export default function LoginPage() {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full py-3.5 bg-[#5E5CE6] rounded-lg text-white font-semibold hover:bg-[#7D7AFF] active:bg-[#4D4BC4] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            className="w-full py-3.5 bg-[#5B9DFF] rounded-lg text-white font-semibold hover:bg-[#7EB2FF] active:bg-[#4D4BC4] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
                             {loading ? (
                                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -506,7 +506,7 @@ export default function LoginPage() {
                 {/* Privacy footer */}
                 <p className="text-center mt-5 text-xs text-gray-600">
                     Mit der Nutzung stimmst du unserer{' '}
-                    <Link href="/datenschutz" className="text-gray-500 hover:text-[#5E5CE6] underline underline-offset-2 transition-colors inline-flex items-center gap-1">
+                    <Link href="/datenschutz" className="text-gray-500 hover:text-[#5B9DFF] underline underline-offset-2 transition-colors inline-flex items-center gap-1">
                         <Shield size={10} /> Datenschutzerklärung
                     </Link>
                     {' '}zu.

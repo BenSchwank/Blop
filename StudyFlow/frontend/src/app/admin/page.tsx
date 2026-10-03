@@ -145,13 +145,13 @@ export default function AdminPanel() {
     );
 
     return (
-        <div className="bg-[#1e1e1e] text-white min-h-screen px-8 sm:px-12 lg:px-16 xl:px-20 py-8 sm:py-10 lg:py-12">
+        <div className="bg-[#1A1916] text-white min-h-screen px-8 sm:px-12 lg:px-16 xl:px-20 py-8 sm:py-10 lg:py-12">
             <div>
                 {/* Header */}
                 <div className="mb-8">
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center">
+                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#5B9DFF] to-[#7EB2FF] flex items-center justify-center">
                                 <Shield className="w-6 h-6 text-white" strokeWidth={2} />
                             </div>
                             <div>
@@ -161,7 +161,7 @@ export default function AdminPanel() {
                         </div>
                         <button
                             onClick={loadData}
-                            className="px-4 py-2 bg-[#5E5CE6] rounded-lg hover:bg-[#7D7AFF] transition-all flex items-center gap-2"
+                            className="px-4 py-2 bg-[#5B9DFF] rounded-lg hover:bg-[#7EB2FF] transition-all flex items-center gap-2"
                         >
                             <RefreshCw size={16} />
                             Aktualisieren
@@ -173,7 +173,7 @@ export default function AdminPanel() {
                 <div className="blop-card p-6 mb-8">
                     <div className="flex items-start justify-between gap-4 mb-4">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-[#5E5CE6]/15 flex items-center justify-center">
+                            <div className="w-10 h-10 rounded-lg bg-[#5B9DFF]/15 flex items-center justify-center">
                                 <KeyRound className="w-5 h-5 text-[#8B89F0]" />
                             </div>
                             <div>
@@ -189,7 +189,7 @@ export default function AdminPanel() {
                     ) : null}
                     {loading && !aiKeys ? (
                         <div className="flex items-center justify-center py-8">
-                            <div className="animate-spin rounded-full h-8 w-8 border-3 border-[#5E5CE6] border-t-transparent" />
+                            <div className="animate-spin rounded-full h-8 w-8 border-3 border-[#5B9DFF] border-t-transparent" />
                         </div>
                     ) : (
                         <>
@@ -213,7 +213,7 @@ export default function AdminPanel() {
                                     href={aiKeys?.fix_urls.openrouter_credits || 'https://openrouter.ai/settings/credits'}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#8B89F0] hover:bg-[#5E5CE6]/20"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5B9DFF]/10 text-[#8B89F0] hover:bg-[#5B9DFF]/20"
                                 >
                                     OpenRouter Credits <ExternalLink size={12} />
                                 </a>
@@ -221,7 +221,7 @@ export default function AdminPanel() {
                                     href={aiKeys?.fix_urls.openrouter_keys || 'https://openrouter.ai/keys'}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#8B89F0] hover:bg-[#5E5CE6]/20"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5B9DFF]/10 text-[#8B89F0] hover:bg-[#5B9DFF]/20"
                                 >
                                     OpenRouter API-Keys <ExternalLink size={12} />
                                 </a>
@@ -234,7 +234,7 @@ export default function AdminPanel() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                     <div className="blop-card p-6">
                         <div className="flex items-center gap-3 mb-2">
-                            <Users className="w-5 h-5 text-[#5E5CE6]" />
+                            <Users className="w-5 h-5 text-[#5B9DFF]" />
                             <h3 className="text-sm font-medium text-[#888]">Gesamt Nutzer</h3>
                         </div>
                         <p className="text-3xl font-bold text-white">{users.length}</p>
@@ -242,7 +242,7 @@ export default function AdminPanel() {
 
                     <div className="blop-card p-6">
                         <div className="flex items-center gap-3 mb-2">
-                            <TrendingUp className="w-5 h-5 text-[#5E5CE6]" />
+                            <TrendingUp className="w-5 h-5 text-[#5B9DFF]" />
                             <h3 className="text-sm font-medium text-[#888]">Gesamt XP</h3>
                         </div>
                         <p className="text-3xl font-bold text-white">{totalXP.toLocaleString()}</p>
@@ -250,7 +250,7 @@ export default function AdminPanel() {
 
                     <div className="blop-card p-6">
                         <div className="flex items-center gap-3 mb-2">
-                            <Award className="w-5 h-5 text-[#5E5CE6]" />
+                            <Award className="w-5 h-5 text-[#5B9DFF]" />
                             <h3 className="text-sm font-medium text-[#888]">Aktive Streaks</h3>
                         </div>
                         <p className="text-3xl font-bold text-white">{activeStreaks}</p>
@@ -258,7 +258,7 @@ export default function AdminPanel() {
 
                     <Link href="/admin/subscriptions" className="blop-card p-6 hover:bg-[#252526] transition-colors group">
                         <div className="flex items-center gap-3 mb-2">
-                            <CreditCard className="w-5 h-5 text-[#5E5CE6] group-hover:text-[#7D7AFF]" />
+                            <CreditCard className="w-5 h-5 text-[#5B9DFF] group-hover:text-[#7EB2FF]" />
                             <h3 className="text-sm font-medium text-[#888]">Abonnements</h3>
                         </div>
                         <p className="text-3xl font-bold text-white">Tiers & Features</p>
@@ -272,7 +272,7 @@ export default function AdminPanel() {
 
                         {loading ? (
                             <div className="flex items-center justify-center py-12">
-                                <div className="animate-spin rounded-full h-10 w-10 border-3 border-[#5E5CE6] border-t-transparent" />
+                                <div className="animate-spin rounded-full h-10 w-10 border-3 border-[#5B9DFF] border-t-transparent" />
                             </div>
                         ) : (
                             <div className="overflow-x-auto">
@@ -291,12 +291,12 @@ export default function AdminPanel() {
                                             <tr key={user.username} className="border-b border-[#252526] hover:bg-[#252526] transition-colors">
                                                 <td className="py-3 px-4">
                                                     <div className="flex items-center gap-2">
-                                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center text-white text-xs font-semibold">
+                                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#5B9DFF] to-[#7EB2FF] flex items-center justify-center text-white text-xs font-semibold">
                                                             {user.username.charAt(0).toUpperCase()}
                                                         </div>
                                                         <span className="text-white font-medium">{user.username}</span>
                                                         {user.is_admin && (
-                                                            <span className="px-2 py-0.5 bg-[#5E5CE6]/20 text-[#5E5CE6] text-xs rounded-full">Admin</span>
+                                                            <span className="px-2 py-0.5 bg-[#5B9DFF]/20 text-[#5B9DFF] text-xs rounded-full">Admin</span>
                                                         )}
                                                     </div>
                                                 </td>
@@ -315,7 +315,7 @@ export default function AdminPanel() {
                                                 <td className="py-3 px-4 text-right">
                                                     <Link
                                                         href={`/admin/subscriptions?user=${encodeURIComponent(user.username)}`}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5E5CE6]/10 hover:bg-[#5E5CE6]/20 text-[#5E5CE6] text-xs font-medium transition-colors"
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5B9DFF]/10 hover:bg-[#5B9DFF]/20 text-[#5B9DFF] text-xs font-medium transition-colors"
                                                     >
                                                         <Wallet size={12} />
                                                         Abo
@@ -335,7 +335,7 @@ export default function AdminPanel() {
 
                         {loading ? (
                             <div className="flex items-center justify-center py-12">
-                                <div className="animate-spin rounded-full h-8 w-8 border-3 border-[#5E5CE6] border-t-transparent" />
+                                <div className="animate-spin rounded-full h-8 w-8 border-3 border-[#5B9DFF] border-t-transparent" />
                             </div>
                         ) : (
                             <div className="space-y-3">

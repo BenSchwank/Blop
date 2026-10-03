@@ -1,6 +1,14 @@
 import unittest
 
-from podcast_dialogue import parse_podcast_dialogue, podcast_voice_pair, spoken_podcast_line
+from podcast_dialogue import (
+    breath_segments,
+    gap_seconds_between,
+    parse_podcast_dialogue,
+    podcast_voice_pair,
+    spoken_podcast_line,
+    split_spoken_and_cues,
+    tts_instructions_for_turn,
+)
 
 
 class PodcastDialogueTests(unittest.TestCase):
@@ -33,6 +41,27 @@ SAM: Weil man damit den nächsten Schritt selbst lösen kann.
         self.assertNotIn("[lacht]", spoken)
         self.assertIn("<short pause>", spoken)
         self.assertIn("genau das", spoken)
+
+    def test_emotion_tags_become_delivery_cues(self):
+        spoken, cues = split_spoken_and_cues("ALEX would say: [überrascht] wirklich?")
+        self.assertNotIn("[", spoken)
+        self.assertIn("surprised", cues.lower())
+        instructions = tts_instructions_for_turn("ALEX", "aoede", "[lacht] Okay, check.")
+        self.assertIn("laugh", instructions.lower())
+        self.assertIn("Alex", instructions)
+
+    def test_breath_segments_split_long_turns(self):
+        text = "Erster Satz hier. " * 20
+        parts = breath_segments(text, max_chars=80)
+        self.assertGreater(len(parts), 1)
+        self.assertTrue(all(len(p) <= 100 for p in parts))
+
+    def test_gaps_are_longer_between_speakers(self):
+        same = gap_seconds_between("ALEX", "ALEX", "kurz")
+        swap = gap_seconds_between("ALEX", "SAM", "kurz")
+        long = gap_seconds_between("ALEX", "SAM", " ".join(["wort"] * 45))
+        self.assertLess(same, swap)
+        self.assertGreater(long, swap)
 
     def test_same_voice_choice_gets_a_second_person(self):
         self.assertEqual(podcast_voice_pair("aoede", "aoede"), ("aoede", "charon"))

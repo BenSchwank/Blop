@@ -247,7 +247,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.8, y: 20 }}
                         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                        className={`bg-[#1e1e1e] border border-[#333] shadow-2xl rounded-2xl mb-4 overflow-hidden flex flex-col ${isExpanded ? 'w-[80vw] h-[80vh] max-w-4xl' : 'w-[350px] sm:w-[400px] h-[500px]'}`}
+                        className={`bg-[#1A1916] border border-[#333] shadow-2xl rounded-2xl mb-4 overflow-hidden flex flex-col ${isExpanded ? 'w-[80vw] h-[80vh] max-w-4xl' : 'w-[350px] sm:w-[400px] h-[500px]'}`}
                     >
                         {/* Header — only this bar starts a drag */}
                         <div className="bg-[#252526] p-4 border-b border-[#333] flex items-center justify-between shrink-0">

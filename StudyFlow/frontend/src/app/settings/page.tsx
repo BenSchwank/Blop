@@ -187,7 +187,7 @@ export default function Settings() {
     };
 
     return (
-        <div className="bg-[#1e1e1e] min-h-screen p-8 md:p-12">
+        <div className="bg-[#1A1916] min-h-screen p-8 md:p-12">
             <div className="max-w-2xl mx-auto space-y-12">
 
                 {/* Header */}
@@ -206,7 +206,7 @@ export default function Settings() {
                     <h2 className="text-xl font-semibold text-white mb-4">Profil</h2>
                     <div className="bg-[#252526] border border-[#333] rounded-2xl p-6 flex items-center justify-between">
                         <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center text-white font-bold text-lg">
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#5B9DFF] to-[#7EB2FF] flex items-center justify-center text-white font-bold text-lg">
                                 {username.charAt(0).toUpperCase()}
                             </div>
                             <div>
@@ -250,17 +250,17 @@ export default function Settings() {
                                     <span className="text-sm text-gray-500 font-medium">Tokens verfügbar</span>
                                 </div>
                                 <div className="mt-3 flex flex-wrap items-center gap-3">
-                                    <span className="inline-block px-3 py-1 bg-[#333] rounded-md text-sm text-[#5E5CE6] font-medium border border-[#444]">
+                                    <span className="inline-block px-3 py-1 bg-[#333] rounded-md text-sm text-[#5B9DFF] font-medium border border-[#444]">
                                         Aktuelles Abo: {tier.toUpperCase()}
                                     </span>
                                     {subscriptionStatus?.subscription?.provider && subscriptionStatus.subscription.provider !== 'none' && (
-                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#1C1C33] rounded-md text-sm text-gray-400 font-medium border border-[#2A2A40]">
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#3A3D45] rounded-md text-sm text-gray-400 font-medium border border-[#45484F]">
                                             <CreditCard size={14} />
                                             Zahlung über {subscriptionStatus.subscription.provider === 'stripe' ? 'Stripe' : 'PayPal'}
                                         </span>
                                     )}
                                     {tier !== 'free' && subscriptionStatus?.subscription?.current_period_end && (
-                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#1C1C33] rounded-md text-sm text-gray-400 font-medium border border-[#2A2A40]">
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#3A3D45] rounded-md text-sm text-gray-400 font-medium border border-[#45484F]">
                                             <Calendar size={14} />
                                             Aktiv bis {new Date(subscriptionStatus.subscription.current_period_end).toLocaleDateString('de-DE')}
                                         </span>
@@ -303,7 +303,7 @@ export default function Settings() {
                                 </button>
                                 <button
                                     onClick={() => router.push('/pricing')}
-                                    className="bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] hover:opacity-90 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 min-w-[180px]"
+                                    className="bg-gradient-to-r from-[#5B9DFF] to-[#7EB2FF] hover:opacity-90 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 min-w-[180px]"
                                 >
                                     {tier === 'free' ? 'Upgrade wählen' : 'Abo ändern'}
                                     <ArrowUpRight size={16} />
@@ -328,7 +328,7 @@ export default function Settings() {
                         <select
                             value={preferredModel}
                             onChange={(e) => setPreferredModel(e.target.value)}
-                            className="w-full bg-[#151525] border border-[#2A2A40] text-gray-200 rounded-xl px-4 py-2.5"
+                            className="w-full bg-[#353840] border border-[#45484F] text-gray-200 rounded-xl px-4 py-2.5"
                         >
                             <AiModelOptions current={preferredModel} />
                         </select>
@@ -338,7 +338,7 @@ export default function Settings() {
                         <button
                             onClick={savePreferredModel}
                             disabled={savingModel}
-                            className="px-4 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                            className="px-4 py-2.5 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
                         >
                             {savingModel ? "Speichert..." : "Standardmodell speichern"}
                         </button>
@@ -373,7 +373,7 @@ export default function Settings() {
 
             {isCancelOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md p-8 shadow-2xl">
+                    <div className="bg-[#1A1916] border border-[#333] rounded-2xl w-full max-w-md p-8 shadow-2xl">
                         <div className="flex flex-col items-center text-center mb-6">
                             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4 text-red-500">
                                 <AlertTriangle size={32} />
@@ -408,7 +408,7 @@ export default function Settings() {
             {/* Delete Confirmation Modal */}
             {isDeleteOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
+                    <div className="bg-[#1A1916] border border-[#333] rounded-2xl w-full max-w-md p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
                         <div className="flex flex-col items-center text-center mb-6">
                             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4 text-red-500">
                                 <AlertTriangle size={32} />

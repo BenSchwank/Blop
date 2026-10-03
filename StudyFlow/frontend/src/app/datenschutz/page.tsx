@@ -8,9 +8,9 @@ export const metadata = {
 
 export default function DatenschutzPage() {
     return (
-        <div className="min-h-screen bg-[#1e1e1e] text-gray-200">
+        <div className="min-h-screen bg-[#1A1916] text-gray-200">
             {/* Header */}
-            <div className="sticky top-0 z-10 bg-[#1e1e1e]/95 backdrop-blur border-b border-[#333] px-6 py-4 flex items-center gap-4">
+            <div className="sticky top-0 z-10 bg-[#1A1916]/95 backdrop-blur border-b border-[#333] px-6 py-4 flex items-center gap-4">
                 <Link href="/" className="p-2 hover:bg-[#333] rounded-xl text-gray-400 hover:text-white transition-colors">
                     <ArrowLeft size={20} />
                 </Link>
@@ -33,7 +33,7 @@ export default function DatenschutzPage() {
                     <p className="text-gray-300 leading-relaxed">
                         Diese Datenschutzerklärung gilt für die Desktop-Applikation <strong className="text-white">Blop</strong> sowie
                         für die Webanwendung <strong className="text-white">Blop Study</strong> (u. a. unter{' '}
-                        <span className="text-[#5E5CE6]">blop-study.com</span> und weiteren bereitgestellten Domains). Wir nehmen den Schutz Ihrer
+                        <span className="text-[#5B9DFF]">blop-study.com</span> und weiteren bereitgestellten Domains). Wir nehmen den Schutz Ihrer
                         persönlichen Daten sehr ernst und halten uns an die Datenschutz-Grundverordnung (DSGVO) der
                         Europäischen Union.
                     </p>
@@ -49,7 +49,7 @@ export default function DatenschutzPage() {
                                 Verantwortlicher im Sinne der DSGVO ist der private Entwickler und Betreiber
                                 dieser Anwendung. Da es sich um ein privates, nicht-kommerzielles Projekt handelt, wird
                                 die Kontaktadresse bei Anfragen direkt über GitHub (
-                                <span className="text-[#5E5CE6]">github.com/BenSchwank</span>) bereitgestellt.
+                                <span className="text-[#5B9DFF]">github.com/BenSchwank</span>) bereitgestellt.
                                 Bei datenschutzbezogenen Fragen oder Auskunftsersuchen wenden Sie sich bitte über
                                 die dort hinterlegten Kontaktmöglichkeiten.
                             </p>
@@ -66,7 +66,7 @@ export default function DatenschutzPage() {
                                     <li><strong className="text-gray-200">Lerninhalte und Dateien:</strong> Ordner, Metadaten zu Dateien sowie hochgeladene Dateien (z. B. PDFs, Audio) in der Cloud-Speicherung</li>
                                     <li><strong className="text-gray-200">KI-generierte Inhalte:</strong> z. B. Lernpläne, Zusammenfassungen, Karteikarten, Quiz, Wiederholungsbögen, Chatverläufe in der Anwendung</li>
                                     <li><strong className="text-gray-200">Technische Nutzung der KI:</strong> Die Verarbeitung durch Google Gemini erfolgt über einen auf dem Server hinterlegten API-Schlüssel; es ist kein persönlicher Gemini-API-Schlüssel pro Nutzer in der Datenbank vorgesehen</li>
-                                    <li><strong className="text-gray-200">Browser:</strong> Benutzername und Sitzungskennung (<code className="text-[#5E5CE6]">session_id</code>) im <code className="text-[#5E5CE6]">localStorage</code> zur Anmeldung</li>
+                                    <li><strong className="text-gray-200">Browser:</strong> Benutzername und Sitzungskennung (<code className="text-[#5B9DFF]">session_id</code>) im <code className="text-[#5B9DFF]">localStorage</code> zur Anmeldung</li>
                                 </ul>
                                 <p className="text-sm text-gray-400 mt-3">
                                     Der Betreiber kann im Rahmen des technischen Betriebs (z. B. Datenbank- und Speicher-Verwaltung) auf gespeicherte Inhalte zugreifen, soweit dies zur Erbringung des Dienstes, zur Fehleranalyse oder zur Erfüllung gesetzlicher Pflichten erforderlich ist.
@@ -107,7 +107,7 @@ export default function DatenschutzPage() {
                                         <div key={p.name} className="pb-3 border-b border-[#333] last:border-0 last:pb-0">
                                             <p className="font-medium text-white text-sm">{p.name}</p>
                                             <p className="text-xs text-gray-400 mt-0.5">{p.purpose}</p>
-                                            <a href={p.privacy} target="_blank" rel="noopener noreferrer" className="text-xs text-[#5E5CE6] hover:underline mt-0.5 block">Datenschutzerklärung →</a>
+                                            <a href={p.privacy} target="_blank" rel="noopener noreferrer" className="text-xs text-[#5B9DFF] hover:underline mt-0.5 block">Datenschutzerklärung →</a>
                                         </div>
                                     ))}
                                 </div>
@@ -124,7 +124,7 @@ export default function DatenschutzPage() {
                             <div className="space-y-2 text-gray-300">
                                 <p>Ihre Daten werden in der Datenbank und im Dateispeicher bei <strong className="text-gray-200">Supabase</strong> gespeichert, solange Ihr Account besteht oder bis Sie Löschung verlangen.</p>
                                 <p>Hochgeladene Dateien (z. B. PDFs, Audio) bleiben im Speicher bestehen, damit Sie sie in der App weiter nutzen können; sie werden für KI-Funktionen zusätzlich an Gemini übermittelt, wenn Sie eine entsprechende Aktion ausführen.</p>
-                                <p>Einträge im <code className="text-[#5E5CE6]">localStorage</code> (Benutzername, <code className="text-[#5E5CE6]">session_id</code>) verbleiben in Ihrem Browser, bis Sie sich abmelden oder den Speicher leeren.</p>
+                                <p>Einträge im <code className="text-[#5B9DFF]">localStorage</code> (Benutzername, <code className="text-[#5B9DFF]">session_id</code>) verbleiben in Ihrem Browser, bis Sie sich abmelden oder den Speicher leeren.</p>
                                 <p>Es erfolgt keine automatische Datenlöschung nach einem festen Zeitraum, sofern die App nichts anderes vorsieht. Sie können die Löschung Ihres Accounts und Ihrer Daten verlangen (siehe Abschnitt 7).</p>
                             </div>
                         )
@@ -171,7 +171,7 @@ export default function DatenschutzPage() {
                         content: (
                             <p className="text-gray-300 leading-relaxed">
                                 Die Webanwendung verwendet <strong className="text-white">keine Cookies</strong> für Tracking oder Analyse.
-                                Es wird ausschließlich der <code className="text-[#5E5CE6]">localStorage</code> des Browsers genutzt,
+                                Es wird ausschließlich der <code className="text-[#5B9DFF]">localStorage</code> des Browsers genutzt,
                                 um Ihren Sitzungs-Token und Benutzernamen lokal zu speichern. Diese Daten verlassen Ihren
                                 Browser nicht und werden nicht für Werbe- oder Analysezwecke verwendet.
                             </p>
@@ -190,7 +190,7 @@ export default function DatenschutzPage() {
                 ].map((section) => (
                     <section key={section.number} className="space-y-3">
                         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                            <span className="w-7 h-7 bg-[#5E5CE6]/20 text-[#5E5CE6] rounded-lg flex items-center justify-center text-sm font-bold shrink-0">
+                            <span className="w-7 h-7 bg-[#5B9DFF]/20 text-[#5B9DFF] rounded-lg flex items-center justify-center text-sm font-bold shrink-0">
                                 {section.number}
                             </span>
                             {section.title}
@@ -202,7 +202,7 @@ export default function DatenschutzPage() {
                 {/* Footer note */}
                 <div className="border-t border-[#333] pt-6 text-center text-xs text-gray-500">
                     <p>Blop &amp; Blop Study · Stand März 2026</p>
-                    <Link href="/" className="text-[#5E5CE6] hover:underline mt-1 block">← Zurück zur App</Link>
+                    <Link href="/" className="text-[#5B9DFF] hover:underline mt-1 block">← Zurück zur App</Link>
                 </div>
             </div>
         </div>

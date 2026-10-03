@@ -4,35 +4,41 @@
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --mobile-nav-base: 72px;
   --mobile-nav-reserve: var(--mobile-nav-base);
+  --blop-rail: #1A1916;
+  --blop-desk: #23252A;
+  --blop-card: #353840;
+  --blop-hover: #3A3D45;
+  --blop-line: #45484F;
+  --blop-accent: #5B9DFF;
+  --blop-accent-hover: #7EB2FF;
 }
 
-/* Blop Study - iOS-Inspired Design System */
+/* Blop Study — aligned with Blop Notes main-menu chrome */
 @theme {
-  /* Blop Colors (from original QML) */
-  --color-blop-bg: #1e1e1e;
-  --color-blop-surface: #252526;
-  --color-blop-panel: #333333;
-  --color-blop-border: #444444;
-  --color-blop-accent: #5553FF;
-  /* iOS Purple */
-  --color-blop-accent-hover: #7D7AFF;
-  --color-blop-text: #DDDDDD;
-  --color-blop-text-muted: #888888;
+  /* Rail / desk / cards (Notes obsidian) */
+  --color-blop-bg: #1A1916;
+  --color-blop-surface: #23252A;
+  --color-blop-panel: #353840;
+  --color-blop-border: rgba(255, 255, 255, 0.14);
+  /* NoteChrome blue */
+  --color-blop-accent: #5B9DFF;
+  --color-blop-accent-hover: #7EB2FF;
+  --color-blop-text: #F4F5F7;
+  --color-blop-text-muted: #B8BEC9;
 
   /* Touch-Friendly Spacing */
-  --spacing-touch: 44px;
-  /* iOS minimum tap target */
+  --spacing-touch: 40px;
   --spacing-comfortable: 16px;
   --spacing-cozy: 12px;
 
-  /* Rounded Corners (iOS-style) */
+  /* Notes-like radii (~8–10dp) */
   --radius-sm: 6px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
 
   /* Shadows */
-  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.28);
+  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.36);
 }
 
 * {
@@ -193,7 +199,7 @@ input:focus-visible {
 }
 
 .prose-blop blockquote {
-  border-left: 4px solid #5E5CE6;
+  border-left: 4px solid #5B9DFF;
   margin-top: 1.5rem;
   margin-bottom: 1.5rem;
   font-style: italic;
@@ -204,7 +210,7 @@ input:focus-visible {
 }
 
 .prose-blop a {
-  color: #5E5CE6;
+  color: #5B9DFF;
   text-decoration: underline;
   text-decoration-color: rgba(94, 92, 230, 0.4);
   text-underline-offset: 4px;
@@ -212,8 +218,8 @@ input:focus-visible {
 }
 
 .prose-blop a:hover {
-  color: #7D7AFF;
-  text-decoration-color: #7D7AFF;
+  color: #7EB2FF;
+  text-decoration-color: #7EB2FF;
 }
 
 .prose-blop table {
@@ -258,12 +264,12 @@ input:focus-visible {
   padding: 0.2rem 0.4rem;
   border-radius: 4px;
   font-size: 0.875em;
-  color: #5E5CE6;
+  color: #5B9DFF;
   border: 1px solid #333333;
 }
 
 .prose-blop pre {
-  background: #1e1e1e;
+  background: #1A1916;
   padding: 1rem;
   border-radius: 8px;
   overflow-x: auto;

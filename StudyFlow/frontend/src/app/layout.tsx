@@ -25,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="de">
-      <body className={`${inter.className} antialiased bg-[#1e1e1e]`}>
+      <body className={`${inter.className} antialiased bg-[#1A1916]`}>
         <AuthCheck>
           <ClientLayout>
             {children}

@@ -141,14 +141,14 @@ export default function PricingPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-[#0B0B1A] flex items-center justify-center">
-                <Loader2 className="animate-spin text-[#5E5CE6]" size={32} />
+            <div className="min-h-screen bg-[#23252A] flex items-center justify-center">
+                <Loader2 className="animate-spin text-[#5B9DFF]" size={32} />
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-[#0B0B1A] text-white py-16 px-6">
+        <div className="min-h-screen bg-[#23252A] text-white py-16 px-6">
             <div className="max-w-6xl mx-auto">
                 <div className="text-center mb-12">
                     <h1 className="text-4xl font-bold mb-4">Wähle dein Abo</h1>
@@ -169,13 +169,13 @@ export default function PricingPage() {
                         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                             <button
                                 onClick={() => loadData()}
-                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#5E5CE6] text-white text-sm font-medium hover:bg-[#4d4ac9]"
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#5B9DFF] text-white text-sm font-medium hover:bg-[#4A8AE6]"
                             >
                                 Status neu laden
                             </button>
                             <button
                                 onClick={() => router.push('/login?reason=reauth')}
-                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2A2A40] text-white text-sm font-medium hover:bg-[#333]"
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#45484F] text-white text-sm font-medium hover:bg-[#333]"
                             >
                                 <LogIn size={16} />
                                 Neu anmelden
@@ -186,14 +186,14 @@ export default function PricingPage() {
 
                 {/* Billing toggle */}
                 <div className="flex justify-center mb-12">
-                    <div className="bg-[#151525] p-1 rounded-xl inline-flex border border-[#2A2A40]">
+                    <div className="bg-[#353840] p-1 rounded-xl inline-flex border border-[#45484F]">
                         {BILLING_INTERVALS.map((opt) => (
                             <button
                                 key={opt.value}
                                 onClick={() => setInterval(opt.value as 'month' | 'year')}
                                 className={`relative px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
                                     interval === opt.value
-                                        ? 'bg-[#5E5CE6] text-white shadow-lg'
+                                        ? 'bg-[#5B9DFF] text-white shadow-lg'
                                         : 'text-gray-400 hover:text-white'
                                 }`}
                             >
@@ -222,8 +222,8 @@ export default function PricingPage() {
                                 transition={{ delay: idx * 0.1 }}
                                 className={`relative rounded-2xl border p-6 flex flex-col ${
                                     tier.name === 'premium'
-                                        ? 'border-amber-500/40 bg-gradient-to-b from-[#1C1C33] to-[#151525] shadow-xl shadow-amber-500/10'
-                                        : 'border-[#2A2A40] bg-[#151525]'
+                                        ? 'border-amber-500/40 bg-gradient-to-b from-[#3A3D45] to-[#353840] shadow-xl shadow-amber-500/10'
+                                        : 'border-[#45484F] bg-[#353840]'
                                 }`}
                             >
                                 {tier.name === 'premium' && (
@@ -273,14 +273,14 @@ export default function PricingPage() {
                                 {isCurrent ? (
                                     <button
                                         disabled
-                                        className="w-full py-3 rounded-xl bg-[#2A2A40] text-gray-400 font-semibold cursor-default"
+                                        className="w-full py-3 rounded-xl bg-[#45484F] text-gray-400 font-semibold cursor-default"
                                     >
                                         Aktuelles Abo
                                     </button>
                                 ) : !isAuthenticated ? (
                                     <button
                                         onClick={() => router.push('/login')}
-                                        className="w-full py-3 rounded-xl bg-[#2A2A40] hover:bg-[#333] text-white font-semibold transition-colors flex items-center justify-center gap-2"
+                                        className="w-full py-3 rounded-xl bg-[#45484F] hover:bg-[#333] text-white font-semibold transition-colors flex items-center justify-center gap-2"
                                     >
                                         <LogIn size={18} />
                                         Anmelden zum Buchen
@@ -288,7 +288,7 @@ export default function PricingPage() {
                                 ) : sessionExpired ? (
                                     <button
                                         onClick={() => loadData()}
-                                        className="w-full py-3 rounded-xl bg-[#2A2A40] hover:bg-[#333] text-white font-semibold transition-colors flex items-center justify-center gap-2"
+                                        className="w-full py-3 rounded-xl bg-[#45484F] hover:bg-[#333] text-white font-semibold transition-colors flex items-center justify-center gap-2"
                                     >
                                         <LogIn size={18} />
                                         Status neu laden
@@ -296,7 +296,7 @@ export default function PricingPage() {
                                 ) : tier.name === 'free' ? (
                                     <button
                                         onClick={() => router.push('/login')}
-                                        className="w-full py-3 rounded-xl bg-[#2A2A40] hover:bg-[#333] text-white font-semibold transition-colors"
+                                        className="w-full py-3 rounded-xl bg-[#45484F] hover:bg-[#333] text-white font-semibold transition-colors"
                                     >
                                         Kostenlos starten
                                     </button>
@@ -308,7 +308,7 @@ export default function PricingPage() {
                                             className={`w-full py-3 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 ${
                                                 tier.name === 'premium'
                                                     ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-90 text-white shadow-lg shadow-orange-500/20'
-                                                    : 'bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white'
+                                                    : 'bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white'
                                             }`}
                                         >
                                             {checkoutTier === tier.name && paypalProvider === 'stripe' ? (

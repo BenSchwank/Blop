@@ -335,15 +335,15 @@ export default function SmartLearningView({
                         Schritt {stepIndex + 1} / {flatSteps.length} · {current.chapterTitle}
                     </span>
                 </div>
-                <div className="h-1.5 rounded-full bg-[#0B0B1A] border border-[#2A2A40] overflow-hidden">
+                <div className="h-1.5 rounded-full bg-[#23252A] border border-[#45484F] overflow-hidden">
                     <div
-                        className="h-full bg-[#5E5CE6] transition-all"
+                        className="h-full bg-[#5B9DFF] transition-all"
                         style={{ width: `${(stepIndex / Math.max(flatSteps.length, 1)) * 100}%` }}
                     />
                 </div>
 
                 {stepPhase === "teach" ? (
-                    <div className="rounded-2xl border border-[#2A2A40] bg-[#151525] p-6 space-y-5">
+                    <div className="rounded-2xl border border-[#45484F] bg-[#353840] p-6 space-y-5">
                         <p className="text-[11px] uppercase tracking-widest text-[#8B89F0]">Erklären</p>
                         <p className="text-base text-white leading-relaxed whitespace-pre-wrap">{current.lesson.teach}</p>
                         <button
@@ -352,23 +352,23 @@ export default function SmartLearningView({
                                 setSelected(null);
                                 setStepPhase("check");
                             }}
-                            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white font-semibold"
+                            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold"
                         >
                             Verstanden — jetzt testen
                             <ChevronRight size={18} />
                         </button>
                     </div>
                 ) : (
-                    <div className="rounded-2xl border border-[#2A2A40] bg-[#151525] p-6 space-y-4">
+                    <div className="rounded-2xl border border-[#45484F] bg-[#353840] p-6 space-y-4">
                         <p className="text-[11px] uppercase tracking-widest text-amber-300/90">Check</p>
                         <p className="text-lg text-white font-medium">{check.prompt}</p>
                         <div className="space-y-2">
                             {check.options.map((opt, i) => {
                                 const isSel = selected === opt;
                                 const isOk = opt === check.answer;
-                                let styles = "border-[#3B3B55] hover:bg-[#1C1C33] text-gray-300";
+                                let styles = "border-[#4A4E58] hover:bg-[#3A3D45] text-gray-300";
                                 if (revealed) {
-                                    styles = "border-[#2A2A40] opacity-60";
+                                    styles = "border-[#45484F] opacity-60";
                                     if (isOk) styles = "border-green-500/50 bg-green-500/10 text-green-400 opacity-100";
                                     if (isSel && !isOk) styles = "border-red-500/50 bg-red-500/10 text-red-400 opacity-100";
                                 }
@@ -392,7 +392,7 @@ export default function SmartLearningView({
                         {revealed ? (
                             <div className="space-y-3">
                                 {check.explanation ? (
-                                    <p className="text-sm text-gray-400 border border-[#2A2A40] rounded-xl px-3 py-2 bg-[#0B0B1A]">
+                                    <p className="text-sm text-gray-400 border border-[#45484F] rounded-xl px-3 py-2 bg-[#23252A]">
                                         {check.explanation}
                                     </p>
                                 ) : null}
@@ -400,7 +400,7 @@ export default function SmartLearningView({
                                     type="button"
                                     onClick={() => void advanceAfterCheck()}
                                     disabled={savingProgress}
-                                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5E5CE6] text-white font-semibold disabled:opacity-50"
+                                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50"
                                 >
                                     {savingProgress ? <Loader2 size={16} className="animate-spin" /> : null}
                                     {stepIndex + 1 >= flatSteps.length ? "Fertig" : "Weiter"}
@@ -417,7 +417,7 @@ export default function SmartLearningView({
 
     return (
         <div className="w-full max-w-3xl mx-auto space-y-6">
-            <div className="rounded-2xl border border-[#2A2A40] bg-[#151525] p-6 relative overflow-hidden">
+            <div className="rounded-2xl border border-[#45484F] bg-[#353840] p-6 relative overflow-hidden">
                 <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_30%_20%,rgba(94,92,230,0.18),transparent_55%)]" />
                 <div className="relative">
                     <div className="flex items-start justify-between gap-4">
@@ -437,7 +437,7 @@ export default function SmartLearningView({
                             <button
                                 type="button"
                                 onClick={onClose}
-                                className="text-xs text-gray-400 hover:text-white px-3 py-1.5 rounded-lg border border-[#2A2A40]"
+                                className="text-xs text-gray-400 hover:text-white px-3 py-1.5 rounded-lg border border-[#45484F]"
                             >
                                 Schließen
                             </button>
@@ -450,8 +450,8 @@ export default function SmartLearningView({
                             <p className="text-3xl font-semibold text-[#8B89F0]">{readiness}%</p>
                         </div>
                         <div className="flex-1 min-w-[180px]">
-                            <div className="h-2 rounded-full bg-[#0B0B1A] overflow-hidden border border-[#2A2A40]">
-                                <div className="h-full bg-[#5E5CE6] transition-all duration-300" style={{ width: `${readiness}%` }} />
+                            <div className="h-2 rounded-full bg-[#23252A] overflow-hidden border border-[#45484F]">
+                                <div className="h-full bg-[#5B9DFF] transition-all duration-300" style={{ width: `${readiness}%` }} />
                             </div>
                             <p className="text-[11px] text-gray-500 mt-1">
                                 {completedLessonSet.size}/{flatSteps.length} Lektionen ·{" "}
@@ -465,7 +465,7 @@ export default function SmartLearningView({
                         type="button"
                         onClick={startLearn}
                         disabled={busyPractice || flatSteps.length === 0}
-                        className="mt-5 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white font-semibold disabled:opacity-50 transition-colors"
+                        className="mt-5 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold disabled:opacity-50 transition-colors"
                     >
                         <Play size={18} />
                         Jetzt lernen
@@ -476,14 +476,14 @@ export default function SmartLearningView({
                         <button
                             type="button"
                             onClick={() => onStartPractice("quiz")}
-                            className="px-3 py-1.5 rounded-lg text-sm border border-[#2A2A40] text-gray-300 hover:bg-[#1C1C33] inline-flex items-center gap-1.5"
+                            className="px-3 py-1.5 rounded-lg text-sm border border-[#45484F] text-gray-300 hover:bg-[#3A3D45] inline-flex items-center gap-1.5"
                         >
                             <HelpCircle size={14} /> Quiz
                         </button>
                         <button
                             type="button"
                             onClick={() => onStartPractice("flashcards")}
-                            className="px-3 py-1.5 rounded-lg text-sm border border-[#2A2A40] text-gray-300 hover:bg-[#1C1C33] inline-flex items-center gap-1.5"
+                            className="px-3 py-1.5 rounded-lg text-sm border border-[#45484F] text-gray-300 hover:bg-[#3A3D45] inline-flex items-center gap-1.5"
                         >
                             <Layers size={14} /> Karteikarten
                         </button>
@@ -500,7 +500,7 @@ export default function SmartLearningView({
                     <BookOpen size={16} /> Kapitel
                 </h3>
                 {chapters.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-[#2A2A40] bg-[#151525] p-6 text-center text-gray-400 text-sm">
+                    <div className="rounded-xl border border-dashed border-[#45484F] bg-[#353840] p-6 text-center text-gray-400 text-sm">
                         Noch keine Kapitel. Material hochladen und Smart Learning erneut generieren.
                     </div>
                 ) : (
@@ -508,7 +508,7 @@ export default function SmartLearningView({
                         const doneLessons = ch.lessons.filter((l) => completedLessonSet.has(l.id)).length;
                         const chapterDone = ch.lessons.length > 0 && doneLessons === ch.lessons.length;
                         return (
-                            <div key={ch.id} className="rounded-xl border border-[#2A2A40] bg-[#151525] px-4 py-3">
+                            <div key={ch.id} className="rounded-xl border border-[#45484F] bg-[#353840] px-4 py-3">
                                 <div className="flex items-center gap-3">
                                     <BrainCircuit size={16} className="text-[#8B89F0] shrink-0" />
                                     <div className="flex-1 min-w-0">

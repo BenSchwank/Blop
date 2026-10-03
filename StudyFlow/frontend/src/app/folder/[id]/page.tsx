@@ -231,12 +231,12 @@ const AI_JOB_LABELS: Record<string, string> = {
 const LEARNING_VIDEO_SETTINGS_KEY = "blop_study_learning_video_settings_v1";
 const PODCAST_SETTINGS_KEY = "blop_study_podcast_settings_v1";
 const PODCAST_VOICES = [
-    { id: "aoede", label: "Locker und freundlich" },
-    { id: "leda", label: "Klar und jünger" },
-    { id: "zephyr", label: "Hell und direkt" },
-    { id: "puck", label: "Lebendig" },
-    { id: "charon", label: "Ruhig erklärend" },
-    { id: "kore", label: "Sachlich" },
+    { id: "aoede", label: "Alex · warm & neugierig" },
+    { id: "leda", label: "Mila · klar & jung" },
+    { id: "zephyr", label: "Nora · hell & direkt" },
+    { id: "puck", label: "Jonas · lebendig erzählend" },
+    { id: "charon", label: "Sam · ruhig erklärend" },
+    { id: "kore", label: "Lea · nachdenklich & warm" },
 ] as const;
 const LEGACY_PODCAST_VOICE: Record<string, string> = {
     alloy: "aoede",
@@ -351,11 +351,11 @@ const DroppableSubfolder = ({ subfolder, onClick, onRename, onDelete }: { subfol
             exit={{ opacity: 0, scale: 0.95, y: -5 }}
             transition={{ duration: 0.2 }}
             className={`flex items-center gap-2 border p-3 rounded-xl text-left transition-all group
-                ${isOver ? 'bg-[#1C1C33] border-[#5E5CE6] shadow-lg shadow-[#5E5CE6]/20 scale-105' : 'bg-[#151525] hover:bg-[#1C1C33] border-[#2A2A40] hover:border-[#5E5CE6]/40'}
+                ${isOver ? 'bg-[#3A3D45] border-[#5B9DFF] shadow-lg shadow-[#5B9DFF]/20 scale-105' : 'bg-[#353840] hover:bg-[#3A3D45] border-[#45484F] hover:border-[#5B9DFF]/40'}
             `}
         >
             <button type="button" onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2 text-left min-h-10">
-            <div className="p-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#5E5CE6] shrink-0">
+            <div className="p-1.5 rounded-lg bg-[#5B9DFF]/10 text-[#5B9DFF] shrink-0">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
             </div>
             <span className="text-sm text-gray-300 group-hover:text-white truncate font-medium min-w-0">{subfolder.name}</span>
@@ -410,18 +410,18 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                 e.preventDefault();
                 setOpenMenuFileId(openMenuFileId === file.id ? null : file.id);
             }}
-            className={`bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] p-4 rounded-xl flex items-center justify-between gap-3 group transition-colors cursor-pointer relative min-w-0 ${isDragging ? 'z-50 shadow-2xl border-[#5E5CE6]' : ''}`}
+            className={`bg-[#353840] hover:bg-[#3A3D45] border border-[#45484F] p-4 rounded-xl flex items-center justify-between gap-3 group transition-colors cursor-pointer relative min-w-0 ${isDragging ? 'z-50 shadow-2xl border-[#5B9DFF]' : ''}`}
         >
             <div className="flex items-center gap-4 min-w-0 flex-1">
-                <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
+                <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-blue-500/10 text-blue-400' :
                     file.type === 'smart_learning' ? 'bg-indigo-500/10 text-indigo-300' :
                     file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
                         file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
                             file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
                                 file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
-                                    file.type === 'audio' ? 'bg-pink-500/10 text-pink-300' :
+                                    file.type === 'audio' ? 'bg-blue-500/10 text-blue-300' :
                                         file.type === 'video' ? 'bg-cyan-500/10 text-cyan-300' :
-                                            'bg-[#1C1C33] text-[#5E5CE6]'
+                                            'bg-[#3A3D45] text-[#5B9DFF]'
                     }`}>
                     {icon}
                 </div>
@@ -436,16 +436,16 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                 <button
                     onClick={() => setOpenMenuFileId(openMenuFileId === file.id ? null : file.id)}
                     aria-label="Dateiaktionen"
-                    className="text-gray-300 hover:text-white min-h-10 min-w-10 flex items-center justify-center rounded-lg hover:bg-[#1C1C33]"
+                    className="text-gray-300 hover:text-white min-h-10 min-w-10 flex items-center justify-center rounded-lg hover:bg-[#3A3D45]"
                 >
                     <MoreVertical size={18} />
                 </button>
 
                 {openMenuFileId === file.id && (
-                    <div className="absolute right-0 top-full mt-1 w-40 bg-[#0B0B1A] border border-[#2A2A40] rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                    <div className="absolute right-0 top-full mt-1 w-40 bg-[#23252A] border border-[#45484F] rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                         <button
                             onClick={() => { setSelectedFile(file); setOpenMenuFileId(null); }}
-                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
                             Öffnen
@@ -453,7 +453,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
 
                         {youtubeVideoIdFromTranscriptFile(file) && (
                             <>
-                                <div className="h-px bg-[#1C1C33]" />
+                                <div className="h-px bg-[#3A3D45]" />
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -461,7 +461,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                                         setOpenMenuFileId(null);
                                         if (vid) openYoutubeVideoInNewTab(vid);
                                     }}
-                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
                                 >
                                     <ExternalLink size={15} />
                                     Video auf YouTube öffnen
@@ -471,7 +471,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
 
                         {file.type !== 'pdf' && (
                             <>
-                                <div className="h-px bg-[#1C1C33]" />
+                                <div className="h-px bg-[#3A3D45]" />
                                 <button
                                     onClick={() => {
                                         setFileToRename(file);
@@ -479,7 +479,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                                         setIsRenameFileOpen(true);
                                         setOpenMenuFileId(null);
                                     }}
-                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
                                 >
                                     <Edit size={15} />
                                     Umbenennen
@@ -489,13 +489,13 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
 
                         {fileTypeSupportsPromptRefine(file.type) && (
                             <>
-                                <div className="h-px bg-[#1C1C33]" />
+                                <div className="h-px bg-[#3A3D45]" />
                                 <button
                                     onClick={() => {
                                         onRefineFile(file);
                                         setOpenMenuFileId(null);
                                     }}
-                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
                                 >
                                     <Edit size={15} />
                                     Mit Prompt anpassen
@@ -503,31 +503,31 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                             </>
                         )}
 
-                        <div className="h-px bg-[#1C1C33]" />
+                        <div className="h-px bg-[#3A3D45]" />
                         <button
                             onClick={() => {
                                 setOpenMenuFileId(null);
                                 onOpenShareOverlay(file);
                             }}
-                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
                         >
                             <Send size={15} />
                             Teilen
                         </button>
 
-                        <div className="h-px bg-[#1C1C33]" />
+                        <div className="h-px bg-[#3A3D45]" />
                         <button
                             onClick={() => {
                                 setOpenMenuFileId(null);
                                 onCopyFile(file);
                             }}
-                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
                         >
                             <Copy size={15} />
                             Kopieren
                         </button>
 
-                        <div className="h-px bg-[#1C1C33]" />
+                        <div className="h-px bg-[#3A3D45]" />
                         <button
                             onClick={async () => {
                                 setOpenMenuFileId(null);
@@ -3531,13 +3531,13 @@ export default function FolderPage() {
         if (selectedFile.type === 'audio') {
             const canPlay = signedMediaStatus === 'ready' && !!signedMediaUrl;
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
-                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
                                 <X size={20} />
                             </button>
-                            <div className="p-2 rounded-lg bg-pink-500/10 text-pink-300">
+                            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-300">
                                 <Mic size={20} />
                             </div>
                             <h3 className="text-lg font-semibold text-white truncate max-w-[min(80vw,28rem)]">{selectedFile.name}</h3>
@@ -3545,7 +3545,7 @@ export default function FolderPage() {
                         <a
                             href={canPlay ? signedMediaUrl! : undefined}
                             download={selectedFile.name}
-                            className={`flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold ${!canPlay ? 'pointer-events-none opacity-50' : ''}`}
+                            className={`flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold ${!canPlay ? 'pointer-events-none opacity-50' : ''}`}
                         >
                             <Download size={14} />
                             Download
@@ -3553,7 +3553,7 @@ export default function FolderPage() {
                     </div>
                     <div className="flex-1 flex items-center justify-center p-8 w-full">
                         {signedMediaStatus === 'loading' && (
-                            <Loader2 className="h-12 w-12 animate-spin text-pink-300" aria-label="Lädt" />
+                            <Loader2 className="h-12 w-12 animate-spin text-blue-300" aria-label="Lädt" />
                         )}
                         {signedMediaStatus === 'error' && (
                             <p className="text-gray-400 text-sm text-center px-4">Wiedergabe nicht möglich. Bitte erneut öffnen oder Seite aktualisieren.</p>
@@ -3577,10 +3577,10 @@ export default function FolderPage() {
             const canPlay = signedMediaStatus === 'ready' && !!signedMediaUrl;
             const dlName = selectedFile.name.endsWith('.mp4') ? selectedFile.name : `${selectedFile.name}.mp4`;
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
-                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
                                 <X size={20} />
                             </button>
                             <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-300">
@@ -3591,14 +3591,14 @@ export default function FolderPage() {
                         <a
                             href={canPlay ? signedMediaUrl! : undefined}
                             download={dlName}
-                            className={`flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold ${!canPlay ? 'pointer-events-none opacity-50' : ''}`}
+                            className={`flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold ${!canPlay ? 'pointer-events-none opacity-50' : ''}`}
                         >
                             <Download size={14} />
                             Download
                         </a>
                     </div>
                     <div className="flex-1 flex items-center justify-center p-3 sm:p-4 bg-black w-full min-h-0 min-w-0 overflow-hidden">
-                        <div className="w-full max-w-4xl min-h-0 min-w-0 max-h-[min(80vh,720px)] aspect-video rounded-xl border border-[#2A2A40] bg-black overflow-hidden flex items-center justify-center">
+                        <div className="w-full max-w-4xl min-h-0 min-w-0 max-h-[min(80vh,720px)] aspect-video rounded-xl border border-[#45484F] bg-black overflow-hidden flex items-center justify-center">
                             {signedMediaStatus === 'loading' && (
                                 <Loader2 className="h-14 w-14 animate-spin text-cyan-300" aria-label="Lädt" />
                             )}
@@ -3672,20 +3672,20 @@ export default function FolderPage() {
             }
 
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
-                            <button onClick={() => { setSelectedFile(null); setIsEditingFile(false); }} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                            <button onClick={() => { setSelectedFile(null); setIsEditingFile(false); }} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
                                 <X size={20} />
                             </button>
-                            <div className="h-6 w-px bg-[#1C1C33] mx-2"></div>
+                            <div className="h-6 w-px bg-[#3A3D45] mx-2"></div>
                             <div className={`p-2 rounded-lg bg-blue-500/10 text-blue-400`}>
                                 <FileText size={20} />
                             </div>
                             <h3 className="text-lg font-semibold text-white">{selectedFile.name}</h3>
                         </div>
                         <div className="flex items-center gap-2 no-print">
-                            <button onClick={() => setIsEditingFile(true)} className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors">
+                            <button onClick={() => setIsEditingFile(true)} className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors">
                                 <Edit size={14} />
                                 <span className="hidden sm:inline">Bearbeiten</span>
                             </button>
@@ -3693,7 +3693,7 @@ export default function FolderPage() {
                                 <button
                                     type="button"
                                     onClick={() => openYoutubeVideoInNewTab(ytId)}
-                                    className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                    className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                                     title="Video auf YouTube im Browser öffnen"
                                 >
                                     <ExternalLink size={14} />
@@ -3718,7 +3718,7 @@ export default function FolderPage() {
                                             alert("Keine Audio-Datei für diesen Eintrag gefunden.");
                                         }
                                     }}
-                                    className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                    className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                                     title="Original-Audio (MP3) herunterladen"
                                 >
                                     <Download size={14} />
@@ -3727,7 +3727,7 @@ export default function FolderPage() {
                             )}
                             <button
                                 onClick={() => window.print()}
-                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                                 title="Als PDF exportieren"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
@@ -3736,9 +3736,9 @@ export default function FolderPage() {
                         </div>
                     </div>
                     <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-8">
-                        <div ref={readModeContentRef} className="max-w-4xl mx-auto prose prose-invert prose-blop prose-pre:bg-[#151525] prose-pre:border prose-pre:border-[#2A2A40] [&_.katex-display]:max-w-full">
+                        <div ref={readModeContentRef} className="max-w-4xl mx-auto prose prose-invert prose-blop prose-pre:bg-[#353840] prose-pre:border prose-pre:border-[#45484F] [&_.katex-display]:max-w-full">
                             {ytId ? (
-                                <div className="not-prose mb-8 aspect-video w-full max-h-[min(50vh,420px)] rounded-xl overflow-hidden border border-[#2A2A40] bg-black shadow-lg">
+                                <div className="not-prose mb-8 aspect-video w-full max-h-[min(50vh,420px)] rounded-xl overflow-hidden border border-[#45484F] bg-black shadow-lg">
                                     <iframe
                                         title="YouTube"
                                         className="h-full w-full"
@@ -3758,7 +3758,7 @@ export default function FolderPage() {
                         {readSelectionRect && (
                             <div
                                 ref={readSelectionPopupRef}
-                                className="fixed z-[130] w-[320px] max-w-[calc(100vw-1rem)] rounded-xl border border-[#3B3B55] bg-[#151525] p-3 shadow-2xl"
+                                className="fixed z-[130] w-[320px] max-w-[calc(100vw-1rem)] rounded-xl border border-[#4A4E58] bg-[#353840] p-3 shadow-2xl"
                                 style={{
                                     left: Math.max(8, Math.min(window.innerWidth - 328, readSelectionRect.x - 160)),
                                     top: Math.max(8, readSelectionRect.y - 110),
@@ -3769,7 +3769,7 @@ export default function FolderPage() {
                                     value={readSelectionInstruction}
                                     onChange={(e) => setReadSelectionInstruction(e.target.value)}
                                     placeholder="z. B. kürzer, einfacher, professioneller formulieren ..."
-                                    className="w-full bg-[#0B0B1A] border border-[#2A2A40] text-gray-200 rounded-lg px-3 py-2 text-xs min-h-[68px] focus:outline-none focus:ring-2 focus:ring-[#5E5CE6]/40"
+                                    className="w-full bg-[#23252A] border border-[#45484F] text-gray-200 rounded-lg px-3 py-2 text-xs min-h-[68px] focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
                                 />
                                 <div className="mt-2 flex gap-2">
                                     <button
@@ -3779,7 +3779,7 @@ export default function FolderPage() {
                                             setReadSelectionText("");
                                             readSelectionRangeRef.current = null;
                                         }}
-                                        className="flex-1 py-1.5 rounded-lg text-xs bg-[#1C1C33] hover:bg-[#2A2A40] text-gray-300"
+                                        className="flex-1 py-1.5 rounded-lg text-xs bg-[#3A3D45] hover:bg-[#45484F] text-gray-300"
                                     >
                                         Schließen
                                     </button>
@@ -3787,7 +3787,7 @@ export default function FolderPage() {
                                         type="button"
                                         onClick={() => void handleApplyReadSelectionAiEdit()}
                                         disabled={!readSelectionInstruction.trim() || readSelectionBusy}
-                                        className="flex-1 py-1.5 rounded-lg text-xs bg-[#5E5CE6] hover:bg-[#7D7AFF] text-white disabled:opacity-50"
+                                        className="flex-1 py-1.5 rounded-lg text-xs bg-[#5B9DFF] hover:bg-[#7EB2FF] text-white disabled:opacity-50"
                                     >
                                         {readSelectionBusy ? 'Bearbeite…' : 'Mit KI anwenden'}
                                     </button>
@@ -3808,13 +3808,13 @@ export default function FolderPage() {
             const sessionId = typeof window !== 'undefined' ? localStorage.getItem("session_id") || "" : "";
             const busyPractice = isGenerating.includes('quiz') || isGenerating.includes('flashcards');
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
-                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
                                 <X size={20} />
                             </button>
-                            <div className="h-6 w-px bg-[#1C1C33] mx-2"></div>
+                            <div className="h-6 w-px bg-[#3A3D45] mx-2"></div>
                             <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-300">
                                 <Sparkles size={20} />
                             </div>
@@ -3824,7 +3824,7 @@ export default function FolderPage() {
                             <button
                                 type="button"
                                 onClick={() => router.push(`/folder/${folderId}/smart-learning`)}
-                                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-[#2A2A40]"
+                                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-[#45484F]"
                             >
                                 Vollbild
                             </button>
@@ -3832,7 +3832,7 @@ export default function FolderPage() {
                                 type="button"
                                 onClick={() => setIsSmartLearningConfigOpen(true)}
                                 disabled={isGenerating.includes('smart-learning')}
-                                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-[#2A2A40] disabled:opacity-50"
+                                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-[#45484F] disabled:opacity-50"
                             >
                                 Neu generieren
                             </button>
@@ -3867,24 +3867,24 @@ export default function FolderPage() {
             const plan = (Array.isArray(selectedFile.content) ? selectedFile.content : []) as PlanDayRow[];
             if (!Array.isArray(plan) || plan.length === 0) {
                 return (
-                    <div className="fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col items-center justify-center p-4">
+                    <div className="fixed inset-0 z-[100] bg-[#23252A] flex flex-col items-center justify-center p-4">
                         <div className="text-center">
                             <p className="text-gray-400 text-lg mb-2">⚠️ Lernplan ist leer</p>
-                            <button onClick={() => setSelectedFile(null)} className="mt-4 px-4 py-2 bg-[#1C1C33] hover:bg-[#3B3B55] rounded-lg text-white">Zurück</button>
+                            <button onClick={() => setSelectedFile(null)} className="mt-4 px-4 py-2 bg-[#3A3D45] hover:bg-[#4A4E58] rounded-lg text-white">Zurück</button>
                         </div>
                     </div>
                 );
             }
 
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
-                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
                                 <X size={20} />
                             </button>
-                            <div className="h-6 w-px bg-[#1C1C33] mx-2"></div>
-                            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
+                            <div className="h-6 w-px bg-[#3A3D45] mx-2"></div>
+                            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
                                 <Calendar size={20} />
                             </div>
                             <h3 className="text-lg font-semibold text-white">{selectedFile.name || 'Persönlicher Lernplan'}</h3>
@@ -3892,7 +3892,7 @@ export default function FolderPage() {
                         <div className="flex items-center gap-2 no-print">
                             <button
                                 onClick={() => window.print()}
-                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                                 title="Lernplan als PDF drucken"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
@@ -3907,13 +3907,13 @@ export default function FolderPage() {
                                 const isExpanded = expandedDay === i;
 
                                 return (
-                                    <div key={i} className={`bg-[#151525] rounded-2xl border transition-all duration-200 overflow-hidden ${isExpanded ? 'border-purple-500/50 shadow-lg shadow-purple-500/5' : 'border-[#2A2A40] hover:border-[#3B3B55]'}`}>
+                                    <div key={i} className={`bg-[#353840] rounded-2xl border transition-all duration-200 overflow-hidden ${isExpanded ? 'border-blue-500/50 shadow-lg shadow-[#5B9DFF]/5' : 'border-[#45484F] hover:border-[#4A4E58]'}`}>
                                         <button
                                             onClick={() => setExpandedDay(isExpanded ? null : i)}
                                             className="w-full text-left p-5 flex items-center justify-between focus:outline-none group"
                                         >
                                             <div className="flex items-center gap-4">
-                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-colors ${isExpanded ? 'bg-purple-500 text-white' : 'bg-[#1C1C33] text-gray-400 group-hover:bg-[#3B3B55]'}`}>
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-colors ${isExpanded ? 'bg-blue-500 text-white' : 'bg-[#3A3D45] text-gray-400 group-hover:bg-[#4A4E58]'}`}>
                                                     {day.day}
                                                 </div>
                                                 <div>
@@ -3921,27 +3921,27 @@ export default function FolderPage() {
                                                     {!isExpanded && <p className="text-sm text-gray-500 truncate max-w-md">{day.goal}</p>}
                                                 </div>
                                             </div>
-                                            <div className={`p-2 rounded-full transition-transform duration-200 ${isExpanded ? 'rotate-180 bg-purple-500/10 text-purple-400' : 'bg-[#0B0B1A] text-gray-500 group-hover:text-white'}`}>
+                                            <div className={`p-2 rounded-full transition-transform duration-200 ${isExpanded ? 'rotate-180 bg-blue-500/10 text-blue-400' : 'bg-[#23252A] text-gray-500 group-hover:text-white'}`}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                             </div>
                                         </button>
 
                                         <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
                                             <div className="p-5 pt-0 ml-14 space-y-4">
-                                                <div className="text-sm text-gray-300 bg-[#0B0B1A] p-4 rounded-xl border border-[#2A2A40] shadow-inner">
+                                                <div className="text-sm text-gray-300 bg-[#23252A] p-4 rounded-xl border border-[#45484F] shadow-inner">
                                                     <div className="flex items-center gap-2 mb-2">
-                                                        <span className="text-purple-400 font-semibold text-xs uppercase tracking-wider">🎯 Tagesziel</span>
+                                                        <span className="text-blue-400 font-semibold text-xs uppercase tracking-wider">🎯 Tagesziel</span>
                                                     </div>
                                                     <p>{day.goal}</p>
                                                     {day.summary && (
-                                                        <div className="mt-3 pt-3 border-t border-[#2A2A40]">
+                                                        <div className="mt-3 pt-3 border-t border-[#45484F]">
                                                             <span className="text-blue-400 font-semibold text-xs uppercase tracking-wider mb-2 block">📚 Zusammenfassung (Lernstoff)</span>
                                                             <p className="text-gray-300 leading-relaxed">{day.summary}</p>
                                                         </div>
                                                     )}
                                                 </div>
 
-                                                <div className="bg-[#0B0B1A] p-4 rounded-xl border border-[#2A2A40]">
+                                                <div className="bg-[#23252A] p-4 rounded-xl border border-[#45484F]">
                                                     <div className="flex items-center gap-2 mb-3">
                                                         <span className="text-gray-400 font-semibold text-xs uppercase tracking-wider">📝 Aufgaben</span>
                                                     </div>
@@ -3984,7 +3984,7 @@ export default function FolderPage() {
                                                                                 console.error("Failed to save checkbox state", e);
                                                                             }
                                                                         }}
-                                                                        className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500/50 ${isCompleted ? 'bg-purple-500 border-purple-500 text-white' : 'border-2 border-[#3B3B55] group-hover/task:border-purple-500 text-transparent hover:bg-white/5'
+                                                                        className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${isCompleted ? 'bg-blue-500 border-blue-500 text-white' : 'border-2 border-[#4A4E58] group-hover/task:border-blue-500 text-transparent hover:bg-white/5'
                                                                             }`}
                                                                     >
                                                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -3992,7 +3992,7 @@ export default function FolderPage() {
 
                                                                     <button
                                                                         onClick={() => handleTaskHelp(description)}
-                                                                        className={`flex-1 text-left text-sm transition-colors focus:outline-none focus:text-white rounded px-2 -ml-2 py-0.5 hover:bg-[#1C1C33] ${isCompleted ? 'text-gray-500 line-through' : 'text-gray-300 group-hover/task:text-white'
+                                                                        className={`flex-1 text-left text-sm transition-colors focus:outline-none focus:text-white rounded px-2 -ml-2 py-0.5 hover:bg-[#3A3D45] ${isCompleted ? 'text-gray-500 line-through' : 'text-gray-300 group-hover/task:text-white'
                                                                             }`}
                                                                         title="Klicke für KI-Erklärung dieser Aufgabe"
                                                                     >
@@ -4040,10 +4040,10 @@ export default function FolderPage() {
 
         if (selectedFile.type === 'image') {
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden">
-                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A]">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden">
+                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A]">
                         <div className="flex items-center gap-3 min-w-0">
-                            <button onClick={() => setSelectedFile(null)} className="min-h-10 min-w-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl">
+                            <button onClick={() => setSelectedFile(null)} className="min-h-10 min-w-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl">
                                 <X size={20} />
                             </button>
                             <h3 className="text-lg font-semibold text-white truncate">{selectedFile.name || 'Bild'}</h3>
@@ -4051,7 +4051,7 @@ export default function FolderPage() {
                     </div>
                     <div className="flex-1 overflow-auto flex items-center justify-center p-4">
                         {signedMediaStatus === 'loading' || !signedMediaUrl ? (
-                            <Loader2 className="animate-spin text-[#5E5CE6]" size={28} />
+                            <Loader2 className="animate-spin text-[#5B9DFF]" size={28} />
                         ) : (
                             <img src={signedMediaUrl} alt={selectedFile.name || 'Bild'} className="max-w-full max-h-full object-contain rounded-xl" />
                         )}
@@ -4064,13 +4064,13 @@ export default function FolderPage() {
             const username = typeof window !== 'undefined' ? localStorage.getItem("username") || "" : "";
             const pdfUrl = `${API_BASE}/files/download_pdf?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id || "")}&filename=${encodeURIComponent(selectedFile.name || "")}`;
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
-                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
                                 <X size={20} />
                             </button>
-                            <div className="h-6 w-px bg-[#1C1C33] mx-2"></div>
+                            <div className="h-6 w-px bg-[#3A3D45] mx-2"></div>
                             <div className="p-2 rounded-lg bg-red-500/10 text-red-400">
                                 <FileText size={20} />
                             </div>
@@ -4081,7 +4081,7 @@ export default function FolderPage() {
                                 href={pdfUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                                 title="PDF in neuem Tab öffnen"
                             >
                                 <ExternalLink size={14} />
@@ -4090,7 +4090,7 @@ export default function FolderPage() {
                             <a
                                 href={pdfUrl}
                                 download={selectedFile.name || "dokument.pdf"}
-                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                                 title="PDF herunterladen"
                             >
                                 <Download size={14} />
@@ -4098,15 +4098,15 @@ export default function FolderPage() {
                             </a>
                         </div>
                     </div>
-                    <div className="flex-1 bg-[#0B0B1A] p-3">
+                    <div className="flex-1 bg-[#23252A] p-3">
                         {pdfLoadFailed ? (
                             <div className="w-full h-full rounded-xl border border-red-500/30 bg-[#111] flex items-center justify-center p-6">
                                 <div className="max-w-lg text-center">
                                     <p className="text-red-300 font-semibold mb-2">PDF konnte nicht geladen werden.</p>
                                     <p className="text-sm text-gray-400 mb-4">Bitte versuche es im neuen Tab oder lade die Datei herunter.</p>
                                     <div className="flex items-center justify-center gap-2">
-                                        <a href={pdfUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-lg bg-[#1C1C33] hover:bg-[#2A2A40] text-white text-sm">Im neuen Tab öffnen</a>
-                                        <button onClick={() => setPdfLoadFailed(false)} className="px-3 py-2 rounded-lg bg-[#1C1C33] hover:bg-[#2A2A40] text-white text-sm">Erneut versuchen</button>
+                                        <a href={pdfUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-lg bg-[#3A3D45] hover:bg-[#45484F] text-white text-sm">Im neuen Tab öffnen</a>
+                                        <button onClick={() => setPdfLoadFailed(false)} className="px-3 py-2 rounded-lg bg-[#3A3D45] hover:bg-[#45484F] text-white text-sm">Erneut versuchen</button>
                                     </div>
                                 </div>
                             </div>
@@ -4114,7 +4114,7 @@ export default function FolderPage() {
                             <iframe
                                 title={selectedFile.name || "PDF"}
                                 src={pdfUrl}
-                                className="w-full h-full rounded-xl border border-[#2A2A40] bg-[#111]"
+                                className="w-full h-full rounded-xl border border-[#45484F] bg-[#111]"
                                 onError={() => setPdfLoadFailed(true)}
                             />
                         )}
@@ -4130,17 +4130,17 @@ export default function FolderPage() {
         const ytIdGeneric = youtubeVideoIdFromTranscriptFile(selectedFile);
 
         return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
                     <div className="flex items-center gap-3">
-                        <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                        <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
                             <X size={20} />
                         </button>
-                        <div className="h-6 w-px bg-[#1C1C33] mx-2"></div>
+                        <div className="h-6 w-px bg-[#3A3D45] mx-2"></div>
                         <div className={`p-2 rounded-lg ${selectedFile.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
                             selectedFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
                                 selectedFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
-                                    'bg-[#1C1C33] text-gray-400'
+                                    'bg-[#3A3D45] text-gray-400'
                             }`}>
                             {getFileIcon(selectedFile.type)}
                         </div>
@@ -4151,7 +4151,7 @@ export default function FolderPage() {
                             <button
                                 type="button"
                                 onClick={() => openYoutubeVideoInNewTab(ytIdGeneric)}
-                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors h-full"
+                                className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors h-full"
                                 title="Video auf YouTube im Browser öffnen"
                             >
                                 <ExternalLink size={14} />
@@ -4176,7 +4176,7 @@ export default function FolderPage() {
                                         alert("Keine Audio-Datei für diesen Eintrag gefunden.");
                                     }
                                 }}
-                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors h-full"
+                                className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors h-full"
                                 title="Original-Audio (MP3) herunterladen"
                             >
                                 <Download size={14} />
@@ -4185,7 +4185,7 @@ export default function FolderPage() {
                         )}
                         <button
                             onClick={() => window.print()}
-                            className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                            className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                             title="Als PDF exportieren"
                         >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
@@ -4252,7 +4252,7 @@ export default function FolderPage() {
     };
 
     return (
-        <div className="bg-[#0B0B1A] min-h-screen">
+        <div className="bg-[#23252A] min-h-screen">
             {/* Global Toast */}
             {toast && (
                 <div className={`fixed top-4 left-4 right-4 z-[9999] p-4 rounded-xl shadow-2xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2 border md:left-auto md:max-w-md ${toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
@@ -4285,7 +4285,7 @@ export default function FolderPage() {
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 min-w-0">
                     <div className="flex items-center gap-3 min-w-0">
-                        <button onClick={() => router.back()} aria-label="Zurück" className="min-h-10 min-w-10 flex items-center justify-center hover:bg-[#1C1C33] rounded-xl text-gray-400 hover:text-white transition-colors shrink-0"><ArrowLeft size={22} /></button>
+                        <button onClick={() => router.back()} aria-label="Zurück" className="min-h-10 min-w-10 flex items-center justify-center hover:bg-[#3A3D45] rounded-xl text-gray-400 hover:text-white transition-colors shrink-0"><ArrowLeft size={22} /></button>
                         <div className="min-w-0">
                             <h1 className="text-2xl font-bold text-white break-words">{folderName || "Ordner"}</h1>
                             <p className="text-sm text-gray-400">
@@ -4296,8 +4296,8 @@ export default function FolderPage() {
 
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full min-w-0 md:w-auto">
                         {/* AI Actions */}
-                        <div className="flex gap-2 overflow-x-auto max-w-full pb-1 [scrollbar-width:thin] sm:flex-wrap sm:overflow-visible sm:border-r sm:border-[#2A2A40] sm:pr-4 sm:mr-2 [&>button]:shrink-0">
-                            <button onClick={() => handleGenerate('plan')} disabled={isGenerating.includes('plan')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Lernplan erstellen">
+                        <div className="flex gap-2 overflow-x-auto max-w-full pb-1 [scrollbar-width:thin] sm:flex-wrap sm:overflow-visible sm:border-r sm:border-[#45484F] sm:pr-4 sm:mr-2 [&>button]:shrink-0">
+                            <button onClick={() => handleGenerate('plan')} disabled={isGenerating.includes('plan')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Lernplan erstellen">
                                 {isGenerating.includes('plan') ? <Loader2 size={16} className="animate-spin" /> : <BrainCircuit size={16} />}
                                 Lernplan
                             </button>
@@ -4338,7 +4338,7 @@ export default function FolderPage() {
                                 {isGenerating.includes('repetition') ? <Loader2 size={16} className="animate-spin" /> : <Repeat size={16} />}
                                 Wiederholung
                             </button>
-                            <button type="button" onClick={() => setIsPodcastConfigOpen(true)} disabled={isGenerating.includes('podcast')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Podcast (Einstellungen & TTS)">
+                            <button type="button" onClick={() => setIsPodcastConfigOpen(true)} disabled={isGenerating.includes('podcast')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Podcast (Einstellungen & TTS)">
                                 {isGenerating.includes('podcast') ? <Loader2 size={16} className="animate-spin" /> : <Mic size={16} />}
                                 Podcast
                             </button>
@@ -4359,7 +4359,7 @@ export default function FolderPage() {
                                         content: ""
                                     });
                                 }}
-                                className="flex items-center gap-2 bg-[#252526] hover:bg-[#333] border border-[#2A2A40] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                                className="flex items-center gap-2 bg-[#252526] hover:bg-[#333] border border-[#45484F] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
                             >
                                 <Edit size={18} />
                                 <span className="hidden sm:inline">Neues Dokument</span>
@@ -4367,24 +4367,24 @@ export default function FolderPage() {
                             <div className="relative">
                                 <button
                                     onClick={() => setIsHeaderMenuOpen((v) => !v)}
-                                    className="min-h-10 min-w-10 flex items-center justify-center bg-[#151525] text-white px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
+                                    className="min-h-10 min-w-10 flex items-center justify-center bg-[#353840] text-white px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#45484F] hover:bg-[#3A3D45] transition-all"
                                     title="Mehr Aktionen"
                                 >
                                     <MoreVertical size={18} />
                                 </button>
                                 {isHeaderMenuOpen && (
-                                    <div className="absolute right-0 top-full mt-1 w-44 bg-[#0B0B1A] border border-[#2A2A40] rounded-xl shadow-2xl z-50 overflow-hidden">
+                                    <div className="absolute right-0 top-full mt-1 w-44 bg-[#23252A] border border-[#45484F] rounded-xl shadow-2xl z-50 overflow-hidden">
                                         <button
                                             onClick={() => void loadIncomingShareRequests()}
-                                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
                                         >
                                             <Inbox size={15} />
                                             Requests
                                         </button>
-                                        <div className="h-px bg-[#1C1C33]" />
+                                        <div className="h-px bg-[#3A3D45]" />
                                         <button
                                             onClick={openImportByLinkOverlay}
-                                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
                                         >
                                             <Link2 size={15} />
                                             Link eingeben
@@ -4399,7 +4399,7 @@ export default function FolderPage() {
                 {/* Content */}
                 {loading ? (
                     <div className="flex justify-center py-20">
-                        <Loader2 className="animate-spin text-[#5E5CE6]" size={32} />
+                        <Loader2 className="animate-spin text-[#5B9DFF]" size={32} />
                     </div>
                 ) : (
                     <DndContext
@@ -4425,7 +4425,7 @@ export default function FolderPage() {
                                 </div>
                             )}
                             {!loading && files.some(isAiContextSourceFile) && (
-                                <div className="rounded-2xl border border-[#2A2A40] bg-[#12121f] p-4 space-y-3">
+                                <div className="rounded-2xl border border-[#45484F] bg-[#12121f] p-4 space-y-3">
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                         <div>
                                             <h3 className="text-sm font-semibold text-white">Material für KI</h3>
@@ -4438,7 +4438,7 @@ export default function FolderPage() {
                                             <button
                                                 type="button"
                                                 onClick={() => void persistAiContext(null)}
-                                                className="text-xs px-3 py-1.5 rounded-lg bg-[#1C1C33] border border-[#2A2A40] text-gray-300 hover:text-white"
+                                                className="text-xs px-3 py-1.5 rounded-lg bg-[#3A3D45] border border-[#45484F] text-gray-300 hover:text-white"
                                             >
                                                 Nur Quellen
                                             </button>
@@ -4449,7 +4449,7 @@ export default function FolderPage() {
                                             <li key={f.id} className="flex items-start gap-3 text-sm">
                                                 <input
                                                     type="checkbox"
-                                                    className="mt-1 rounded border-[#2A2A40] bg-[#0B0B1A]"
+                                                    className="mt-1 rounded border-[#45484F] bg-[#23252A]"
                                                     checked={isFileInAiContext(f)}
                                                     onChange={(e) => toggleAiContextFile(f.id, e.target.checked)}
                                                 />
@@ -4474,20 +4474,20 @@ export default function FolderPage() {
                                             <button
                                                 onClick={() => void handlePasteCopiedFile()}
                                                 disabled={!copiedFile}
-                                                className="flex items-center gap-1 text-xs text-gray-300 hover:text-white bg-[#151525] hover:bg-[#1C1C33] px-3 py-1.5 rounded-lg border border-[#2A2A40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="flex items-center gap-1 text-xs text-gray-300 hover:text-white bg-[#353840] hover:bg-[#3A3D45] px-3 py-1.5 rounded-lg border border-[#45484F] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                 title={copiedFile ? `"${copiedFile.name}" hier einfügen` : "Erst eine Datei kopieren"}
                                             >
                                                 <ClipboardPaste size={13} /> Einfügen
                                             </button>
                                             <button
                                                 onClick={() => setIsUploadOpen(true)}
-                                                className="flex items-center gap-1 text-xs text-white bg-[#5E5CE6] hover:bg-[#4d4ac9] px-3 py-1.5 rounded-lg border border-[#5E5CE6] transition-colors"
+                                                className="flex items-center gap-1 text-xs text-white bg-[#5B9DFF] hover:bg-[#4A8AE6] px-3 py-1.5 rounded-lg border border-[#5B9DFF] transition-colors"
                                             >
                                                 <Plus size={13} /> Material hinzufügen
                                             </button>
                                             <button
                                                 onClick={() => setIsCreateSubfolderOpen(true)}
-                                                className="flex items-center gap-1 text-xs text-gray-400 hover:text-white bg-[#151525] hover:bg-[#1C1C33] px-3 py-1.5 rounded-lg border border-[#2A2A40] transition-colors"
+                                                className="flex items-center gap-1 text-xs text-gray-400 hover:text-white bg-[#353840] hover:bg-[#3A3D45] px-3 py-1.5 rounded-lg border border-[#45484F] transition-colors"
                                             >
                                                 <Plus size={13} /> Erstellen
                                             </button>
@@ -4515,14 +4515,14 @@ export default function FolderPage() {
 
                             {/* Separator if both exist */}
                             {subfolders.length > 0 && files.length > 0 && (
-                                <div className="h-px bg-[#1C1C33]" />
+                                <div className="h-px bg-[#3A3D45]" />
                             )}
 
                             {/* Files: Materialien vs Erstellungen */}
                             {files.length === 0 && !filesLoadError ? (
-                                <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-16 text-center border-dashed">
+                                <div className="bg-[#353840] border border-[#45484F] rounded-2xl p-16 text-center border-dashed">
                                     <div className="flex justify-center mb-6">
-                                        <div className="w-16 h-16 bg-[#0B0B1A] rounded-2xl flex items-center justify-center border border-[#2A2A40]">
+                                        <div className="w-16 h-16 bg-[#23252A] rounded-2xl flex items-center justify-center border border-[#45484F]">
                                             <FileText size={24} className="text-gray-500" />
                                         </div>
                                     </div>
@@ -4530,7 +4530,7 @@ export default function FolderPage() {
                                     <p className="text-base text-gray-400 mb-8">
                                         Lade Skripte (PDF) hoch oder füge YouTube-Videos hinzu,<br />damit die AI einen Lernplan erstellen kann.
                                     </p>
-                                    <button onClick={() => setIsUploadOpen(true)} className="inline-flex items-center gap-2 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all"><Plus size={18} /><span>Material hinzufügen</span></button>
+                                    <button onClick={() => setIsUploadOpen(true)} className="inline-flex items-center gap-2 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all"><Plus size={18} /><span>Material hinzufügen</span></button>
                                 </div>
                             ) : (
                                 <div className="space-y-8">
@@ -4582,16 +4582,16 @@ export default function FolderPage() {
 
                         <DragOverlay dropAnimation={{ duration: 250, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
                             {activeDragFile ? (
-                                <div className="bg-[#1C1C33] border border-[#5E5CE6] p-4 rounded-xl shadow-2xl flex items-center gap-4 opacity-90 scale-105 pointer-events-none">
-                                    <div className={`p-3 rounded-lg ${activeDragFile.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
+                                <div className="bg-[#3A3D45] border border-[#5B9DFF] p-4 rounded-xl shadow-2xl flex items-center gap-4 opacity-90 scale-105 pointer-events-none">
+                                    <div className={`p-3 rounded-lg ${activeDragFile.type === 'plan' ? 'bg-blue-500/10 text-blue-400' :
                                         activeDragFile.type === 'smart_learning' ? 'bg-indigo-500/10 text-indigo-300' :
                                         activeDragFile.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
                                             activeDragFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
                                                 activeDragFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
                                                     activeDragFile.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
-                                                        activeDragFile.type === 'audio' ? 'bg-pink-500/10 text-pink-300' :
+                                                        activeDragFile.type === 'audio' ? 'bg-blue-500/10 text-blue-300' :
                                                             activeDragFile.type === 'video' ? 'bg-cyan-500/10 text-cyan-300' :
-                                                                'bg-[#1C1C33] text-[#5E5CE6]'
+                                                                'bg-[#3A3D45] text-[#5B9DFF]'
                                         }`}>
                                         {getFileIcon(activeDragFile.type)}
                                     </div>
@@ -4609,25 +4609,25 @@ export default function FolderPage() {
                 {/* Upload Modal */}
                 {isUploadOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-3xl p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-3xl p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="text-lg font-semibold text-white">Material hinzufügen</h3>
                                 <button onClick={() => setIsUploadOpen(false)} className="text-gray-400 hover:text-white"><X size={20} /></button>
                             </div>
-                            <div className="flex flex-wrap gap-2 p-1 bg-[#151525] rounded-xl mb-6">
-                                <button onClick={() => setUploadType('pdf')} className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'pdf' ? 'bg-[#1C1C33] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Upload size={16} /> PDF Upload</button>
-                                <button onClick={() => setUploadType('image')} className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'image' ? 'bg-[#1C1C33] text-green-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><ImageIcon size={16} /> Bild</button>
-                                <button onClick={() => setUploadType('youtube')} className={`flex-1 min-w-[110px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'youtube' ? 'bg-[#1C1C33] text-red-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Youtube size={16} /> YouTube</button>
-                                <button onClick={() => setUploadType('audio')} className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#1C1C33] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
+                            <div className="flex flex-wrap gap-2 p-1 bg-[#353840] rounded-xl mb-6">
+                                <button onClick={() => setUploadType('pdf')} className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'pdf' ? 'bg-[#3A3D45] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Upload size={16} /> PDF Upload</button>
+                                <button onClick={() => setUploadType('image')} className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'image' ? 'bg-[#3A3D45] text-green-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><ImageIcon size={16} /> Bild</button>
+                                <button onClick={() => setUploadType('youtube')} className={`flex-1 min-w-[110px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'youtube' ? 'bg-[#3A3D45] text-red-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Youtube size={16} /> YouTube</button>
+                                <button onClick={() => setUploadType('audio')} className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#3A3D45] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg> Audio
                                 </button>
-                                <button onClick={() => setUploadType('document')} className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'document' ? 'bg-[#1C1C33] text-orange-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`} title="Leeres Dokument erstellen">
+                                <button onClick={() => setUploadType('document')} className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'document' ? 'bg-[#3A3D45] text-orange-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`} title="Leeres Dokument erstellen">
                                     <FileText size={16} /> Text
                                 </button>
                             </div>
                             {uploadType === 'pdf' ? (
                                 <form onSubmit={handleFileUpload} className="space-y-4">
-                                    <div className="border-2 border-dashed border-[#2A2A40] rounded-xl p-8 text-center hover:border-[#5E5CE6] transition-colors cursor-pointer relative">
+                                    <div className="border-2 border-dashed border-[#45484F] rounded-xl p-8 text-center hover:border-[#5B9DFF] transition-colors cursor-pointer relative">
                                         <input type="file" accept=".pdf,audio/*" multiple onChange={(e) => setFilesToUpload(Array.from(e.target.files || []))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                                         <div className="flex flex-col items-center gap-2 text-gray-400">
                                             <Upload size={24} />
@@ -4638,11 +4638,11 @@ export default function FolderPage() {
                                             </span>
                                         </div>
                                     </div>
-                                    <button type="submit" disabled={filesToUpload.length === 0 || isProcessing} className="w-full bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Hochladen</button>
+                                    <button type="submit" disabled={filesToUpload.length === 0 || isProcessing} className="w-full bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Hochladen</button>
                                 </form>
                             ) : uploadType === 'image' ? (
                                 <form onSubmit={handleImageUpload} className="space-y-4">
-                                    <div className="border-2 border-dashed border-[#2A2A40] rounded-xl p-8 text-center hover:border-green-500 transition-colors cursor-pointer relative">
+                                    <div className="border-2 border-dashed border-[#45484F] rounded-xl p-8 text-center hover:border-green-500 transition-colors cursor-pointer relative">
                                         <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" multiple onChange={(e) => setFilesToUpload(Array.from(e.target.files || []))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                                         <div className="flex flex-col items-center gap-2 text-gray-400">
                                             <ImageIcon size={24} />
@@ -4658,14 +4658,14 @@ export default function FolderPage() {
                                 </form>
                             ) : uploadType === 'youtube' ? (
                                 <form onSubmit={handleYoutubeImport} className="space-y-4">
-                                    <div><label className="block text-xs font-medium text-gray-400 mb-1.5 ml-1">YouTube URL</label><input type="url" placeholder="https://youtube.com/watch?v=..." value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none placeholder:text-gray-600 transition-all font-sans" /></div>
+                                    <div><label className="block text-xs font-medium text-gray-400 mb-1.5 ml-1">YouTube URL</label><input type="url" placeholder="https://youtube.com/watch?v=..." value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none placeholder:text-gray-600 transition-all font-sans" /></div>
                                     <button type="submit" disabled={!youtubeUrl || isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Importieren</button>
                                 </form>
                             ) : uploadType === 'document' ? (
                                 <form onSubmit={handleDocumentCreate} className="space-y-4">
                                     <div>
                                         <label className="block text-xs font-medium text-gray-400 mb-1.5 ml-1">Dokumenten-Titel</label>
-                                        <input id="new-document-title" type="text" placeholder="Mein neues Dokument..." className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none placeholder:text-gray-600 transition-all font-sans" required />
+                                        <input id="new-document-title" type="text" placeholder="Mein neues Dokument..." className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none placeholder:text-gray-600 transition-all font-sans" required />
                                     </div>
                                     <button type="submit" disabled={isProcessing} className="w-full bg-orange-600 hover:bg-orange-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">
                                         {isProcessing && <Loader2 size={16} className="animate-spin" />} Dokument erstellen
@@ -4673,7 +4673,7 @@ export default function FolderPage() {
                                 </form>
                             ) : (
                                 <div className="space-y-6">
-                                    <div className="flex flex-col items-center justify-center p-8 bg-[#151525] border border-[#2A2A40] rounded-xl relative">
+                                    <div className="flex flex-col items-center justify-center p-8 bg-[#353840] border border-[#45484F] rounded-xl relative">
                                         {!audioBlob ? (
                                             <>
                                                 {/* Hidden File Input for Audio */}
@@ -4689,7 +4689,7 @@ export default function FolderPage() {
                                                 />
                                                 <button
                                                     onClick={isRecording ? stopRecording : startRecording}
-                                                    className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all z-20 relative ${isRecording ? 'bg-red-500/20 text-red-500 border-4 border-red-500 animate-pulse' : 'bg-[#1C1C33] text-gray-400 hover:bg-[#3B3B55] hover:text-white'}`}
+                                                    className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all z-20 relative ${isRecording ? 'bg-red-500/20 text-red-500 border-4 border-red-500 animate-pulse' : 'bg-[#3A3D45] text-gray-400 hover:bg-[#4A4E58] hover:text-white'}`}
                                                     title="Aufnahme starten/stoppen"
                                                 >
                                                     {isRecording ? <div className="w-6 h-6 bg-red-500 rounded-sm"></div> : <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>}
@@ -4711,7 +4711,7 @@ export default function FolderPage() {
                                                     {audioBlob instanceof File ? audioBlob.name : `Dauer: ${Math.floor(recordingTime / 60)}:${(recordingTime % 60).toString().padStart(2, '0')}`}
                                                 </p>
                                                 <div className="flex gap-2 w-full mt-2">
-                                                    <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#2A2A40] hover:bg-[#1C1C33] text-gray-300 rounded-lg transition-colors text-sm font-medium text-center">Neu starten</button>
+                                                    <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#45484F] hover:bg-[#3A3D45] text-gray-300 rounded-lg transition-colors text-sm font-medium text-center">Neu starten</button>
                                                     <button onClick={() => {
                                                         if (audioBlob) {
                                                             const url = URL.createObjectURL(audioBlob);
@@ -4721,7 +4721,7 @@ export default function FolderPage() {
                                                             a.click();
                                                             URL.revokeObjectURL(url);
                                                         }
-                                                    }} className="flex-1 px-4 py-2 border border-[#2A2A40] hover:bg-[#1C1C33] text-blue-400 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2"><Download size={14} /> Speichern</button>
+                                                    }} className="flex-1 px-4 py-2 border border-[#45484F] hover:bg-[#3A3D45] text-blue-400 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2"><Download size={14} /> Speichern</button>
                                                     <button onClick={handleAudioUpload} disabled={isProcessing} className="flex-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium flex justify-center items-center gap-2 min-w-[40%]">
                                                         {isProcessing ? <><Loader2 size={16} className="animate-spin" /> ...</> : "Als AI Notiz speichern"}
                                                     </button>
@@ -4741,8 +4741,8 @@ export default function FolderPage() {
                 {/* Quiz Config Modal */}
                 {isQuizConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-yellow-500/10 text-yellow-400">
                                         <HelpCircle size={20} />
@@ -4752,7 +4752,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Stelle Anzahl und Schwierigkeit ein</p>
                                     </div>
                                 </div>
-                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsQuizConfigOpen(false); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsQuizConfigOpen(false); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -4779,17 +4779,17 @@ export default function FolderPage() {
                                             <button
                                                 key={level}
                                                 onClick={() => setQuizDifficulty(level as 'gemischt' | 'leicht' | 'mittel' | 'schwer')}
-                                                className={`py-2 px-3 rounded-lg text-sm border transition-colors ${quizDifficulty === level ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' : 'bg-[#151525] text-gray-300 border-[#2A2A40] hover:border-[#3B3B55]'}`}
+                                                className={`py-2 px-3 rounded-lg text-sm border transition-colors ${quizDifficulty === level ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' : 'bg-[#353840] text-gray-300 border-[#45484F] hover:border-[#4A4E58]'}`}
                                             >
                                                 {level[0].toUpperCase() + level.slice(1)}
                                             </button>
                                         ))}
                                     </div>
                                 </div>
-                                <div className="pt-4 border-t border-[#2A2A40]">
+                                <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -4797,8 +4797,8 @@ export default function FolderPage() {
                                     </select>
                                 </div>
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsQuizConfigOpen(false); }} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsQuizConfigOpen(false); }} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button onClick={handleQuizGenerate} className="flex-1 py-2.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
@@ -4813,8 +4813,8 @@ export default function FolderPage() {
                 {/* Flashcards Config Modal */}
                 {isFlashcardsConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-green-500/10 text-green-400">
                                         <Layers size={20} />
@@ -4824,7 +4824,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Passe Menge und Antwortlänge an</p>
                                     </div>
                                 </div>
-                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsFlashcardsConfigOpen(false); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsFlashcardsConfigOpen(false); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -4859,10 +4859,10 @@ export default function FolderPage() {
                                         className="w-full accent-green-500"
                                     />
                                 </div>
-                                <div className="pt-4 border-t border-[#2A2A40]">
+                                <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -4870,8 +4870,8 @@ export default function FolderPage() {
                                     </select>
                                 </div>
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsFlashcardsConfigOpen(false); }} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => { smartLearningPracticeBumpRef.current = false; setIsFlashcardsConfigOpen(false); }} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button onClick={handleFlashcardsGenerate} className="flex-1 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
@@ -4886,21 +4886,21 @@ export default function FolderPage() {
                 {/* Podcast config */}
                 {isPodcastConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40] shrink-0">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F] shrink-0">
                                 <div className="flex items-center gap-3">
-                                    <div className="p-2 rounded-xl bg-pink-500/10 text-pink-300">
+                                    <div className="p-2 rounded-xl bg-blue-500/10 text-blue-300">
                                         <Mic size={20} />
                                     </div>
                                     <div>
                                         <h3 className="text-lg font-semibold text-white">Podcast</h3>
-                                        <p className="text-xs text-gray-400">Alex und Sam gehen die Themen durch. Das dauert länger als eine kurze Zusammenfassung.</p>
+                                        <p className="text-xs text-gray-400">Zwei Stimmen wie echte Menschen — etwa 10–22 Minuten, mit Nachfragen, Beispielen und Aha-Momenten.</p>
                                     </div>
                                 </div>
                                 <button
                                     type="button"
                                     onClick={() => setIsPodcastConfigOpen(false)}
-                                    className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors"
+                                    className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg transition-colors"
                                 >
                                     <X size={18} />
                                 </button>
@@ -4910,7 +4910,7 @@ export default function FolderPage() {
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Alex, fragt nach</label>
                                     <div className="flex items-center gap-2">
                                         <select
-                                            className="flex-1 min-w-0 bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-pink-500/40 focus:border-pink-500/50 outline-none transition-all appearance-none"
+                                            className="flex-1 min-w-0 bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/50 outline-none transition-all appearance-none"
                                             value={podcastTtsVoice}
                                             onChange={(e) => setPodcastTtsVoice(e.target.value)}
                                         >
@@ -4922,7 +4922,7 @@ export default function FolderPage() {
                                         </select>
                                         <button
                                             type="button"
-                                            className="shrink-0 min-h-10 px-3 py-2.5 rounded-xl bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#2A2A40] text-gray-200 text-sm disabled:opacity-50"
+                                            className="shrink-0 min-h-10 px-3 py-2.5 rounded-xl bg-[#3A3D45] hover:bg-[#45484F] border border-[#45484F] text-gray-200 text-sm disabled:opacity-50"
                                             onClick={() => void playTtsVoicePreview(podcastTtsVoice)}
                                             disabled={ttsPreviewLoadingVoice !== null}
                                             title="Stimme von Alex testen"
@@ -4935,7 +4935,7 @@ export default function FolderPage() {
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Sam, erklärt</label>
                                     <div className="flex items-center gap-2">
                                         <select
-                                            className="flex-1 min-w-0 bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-pink-500/40 focus:border-pink-500/50 outline-none transition-all appearance-none"
+                                            className="flex-1 min-w-0 bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/50 outline-none transition-all appearance-none"
                                             value={podcastTtsVoiceB}
                                             onChange={(e) => setPodcastTtsVoiceB(e.target.value)}
                                         >
@@ -4947,7 +4947,7 @@ export default function FolderPage() {
                                         </select>
                                         <button
                                             type="button"
-                                            className="shrink-0 min-h-10 px-3 py-2.5 rounded-xl bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#2A2A40] text-gray-200 text-sm disabled:opacity-50"
+                                            className="shrink-0 min-h-10 px-3 py-2.5 rounded-xl bg-[#3A3D45] hover:bg-[#45484F] border border-[#45484F] text-gray-200 text-sm disabled:opacity-50"
                                             onClick={() => void playTtsVoicePreview(podcastTtsVoiceB)}
                                             disabled={ttsPreviewLoadingVoice !== null}
                                             title="Stimme von Sam testen"
@@ -4956,13 +4956,13 @@ export default function FolderPage() {
                                         </button>
                                     </div>
                                     <p className="text-xs text-gray-500 mt-2">
-                                        Zwei Personen sprechen abwechselnd. Alex fragt, Sam erklärt den Stoff an einem Beispiel.
+                                        Abwechselnd, mit Emotion und Pausen — nicht wie eine Vorlese-Zusammenfassung. Test spielt eine kurze, natürliche Probe.
                                     </p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (optional)</label>
                                     <select
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -4970,18 +4970,18 @@ export default function FolderPage() {
                                     </select>
                                 </div>
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40] shrink-0">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F] shrink-0">
                                 <button
                                     type="button"
                                     onClick={() => setIsPodcastConfigOpen(false)}
-                                    className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                                    className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors"
                                 >
                                     Abbrechen
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => void handlePodcastGenerate()}
-                                    className="flex-1 py-2.5 bg-pink-600 hover:bg-pink-500 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                                    className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
                                 >
                                     <Mic size={16} />
                                     Generieren
@@ -4994,8 +4994,8 @@ export default function FolderPage() {
                 {/* Learning video config */}
                 {isLearningVideoConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40] shrink-0">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F] shrink-0">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-300">
                                         <Video size={20} />
@@ -5008,7 +5008,7 @@ export default function FolderPage() {
                                 <button
                                     type="button"
                                     onClick={() => setIsLearningVideoConfigOpen(false)}
-                                    className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors"
+                                    className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg transition-colors"
                                 >
                                     <X size={18} />
                                 </button>
@@ -5054,7 +5054,7 @@ export default function FolderPage() {
                                                 className={`text-left py-2.5 px-3 rounded-xl text-sm border transition-colors ${
                                                     lvNarrationDepth === key
                                                         ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
-                                                        : "bg-[#151525] text-gray-300 border-[#2A2A40] hover:border-[#3B3B55]"
+                                                        : "bg-[#353840] text-gray-300 border-[#45484F] hover:border-[#4A4E58]"
                                                 }`}
                                             >
                                                 <span className="font-medium">{label}</span>
@@ -5072,7 +5072,7 @@ export default function FolderPage() {
                                             className={`py-2.5 rounded-xl text-sm font-medium border ${
                                                 lvVisualStyle === "clean"
                                                     ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
-                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
+                                                    : "bg-[#353840] text-gray-300 border-[#45484F]"
                                             }`}
                                         >
                                             Schlicht
@@ -5083,7 +5083,7 @@ export default function FolderPage() {
                                             className={`py-2.5 rounded-xl text-sm font-medium border ${
                                                 lvVisualStyle === "rich"
                                                     ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
-                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
+                                                    : "bg-[#353840] text-gray-300 border-[#45484F]"
                                             }`}
                                         >
                                             Dekorativ
@@ -5094,7 +5094,7 @@ export default function FolderPage() {
                                             className={`py-2.5 rounded-xl text-sm font-medium border ${
                                                 lvVisualStyle === "whiteboard"
                                                     ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
-                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
+                                                    : "bg-[#353840] text-gray-300 border-[#45484F]"
                                             }`}
                                         >
                                             Whiteboard
@@ -5112,10 +5112,10 @@ export default function FolderPage() {
                                         </p>
                                     )}
                                 </div>
-                                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#2A2A40] bg-[#151525] p-3">
+                                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#45484F] bg-[#353840] p-3">
                                     <input
                                         type="checkbox"
-                                        className="mt-1 rounded border-[#2A2A40] text-cyan-500 focus:ring-cyan-500/40"
+                                        className="mt-1 rounded border-[#45484F] text-cyan-500 focus:ring-cyan-500/40"
                                         checked={lvUseStockImages}
                                         onChange={(e) => setLvUseStockImages(e.target.checked)}
                                     />
@@ -5126,10 +5126,10 @@ export default function FolderPage() {
                                         </span>
                                     </span>
                                 </label>
-                                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#2A2A40] bg-[#151525] p-3">
+                                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#45484F] bg-[#353840] p-3">
                                     <input
                                         type="checkbox"
-                                        className="mt-1 rounded border-[#2A2A40] text-cyan-500 focus:ring-cyan-500/40"
+                                        className="mt-1 rounded border-[#45484F] text-cyan-500 focus:ring-cyan-500/40"
                                         checked={lvSlideMotion}
                                         onChange={(e) => setLvSlideMotion(e.target.checked)}
                                     />
@@ -5141,10 +5141,10 @@ export default function FolderPage() {
                                         </span>
                                     </span>
                                 </label>
-                                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#2A2A40] bg-[#151525] p-3">
+                                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#45484F] bg-[#353840] p-3">
                                     <input
                                         type="checkbox"
-                                        className="mt-1 rounded border-[#2A2A40] text-cyan-500 focus:ring-cyan-500/40"
+                                        className="mt-1 rounded border-[#45484F] text-cyan-500 focus:ring-cyan-500/40"
                                         checked={lvSlideCrossfade}
                                         onChange={(e) => setLvSlideCrossfade(e.target.checked)}
                                     />
@@ -5160,7 +5160,7 @@ export default function FolderPage() {
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Stimme</label>
                                     <div className="flex items-center gap-2">
                                         <select
-                                            className="flex-1 bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 outline-none transition-all appearance-none"
+                                            className="flex-1 bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 outline-none transition-all appearance-none"
                                             value={lvTtsVoice}
                                             onChange={(e) => setLvTtsVoice(e.target.value)}
                                         >
@@ -5172,7 +5172,7 @@ export default function FolderPage() {
                                         </select>
                                         <button
                                             type="button"
-                                            className="shrink-0 px-3 py-2.5 rounded-xl bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#2A2A40] text-gray-200 text-sm disabled:opacity-50"
+                                            className="shrink-0 px-3 py-2.5 rounded-xl bg-[#3A3D45] hover:bg-[#45484F] border border-[#45484F] text-gray-200 text-sm disabled:opacity-50"
                                             onClick={() => void playTtsVoicePreview(lvTtsVoice)}
                                             disabled={ttsPreviewLoadingVoice !== null}
                                             title="Stimme testen"
@@ -5181,10 +5181,10 @@ export default function FolderPage() {
                                         </button>
                                     </div>
                                 </div>
-                                <div className="pt-2 border-t border-[#2A2A40]">
+                                <div className="pt-2 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (optional)</label>
                                     <select
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -5192,11 +5192,11 @@ export default function FolderPage() {
                                     </select>
                                 </div>
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40] shrink-0">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F] shrink-0">
                                 <button
                                     type="button"
                                     onClick={() => setIsLearningVideoConfigOpen(false)}
-                                    className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                                    className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors"
                                 >
                                     Abbrechen
                                 </button>
@@ -5216,8 +5216,8 @@ export default function FolderPage() {
                 {/* Smart Learning Config Modal */}
                 {isSmartLearningConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-300">
                                         <Sparkles size={20} />
@@ -5227,7 +5227,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Lernreise mit Kapiteln aus deinem Material</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsSmartLearningConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                <button onClick={() => setIsSmartLearningConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -5239,7 +5239,7 @@ export default function FolderPage() {
                                         value={smartLearningFocus}
                                         onChange={(e) => setSmartLearningFocus(e.target.value)}
                                         placeholder="z.B. Klausur Kapitel 3–5"
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                     />
                                 </div>
                                 <div>
@@ -5248,7 +5248,7 @@ export default function FolderPage() {
                                         type="date"
                                         value={smartLearningExamDate}
                                         onChange={(e) => setSmartLearningExamDate(e.target.value)}
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                     />
                                 </div>
                                 <p className="text-xs text-gray-500">
@@ -5256,8 +5256,8 @@ export default function FolderPage() {
                                     Neu generieren behält deinen Kapitel-Fortschritt, soweit möglich.
                                 </p>
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsSmartLearningConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => setIsSmartLearningConfigOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
@@ -5275,11 +5275,11 @@ export default function FolderPage() {
                 {/* Plan Config Modal */}
                 {isPlanConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
-                                    <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
+                                    <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
                                         <BrainCircuit size={20} />
                                     </div>
                                     <div>
@@ -5287,7 +5287,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Konfiguriere deinen persönlichen Lernplan</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsPlanConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                <button onClick={() => setIsPlanConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -5297,10 +5297,10 @@ export default function FolderPage() {
                                 {/* Learning Mode Toggle */}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
-                                    <div className="flex gap-2 bg-[#151525] p-1 rounded-xl">
+                                    <div className="flex gap-2 bg-[#353840] p-1 rounded-xl">
                                         <button
                                             onClick={() => setLearningMode('normal')}
-                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5B9DFF] text-white' : 'text-gray-400 hover:text-white'}`}
                                         >
                                             <span>📝</span> Normaler Modus
                                         </button>
@@ -5318,16 +5318,16 @@ export default function FolderPage() {
                                 </div>
 
                                 {/* Duration Mode Toggle */}
-                                <div className="flex gap-2 bg-[#151525] p-1 rounded-xl">
+                                <div className="flex gap-2 bg-[#353840] p-1 rounded-xl">
                                     <button
                                         onClick={() => setPlanUseDate(false)}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${!planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${!planUseDate ? 'bg-[#5B9DFF] text-white' : 'text-gray-400 hover:text-white'}`}
                                     >
                                         <Clock size={14} /> Anzahl Tage
                                     </button>
                                     <button
                                         onClick={() => setPlanUseDate(true)}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${planUseDate ? 'bg-[#5B9DFF] text-white' : 'text-gray-400 hover:text-white'}`}
                                     >
                                         <Calendar size={14} /> Enddatum
                                     </button>
@@ -5338,14 +5338,14 @@ export default function FolderPage() {
                                     <div>
                                         <label className="block text-sm font-medium text-gray-300 mb-2">
                                             Anzahl Lerntage
-                                            <span className="ml-2 text-[#5E5CE6] font-bold">{planDays} Tage</span>
+                                            <span className="ml-2 text-[#5B9DFF] font-bold">{planDays} Tage</span>
                                         </label>
                                         <input
                                             type="range"
                                             min={1} max={60} step={1}
                                             value={planDays}
                                             onChange={e => setPlanDays(Number(e.target.value))}
-                                            className="w-full accent-[#5E5CE6]"
+                                            className="w-full accent-[#5B9DFF]"
                                         />
                                         <div className="flex justify-between text-xs text-gray-500 mt-1">
                                             <span>1 Tag</span><span>30 Tage</span><span>60 Tage</span>
@@ -5359,7 +5359,7 @@ export default function FolderPage() {
                                             value={planEndDate}
                                             min={new Date().toISOString().split('T')[0]}
                                             onChange={e => setPlanEndDate(e.target.value)}
-                                            className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all"
+                                            className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all"
                                         />
                                         {planEndDate && (
                                             <p className="text-xs text-gray-400 mt-1.5">
@@ -5373,14 +5373,14 @@ export default function FolderPage() {
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">
                                         Lernzeit pro Tag
-                                        <span className="ml-2 text-[#5E5CE6] font-bold">{planHoursPerDay} Std.</span>
+                                        <span className="ml-2 text-[#5B9DFF] font-bold">{planHoursPerDay} Std.</span>
                                     </label>
                                     <input
                                         type="range"
                                         min={0.5} max={8} step={0.5}
                                         value={planHoursPerDay}
                                         onChange={e => setPlanHoursPerDay(Number(e.target.value))}
-                                        className="w-full accent-[#5E5CE6]"
+                                        className="w-full accent-[#5B9DFF]"
                                     />
                                     <div className="flex justify-between text-xs text-gray-500 mt-1">
                                         <span>30 Min</span><span>4 Std</span><span>8 Std</span>
@@ -5388,7 +5388,7 @@ export default function FolderPage() {
                                 </div>
 
                                 {/* Target Grade Slider */}
-                                <div className="bg-[#1C1C33]/50 p-4 rounded-xl border border-[#2A2A40]">
+                                <div className="bg-[#3A3D45]/50 p-4 rounded-xl border border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-200 mb-2 flex justify-between items-center">
                                         <span>Ziel-Note (Punkte)</span>
                                         <div className="flex items-center gap-2">
@@ -5411,7 +5411,7 @@ export default function FolderPage() {
                                         <span>Sehr Gut (15)</span>
                                     </div>
                                     <p className="text-xs text-gray-400 mt-3 flex items-start gap-1.5 leading-relaxed">
-                                        <span className="text-[#5E5CE6] mt-0.5"><BrainCircuit size={12} /></span>
+                                        <span className="text-[#5B9DFF] mt-0.5"><BrainCircuit size={12} /></span>
                                         Die Lernzeit wird basierend auf deiner Zielnote automatisch empfohlen, kann aber unten noch manuell angepasst werden.
                                     </p>
                                 </div>
@@ -5433,8 +5433,8 @@ export default function FolderPage() {
                                                         );
                                                     }}
                                                     className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all ${isActive
-                                                        ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/20'
-                                                        : 'bg-[#151525] border border-[#3B3B55] text-gray-400 hover:border-purple-500/50 hover:text-gray-300'
+                                                        ? 'bg-blue-500 text-white shadow-lg shadow-[#5B9DFF]/20'
+                                                        : 'bg-[#353840] border border-[#4A4E58] text-gray-400 hover:border-blue-500/50 hover:text-gray-300'
                                                         }`}
                                                 >
                                                     {day}
@@ -5448,16 +5448,16 @@ export default function FolderPage() {
                                 </div>
 
                                 {/* Duration Mode Toggle */}
-                                <div className="flex gap-2 bg-[#151525] p-1 rounded-xl">
+                                <div className="flex gap-2 bg-[#353840] p-1 rounded-xl">
                                     <button
                                         onClick={() => setPlanUseDate(false)}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${!planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${!planUseDate ? 'bg-[#5B9DFF] text-white' : 'text-gray-400 hover:text-white'}`}
                                     >
                                         <Clock size={14} /> Anzahl Tage
                                     </button>
                                     <button
                                         onClick={() => setPlanUseDate(true)}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${planUseDate ? 'bg-[#5B9DFF] text-white' : 'text-gray-400 hover:text-white'}`}
                                     >
                                         <Calendar size={14} /> Enddatum
                                     </button>
@@ -5468,14 +5468,14 @@ export default function FolderPage() {
                                     <div>
                                         <label className="block text-sm font-medium text-gray-300 mb-2">
                                             Anzahl Lerntage
-                                            <span className="ml-2 text-[#5E5CE6] font-bold">{planDays} Tage</span>
+                                            <span className="ml-2 text-[#5B9DFF] font-bold">{planDays} Tage</span>
                                         </label>
                                         <input
                                             type="range"
                                             min={1} max={60} step={1}
                                             value={planDays}
                                             onChange={e => setPlanDays(Number(e.target.value))}
-                                            className="w-full accent-[#5E5CE6]"
+                                            className="w-full accent-[#5B9DFF]"
                                         />
                                         <div className="flex justify-between text-xs text-gray-500 mt-1">
                                             <span>1 Tag</span><span>30 Tage</span><span>60 Tage</span>
@@ -5489,7 +5489,7 @@ export default function FolderPage() {
                                             value={planEndDate}
                                             min={new Date().toISOString().split('T')[0]}
                                             onChange={e => setPlanEndDate(e.target.value)}
-                                            className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all"
+                                            className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all"
                                         />
                                         {planEndDate && (
                                             <p className="text-xs text-gray-400 mt-1.5">
@@ -5503,14 +5503,14 @@ export default function FolderPage() {
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">
                                         Lernzeit pro Tag
-                                        <span className="ml-2 text-[#5E5CE6] font-bold">{planHoursPerDay} Std.</span>
+                                        <span className="ml-2 text-[#5B9DFF] font-bold">{planHoursPerDay} Std.</span>
                                     </label>
                                     <input
                                         type="range"
                                         min={0.5} max={8} step={0.5}
                                         value={planHoursPerDay}
                                         onChange={e => setPlanHoursPerDay(Number(e.target.value))}
-                                        className="w-full accent-[#5E5CE6]"
+                                        className="w-full accent-[#5B9DFF]"
                                     />
                                     <div className="flex justify-between text-xs text-gray-500 mt-1">
                                         <span>30 Min</span><span>4 Std</span><span>8 Std</span>
@@ -5518,9 +5518,9 @@ export default function FolderPage() {
                                 </div>
 
                                 {/* Summary */}
-                                <div className="bg-[#151525] rounded-xl p-4 border border-[#2A2A40]">
+                                <div className="bg-[#353840] rounded-xl p-4 border border-[#45484F]">
                                     <div className="flex items-center gap-2 text-sm text-gray-300">
-                                        <BookOpen size={14} className="text-purple-400" />
+                                        <BookOpen size={14} className="text-blue-400" />
                                         <span>
                                             {planUseDate && planEndDate
                                                 ? `${Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))} Tage`
@@ -5535,10 +5535,10 @@ export default function FolderPage() {
                                     </div>
                                 </div>
                                 {/* Model Preference */}
-                                <div className="pt-4 border-t border-[#2A2A40]">
+                                <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -5549,14 +5549,14 @@ export default function FolderPage() {
                             </div>
 
                             {/* Footer */}
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsPlanConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => setIsPlanConfigOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
                                     onClick={handlePlanGenerate}
                                     disabled={planUseDate && !planEndDate}
-                                    className="flex-1 py-2.5 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                                    className="flex-1 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                                 >
                                     <BrainCircuit size={16} />
                                     Lernplan generieren
@@ -5569,9 +5569,9 @@ export default function FolderPage() {
                 {/* Summary Config Modal */}
                 {isSummaryConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
                                         <FileOutput size={20} />
@@ -5581,7 +5581,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Wie detailliert soll der Text sein?</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsSummaryConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                <button onClick={() => setIsSummaryConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -5591,10 +5591,10 @@ export default function FolderPage() {
                                 {/* Learning Mode Toggle */}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
-                                    <div className="flex gap-2 bg-[#151525] p-1 rounded-xl">
+                                    <div className="flex gap-2 bg-[#353840] p-1 rounded-xl">
                                         <button
                                             onClick={() => setLearningMode('normal')}
-                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5B9DFF] text-white' : 'text-gray-400 hover:text-white'}`}
                                         >
                                             <span>📝</span> Normaler Modus
                                         </button>
@@ -5620,7 +5620,7 @@ export default function FolderPage() {
                                                 onClick={() => setSummaryDetailLevel(level)}
                                                 className={`flex items-center justify-between p-4 rounded-xl border transition-all ${summaryDetailLevel === level
                                                     ? 'bg-blue-500/10 border-blue-500/50 text-blue-400'
-                                                    : 'bg-[#151525] border-[#2A2A40] text-gray-400 hover:border-[#3B3B55] hover:text-gray-300'}`}
+                                                    : 'bg-[#353840] border-[#45484F] text-gray-400 hover:border-[#4A4E58] hover:text-gray-300'}`}
                                             >
                                                 <span className="font-medium">{level}</span>
                                                 {summaryDetailLevel === level && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
@@ -5634,10 +5634,10 @@ export default function FolderPage() {
                                     </p>
                                 </div>
                                 {/* Model Preference */}
-                                <div className="pt-4 border-t border-[#2A2A40]">
+                                <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -5647,8 +5647,8 @@ export default function FolderPage() {
                             </div>
 
                             {/* Footer */}
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsSummaryConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => setIsSummaryConfigOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
@@ -5666,9 +5666,9 @@ export default function FolderPage() {
                 {/* Elaboration (Ausarbeitung) Config Modal */}
                 {isElaborationConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-orange-500/10 text-orange-400">
                                         <FileText size={20} />
@@ -5678,7 +5678,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Konfiguriere deinen Text</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsElaborationConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                <button onClick={() => setIsElaborationConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -5694,7 +5694,7 @@ export default function FolderPage() {
                                                 onClick={() => setElaborationDetailLevel(level)}
                                                 className={`flex items-center justify-between p-4 rounded-xl border transition-all ${elaborationDetailLevel === level
                                                     ? 'bg-orange-500/10 border-orange-500/50 text-orange-400'
-                                                    : 'bg-[#151525] border-[#2A2A40] text-gray-400 hover:border-[#3B3B55] hover:text-gray-300'}`}
+                                                    : 'bg-[#353840] border-[#45484F] text-gray-400 hover:border-[#4A4E58] hover:text-gray-300'}`}
                                             >
                                                 <span className="font-medium">{level}</span>
                                                 {elaborationDetailLevel === level && <div className="w-2 h-2 rounded-full bg-orange-500"></div>}
@@ -5709,14 +5709,14 @@ export default function FolderPage() {
                                         value={elaborationRules}
                                         onChange={(e) => setElaborationRules(e.target.value)}
                                         placeholder="z.B. Fokussiere dich besonders auf Kapitel 3, schreibe im Stil eines Zeitungsartikels, formuliere Thesen..."
-                                        className="w-full h-24 bg-[#151525] border border-[#2A2A40] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none resize-none placeholder:text-gray-600"
+                                        className="w-full h-24 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none resize-none placeholder:text-gray-600"
                                     />
                                 </div>
                                 {/* Model Preference */}
-                                <div className="pt-4 border-t border-[#2A2A40]">
+                                <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -5726,8 +5726,8 @@ export default function FolderPage() {
                             </div>
 
                             {/* Footer */}
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsElaborationConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => setIsElaborationConfigOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
@@ -5745,9 +5745,9 @@ export default function FolderPage() {
                 {/* Repetition (Wiederholung) Config Modal */}
                 {isRepetitionConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg>
@@ -5757,7 +5757,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Ausführliche Prüfungs- oder Themenwiederholung</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsRepetitionConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                <button onClick={() => setIsRepetitionConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -5767,10 +5767,10 @@ export default function FolderPage() {
                                 {/* Learning Mode Toggle */}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
-                                    <div className="flex gap-2 bg-[#151525] p-1 rounded-xl">
+                                    <div className="flex gap-2 bg-[#353840] p-1 rounded-xl">
                                         <button
                                             onClick={() => setLearningMode('normal')}
-                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5B9DFF] text-white' : 'text-gray-400 hover:text-white'}`}
                                         >
                                             <span>📝</span> Normaler Modus
                                         </button>
@@ -5795,7 +5795,7 @@ export default function FolderPage() {
                                     value={repetitionRules}
                                     onChange={(e) => setRepetitionRules(e.target.value)}
                                     placeholder="z. B. „nur Vektorrechnung“ oder „Aufgabe 3 überspringen“. Leer lassen = gesamtes Material, jede Teilaufgabe ausführlich."
-                                    className="w-full h-28 bg-[#151525] border border-[#2A2A40] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
+                                    className="w-full h-28 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
                                 />
 
                                 <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5 mb-4">
@@ -5803,10 +5803,10 @@ export default function FolderPage() {
                                 </p>
 
                                 {/* Model Preference */}
-                                <div className="pt-4 border-t border-[#2A2A40]">
+                                <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -5816,8 +5816,8 @@ export default function FolderPage() {
                             </div>
 
                             {/* Footer */}
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsRepetitionConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => setIsRepetitionConfigOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
@@ -5836,19 +5836,19 @@ export default function FolderPage() {
                 {/* Task Help Overlay */}
                 {isTaskHelpOpen && (
                     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]">
                             {/* Header */}
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40] shrink-0">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F] shrink-0">
                                 <div className="flex items-center gap-3">
-                                    <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
+                                    <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
                                         <BrainCircuit size={20} />
                                     </div>
                                     <div className="max-w-[300px] overflow-hidden">
                                         <h3 className="text-lg font-semibold text-white truncate" title={activeTaskTitle}>{activeTaskTitle}</h3>
-                                        <p className="text-xs text-purple-400 font-medium">KI-Lernassistenz</p>
+                                        <p className="text-xs text-blue-400 font-medium">KI-Lernassistenz</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsTaskHelpOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                <button onClick={() => setIsTaskHelpOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -5857,12 +5857,12 @@ export default function FolderPage() {
                             <div className="p-6 overflow-y-auto">
                                 {isTaskHelpLoading ? (
                                     <div className="flex flex-col items-center justify-center py-12 text-center">
-                                        <div className="w-12 h-12 border-4 border-[#2A2A40] border-t-purple-500 rounded-full animate-spin mb-4"></div>
+                                        <div className="w-12 h-12 border-4 border-[#45484F] border-t-[#5B9DFF] rounded-full animate-spin mb-4"></div>
                                         <p className="text-gray-300 font-medium">Analysiere Ordner-Inhalte...</p>
                                         <p className="text-sm text-gray-500 mt-2">Ich überlege, was du genau tun sollst.</p>
                                     </div>
                                 ) : (
-                                    <div className="prose prose-invert prose-purple max-w-none prose-sm sm:prose-base">
+                                    <div className="prose prose-invert prose-blue max-w-none prose-sm sm:prose-base">
                                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                             {taskHelpContent}
                                         </ReactMarkdown>
@@ -5872,10 +5872,10 @@ export default function FolderPage() {
 
                             {/* Footer */}
                             {!isTaskHelpLoading && (
-                                <div className="p-5 border-t border-[#2A2A40] shrink-0 bg-[#151525] rounded-b-2xl">
+                                <div className="p-5 border-t border-[#45484F] shrink-0 bg-[#353840] rounded-b-2xl">
                                     <button
                                         onClick={() => setIsTaskHelpOpen(false)}
-                                        className="w-full py-2.5 bg-[#1C1C33] hover:bg-[#3B3B55] text-white rounded-xl font-medium transition-colors"
+                                        className="w-full py-2.5 bg-[#3A3D45] hover:bg-[#4A4E58] text-white rounded-xl font-medium transition-colors"
                                     >
                                         Verstanden!
                                     </button>
@@ -5890,21 +5890,21 @@ export default function FolderPage() {
                     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
                         <button
                             onClick={() => setFullscreenCard(null)}
-                            className="absolute top-6 right-6 text-gray-400 hover:text-white p-3 hover:bg-[#1C1C33] rounded-full transition-colors z-10"
+                            className="absolute top-6 right-6 text-gray-400 hover:text-white p-3 hover:bg-[#3A3D45] rounded-full transition-colors z-10"
                         >
                             <X size={24} />
                         </button>
 
                         <div className="w-full max-w-4xl h-[70vh] [perspective:1500px] cursor-pointer" onClick={() => setIsFullscreenCardFlipped(!isFullscreenCardFlipped)}>
-                            <div className={`w-full h-full transition-all duration-700 [transform-style:preserve-3d] relative rounded-3xl shadow-2xl border border-[#3B3B55] ${isFullscreenCardFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
+                            <div className={`w-full h-full transition-all duration-700 [transform-style:preserve-3d] relative rounded-3xl shadow-2xl border border-[#4A4E58] ${isFullscreenCardFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
                                 {/* Front Face */}
-                                <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] bg-[#151525] flex flex-col items-center justify-center p-12 text-center text-white font-medium text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] bg-[#353840] flex flex-col items-center justify-center p-12 text-center text-white font-medium text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
                                     {fullscreenCard.front}
                                     <div className="absolute bottom-6 text-sm text-gray-500 flex items-center gap-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg> Klick zum Drehen</div>
                                 </div>
 
                                 {/* Back Face */}
-                                <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[#0B0B1A] flex flex-col items-center justify-center p-12 text-center text-gray-300 text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[#23252A] flex flex-col items-center justify-center p-12 text-center text-gray-300 text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
                                     {fullscreenCard.back}
                                 </div>
                             </div>
@@ -5915,12 +5915,12 @@ export default function FolderPage() {
                 {/* Edit Flashcard Modal */}
                 {isEditFlashcardOpen && selectedFile?.type === 'flashcards' && (
                     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-2xl shadow-2xl">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-2xl shadow-2xl">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <h3 className="text-white font-semibold">Karte bearbeiten</h3>
                                 <button
                                     onClick={() => setIsEditFlashcardOpen(false)}
-                                    className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg"
+                                    className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg"
                                 >
                                     <X size={18} />
                                 </button>
@@ -5932,7 +5932,7 @@ export default function FolderPage() {
                                         value={editFlashcardFront}
                                         onChange={(e) => setEditFlashcardFront(e.target.value)}
                                         rows={4}
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                     />
                                 </div>
                                 <div>
@@ -5941,14 +5941,14 @@ export default function FolderPage() {
                                         value={editFlashcardBack}
                                         onChange={(e) => setEditFlashcardBack(e.target.value)}
                                         rows={6}
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                        className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                     />
                                 </div>
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
                                 <button
                                     onClick={() => setIsEditFlashcardOpen(false)}
-                                    className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                                    className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors"
                                 >
                                     Abbrechen
                                 </button>
@@ -5972,7 +5972,7 @@ export default function FolderPage() {
                                             setIsSavingFlashcards(false);
                                         }
                                     }}
-                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                                    className="flex-1 py-2.5 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
                                 >
                                     {isSavingFlashcards ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Speichern"}
                                 </button>
@@ -5984,13 +5984,13 @@ export default function FolderPage() {
                 {/* Share Overlay (entry) */}
                 {isShareOverlayOpen && shareFile && (
                     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div>
                                     <h3 className="text-base font-semibold text-white">Datei teilen</h3>
                                     <p className="text-xs text-gray-400 mt-1 truncate">{shareFile.name}</p>
                                 </div>
-                                <button onClick={() => setIsShareOverlayOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                <button onClick={() => setIsShareOverlayOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -6000,9 +6000,9 @@ export default function FolderPage() {
                                         setIsShareByUsernameOpen(true);
                                         setIsShareOverlayOpen(false);
                                     }}
-                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-[#151525] border border-[#2A2A40] hover:bg-[#1C1C33] text-left"
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-[#353840] border border-[#45484F] hover:bg-[#3A3D45] text-left"
                                 >
-                                    <Send size={16} className="text-[#5E5CE6]" />
+                                    <Send size={16} className="text-[#5B9DFF]" />
                                     <span className="text-sm text-white">Per Username teilen</span>
                                 </button>
                                 <button
@@ -6011,9 +6011,9 @@ export default function FolderPage() {
                                         setGeneratedShareLink("");
                                         setIsShareOverlayOpen(false);
                                     }}
-                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-[#151525] border border-[#2A2A40] hover:bg-[#1C1C33] text-left"
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-[#353840] border border-[#45484F] hover:bg-[#3A3D45] text-left"
                                 >
-                                    <Link2 size={16} className="text-[#5E5CE6]" />
+                                    <Link2 size={16} className="text-[#5B9DFF]" />
                                     <span className="text-sm text-white">Share-Link erstellen</span>
                                 </button>
                             </div>
@@ -6024,10 +6024,10 @@ export default function FolderPage() {
                 {/* Username Share Overlay */}
                 {isShareByUsernameOpen && shareFile && (
                     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <h3 className="text-base font-semibold text-white">Per Username teilen</h3>
-                                <button onClick={() => setIsShareByUsernameOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                <button onClick={() => setIsShareByUsernameOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -6037,23 +6037,23 @@ export default function FolderPage() {
                                     placeholder="Empfänger-Username"
                                     value={shareTargetUsername}
                                     onChange={(e) => setShareTargetUsername(e.target.value)}
-                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                 />
                                 <textarea
                                     placeholder="Nachricht (optional)"
                                     value={shareMessage}
                                     onChange={(e) => setShareMessage(e.target.value)}
-                                    className="w-full min-h-[90px] bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    className="w-full min-h-[90px] bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                 />
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsShareByUsernameOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => setIsShareByUsernameOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium">
                                     Abbrechen
                                 </button>
                                 <button
                                     onClick={() => void submitShareByUsername()}
                                     disabled={!shareTargetUsername.trim() || isShareActionBusy}
-                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                                    className="flex-1 py-2.5 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
                                 >
                                     {isShareActionBusy ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Senden"}
                                 </button>
@@ -6065,10 +6065,10 @@ export default function FolderPage() {
                 {/* Share Link Create Overlay */}
                 {isShareLinkCreateOpen && shareFile && (
                     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <h3 className="text-base font-semibold text-white">Share-Link erstellen</h3>
-                                <button onClick={() => setIsShareLinkCreateOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                <button onClick={() => setIsShareLinkCreateOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -6080,7 +6080,7 @@ export default function FolderPage() {
                                     max={30}
                                     value={shareExpiresDays}
                                     onChange={(e) => setShareExpiresDays(Number.parseInt(e.target.value || "7", 10))}
-                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                 />
                                 <label className="block text-xs text-gray-400">Maximale Nutzungen (1-100)</label>
                                 <input
@@ -6089,23 +6089,23 @@ export default function FolderPage() {
                                     max={100}
                                     value={shareMaxUses}
                                     onChange={(e) => setShareMaxUses(Number.parseInt(e.target.value || "1", 10))}
-                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                 />
                                 {generatedShareLink && (
-                                    <div className="bg-[#151525] border border-[#2A2A40] rounded-xl p-3">
+                                    <div className="bg-[#353840] border border-[#45484F] rounded-xl p-3">
                                         <p className="text-xs text-gray-400 mb-1">Erstellter Link</p>
                                         <p className="text-sm text-[#b8b5ff] break-all">{generatedShareLink}</p>
                                     </div>
                                 )}
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsShareLinkCreateOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => setIsShareLinkCreateOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium">
                                     Schließen
                                 </button>
                                 <button
                                     onClick={() => void submitCreateShareLink()}
                                     disabled={isShareActionBusy}
-                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                                    className="flex-1 py-2.5 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
                                 >
                                     {isShareActionBusy ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Erstellen"}
                                 </button>
@@ -6117,10 +6117,10 @@ export default function FolderPage() {
                 {/* Import Link Overlay */}
                 {isShareLinkImportOpen && (
                     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <h3 className="text-base font-semibold text-white">Link eingeben</h3>
-                                <button onClick={() => setIsShareLinkImportOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                <button onClick={() => setIsShareLinkImportOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -6130,17 +6130,17 @@ export default function FolderPage() {
                                     placeholder="Share-Link oder Token"
                                     value={importShareLinkValue}
                                     onChange={(e) => setImportShareLinkValue(e.target.value)}
-                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                 />
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsShareLinkImportOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => setIsShareLinkImportOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium">
                                     Abbrechen
                                 </button>
                                 <button
                                     onClick={() => void submitImportByLink()}
                                     disabled={!importShareLinkValue.trim() || isShareActionBusy}
-                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                                    className="flex-1 py-2.5 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
                                 >
                                     {isShareActionBusy ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Importieren"}
                                 </button>
@@ -6152,10 +6152,10 @@ export default function FolderPage() {
                 {/* Incoming Requests Overlay */}
                 {isShareRequestsOpen && (
                     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-2xl shadow-2xl animate-in fade-in zoom-in duration-200 overflow-hidden">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-2xl shadow-2xl animate-in fade-in zoom-in duration-200 overflow-hidden">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <h3 className="text-base font-semibold text-white">Eingehende Share-Requests</h3>
-                                <button onClick={() => setIsShareRequestsOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                <button onClick={() => setIsShareRequestsOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -6164,7 +6164,7 @@ export default function FolderPage() {
                                     <p className="text-sm text-gray-400">Keine offenen Requests.</p>
                                 ) : (
                                     incomingShareRequests.map((req) => (
-                                        <div key={req.id} className="bg-[#151525] border border-[#2A2A40] rounded-xl p-3 flex items-center justify-between gap-3">
+                                        <div key={req.id} className="bg-[#353840] border border-[#45484F] rounded-xl p-3 flex items-center justify-between gap-3">
                                             <div className="min-w-0">
                                                 <p className="text-sm text-white truncate">
                                                     <span className="text-[#b8b5ff]">{req.sender_username}</span> teilt <span className="font-medium">{req.file?.name || req.file_id}</span>
@@ -6174,7 +6174,7 @@ export default function FolderPage() {
                                             <button
                                                 onClick={() => void acceptIncomingShare(req.id)}
                                                 disabled={isShareActionBusy}
-                                                className="shrink-0 px-3 py-2 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-lg text-xs font-semibold disabled:opacity-50"
+                                                className="shrink-0 px-3 py-2 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-lg text-xs font-semibold disabled:opacity-50"
                                             >
                                                 {isShareActionBusy ? <Loader2 size={14} className="animate-spin" /> : "Annehmen"}
                                             </button>
@@ -6189,15 +6189,15 @@ export default function FolderPage() {
                 {/* Rename File Modal */}
                 {isRenameFileOpen && fileToRename && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
-                                    <div className="p-2 rounded-xl bg-[#5E5CE6]/10 text-[#5E5CE6]">
+                                    <div className="p-2 rounded-xl bg-[#5B9DFF]/10 text-[#5B9DFF]">
                                         <Edit size={18} />
                                     </div>
                                     <h3 className="text-base font-semibold text-white">Datei umbenennen</h3>
                                 </div>
-                                <button onClick={() => { setIsRenameFileOpen(false); setFileToRename(null); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                <button onClick={() => { setIsRenameFileOpen(false); setFileToRename(null); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -6208,19 +6208,19 @@ export default function FolderPage() {
                                     value={renameFileValue}
                                     onChange={(e) => setRenameFileValue(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === 'Enter') document.getElementById('rename-file-btn')?.click(); }}
-                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] transition-all text-sm placeholder:text-gray-600"
+                                    className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] transition-all text-sm placeholder:text-gray-600"
                                     autoFocus
                                 />
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => { setIsRenameFileOpen(false); setFileToRename(null); }} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => { setIsRenameFileOpen(false); setFileToRename(null); }} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
                                     id="rename-file-btn"
                                     disabled={!renameFileValue.trim() || isRenamingFile || renameFileValue === fileToRename.name}
                                     onClick={() => void handleRenameFile()}
-                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                                    className="flex-1 py-2.5 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
                                 >
                                     {isRenamingFile ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Speichern"}
                                 </button>
@@ -6232,15 +6232,15 @@ export default function FolderPage() {
                 {/* Create Subfolder Modal */}
                 {isCreateSubfolderOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
-                                    <div className="p-2 rounded-xl bg-[#5E5CE6]/10 text-[#5E5CE6]">
+                                    <div className="p-2 rounded-xl bg-[#5B9DFF]/10 text-[#5B9DFF]">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
                                     </div>
                                     <h3 className="text-base font-semibold text-white">Unterordner erstellen</h3>
                                 </div>
-                                <button onClick={() => setIsCreateSubfolderOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                <button onClick={() => setIsCreateSubfolderOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -6251,12 +6251,12 @@ export default function FolderPage() {
                                     value={newSubfolderName}
                                     onChange={(e) => setNewSubfolderName(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === 'Enter') document.getElementById('create-subfolder-btn')?.click(); }}
-                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] transition-all text-sm placeholder:text-gray-600"
+                                    className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] transition-all text-sm placeholder:text-gray-600"
                                     autoFocus
                                 />
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsCreateSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => setIsCreateSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
@@ -6279,7 +6279,7 @@ export default function FolderPage() {
                                             showToast('Fehler beim Erstellen des Unterordners.');
                                         }
                                     }}
-                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                                    className="flex-1 py-2.5 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
                                 >
                                     Erstellen
                                 </button>
@@ -6290,10 +6290,10 @@ export default function FolderPage() {
 
                 {isRenameSubfolderOpen && subfolderToRename && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-sm shadow-2xl">
-                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-sm shadow-2xl">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <h3 className="text-base font-semibold text-white">Unterordner umbenennen</h3>
-                                <button onClick={() => setIsRenameSubfolderOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                <button onClick={() => setIsRenameSubfolderOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#3A3D45] rounded-lg">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -6303,18 +6303,18 @@ export default function FolderPage() {
                                     value={renameSubfolderValue}
                                     onChange={(e) => setRenameSubfolderValue(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === "Enter") void submitRenameSubfolder(); }}
-                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                     autoFocus
                                 />
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
-                                <button onClick={() => setIsRenameSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium">
+                            <div className="flex gap-3 p-5 border-t border-[#45484F]">
+                                <button onClick={() => setIsRenameSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium">
                                     Abbrechen
                                 </button>
                                 <button
                                     onClick={() => void submitRenameSubfolder()}
                                     disabled={!renameSubfolderValue.trim()}
-                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                                    className="flex-1 py-2.5 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
                                 >
                                     Speichern
                                 </button>
@@ -6325,13 +6325,13 @@ export default function FolderPage() {
 
                 {isDeleteSubfolderOpen && subfolderToDelete && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-sm shadow-2xl">
-                            <div className="p-5 border-b border-[#2A2A40]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-sm shadow-2xl">
+                            <div className="p-5 border-b border-[#45484F]">
                                 <h3 className="text-base font-semibold text-white">Unterordner löschen?</h3>
                                 <p className="text-sm text-gray-400 mt-1">"{subfolderToDelete.name}" inklusive Inhalt wird gelöscht.</p>
                             </div>
                             <div className="flex gap-3 p-5">
-                                <button onClick={() => setIsDeleteSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium">
+                                <button onClick={() => setIsDeleteSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium">
                                     Abbrechen
                                 </button>
                                 <button onClick={() => void submitDeleteSubfolder()} className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-semibold">
@@ -6344,8 +6344,8 @@ export default function FolderPage() {
 
                 {isRefineModalOpen && fileToRefine && (
                     <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-                        <div className="w-full max-w-2xl bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl shadow-2xl overflow-hidden">
-                            <div className="p-5 border-b border-[#2A2A40]">
+                        <div className="w-full max-w-2xl bg-[#23252A] border border-[#45484F] rounded-2xl shadow-2xl overflow-hidden">
+                            <div className="p-5 border-b border-[#45484F]">
                                 <h3 className="text-lg font-semibold text-white">{getRefineModalCopy(fileToRefine.type).title}</h3>
                                 <p className="text-xs text-gray-400 mt-1">{fileToRefine.name}</p>
                             </div>
@@ -6354,40 +6354,40 @@ export default function FolderPage() {
                                     value={refinePrompt}
                                     onChange={(e) => setRefinePrompt(e.target.value)}
                                     placeholder={getRefineModalCopy(fileToRefine.type).placeholder}
-                                    className="w-full min-h-[140px] bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    className="w-full min-h-[140px] bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                 />
                                 <div className="flex flex-wrap gap-2">
                                     <button
                                         type="button"
                                         onClick={() => setRefineSaveMode('new_file')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs border ${refineSaveMode === 'new_file' ? 'bg-[#5E5CE6] text-white border-[#5E5CE6]' : 'border-[#2A2A40] text-gray-300 hover:bg-[#1C1C33]'}`}
+                                        className={`px-3 py-1.5 rounded-lg text-xs border ${refineSaveMode === 'new_file' ? 'bg-[#5B9DFF] text-white border-[#5B9DFF]' : 'border-[#45484F] text-gray-300 hover:bg-[#3A3D45]'}`}
                                     >
                                         Als neue Datei speichern
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => setRefineSaveMode('replace')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs border ${refineSaveMode === 'replace' ? 'bg-amber-600 text-white border-amber-500' : 'border-[#2A2A40] text-gray-300 hover:bg-[#1C1C33]'}`}
+                                        className={`px-3 py-1.5 rounded-lg text-xs border ${refineSaveMode === 'replace' ? 'bg-amber-600 text-white border-amber-500' : 'border-[#45484F] text-gray-300 hover:bg-[#3A3D45]'}`}
                                     >
                                         Bestehende Datei überschreiben
                                     </button>
                                 </div>
                             </div>
-                            <div className="p-5 border-t border-[#2A2A40] flex gap-3">
+                            <div className="p-5 border-t border-[#45484F] flex gap-3">
                                 <button
                                     onClick={() => {
                                         setIsRefineModalOpen(false);
                                         setFileToRefine(null);
                                         setRefinePrompt('');
                                     }}
-                                    className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium"
+                                    className="flex-1 py-2.5 bg-[#353840] hover:bg-[#3A3D45] text-gray-300 rounded-xl text-sm font-medium"
                                 >
                                     Abbrechen
                                 </button>
                                 <button
                                     onClick={submitRefineFile}
                                     disabled={!refinePrompt.trim() || isRefining}
-                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                                    className="flex-1 py-2.5 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
                                     {isRefining ? <Loader2 size={15} className="animate-spin" /> : null}
                                     Anpassung starten
@@ -6410,10 +6410,10 @@ export default function FolderPage() {
                             <button
                                 type="button"
                                 onClick={() => setAiJobsPanelExpanded((e) => !e)}
-                                className="flex items-center justify-between gap-2 px-3 py-2.5 bg-[#151525] border-b border-[#2A2A40] text-left w-full hover:bg-[#1C1C33] transition-colors"
+                                className="flex items-center justify-between gap-2 px-3 py-2.5 bg-[#353840] border-b border-[#45484F] text-left w-full hover:bg-[#3A3D45] transition-colors"
                             >
                                 <span className="flex items-center gap-2 text-sm font-semibold text-white">
-                                    <ListTodo size={16} className="text-[#5E5CE6] shrink-0" />
+                                    <ListTodo size={16} className="text-[#5B9DFF] shrink-0" />
                                     KI &amp; Verarbeitung
                                     <span className="text-xs font-normal text-gray-400">
                                         ({isGenerating.length + (isProcessing ? 1 : 0)} aktiv
@@ -6429,15 +6429,15 @@ export default function FolderPage() {
                                             <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Läuft gerade</div>
                                             <ul className="space-y-1.5">
                                                 {isProcessing && (
-                                                    <li className="flex items-center gap-2 text-gray-300 bg-[#151525] rounded-lg px-2.5 py-2 border border-[#2A2A40]">
-                                                        <Loader2 size={14} className="animate-spin text-[#5E5CE6] shrink-0" />
+                                                    <li className="flex items-center gap-2 text-gray-300 bg-[#353840] rounded-lg px-2.5 py-2 border border-[#45484F]">
+                                                        <Loader2 size={14} className="animate-spin text-[#5B9DFF] shrink-0" />
                                                         <span>Material wird hochgeladen / verarbeitet</span>
                                                     </li>
                                                 )}
                                                 {isGenerating.map((key) => {
                                                     const started = readQueueSnapshot()?.active.find((j) => j.id === `${folderId}:${key}`)?.startedAt;
                                                     return (
-                                                    <li key={key} className="flex items-center gap-2 text-gray-200 bg-[#151525] rounded-lg px-2.5 py-2 border border-[#2A2A40]">
+                                                    <li key={key} className="flex items-center gap-2 text-gray-200 bg-[#353840] rounded-lg px-2.5 py-2 border border-[#45484F]">
                                                         <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
                                                         <span className="flex-1 min-w-0 truncate">{AI_JOB_LABELS[key] || key}</span>
                                                         {started ? (
@@ -6512,9 +6512,9 @@ export default function FolderPage() {
 
                 {/* Global OS file drop overlay */}
                 {isDraggingOverBase && (
-                    <div className="fixed inset-0 z-[200] bg-[#5E5CE6]/90 backdrop-blur-sm flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-200">
-                        <div className="bg-[#0B0B1A] border-2 border-dashed border-[#5E5CE6] rounded-3xl p-16 shadow-2xl flex flex-col items-center">
-                            <Upload size={64} className="text-[#5E5CE6] mb-6 animate-bounce" />
+                    <div className="fixed inset-0 z-[200] bg-[#5B9DFF]/90 backdrop-blur-sm flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-200">
+                        <div className="bg-[#23252A] border-2 border-dashed border-[#5B9DFF] rounded-3xl p-16 shadow-2xl flex flex-col items-center">
+                            <Upload size={64} className="text-[#5B9DFF] mb-6 animate-bounce" />
                             <h2 className="text-3xl font-bold text-white mb-2">Hier ablegen</h2>
                             <p className="text-gray-300 text-lg">PDFs oder Audio (mp3/wav) direkt hochladen</p>
                         </div>
@@ -6524,8 +6524,8 @@ export default function FolderPage() {
                 {/* Upload processing overlay */}
                 {isUploadingFromDrop && (
                     <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-200">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-3xl p-12 shadow-2xl flex flex-col items-center">
-                            <Loader2 size={48} className="text-[#5E5CE6] animate-spin mb-6" />
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-3xl p-12 shadow-2xl flex flex-col items-center">
+                            <Loader2 size={48} className="text-[#5B9DFF] animate-spin mb-6" />
                             <h2 className="text-xl font-bold text-white mb-2">{uploadDropMessage}</h2>
                             <p className="text-gray-400 text-sm">Das kann einen Moment dauern...</p>
                         </div>

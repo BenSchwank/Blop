@@ -71,25 +71,25 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
 
     return (
         <aside
-            className="h-screen bg-[#1e1e1e] border-r border-[#333] flex flex-col sticky top-0 shrink-0 transition-all duration-300 overflow-hidden"
-            style={{ width: isCollapsed ? '72px' : '260px' }}
+            className="h-screen bg-[#1A1916] border-r border-white/10 flex flex-col sticky top-0 shrink-0 transition-all duration-300 overflow-hidden"
+            style={{ width: isCollapsed ? '64px' : '220px' }}
         >
             {/* Header */}
-            <div className="h-[74px] border-b border-[#333] flex items-center px-3 justify-between shrink-0">
+            <div className="h-[64px] border-b border-white/10 flex items-center px-2.5 justify-between shrink-0">
                 {/* Logo */}
                 <div className="flex items-center gap-2.5 overflow-hidden">
-                    <img src="/logo.jpg" alt="Blop Logo" className="w-[38px] h-[38px] rounded-[10px] object-cover shrink-0" />
+                    <img src="/logo.jpg" alt="Blop Logo" className="w-9 h-9 rounded-[10px] object-cover shrink-0" />
                     {!isCollapsed && (
                         <div className="flex flex-col gap-0.5 overflow-hidden">
-                            <h1 className="text-[16px] font-bold text-white leading-tight whitespace-nowrap">Blop</h1>
-                            <p className="text-[10px] text-[#888] leading-tight whitespace-nowrap">Lernassistent</p>
+                            <h1 className="text-[15px] font-bold text-[#F4F5F7] leading-tight whitespace-nowrap">Blop</h1>
+                            <p className="text-[10px] text-[#B8BEC9] leading-tight whitespace-nowrap">Study</p>
                         </div>
                     )}
                 </div>
                 {/* Collapse Button */}
                 <button
                     onClick={onToggle}
-                    className="text-[#888] hover:text-white hover:bg-[#333] w-7 h-7 rounded flex items-center justify-center transition-colors text-base shrink-0 ml-1"
+                    className="text-[#B8BEC9] hover:text-white hover:bg-white/10 w-7 h-7 rounded-lg flex items-center justify-center transition-colors text-base shrink-0 ml-1"
                     title={isCollapsed ? 'Sidebar ausklappen' : 'Sidebar einklappen'}
                 >
                     {isCollapsed ? '»' : '«'}
@@ -107,21 +107,20 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                             href={item.href}
                             title={isCollapsed ? item.label : undefined}
                             className={`
-                                flex items-center gap-3 py-2.5 rounded-lg text-[14px] transition-all relative overflow-hidden group
-                                ${isCollapsed ? 'justify-center px-0' : 'px-4'}
+                                flex items-center gap-3 py-2.5 rounded-[10px] text-[14px] transition-all relative overflow-hidden group
+                                ${isCollapsed ? 'justify-center px-0' : 'px-3'}
                                 ${isActive
-                                    ? 'bg-[#252526] text-white font-medium'
-                                    : 'text-[#DDD] hover:bg-[#252526] active:bg-[#333]'
+                                    ? 'bg-[#5B9DFF]/18 text-white font-medium'
+                                    : 'text-[#B8BEC9] hover:bg-white/[0.06] hover:text-[#F4F5F7]'
                                 }
                             `}
                         >
                             <Icon
                                 size={18}
                                 strokeWidth={isActive ? 2.5 : 2}
-                                className={`${isActive ? 'text-[#5E5CE6]' : 'text-[#888]'} relative z-10 shrink-0`}
+                                className={`${isActive ? 'text-[#5B9DFF]' : 'text-[#B8BEC9]'} relative z-10 shrink-0`}
                             />
                             {!isCollapsed && <span className="relative z-10 whitespace-nowrap">{item.label}</span>}
-                            {isActive && !isCollapsed && <div className="absolute left-0 top-1 bottom-1 w-1 bg-[#5E5CE6] rounded-r-full" />}
                         </Link>
                     );
                 })}
@@ -130,21 +129,20 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                     href="/pricing"
                     title={isCollapsed ? 'Abos' : undefined}
                     className={`
-                        flex items-center gap-3 py-2.5 rounded-lg text-[14px] transition-all relative overflow-hidden group
-                        ${isCollapsed ? 'justify-center px-0' : 'px-4'}
+                        flex items-center gap-3 py-2.5 rounded-[10px] text-[14px] transition-all relative overflow-hidden group
+                        ${isCollapsed ? 'justify-center px-0' : 'px-3'}
                         ${pathname === '/pricing'
-                            ? 'bg-[#252526] text-white font-medium'
-                            : 'text-[#DDD] hover:bg-[#252526] active:bg-[#333]'
+                            ? 'bg-[#5B9DFF]/18 text-white font-medium'
+                            : 'text-[#B8BEC9] hover:bg-white/[0.06] hover:text-[#F4F5F7]'
                         }
                     `}
                 >
                     <CreditCard
                         size={18}
                         strokeWidth={pathname === '/pricing' ? 2.5 : 2}
-                        className={`${pathname === '/pricing' ? 'text-[#5E5CE6]' : 'text-[#888]'} relative z-10 shrink-0`}
+                        className={`${pathname === '/pricing' ? 'text-[#5B9DFF]' : 'text-[#B8BEC9]'} relative z-10 shrink-0`}
                     />
                     {!isCollapsed && <span className="relative z-10 whitespace-nowrap">Abos</span>}
-                    {pathname === '/pricing' && !isCollapsed && <div className="absolute left-0 top-1 bottom-1 w-1 bg-[#5E5CE6] rounded-r-full" />}
                 </Link>
 
                 {/* Admin Panel */}
@@ -154,11 +152,11 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                             href="/admin"
                             title={isCollapsed ? 'Admin Panel' : undefined}
                             className={`
-                                flex items-center gap-3 py-2.5 rounded-lg text-[14px] transition-all relative overflow-hidden group
-                                ${isCollapsed ? 'justify-center px-0' : 'px-4'}
+                                flex items-center gap-3 py-2.5 rounded-[10px] text-[14px] transition-all relative overflow-hidden group
+                                ${isCollapsed ? 'justify-center px-0' : 'px-3'}
                                 ${pathname === '/admin'
-                                    ? 'bg-[#252526] text-white font-medium'
-                                    : 'text-[#DDD] hover:bg-[#252526] active:bg-[#333]'
+                                    ? 'bg-red-500/15 text-white font-medium'
+                                    : 'text-[#B8BEC9] hover:bg-white/[0.06] hover:text-[#F4F5F7]'
                                 }
                             `}
                         >
@@ -168,27 +166,25 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                                 className={`${pathname === '/admin' ? 'text-red-500' : 'text-[#888]'} relative z-10 shrink-0`}
                             />
                             {!isCollapsed && <span className="relative z-10 whitespace-nowrap">Admin Panel</span>}
-                            {pathname === '/admin' && !isCollapsed && <div className="absolute left-0 top-1 bottom-1 w-1 bg-red-500 rounded-r-full" />}
                         </Link>
                         <Link
                             href="/admin/subscriptions"
                             title={isCollapsed ? 'Admin-Abos' : undefined}
                             className={`
-                                flex items-center gap-3 py-2 rounded-lg text-[14px] transition-all relative overflow-hidden group
-                                ${isCollapsed ? 'justify-center px-0' : 'pl-10 pr-4'}
+                                flex items-center gap-3 py-2 rounded-[10px] text-[14px] transition-all relative overflow-hidden group
+                                ${isCollapsed ? 'justify-center px-0' : 'pl-9 pr-3'}
                                 ${pathname === '/admin/subscriptions'
-                                    ? 'bg-[#252526] text-white font-medium'
-                                    : 'text-[#AAA] hover:bg-[#252526] active:bg-[#333]'
+                                    ? 'bg-[#5B9DFF]/18 text-white font-medium'
+                                    : 'text-[#B8BEC9] hover:bg-white/[0.06] hover:text-[#F4F5F7]'
                                 }
                             `}
                         >
                             <CreditCard
                                 size={16}
                                 strokeWidth={pathname === '/admin/subscriptions' ? 2.5 : 2}
-                                className={`${pathname === '/admin/subscriptions' ? 'text-[#5E5CE6]' : 'text-[#888]'} relative z-10 shrink-0`}
+                                className={`${pathname === '/admin/subscriptions' ? 'text-[#5B9DFF]' : 'text-[#B8BEC9]'} relative z-10 shrink-0`}
                             />
                             {!isCollapsed && <span className="relative z-10 whitespace-nowrap">Admin-Abos</span>}
-                            {pathname === '/admin/subscriptions' && !isCollapsed && <div className="absolute left-0 top-1 bottom-1 w-1 bg-[#5E5CE6] rounded-r-full" />}
                         </Link>
                     </>
                 )}
@@ -196,11 +192,11 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
 
             {/* User Profile */}
             <div
-                className={`border-t border-[#333] flex items-center py-3 gap-3 transition-all overflow-hidden shrink-0 ${isCollapsed ? 'justify-center px-0' : 'px-4'}`}
-                style={{ minHeight: '74px' }}
+                className={`border-t border-white/10 flex items-center py-3 gap-3 transition-all overflow-hidden shrink-0 ${isCollapsed ? 'justify-center px-0' : 'px-3'}`}
+                style={{ minHeight: '64px' }}
             >
                 {/* Avatar */}
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center text-white font-bold text-[15px] shrink-0">
+                <div className="w-9 h-9 rounded-full bg-[#5B9DFF] flex items-center justify-center text-white font-bold text-[14px] shrink-0">
                     {mounted ? initial : '?'}
                 </div>
                 {!isCollapsed && (
@@ -210,7 +206,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                         </p>
                         <Link
                             href="/settings"
-                            className="text-[11px] text-[#888] hover:text-[#5E5CE6] transition-colors leading-tight block mt-0.5"
+                            className="text-[11px] text-[#888] hover:text-[#5B9DFF] transition-colors leading-tight block mt-0.5"
                         >
                             Einstellungen
                         </Link>
@@ -219,7 +215,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                                 <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${tier === 'premium' ? 'bg-amber-500/20 text-amber-400' : tier === 'pro' ? 'bg-blue-500/20 text-blue-400' : 'bg-[#333] text-gray-300'}`}>
                                     {(tier || 'free').toUpperCase()}
                                 </span>
-                                <span className="text-[10px] text-[#7D7AFF] font-medium flex items-center gap-0.5">
+                                <span className="text-[10px] text-[#7EB2FF] font-medium flex items-center gap-0.5">
                                     🪙 {tokens > 900000 ? '∞' : tokens}
                                 </span>
                             </div>

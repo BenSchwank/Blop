@@ -100,14 +100,14 @@ export default function FlashcardSession({ cards, onEditCard, onFullscreen, onEx
                     <button
                         type="button"
                         onClick={() => setMode(mode === "session" ? "library" : "session")}
-                        className="bg-[#151525] hover:bg-[#1C1C33] border border-[#3B3B55] text-white px-3 py-2 rounded-xl text-sm"
+                        className="bg-[#353840] hover:bg-[#3A3D45] border border-[#4A4E58] text-white px-3 py-2 rounded-xl text-sm"
                     >
                         {mode === "session" ? "Bibliothek" : "Übung"}
                     </button>
                     <button
                         type="button"
                         onClick={startSession}
-                        className="bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2"
+                        className="bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2"
                     >
                         <Shuffle size={16} />
                         Übung starten
@@ -116,7 +116,7 @@ export default function FlashcardSession({ cards, onEditCard, onFullscreen, onEx
                         <button
                             type="button"
                             onClick={onExportCsv}
-                            className="bg-[#151525] hover:bg-[#1C1C33] border border-[#3B3B55] text-white px-3 py-2 rounded-xl text-sm"
+                            className="bg-[#353840] hover:bg-[#3A3D45] border border-[#4A4E58] text-white px-3 py-2 rounded-xl text-sm"
                         >
                             Anki CSV
                         </button>
@@ -126,7 +126,7 @@ export default function FlashcardSession({ cards, onEditCard, onFullscreen, onEx
 
             {mode === "session" ? (
                 done || !current ? (
-                    <div className="rounded-2xl border border-[#2A2A40] bg-[#151525] p-8 text-center space-y-4 max-w-lg mx-auto">
+                    <div className="rounded-2xl border border-[#45484F] bg-[#353840] p-8 text-center space-y-4 max-w-lg mx-auto">
                         <CheckCircle2 className="mx-auto text-green-400" size={36} />
                         <h3 className="text-xl font-semibold text-white">Session beendet</h3>
                         <p className="text-sm text-gray-400">
@@ -135,14 +135,14 @@ export default function FlashcardSession({ cards, onEditCard, onFullscreen, onEx
                         <button
                             type="button"
                             onClick={startSession}
-                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#5E5CE6] text-white font-semibold"
+                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#5B9DFF] text-white font-semibold"
                         >
                             <Shuffle size={16} /> Nochmal
                         </button>
                     </div>
                 ) : (
                     <div className="max-w-xl mx-auto w-full space-y-4">
-                        <div className="h-1.5 rounded-full bg-[#0B0B1A] border border-[#2A2A40] overflow-hidden">
+                        <div className="h-1.5 rounded-full bg-[#23252A] border border-[#45484F] overflow-hidden">
                             <div
                                 className="h-full bg-green-500/80 transition-all"
                                 style={{ width: `${Math.min(100, (mastered / Math.max(cards.length, 1)) * 100)}%` }}
@@ -154,7 +154,7 @@ export default function FlashcardSession({ cards, onEditCard, onFullscreen, onEx
                         <button
                             type="button"
                             onClick={() => setFlipped((f) => !f)}
-                            className="w-full min-h-[220px] rounded-2xl border border-[#2A2A40] bg-[#151525] p-8 text-center shadow-lg transition-colors hover:border-[#5E5CE6]/40"
+                            className="w-full min-h-[220px] rounded-2xl border border-[#45484F] bg-[#353840] p-8 text-center shadow-lg transition-colors hover:border-[#5B9DFF]/40"
                         >
                             <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-3">
                                 {flipped ? "Rückseite" : "Vorderseite · tippen zum Umdrehen"}
@@ -234,14 +234,14 @@ export default function FlashcardSession({ cards, onEditCard, onFullscreen, onEx
                                     onClick={() => setFlipMap((prev) => ({ ...prev, [i]: !prev[i] }))}
                                 >
                                     <div
-                                        className={`w-full h-full transition-all duration-500 [transform-style:preserve-3d] relative rounded-xl border border-[#2A2A40] bg-[#151525] ${
+                                        className={`w-full h-full transition-all duration-500 [transform-style:preserve-3d] relative rounded-xl border border-[#45484F] bg-[#353840] ${
                                             isFlipped ? "[transform:rotateY(180deg)]" : ""
                                         }`}
                                     >
                                         <div className="absolute inset-0 rounded-xl [backface-visibility:hidden] flex items-center justify-center p-6 text-center text-white text-sm whitespace-pre-wrap overflow-y-auto">
                                             {c.front}
                                         </div>
-                                        <div className="absolute inset-0 rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex items-center justify-center p-6 text-center text-gray-300 bg-[#0B0B1A] text-sm whitespace-pre-wrap overflow-y-auto">
+                                        <div className="absolute inset-0 rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex items-center justify-center p-6 text-center text-gray-300 bg-[#23252A] text-sm whitespace-pre-wrap overflow-y-auto">
                                             {c.back}
                                         </div>
                                     </div>

@@ -215,13 +215,14 @@ def openai_tts_speech_mp3_concat_segments(
 
 
 def synthesize_podcast_dialogue(script: str, voice_a: str, voice_b: str) -> bytes:
-    """Speak a two-person script. Alex asks, Sam explains, each with their own voice."""
+    """Speak a two-person script with human pacing, emotion cues, and breath gaps."""
     from podcast_dialogue import (
-        ALEX_STYLE,
-        SAM_STYLE,
+        breath_segments,
+        gap_seconds_between,
         parse_podcast_dialogue,
         podcast_voice_pair,
         spoken_podcast_line,
+        tts_instructions_for_turn,
     )
 
     first, second = podcast_voice_pair(voice_a, voice_b)
@@ -229,22 +230,44 @@ def synthesize_podcast_dialogue(script: str, voice_a: str, voice_b: str) -> byte
     if not turns:
         raise ValueError("Leeres Podcast-Skript.")
     voice_for = {"ALEX": first, "SAM": second}
-    style_for = {"ALEX": ALEX_STYLE, "SAM": SAM_STYLE}
     parts: List[bytes] = []
-    gap = _silence_mp3(0.42)
-    for index, (speaker, line) in enumerate(turns):
+    prev_speaker: Optional[str] = None
+    silence_cache: dict = {}
+
+    def _gap(seconds: float) -> bytes:
+        key = round(float(seconds), 2)
+        if key <= 0.05:
+            return b""
+        if key not in silence_cache:
+            silence_cache[key] = _silence_mp3(key)
+        return silence_cache[key]
+
+    for speaker, line in turns:
         spoken = spoken_podcast_line(line)
         if not spoken:
             continue
+        voice = voice_for.get(speaker, first)
+        instructions = tts_instructions_for_turn(speaker, voice, line)
+        gap = _gap(gap_seconds_between(prev_speaker, speaker, spoken))
         if parts and gap:
             parts.append(gap)
-        parts.append(
-            openai_tts_speech_mp3(
-                spoken,
-                voice=voice_for.get(speaker, first),
-                instructions=style_for.get(speaker, ALEX_STYLE),
+        # Breath-sized chunks keep Gemini/OpenAI from flattening long paragraphs.
+        chunks = breath_segments(spoken, max_chars=200)
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                micro = _gap(0.16)
+                if micro:
+                    parts.append(micro)
+            parts.append(
+                openai_tts_speech_mp3(
+                    chunk,
+                    voice=voice,
+                    instructions=instructions,
+                )
             )
-        )
+        prev_speaker = speaker
+    if not parts:
+        raise ValueError("Leeres Podcast-Skript.")
     if len(parts) == 1:
         return parts[0]
     return _concat_mp3_ffmpeg(parts, reencode=True)
