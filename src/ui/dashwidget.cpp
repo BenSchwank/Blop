@@ -541,11 +541,11 @@ QWidget *DashWidget::buildIntro() {
       {"Lernen", "Study", [this]() { emit studyRequested(); }},
   };
   const QString chipBg =
-      BlopTheme::instance().isDark() ? QStringLiteral("rgba(255,255,255,0.05)")
-                                     : QStringLiteral("rgba(15,23,42,0.04)");
+      BlopTheme::instance().isDark() ? QStringLiteral("rgba(255,255,255,0.07)")
+                                     : QStringLiteral("rgba(15,23,42,0.06)");
   const QString chipHover =
-      BlopTheme::instance().isDark() ? QStringLiteral("rgba(255,255,255,0.09)")
-                                     : QStringLiteral("rgba(15,23,42,0.07)");
+      BlopTheme::instance().isDark() ? QStringLiteral("rgba(255,255,255,0.12)")
+                                     : QStringLiteral("rgba(15,23,42,0.09)");
   for (const auto &q : quicks) {
     auto *btn = new QPushButton(
         BlopLocale::instance().isGerman() ? QString::fromUtf8(q.de)
@@ -553,12 +553,12 @@ QWidget *DashWidget::buildIntro() {
         actions);
     btn->setCursor(Qt::PointingHandCursor);
     btn->setFlat(true);
-    btn->setMinimumHeight(UiScale::dp(30));
+    btn->setMinimumHeight(UiScale::dp(36));
     btn->setStyleSheet(
         QStringLiteral("QPushButton {"
                        "  background: %1; border: none; border-radius: %2px;"
-                       "  color: %3; font-size: 12px; font-weight: 550;"
-                       "  padding: 4px 12px;"
+                       "  color: %3; font-size: 14px; font-weight: 600;"
+                       "  padding: 8px 14px;"
                        "}"
                        "QPushButton:hover { background: %4; }")
             .arg(chipBg)

@@ -5,6 +5,7 @@
 #include "moderntoolbar.h"
 #include "uiscale.h"
 
+#include <QHideEvent>
 #include <QIcon>
 #include <QLabel>
 #include <QSizePolicy>
@@ -62,7 +63,8 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
          QStringLiteral("Dashboard"), lay);
   addBtn(QStringLiteral("library"), QStringLiteral("note"),
          QStringLiteral("Notizen"), lay);
-  addBtn(QStringLiteral("new"), QStringLiteral("compose"),
+  lay->addSpacing(UiScale::dp(8));
+  addBtn(QStringLiteral("new"), QStringLiteral("add"),
          QStringLiteral("Neue Notiz"), lay);
   addBtn(QStringLiteral("favorites"), QStringLiteral("star"),
          QStringLiteral("Favoriten"), lay);
@@ -92,14 +94,19 @@ QToolButton *LibraryIconRail::addBtn(const QString &id, const QString &iconKey,
   btn->setObjectName(QStringLiteral("LibraryIconRailBtn"));
   btn->setProperty("railId", id);
   btn->setProperty("iconKey", iconKey);
-  btn->setToolTip(tip);
+  btn->setProperty("railTip", tip);
+  btn->setAccessibleName(tip);
+  btn->setToolTip(QString());
+  btn->setToolButtonStyle(Qt::ToolButtonIconOnly);
   btn->setCursor(Qt::PointingHandCursor);
   btn->setAutoRaise(true);
   btn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   btn->setIconSize(QSize(UiScale::dp(20), UiScale::dp(20)));
   btn->setIcon(glyph(iconKey, QColor(200, 204, 214), UiScale::dp(20)));
+  btn->installEventFilter(this);
   connect(btn, &QToolButton::clicked, this, [this, id]() {
-    setActiveId(id);
+    if (id != QLatin1String("new"))
+      setActiveId(id);
     emit actionTriggered(id);
   });
   m_btns.insert(id, btn);
@@ -187,6 +194,74 @@ void LibraryIconRail::applyBrand() {
   m_logo->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
 }
 
+void LibraryIconRail::hideEvent(QHideEvent *event) {
+  hideFlyout();
+  QWidget::hideEvent(event);
+}
+
+bool LibraryIconRail::eventFilter(QObject *watched, QEvent *event) {
+  auto *btn = qobject_cast<QToolButton *>(watched);
+  if (!btn || !m_btns.values().contains(btn))
+    return QWidget::eventFilter(watched, event);
+  if (event->type() == QEvent::Enter) {
+    showFlyout(btn);
+  } else if (event->type() == QEvent::Leave || event->type() == QEvent::Hide) {
+    hideFlyout();
+  }
+  return QWidget::eventFilter(watched, event);
+}
+
+void LibraryIconRail::showFlyout(QToolButton *btn) {
+  if (!btn)
+    return;
+  QWidget *host = window();
+  if (!host)
+    return;
+  const QString tip = btn->property("railTip").toString();
+  if (tip.isEmpty())
+    return;
+  if (!m_flyout) {
+    m_flyout = new QLabel(host);
+    m_flyout->setObjectName(QStringLiteral("LibraryIconRailTip"));
+    m_flyout->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    m_flyout->setAttribute(Qt::WA_ShowWithoutActivating, true);
+  } else if (m_flyout->parentWidget() != host) {
+    m_flyout->setParent(host);
+  }
+  m_flyout->setStyleSheet(QStringLiteral(
+      "QLabel#LibraryIconRailTip {"
+      "  background: %1; color: %2;"
+      "  border: 1px solid rgba(255,255,255,0.14);"
+      "  border-radius: %3px;"
+      "  padding: %4px %5px;"
+      "  font-size: 12px; font-weight: 650;"
+      "}")
+                              .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb),
+                                   BlopStyle::obsidianText().name(QColor::HexRgb),
+                                   QString::number(UiScale::dp(8)),
+                                   QString::number(UiScale::dp(4)),
+                                   QString::number(UiScale::dp(10))));
+  m_flyout->setText(tip);
+  m_flyout->adjustSize();
+  const QPoint global = btn->mapToGlobal(
+      QPoint(btn->width() + UiScale::dp(8),
+             (btn->height() - m_flyout->height()) / 2));
+  QPoint local = host->mapFromGlobal(global);
+  const int maxX = qMax(0, host->width() - m_flyout->width() - UiScale::dp(8));
+  if (local.x() > maxX)
+    local.setX(maxX);
+  if (local.x() < 0)
+    local.setX(0);
+  m_flyout->move(local);
+  m_flyout->show();
+  m_flyout->raise();
+}
+
+void LibraryIconRail::hideFlyout() {
+  if (m_flyout)
+    m_flyout->hide();
+}
+
 void LibraryIconRail::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);
@@ -230,16 +305,31 @@ void LibraryIconRail::refreshStyles() {
     QToolButton *btn = it.value();
     if (!btn)
       continue;
-    const bool on = it.key() == m_active;
+    const bool isNew = it.key() == QLatin1String("new");
+    const bool on = !isNew && it.key() == m_active;
     const QString iconKey = btn->property("iconKey").toString();
     // Cool gray icons — never pure white (invisible on light hover washes).
     const QColor idleIcon(0xB8, 0xBE, 0xC9);
     if (it.key() == QLatin1String("account") && !m_avatar.isEmpty()) {
       // Avatar icon set separately.
     } else {
-      btn->setIcon(glyph(iconKey, on ? m_accent : idleIcon, UiScale::dp(20)));
+      btn->setIcon(glyph(iconKey, (on || isNew) ? m_accent : idleIcon,
+                         UiScale::dp(20)));
     }
-    if (on) {
+    if (isNew) {
+      btn->setStyleSheet(QStringLiteral(
+          "QToolButton#LibraryIconRailBtn {"
+          "  background: transparent; border: 1px solid %1;"
+          "  border-radius: 10px; padding: 0;"
+          "}"
+          "QToolButton#LibraryIconRailBtn:hover {"
+          "  background: %2; border: 1px solid %1;"
+          "}"
+          "QToolButton#LibraryIconRailBtn:pressed {"
+          "  background: %3; border: 1px solid %1;"
+          "}")
+                             .arg(accentRgba(m_accent, 0.70), hover, onBg));
+    } else if (on) {
       btn->setStyleSheet(QStringLiteral(
           "QToolButton#LibraryIconRailBtn {"
           "  background: %1; border: none; border-radius: 10px;"

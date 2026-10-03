@@ -398,30 +398,39 @@ void DashRightRail::applyChrome() {
   if (m_btnCustomize) {
     m_btnCustomize->setText(m_editMode ? QStringLiteral("Fertig")
                                        : QStringLiteral("Anpassen"));
+    m_btnCustomize->setMinimumHeight(UiScale::dp(34));
     if (m_editMode) {
       m_btnCustomize->setStyleSheet(
           QStringLiteral("QPushButton {"
-                         "  color: %1; font-size: 13px; font-weight: 600;"
-                         "  background: rgba(%2,%3,%4,0.16); border: none;"
-                         "  border-radius: %5px; padding: 6px 10px;"
+                         "  color: %1; font-size: 14px; font-weight: 600;"
+                         "  background: rgba(%2,%3,%4,0.24); border: none;"
+                         "  border-radius: %5px; padding: 8px 12px;"
                          "  text-align: left;"
                          "}"
-                         "QPushButton:hover { background: rgba(%2,%3,%4,0.24); }")
+                         "QPushButton:hover { background: rgba(%2,%3,%4,0.34); }")
               .arg(acc)
               .arg(BlopTheme::accentPrimary().red())
               .arg(BlopTheme::accentPrimary().green())
               .arg(BlopTheme::accentPrimary().blue())
               .arg(rad));
     } else {
+      const QString idleBg =
+          BlopTheme::instance().isDark()
+              ? QStringLiteral("rgba(255,255,255,0.07)")
+              : QStringLiteral("rgba(55,53,47,0.06)");
+      const QString idleHover =
+          BlopTheme::instance().isDark()
+              ? QStringLiteral("rgba(255,255,255,0.12)")
+              : QStringLiteral("rgba(55,53,47,0.10)");
       m_btnCustomize->setStyleSheet(
           QStringLiteral("QPushButton {"
-                         "  color: %1; font-size: 13px; font-weight: 500;"
-                         "  background: transparent; border: none;"
-                         "  border-radius: %2px; padding: 4px 2px;"
+                         "  color: %1; font-size: 14px; font-weight: 600;"
+                         "  background: %2; border: none;"
+                         "  border-radius: %3px; padding: 8px 12px;"
                          "  text-align: left;"
                          "}"
-                         "QPushButton:hover { color: %3; }")
-              .arg(railMuted(), QString::number(rad), acc));
+                         "QPushButton:hover { background: %4; color: %5; }")
+              .arg(railInk(), idleBg, QString::number(rad), idleHover, acc));
     }
   }
 

@@ -35,7 +35,7 @@ namespace {
 constexpr int kPickWidthDp = 440;
 constexpr qreal kPickHeightFrac = 0.32;
 constexpr int kExpandWidthDp = 680;
-constexpr qreal kExpandHeightFrac = 0.62;
+constexpr qreal kExpandHeightFrac = 0.78;
 
 QIcon pageTemplateIcon(int backgroundType, int w, int h, const QColor &paper)
 {
@@ -254,7 +254,9 @@ NewNoteDialog::NewNoteDialog(QWidget *parent) : QDialog(parent)
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
     setAttribute(Qt::WA_TranslucentBackground, true);
     setProperty("blopOwnsBackground", true);
-    setProperty("blopForcePaper", false);
+    // Opaque Float host so composer + Erstellen footer stay on a solid sheet
+    // (transparent Float chrome clipped the footer visually on desktop).
+    setProperty("blopForcePaper", true);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setStyleSheet(QStringLiteral("QDialog { background: transparent; border: none; }"));
     {
@@ -424,6 +426,7 @@ void NewNoteDialog::setupUi()
                 refreshDeckPreviews();
             });
     titleCol->addWidget(m_formatChipBar);
+    titleBar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     composerLay->addWidget(titleBar);
 
     auto *titleBlock = new QWidget(m_composer);
@@ -442,10 +445,13 @@ void NewNoteDialog::setupUi()
     connect(m_nameInput, &QLineEdit::returnPressed, this, &QDialog::accept);
     connect(m_nameInput, &QLineEdit::textChanged, this,
             [this](const QString &) { refreshLivePreview(); });
+    titleBlock->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     composerLay->addWidget(titleBlock);
 
     auto *bodySplit = new QWidget(m_composer);
     bodySplit->setObjectName(QStringLiteral("NewNoteBodySplit"));
+    bodySplit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    bodySplit->setMinimumHeight(0);
     auto *splitLay = new QHBoxLayout(bodySplit);
     splitLay->setContentsMargins(0, 0, 0, 0);
     splitLay->setSpacing(0);
@@ -455,6 +461,8 @@ void NewNoteDialog::setupUi()
     m_scroll->setWidgetResizable(true);
     m_scroll->setFrameShape(QFrame::NoFrame);
     m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_scroll->setMinimumHeight(0);
 
     auto *body = new QWidget(m_scroll);
     body->setObjectName(QStringLiteral("NewNoteBody"));
@@ -670,7 +678,8 @@ void NewNoteDialog::setupUi()
     connect(m_btnCancel, &QPushButton::clicked, this, &QDialog::reject);
     m_btnCreate = new QPushButton(QStringLiteral("Erstellen"), footer);
     m_btnCreate->setCursor(Qt::PointingHandCursor);
-    m_btnCreate->setAutoDefault(false);
+    m_btnCreate->setAutoDefault(true);
+    m_btnCreate->setDefault(true);
     m_btnCreate->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
     m_btnCreate->setMinimumWidth(UiScale::dp(112));
     connect(m_btnCreate, &QPushButton::clicked, this, &QDialog::accept);
@@ -678,7 +687,9 @@ void NewNoteDialog::setupUi()
     BlopRipple::attachPressFeedback(m_btnCreate, 0.96);
     actionLay->addWidget(m_btnCancel);
     actionLay->addWidget(m_btnCreate);
-    composerLay->addWidget(footer);
+    footer->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() + 20));
+    footer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    composerLay->addWidget(footer, 0);
 
     stack->addWidget(m_composer, 1);
 
@@ -689,6 +700,8 @@ void NewNoteDialog::setupUi()
 
     connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this,
             [this]() { applyChrome(); });
+
+    selectDeckFormat(1);
 }
 
 void NewNoteDialog::applyHostModalSize(bool expanded, bool animate)
@@ -1160,7 +1173,7 @@ int NewNoteDialog::createFormat() const
 {
     if (m_selectedFormat >= 0)
         return m_selectedFormat;
-    return 0;
+    return 1;
 }
 
 bool NewNoteDialog::isStrukturFormat() const

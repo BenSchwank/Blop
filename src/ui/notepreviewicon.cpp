@@ -373,7 +373,8 @@ Spec specForPath(const QString &path, bool isDirectory) {
     peekBlop(path, &s);
     return s;
   }
-  s.kind = Kind::Folder;
+  // Unknown files are not folders — leave a blank A4-style tile.
+  s.kind = Kind::A4;
   return s;
 }
 

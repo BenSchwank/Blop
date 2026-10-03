@@ -470,6 +470,17 @@ protected:
     if (isDir && filterDirs && m_smartView != SmartView::Favorites)
       return false; // hide dirs under search/recent/untagged listings
 
+    // Library tiles are notes only — ignore Assistent settings JSON and other
+    // loose files so they never appear as fake yellow "folders".
+    if (!isDir) {
+      const bool isNote =
+          name.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive) ||
+          name.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive) ||
+          name.endsWith(QLatin1String(".struct"), Qt::CaseInsensitive);
+      if (!isNote)
+        return false;
+    }
+
     if (!m_search.isEmpty() && !name.contains(m_search, Qt::CaseInsensitive))
       return false;
 
@@ -1603,9 +1614,8 @@ void ModernItemDelegate::paint(QPainter *painter,
   const bool isBlop = fileName.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive);
   const bool isStruct =
       fileName.endsWith(QLatin1String(".struct"), Qt::CaseInsensitive);
-  if (!isFolder && !isBnote && !isBlop && !isStruct &&
-      !fileName.contains(QLatin1Char('.')))
-    isFolder = true;
+  // Do not guess "folder" from missing extensions — that painted Assistent
+  // JSON and other stray files as yellow folders in the library grid.
 
   // Clean caption: strip Blop extensions so tiles read as product names.
   QString text = fileName;
@@ -10471,10 +10481,7 @@ void MainWindow::setupSidebar() {
   m_navSidebar->setTextElideMode(Qt::ElideRight);
   m_navSidebar->setSpacing(1);
 
-  QDir rootDir(m_rootPath);
-  int rootCount =
-      rootDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)
-          .count();
+  const int rootCount = folderEntryCount(m_rootPath);
   QString rootCountStr = QString::number(rootCount);
   auto addItem = [this, rootCountStr](QString name, QString icon,
                                       bool isHeader = false) {
@@ -11531,6 +11538,13 @@ void MainWindow::refreshSidebarNotesList() {
     const QFileInfo fi(path);
     if (!fi.exists() || !fi.isFile())
       continue;
+    const QString name = fi.fileName();
+    const bool isNote =
+        name.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive) ||
+        name.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive) ||
+        name.endsWith(QLatin1String(".struct"), Qt::CaseInsensitive);
+    if (!isNote)
+      continue;
     const QString abs = fi.absoluteFilePath();
     if (abs.contains(QLatin1String("/.blop-embeds/")) ||
         abs.contains(QLatin1String("\\.blop-embeds\\")))
@@ -11651,10 +11665,7 @@ void MainWindow::refreshSidebarCloudList() {
 }
 
 void MainWindow::updateSidebarBadges() {
-  QDir rootDir(m_rootPath);
-  int rootCount =
-      rootDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)
-          .count();
+  const int rootCount = folderEntryCount(m_rootPath);
   QString rootCountStr = QString::number(rootCount);
   const QString trashPath =
       QDir(m_rootPath).filePath(QStringLiteral(".Papierkorb"));
@@ -11984,7 +11995,23 @@ int MainWindow::folderEntryCount(const QString &dirPath) const {
   QDir dir(dirPath);
   if (!dir.exists())
     return 0;
-  return dir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot).count();
+  int n = 0;
+  const QFileInfoList entries =
+      dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+  for (const QFileInfo &fi : entries) {
+    if (fi.fileName().startsWith(QLatin1Char('.')))
+      continue;
+    if (fi.isDir()) {
+      ++n;
+      continue;
+    }
+    const QString name = fi.fileName();
+    if (name.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive) ||
+        name.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive) ||
+        name.endsWith(QLatin1String(".struct"), Qt::CaseInsensitive))
+      ++n;
+  }
+  return n;
 }
 
 void MainWindow::rebuildOrdnerTree() {
