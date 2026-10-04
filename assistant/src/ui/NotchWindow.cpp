@@ -19,6 +19,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPen>
 #include <QPaintEvent>
 #include <QPushButton>
 #include <QScreen>
@@ -254,18 +255,23 @@ bool NotchWindow::nativeEventFilter(const QByteArray &eventType, void *message, 
 void NotchWindow::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
-    painter.setPen(Qt::NoPen);
     if (!surfaceOpen()) {
-        painter.setBrush(m_listening ? QColor(0x5B, 0x9D, 0xFF) : QColor(0x11, 0x12, 0x14));
+        const QColor fill = m_listening ? QColor(0x5B, 0x9D, 0xFF) : QColor(0x1B, 0x1E, 0x24);
+        const QColor edge = m_listening ? QColor(255, 255, 255) : QColor(0x5B, 0x9D, 0xFF);
         const qreal radius = height() / 2.0;
         painter.setClipRect(rect());
         QPainterPath path;
-        path.addRoundedRect(QRectF(0, -radius, width(), height() + radius), radius, radius);
+        path.addRoundedRect(QRectF(1.5, -radius, width() - 3.0, height() + radius - 2.0),
+                            radius, radius);
+        painter.fillPath(path, fill);
+        painter.setPen(QPen(edge, 2));
+        painter.setBrush(Qt::NoBrush);
         painter.drawPath(path);
         return;
     }
+    painter.setPen(QPen(QColor(0x5B, 0x9D, 0xFF), 1));
     painter.setBrush(QColor(0x24, 0x26, 0x2B));
-    painter.drawRoundedRect(QRectF(rect()), 14, 14);
+    painter.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 14, 14);
 }
 
 void NotchWindow::showEvent(QShowEvent *event) {
@@ -309,9 +315,9 @@ bool NotchWindow::surfaceOpen() const {
 void NotchWindow::applyChrome() {
     const bool open = surfaceOpen();
     const bool pill = !open;
-    const int pillWidth = m_listening ? 210 : 168;
-    const int pillHeight = m_listening ? 36 : 34;
-    const int markSide = open ? 22 : 18;
+    const int pillWidth = m_listening ? 188 : 156;
+    const int pillHeight = 36;
+    const int markSide = 22;
     m_edit->setVisible(open);
     m_gear->setVisible(open);
     if (m_mark) {
@@ -427,7 +433,7 @@ void NotchWindow::setListening(bool on) {
 }
 
 void NotchWindow::scheduleIdle() {
-    QTimer::singleShot(1400, this, [this]() {
+    QTimer::singleShot(7000, this, [this]() {
         if (m_listening)
             return;
         if (rect().contains(mapFromGlobal(QCursor::pos())))

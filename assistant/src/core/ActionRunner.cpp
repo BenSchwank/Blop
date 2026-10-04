@@ -13,6 +13,7 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QUrl>
 
 #ifdef Q_OS_ANDROID
@@ -24,6 +25,25 @@ namespace {
 
 QString standardDir(QStandardPaths::StandardLocation location) {
     return QStandardPaths::writableLocation(location);
+}
+
+bool asksForThought(const QString &text) {
+    const QString lower = text.trimmed().toLower();
+    if (lower.contains(QLatin1Char('?')))
+        return true;
+    const QStringList leads = {
+        QStringLiteral("wie "),      QStringLiteral("was "),     QStringLiteral("wer "),
+        QStringLiteral("wann "),     QStringLiteral("wo "),      QStringLiteral("wohin "),
+        QStringLiteral("woher "),    QStringLiteral("warum "),   QStringLiteral("weshalb "),
+        QStringLiteral("wieso "),    QStringLiteral("welche "),  QStringLiteral("welcher "),
+        QStringLiteral("welches "),  QStringLiteral("wieviel "), QStringLiteral("wie viel "),
+        QStringLiteral("hallo"),     QStringLiteral("hi "),      QStringLiteral("hey"),
+    };
+    for (const QString &lead : leads) {
+        if (lower.startsWith(lead))
+            return true;
+    }
+    return false;
 }
 
 } // namespace
@@ -52,10 +72,28 @@ ActionResult ActionRunner::runText(const QString &text) const {
     }
     if (understood)
         return runAll(local);
+    if (asksForThought(text)) {
+        QString answer;
+        QString explainError;
+        if (OpenRouter::explain(text, &answer, &explainError) && !answer.trimmed().isEmpty())
+            return {true, answer};
+        return {false, explainError.isEmpty()
+                           ? QStringLiteral("Die KI ist gerade nicht verfügbar.")
+                           : explainError};
+    }
     QList<Command> planned;
     QString error;
-    if (!OpenRouter::plan(text, &planned, &error))
+    if (!OpenRouter::plan(text, &planned, &error)) {
+        if (error == QStringLiteral("Das kann ich so nicht ausführen.")) {
+            QString answer;
+            QString explainError;
+            if (OpenRouter::explain(text, &answer, &explainError) && !answer.trimmed().isEmpty())
+                return {true, answer};
+            if (!explainError.isEmpty())
+                return {false, explainError};
+        }
         return {false, error};
+    }
     return runAll(planned);
 }
 
