@@ -9,11 +9,15 @@
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPaintEvent>
+#include <QPainter>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSlider>
+#include <QVBoxLayout>
 
 namespace {
 
@@ -47,6 +51,118 @@ QSlider *widthSlider(int min, int max, int value, QWidget *parent) {
   s->setValue(value);
   s->setFixedWidth(UiScale::dp(120));
   return s;
+}
+
+class StrokeWidthButton : public QPushButton {
+public:
+  explicit StrokeWidthButton(int width, QWidget *parent = nullptr)
+      : QPushButton(parent), m_width(qBound(1, width, 48)) {
+    setFocusPolicy(Qt::NoFocus);
+    setCursor(Qt::PointingHandCursor);
+    setFixedSize(UiScale::dp(72), UiScale::dp(32));
+    setToolTip(QStringLiteral("Strichstärke"));
+    refreshStyle();
+  }
+  int widthValue() const { return m_width; }
+  void setWidthValue(int w) {
+    m_width = qBound(1, w, 48);
+    update();
+  }
+
+protected:
+  void paintEvent(QPaintEvent *event) override {
+    QPushButton::paintEvent(event);
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const int shown = qBound(1, m_width, 14);
+    p.setPen(QPen(NoteChrome::textPrimary(), shown, Qt::SolidLine, Qt::RoundCap));
+    const int y = height() / 2;
+    p.drawLine(UiScale::dp(10), y, width() - UiScale::dp(28), y);
+    p.setPen(NoteChrome::textPrimary());
+    p.drawText(QRect(width() - UiScale::dp(26), 0, UiScale::dp(22), height()),
+               Qt::AlignCenter, QString::number(m_width));
+  }
+
+private:
+  void refreshStyle() {
+    setStyleSheet(QStringLiteral(
+                      "QPushButton { background: %1; border: 1px solid %2;"
+                      " border-radius: 8px; }"
+                      "QPushButton:hover { border-color: %3; }")
+                      .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
+                           NoteChrome::isDark() ? QStringLiteral("#8B93A3")
+                                                : NoteChrome::border().name(QColor::HexRgb),
+                           NoteChrome::accent().name(QColor::HexRgb)));
+  }
+  int m_width{3};
+};
+
+class StrokeWidthRow : public QPushButton {
+public:
+  StrokeWidthRow(int width, bool selected, QWidget *parent = nullptr)
+      : QPushButton(parent), m_width(width), m_selected(selected) {
+    setFocusPolicy(Qt::NoFocus);
+    setCursor(Qt::PointingHandCursor);
+    setFixedHeight(UiScale::dp(28));
+    setStyleSheet(QStringLiteral("QPushButton { background: transparent; border: none;"
+                                 " border-radius: 6px; }"
+                                 "QPushButton:hover { background: rgba(91,157,255,0.18); }"));
+  }
+
+protected:
+  void paintEvent(QPaintEvent *event) override {
+    QPushButton::paintEvent(event);
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    if (m_selected) {
+      p.setPen(Qt::NoPen);
+      p.setBrush(QColor(91, 157, 255, 40));
+      p.drawRoundedRect(rect().adjusted(2, 1, -2, -1), 6, 6);
+    }
+    const int shown = qBound(1, m_width, 16);
+    p.setPen(QPen(NoteChrome::textPrimary(), shown, Qt::SolidLine, Qt::RoundCap));
+    const int y = height() / 2;
+    p.drawLine(UiScale::dp(12), y, width() - UiScale::dp(36), y);
+    p.setPen(m_selected ? NoteChrome::accent() : NoteChrome::textPrimary());
+    p.drawText(QRect(width() - UiScale::dp(32), 0, UiScale::dp(28), height()),
+               Qt::AlignCenter, QString::number(m_width));
+  }
+
+private:
+  int m_width{1};
+  bool m_selected{false};
+};
+
+void openStrokeWidthPopup(QWidget *anchor, int current,
+                          const std::function<void(int)> &pick) {
+  auto *pop = new QFrame(anchor, Qt::Popup | Qt::FramelessWindowHint);
+  pop->setAttribute(Qt::WA_DeleteOnClose);
+  pop->setObjectName(QStringLiteral("StrokeWidthPopup"));
+  const QColor bg = NoteChrome::isDark() ? QColor(0x2C, 0x30, 0x38)
+                                         : QColor(255, 255, 255);
+  pop->setStyleSheet(QStringLiteral(
+                         "QFrame#StrokeWidthPopup { background: %1;"
+                         " border: 1px solid %2; border-radius: 10px; }")
+                         .arg(bg.name(QColor::HexRgb),
+                              NoteChrome::isDark() ? QStringLiteral("#8B93A3")
+                                                   : NoteChrome::border().name(QColor::HexRgb)));
+  auto *lay = new QVBoxLayout(pop);
+  lay->setContentsMargins(UiScale::dp(6), UiScale::dp(6), UiScale::dp(6),
+                          UiScale::dp(6));
+  lay->setSpacing(UiScale::dp(2));
+  const int presets[] = {1, 2, 3, 4, 6, 8, 12, 16, 24, 36, 48};
+  for (int w : presets) {
+    auto *row = new StrokeWidthRow(w, w == current, pop);
+    QObject::connect(row, &QPushButton::clicked, pop, [pop, pick, w]() {
+      pick(w);
+      pop->close();
+    });
+    lay->addWidget(row);
+  }
+  pop->adjustSize();
+  const QPoint global = anchor->mapToGlobal(QPoint(0, anchor->height() + 4));
+  pop->move(global);
+  pop->show();
 }
 
 void addSwatches(QHBoxLayout *lay, QWidget *parent, const QColor &current,
@@ -122,14 +238,26 @@ void ToolOptionsStrip::setEditingResolver(
 }
 
 void ToolOptionsStrip::refreshTheme() {
+  const QColor bar = NoteChrome::isDark() ? NoteChrome::canvasBg()
+                                          : NoteChrome::toolbarFill();
+  const QColor edge = NoteChrome::isDark() ? QColor(0x8B, 0x93, 0xA3)
+                                           : NoteChrome::border();
   setStyleSheet(QStringLiteral(
                     "QWidget#ToolOptionsStrip { background: %1;"
                     " border-bottom: 1px solid %2; }"
                     "QScrollArea#ToolOptionsScroll { background: transparent; border: none; }"
-                    "QLabel { color: %3; }")
-                    .arg(NoteChrome::toolbarFill().name(QColor::HexRgb),
-                         NoteChrome::borderSoft().name(QColor::HexRgb),
-                         NoteChrome::textSecondary().name(QColor::HexRgb)));
+                    "QLabel { color: %3; font-weight: 600; }"
+                    "QCheckBox { color: %3; spacing: 6px; }"
+                    "QCheckBox::indicator {"
+                    "  width: 16px; height: 16px;"
+                    "  border: 1px solid %2; border-radius: 4px; background: %4;"
+                    "}"
+                    "QCheckBox::indicator:checked {"
+                    "  background: #5B9DFF; border-color: #5B9DFF;"
+                    "}")
+                    .arg(bar.name(QColor::HexRgb), edge.name(QColor::HexRgb),
+                         NoteChrome::textPrimary().name(QColor::HexRgb),
+                         NoteChrome::panelBg().name(QColor::HexRgb)));
   if (m_scroll && m_scroll->viewport())
     m_scroll->viewport()->setStyleSheet(QStringLiteral("background: transparent;"));
   rebuild();
@@ -179,16 +307,17 @@ void ToolOptionsStrip::rebuild() {
   auto addWidth = [this, &cfg](const QString &label) {
     auto *lbl = new QLabel(label, m_row);
     m_rowLay->addWidget(lbl);
-    auto *s = widthSlider(1, 48, qBound(1, cfg.penWidth, 48), m_row);
-    auto *val = new QLabel(QString::number(s->value()), m_row);
-    connect(s, &QSlider::valueChanged, this, [this, val](int v) {
-      val->setText(QString::number(v));
-      ToolConfig next = ToolManager::instance().config();
-      next.penWidth = v;
-      publish(next);
+    auto *btn = new StrokeWidthButton(qBound(1, cfg.penWidth, 48), m_row);
+    btn->setToolTip(label);
+    connect(btn, &QPushButton::clicked, this, [this, btn]() {
+      openStrokeWidthPopup(btn, btn->widthValue(), [this, btn](int v) {
+        btn->setWidthValue(v);
+        ToolConfig next = ToolManager::instance().config();
+        next.penWidth = v;
+        publish(next);
+      });
     });
-    m_rowLay->addWidget(s);
-    m_rowLay->addWidget(val);
+    m_rowLay->addWidget(btn);
   };
 
   switch (m_mode) {
@@ -343,10 +472,10 @@ void ToolOptionsStrip::rebuild() {
       publish(next);
     });
     addWidth(QStringLiteral("Dicke"));
-    auto *pressure = new QCheckBox(QStringLiteral("Druck"), m_row);
-    pressure->setFocusPolicy(Qt::NoFocus);
+    auto *pressure = chip(QStringLiteral("Druck"), m_row);
+    pressure->setCheckable(true);
     pressure->setChecked(cfg.pressureSensitivity);
-    connect(pressure, &QCheckBox::toggled, this, [this](bool on) {
+    connect(pressure, &QPushButton::toggled, this, [this](bool on) {
       ToolConfig next = ToolManager::instance().config();
       next.pressureSensitivity = on;
       publish(next);

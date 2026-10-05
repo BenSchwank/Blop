@@ -29,9 +29,11 @@ inline void toggleMode() {
 inline bool isDark() { return mode() == Mode::Dark; }
 
 inline QColor canvasBg() {
-  // Same black rail as the light Hauptmenü sidebar.
-  return isDark() ? QColor(0x1A, 0x19, 0x16) : QColor(245, 245, 245);
+  // Dark well is a step lighter than the #1A1916 L-frame.
+  return isDark() ? QColor(0x32, 0x36, 0x3E) : QColor(245, 245, 245);
 }
+/// Hairline between the L-frame and the note well.
+inline QColor frameEdge() { return QColor(0x4A, 0x4E, 0x58); }
 inline QColor panelBg() {
   return isDark() ? QColor(0x23, 0x25, 0x2A) : QColor(245, 245, 245);
 }

@@ -8,6 +8,7 @@
 #include <QHideEvent>
 #include <QIcon>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QSizePolicy>
 #include <QPainter>
 #include <QPaintEvent>
@@ -55,6 +56,10 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   m_logo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   m_logo->setAlignment(Qt::AlignCenter);
   m_logo->setScaledContents(false);
+  m_logo->setCursor(Qt::PointingHandCursor);
+  m_logo->setToolTip(QStringLiteral("Hauptmenü"));
+  m_logo->setAccessibleName(QStringLiteral("Hauptmenü"));
+  m_logo->installEventFilter(this);
   lay->addWidget(m_logo, 0, Qt::AlignHCenter);
   lay->addSpacing(UiScale::dp(8));
 
@@ -200,6 +205,13 @@ void LibraryIconRail::hideEvent(QHideEvent *event) {
 }
 
 bool LibraryIconRail::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == m_logo && event->type() == QEvent::MouseButtonPress) {
+    auto *me = static_cast<QMouseEvent *>(event);
+    if (me->button() == Qt::LeftButton) {
+      emit logoActivated();
+      return true;
+    }
+  }
   auto *btn = qobject_cast<QToolButton *>(watched);
   if (!btn || !m_btns.values().contains(btn))
     return QWidget::eventFilter(watched, event);
@@ -262,10 +274,23 @@ void LibraryIconRail::hideFlyout() {
     m_flyout->hide();
 }
 
+void LibraryIconRail::setInnerEdge(bool on) {
+  if (m_innerEdge == on)
+    return;
+  m_innerEdge = on;
+  update();
+}
+
 void LibraryIconRail::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);
-  p.fillRect(rect(), BlopStyle::obsidianNav());
+  p.fillRect(rect(), BlopStyle::librarySidebar());
+  if (m_innerEdge) {
+    // Start under the top bar so the horizontal leg stays one piece.
+    const int y = UiScale::dp(44);
+    p.setPen(QPen(QColor(0x4A, 0x4E, 0x58), 1));
+    p.drawLine(width() - 1, y, width() - 1, height() - 1);
+  }
   // Charcoal hairlines (never white) — top under logo / bottom above footer.
   p.setPen(QPen(QColor(255, 255, 255, 18), 1));
   const int midY = height() / 2;
@@ -284,7 +309,7 @@ void LibraryIconRail::paintEvent(QPaintEvent *event) {
 }
 
 void LibraryIconRail::refreshStyles() {
-  const QString nav = BlopStyle::obsidianNav().name(QColor::HexRgb);
+  const QString nav = BlopStyle::librarySidebar().name(QColor::HexRgb);
   const QString hover = accentRgba(m_accent, 0.16);
   const QString onBg = accentRgba(m_accent, 0.18);
   const QString onHover = accentRgba(m_accent, 0.28);

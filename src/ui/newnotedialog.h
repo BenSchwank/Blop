@@ -11,11 +11,10 @@
 #include <QStringList>
 #include <QVector>
 
-class QListWidget;
 class QMouseEvent;
 class QShowEvent;
-class QScrollArea;
 class QLabel;
+class QGridLayout;
 class QResizeEvent;
 class QToolButton;
 class QHBoxLayout;
@@ -109,7 +108,6 @@ private:
     DeckTokens tokens() const;
     void applyChrome();
     void rebuildTagList();
-    void applyTagFilter();
     void refreshTemplateIcons();
     void refreshDeckPreviews();
     void refreshPaperSwatch();
@@ -152,11 +150,11 @@ private:
     QLabel *m_strukturHint{nullptr};
     QButtonGroup *m_groupLayout{nullptr};
     QButtonGroup *m_formatChipGroup{nullptr};
-    QListWidget *m_tagList{nullptr};
+    QButtonGroup *m_tagGroup{nullptr};
+    QWidget *m_tagChipHost{nullptr};
+    QGridLayout *m_tagChipLay{nullptr};
     QLineEdit *m_tagInput{nullptr};
-    QLineEdit *m_tagSearch{nullptr};
     QPushButton *m_paperSwatch{nullptr};
-    QScrollArea *m_scroll{nullptr};
 
     int m_backgroundType{2};
     QColor m_paperColor{QColor(252, 250, 245)};

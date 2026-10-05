@@ -216,6 +216,8 @@ qt_add_executable(Blop
     src/ui/notepreviewicon.cpp
     src/ui/librarytagspanel.cpp
     src/ui/librarytagspanel.h
+    src/ui/librarydetailpanel.cpp
+    src/ui/librarydetailpanel.h
     src/ui/cloudstoragestore.cpp
     src/ui/cloudstoragestore.h
     src/ui/cloudlink.cpp

@@ -66,6 +66,7 @@ class AllPagesOverlay;
 class PhoneLibraryNav;
 class PhoneShell;
 class LibraryIconRail;
+class LibraryDetailPanel;
 class SettingsDialog;
 class QSortFilterProxyModel;
 class QStandardItemModel;
@@ -489,6 +490,8 @@ private:
   void refreshEditorThemeToggle();
   void returnToStruktur();
   void applyNoteChromeTheme();
+  /// Dark note: icon rail + sidebar header stay the title-bar color; the list well shifts.
+  void applyLibraryNoteFrame(bool on);
   void styleNoteHeaderChrome();
   void refreshTopNavChrome();
   void applyWindowControlsChrome(const QColor &foreground, bool lightTitleBar);
@@ -712,6 +715,7 @@ private:
   QStandardItemModel *m_favoritesModel{nullptr};
   bool m_libraryFavoritesMode{false};
   LibraryTagsPanel *m_libraryTagsPanel{nullptr};
+  LibraryDetailPanel *m_libraryDetail{nullptr};
   PhoneLibraryNav *m_phoneLibraryNav{nullptr};
   PhoneShell *m_phoneShell{nullptr};
   LibraryOrgBar *m_libraryOrgBar{nullptr};

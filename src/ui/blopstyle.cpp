@@ -80,6 +80,19 @@ QColor obsidianText() { return QColor(0xF4, 0xF5, 0xF7); }
 QColor obsidianSheet() { return QColor(0x35, 0x38, 0x40); }
 QColor obsidianContent() { return QColor(0x23, 0x25, 0x2A); }
 
+QColor libraryTitleBar() {
+  return BlopTheme::instance().isDark() ? QColor(0x10, 0x12, 0x16)
+                                        : QColor(0xEE, 0xF1, 0xF6);
+}
+QColor librarySidebar() {
+  return BlopTheme::instance().isDark() ? QColor(0x1A, 0x1D, 0x26)
+                                        : QColor(0xF4, 0xF6, 0xFA);
+}
+QColor libraryMain() {
+  return BlopTheme::instance().isDark() ? QColor(0x26, 0x29, 0x32)
+                                        : QColor(0xFF, 0xFF, 0xFF);
+}
+
 namespace {
 
 QString buildSegmentQss(const QColor &acc, const QColor &textIdle,
@@ -89,14 +102,17 @@ QString buildSegmentQss(const QColor &acc, const QColor &textIdle,
                               .arg(acc.red())
                               .arg(acc.green())
                               .arg(acc.blue());
-  const QString hover = darkSurface ? QStringLiteral("rgba(255,255,255,0.06)")
+  const QString idleBorder =
+      darkSurface ? QStringLiteral("rgba(220,226,236,0.55)")
+                  : QStringLiteral("rgba(120,130,160,0.28)");
+  const QString hover = darkSurface ? QStringLiteral("rgba(255,255,255,0.10)")
                                     : QStringLiteral("rgba(0,0,0,0.04)");
   const QString minH = QString::number(UiScale::dp(touchTargetMinDp() - 8));
   QString qss = QStringLiteral(
       "QPushButton {"
       "  background: transparent;"
       "  color: %1;"
-      "  border: 1px solid rgba(120,130,160,0.28);"
+      "  border: 1px solid %7;"
       "  border-radius: 10px;"
       "  padding: 8px 14px;"
       "  min-height: %5px;"
@@ -116,6 +132,7 @@ QString buildSegmentQss(const QColor &acc, const QColor &textIdle,
   qss.replace(QStringLiteral("%4"), accHex);
   qss.replace(QStringLiteral("%5"), minH);
   qss.replace(QStringLiteral("%6"), hover);
+  qss.replace(QStringLiteral("%7"), idleBorder);
   return qss;
 }
 

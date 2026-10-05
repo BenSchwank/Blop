@@ -22,6 +22,8 @@ public:
   void setActiveId(const QString &id);
   void setAvatarLetter(const QString &letter);
   void setAccentColor(const QColor &color);
+  /// Right hairline, drawn only while a note frames the rail as the L's leg.
+  void setInnerEdge(bool on);
   /// Blop logo, or the picture chosen in Einstellungen → Logo.
   void setBrandPixmap(const QPixmap &pm);
 
@@ -30,6 +32,8 @@ public:
 
 signals:
   void actionTriggered(const QString &id);
+  /// Logo is the main-menu button. The sidebar slide is the transition.
+  void logoActivated();
 
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -50,5 +54,6 @@ private:
   QPixmap m_brand;
   QString m_active{QStringLiteral("home")};
   QColor m_accent;
+  bool m_innerEdge{false};
   QString m_avatar;
 };

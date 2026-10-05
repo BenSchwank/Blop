@@ -14,6 +14,7 @@
 #include "documenttabbar.h"
 #include "blopwindowcontrols.h"
 #include "librarytagspanel.h"
+#include "librarydetailpanel.h"
 #include "librarytagstore.h"
 #include "libraryorgstore.h"
 #include "libraryorgbar.h"
@@ -379,9 +380,7 @@ static QColor libraryNavTint(const QString &iconKey) {
 }
 
 static QColor libraryPageBackground() {
-  // Light: Notion paper. Dark: cooler gray-blue content (lighter than sidebar).
-  return BlopTheme::instance().isDark() ? BlopStyle::obsidianContent()
-                                        : BlopStyle::paperBgLibrary();
+  return BlopStyle::libraryMain();
 }
 
 namespace {
@@ -2602,8 +2601,10 @@ void MainWindow::applyThemeRefresh() {
         inEditor && m_documentTabBar && m_documentTabBar->noteChromeMode();
     if (inNote)
       applyNoteChromeTheme();
-    else
+    else {
       refreshNoteTitleChrome(false);
+      applyLibraryNoteFrame(false);
+    }
     // Keep under-stack editors in sync when Settings sits on top.
     if (!inNote && m_editorTabs && m_editorTabs->count() > 0 &&
         m_documentTabBar && m_documentTabBar->noteChromeMode()) {
@@ -2616,6 +2617,7 @@ void MainWindow::applyThemeRefresh() {
       if (m_pageBookmarkRail)
         m_pageBookmarkRail->refreshTheme();
       styleStrukturBackPill();
+      applyLibraryNoteFrame(NoteChrome::isDark());
     }
     refreshEditorThemeToggle();
   }
@@ -4796,6 +4798,7 @@ void MainWindow::switchToWorkspaceChrome() {
     m_documentTabBar->setAccentColor(m_currentAccentColor);
   }
   refreshNoteTitleChrome(false);
+  applyLibraryNoteFrame(false);
   refreshTopNavChrome();
   if (m_toolOptionsStrip)
     m_toolOptionsStrip->hide();
@@ -5912,7 +5915,7 @@ void MainWindow::applyTheme() {
             "  border: none;"
             "  %2"
             "}")
-            .arg(BlopStyle::obsidianNav().name(QColor::HexRgb),
+            .arg(BlopStyle::librarySidebar().name(QColor::HexRgb),
                  showLibrarySeam
                      ? QStringLiteral(
                            "border-right: 1px solid rgba(255,255,255,0.10);")
@@ -5997,6 +6000,10 @@ void MainWindow::applyTheme() {
         "QListWidget { background-color: transparent; border: none; outline: "
         "0; margin-left: 4px; margin-right: 4px; padding: 2px 1px; } QListWidget::item { border: "
         "none; }");
+#endif
+#ifndef Q_OS_ANDROID
+  if (m_documentTabBar && m_documentTabBar->noteChromeMode())
+    applyLibraryNoteFrame(true);
 #endif
 
   if (m_pageSettingsCard)
@@ -7707,8 +7714,9 @@ void MainWindow::setupUi() {
             const QModelIndex src = mapToSource(index);
             if (!m_fileModel || !src.isValid())
               return;
-            if (m_fileModel->isDir(src))
-              navigateLibraryToPath(m_fileModel->filePath(src));
+            // Click selects. Folders open on double-click so the detail
+            // panel can describe a folder without entering it.
+            Q_UNUSED(src);
           });
   connect(m_fileListView, &QListView::doubleClicked, this,
           [this, mapToSource](const QModelIndex &index) {
@@ -7865,6 +7873,76 @@ void MainWindow::setupUi() {
   libraryMainLay->addWidget(m_emptyStateHost, 1);
   updateSidebarBadges();
   libraryBodyLay->addWidget(libraryMain, 1);
+#ifndef Q_OS_ANDROID
+  if (!UiScale::isAndroidPhoneUi(this)) {
+    m_libraryDetail = new LibraryDetailPanel(libraryBody);
+    libraryBodyLay->addWidget(m_libraryDetail, 0);
+    connect(m_libraryDetail, &LibraryDetailPanel::openRequested, this,
+            [this](const QString &path) {
+              const QFileInfo info(path);
+              if (!info.exists())
+                return;
+              if (info.isDir())
+                navigateLibraryToPath(path);
+              else
+                openNotePath(path);
+            });
+    connect(m_libraryDetail, &LibraryDetailPanel::renameRequested, this,
+            [this](const QString &path) {
+              if (!m_fileModel)
+                return;
+              const QModelIndex idx = m_fileModel->index(path);
+              if (idx.isValid())
+                startRename(idx);
+            });
+    connect(m_libraryDetail, &LibraryDetailPanel::deleteRequested, this,
+            [this](const QString &path) {
+              if (!m_fileListView || !m_fileModel)
+                return;
+              const QModelIndex src = m_fileModel->index(path);
+              if (!src.isValid())
+                return;
+              QModelIndex view = src;
+              if (m_libraryProxy && m_fileListView->model() == m_libraryProxy)
+                view = m_libraryProxy->mapFromSource(src);
+              if (view.isValid()) {
+                m_fileListView->setCurrentIndex(view);
+                m_fileListView->selectionModel()->select(
+                    view, QItemSelectionModel::ClearAndSelect);
+              }
+              deleteSelectedLibraryItems();
+              if (m_libraryDetail)
+                m_libraryDetail->setPath(QString());
+            });
+    connect(m_fileListView->selectionModel(),
+            &QItemSelectionModel::currentChanged, this,
+            [this, mapToSource](const QModelIndex &current, const QModelIndex &) {
+              if (!m_libraryDetail || !m_fileListView)
+                return;
+              if (!current.isValid()) {
+                m_libraryDetail->setPath(QString());
+                return;
+              }
+              if (m_libraryFavoritesMode) {
+                m_libraryDetail->setPath(current.data(Qt::UserRole).toString());
+                return;
+              }
+              const QModelIndex src = mapToSource(current);
+              if (m_fileModel && src.isValid())
+                m_libraryDetail->setPath(m_fileModel->filePath(src));
+              else
+                m_libraryDetail->setPath(QString());
+            });
+    if (m_fileModel) {
+      connect(m_fileModel, &QFileSystemModel::fileRenamed, this,
+              [this](const QString &dir, const QString &,
+                     const QString &newName) {
+                if (m_libraryDetail)
+                  m_libraryDetail->setPath(QDir(dir).filePath(newName));
+              });
+    }
+  }
+#endif
   // Tags panel is hosted in the left Super sidebar (setupSidebar).
 
   // Notes overview: library grid only (Dashboard lives in m_shellStack).
@@ -10131,7 +10209,7 @@ void MainWindow::setupSidebar() {
       "  background-color: %1;"
       "  border: none;"
       "}")
-          .arg(BlopStyle::obsidianNav().name(QColor::HexRgb)));
+          .arg(BlopStyle::librarySidebar().name(QColor::HexRgb)));
   const bool useShellRail = true;
 #endif
 
@@ -10155,6 +10233,8 @@ void MainWindow::setupSidebar() {
             : saved.left(1).toUpper();
     m_libraryIconRail->setAvatarLetter(initial);
   }
+  connect(m_libraryIconRail, &LibraryIconRail::logoActivated, this,
+          &MainWindow::onToggleSidebar);
   connect(m_libraryIconRail, &LibraryIconRail::actionTriggered, this,
           [this](const QString &id) {
             if (id == QLatin1String("home")) {
@@ -10234,8 +10314,12 @@ void MainWindow::setupSidebar() {
   // --- HEADER ---
 #ifndef Q_OS_ANDROID
   QWidget *header = new QWidget(m_sidebarNavPanel);
+  header->setObjectName(QStringLiteral("SidebarNavHeader"));
+  header->setAttribute(Qt::WA_StyledBackground, true);
+  header->setAutoFillBackground(true);
   header->setFixedHeight(UiScale::dp(44));
-  header->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
+  header->setStyleSheet(QStringLiteral(
+      "QWidget#SidebarNavHeader { background: transparent; border: none; }"));
   QHBoxLayout *headerLay = new QHBoxLayout(header);
   headerLay->setContentsMargins(12, 6, 8, 2);
   headerLay->setSpacing(6);
@@ -10283,8 +10367,26 @@ void MainWindow::setupSidebar() {
   connect(m_btnSidebarNewNote, &QPushButton::clicked, this,
           &MainWindow::onNewPage);
   headerLay->addWidget(m_btnSidebarNewNote);
-  m_closeSidebarBtn = new QPushButton(QStringLiteral("«"), header);
-  m_closeSidebarBtn->hide();
+  m_closeSidebarBtn = new QPushButton(header);
+  m_closeSidebarBtn->setObjectName(QStringLiteral("SidebarCollapseBtn"));
+  m_closeSidebarBtn->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  m_closeSidebarBtn->setIcon(
+      createModernIcon(QStringLiteral("chevron_left"), QColor(0xF4, 0xF5, 0xF7)));
+  m_closeSidebarBtn->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
+  m_closeSidebarBtn->setToolTip(QStringLiteral("Seitenleiste einklappen"));
+  m_closeSidebarBtn->setCursor(Qt::PointingHandCursor);
+  m_closeSidebarBtn->setFocusPolicy(Qt::NoFocus);
+  m_closeSidebarBtn->setStyleSheet(QStringLiteral(
+      "QPushButton {"
+      "  background: rgba(255,255,255,0.08);"
+      "  border: 1px solid #6E7482;"
+      "  border-radius: 8px;"
+      "}"
+      "QPushButton:hover { background: rgba(255,255,255,0.16); border-color: #F4F5F7; }"
+      "QPushButton:pressed { background: rgba(91,157,255,0.28); }"));
+  connect(m_closeSidebarBtn, &QPushButton::clicked, this,
+          &MainWindow::onToggleSidebar);
+  headerLay->addWidget(m_closeSidebarBtn);
   layout->addWidget(header);
 #else
   QWidget *header = new QWidget(m_sidebarContainer);
@@ -13922,7 +14024,7 @@ void MainWindow::switchToApp(bool notesApp) {
             "  border: none;"
             "  %2"
             "}")
-            .arg(BlopStyle::obsidianNav().name(QColor::HexRgb),
+            .arg(BlopStyle::librarySidebar().name(QColor::HexRgb),
                  (notesApp && !BlopTheme::instance().isDark())
                      ? QStringLiteral(
                            "border-right: 1px solid rgba(255,255,255,0.10);")
@@ -15738,6 +15840,7 @@ void MainWindow::onBackToOverview() {
   if (m_documentTabBar)
     m_documentTabBar->setNoteChromeMode(false);
   refreshNoteTitleChrome(false);
+  applyLibraryNoteFrame(false);
   if (m_toolOptionsStrip)
     m_toolOptionsStrip->hide();
   if (m_rightStack) {
@@ -17929,6 +18032,66 @@ MultiPageNoteView *MainWindow::currentNoteView() const {
   return nullptr;
 }
 
+void MainWindow::applyLibraryNoteFrame(bool on) {
+#ifndef Q_OS_ANDROID
+  const bool frame = on && NoteChrome::isDark();
+  const QColor well = NoteChrome::canvasBg();
+  const QColor rail = BlopStyle::obsidianNav();
+  if (m_libraryIconRail)
+    m_libraryIconRail->setInnerEdge(frame);
+  if (m_sidebarNavPanel) {
+    m_sidebarNavPanel->setAttribute(Qt::WA_StyledBackground, true);
+    m_sidebarNavPanel->setAutoFillBackground(true);
+    m_sidebarNavPanel->setStyleSheet(
+        frame ? QStringLiteral(
+                    "QWidget#SidebarNavPanel { background: %1; border: none; }")
+                    .arg(well.name(QColor::HexRgb))
+              : QStringLiteral(
+                    "QWidget#SidebarNavPanel { background: transparent; border: none; }"));
+  }
+  if (QWidget *header =
+          findChild<QWidget *>(QStringLiteral("SidebarNavHeader"))) {
+    header->setStyleSheet(
+        frame ? QStringLiteral(
+                    "QWidget#SidebarNavHeader {"
+                    "  background: %1; border: none;"
+                    "  border-bottom: 1px solid %2;"
+                    "}")
+                    .arg(rail.name(QColor::HexRgb),
+                         NoteChrome::frameEdge().name(QColor::HexRgb))
+              : QStringLiteral(
+                    "QWidget#SidebarNavHeader { background: transparent; border: none; }"));
+  }
+  const auto fill = [frame, well, rail](QWidget *w) {
+    if (!w)
+      return;
+    w->setAutoFillBackground(true);
+    QPalette pal = w->palette();
+    const QColor c = frame ? well : rail;
+    pal.setColor(QPalette::Window, c);
+    pal.setColor(QPalette::Base, c);
+    w->setPalette(pal);
+  };
+  const QString wellCss =
+      frame ? QStringLiteral("background: %1;").arg(well.name(QColor::HexRgb))
+            : QStringLiteral("background: transparent;");
+  if (m_sidebarMidScroll) {
+    fill(m_sidebarMidScroll->viewport());
+    fill(m_sidebarMidScroll->widget());
+    if (m_sidebarMidScroll->viewport())
+      m_sidebarMidScroll->viewport()->setStyleSheet(wellCss);
+  }
+  if (m_navSidebar) {
+    fill(m_navSidebar);
+    fill(m_navSidebar->viewport());
+    if (m_navSidebar->viewport())
+      m_navSidebar->viewport()->setStyleSheet(wellCss);
+  }
+#else
+  Q_UNUSED(on);
+#endif
+}
+
 void MainWindow::applyNoteChromeTheme() {
 #ifndef Q_OS_ANDROID
   if (m_editorCenterWidget) {
@@ -17972,6 +18135,7 @@ void MainWindow::applyNoteChromeTheme() {
     tb->update();
   }
   refreshOpenEditorSceneBackgrounds();
+  applyLibraryNoteFrame(true);
   positionNoteChrome();
   styleStrukturBackPill();
   refreshEditorThemeToggle();
@@ -18183,9 +18347,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
       darkShell ? QStringLiteral("rgba(255,255,255,0.12)")
                 : QStringLiteral("rgba(55,53,47,0.14)");
 #else
-  // Title bar stays on dark desk (separated from the lighter content pane).
-  const QColor libraryBarBg =
-      darkShell ? BlopStyle::obsidianDesk() : libraryPageBackground();
+  const QColor libraryBarBg = BlopStyle::libraryTitleBar();
   const QColor libraryInk =
       darkShell ? BlopTheme::textPrimary() : BlopStyle::paperInk();
   const QColor libraryMuted =
@@ -18241,11 +18403,16 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                                                                  : BlopTheme::textSecondary()));
   const QColor winFg = chromeFg;
 
-  if (m_titleBarWidget) {
+    if (m_titleBarWidget) {
     m_titleBarWidget->setAutoFillBackground(true);
+    const QString titleEdge =
+        (noteChrome && darkShell)
+            ? QStringLiteral("border-bottom: 1px solid %1;")
+                  .arg(NoteChrome::frameEdge().name(QColor::HexRgb))
+            : QString();
     m_titleBarWidget->setStyleSheet(
-        QStringLiteral("QWidget#TitleBar { background: %1; border: none; }")
-            .arg(titleBg.name(QColor::HexRgb)));
+        QStringLiteral("QWidget#TitleBar { background: %1; border: none; %2 }")
+            .arg(titleBg.name(QColor::HexRgb), titleEdge));
     QPalette pal = m_titleBarWidget->palette();
     pal.setColor(QPalette::Window, titleBg);
     pal.setColor(QPalette::Base, titleBg);

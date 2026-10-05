@@ -74,6 +74,11 @@ QColor obsidianText();       // #F4F5F7
 QColor obsidianSheet();      // #353840 overflow / elevated note cards
 QColor obsidianContent();    // #23252A Dark library desk (cards float above)
 
+/// Library shell: title bar, sidebars, and the note list are three surfaces.
+QColor libraryTitleBar();
+QColor librarySidebar();
+QColor libraryMain();
+
 int surfaceRadiusDp();
 int radiusLgDp(); // 10 — modals / large sheets (soft, not pill)
 int radiusMdDp(); // 8  — cards / menus / chips

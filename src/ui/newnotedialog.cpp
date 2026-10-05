@@ -8,7 +8,6 @@
 #include "notepreviewicon.h"
 #include "uiscale.h"
 
-#include <QAbstractItemView>
 #include <QAbstractButton>
 #include <QButtonGroup>
 #include <QEnterEvent>
@@ -17,11 +16,8 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QListWidget>
-#include <QListWidgetItem>
 #include <QMouseEvent>
 #include <QResizeEvent>
-#include <QScrollArea>
 #include <QSettings>
 #include <QShowEvent>
 #include <QSizePolicy>
@@ -34,8 +30,8 @@ namespace {
 
 constexpr int kPickWidthDp = 440;
 constexpr qreal kPickHeightFrac = 0.32;
-constexpr int kExpandWidthDp = 680;
-constexpr qreal kExpandHeightFrac = 0.78;
+constexpr int kExpandWidthDp = 560;
+constexpr qreal kExpandHeightFrac = 0.66;
 
 QIcon pageTemplateIcon(int backgroundType, int w, int h, const QColor &paper)
 {
@@ -448,25 +444,10 @@ void NewNoteDialog::setupUi()
     titleBlock->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     composerLay->addWidget(titleBlock);
 
-    auto *bodySplit = new QWidget(m_composer);
-    bodySplit->setObjectName(QStringLiteral("NewNoteBodySplit"));
-    bodySplit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    bodySplit->setMinimumHeight(0);
-    auto *splitLay = new QHBoxLayout(bodySplit);
-    splitLay->setContentsMargins(0, 0, 0, 0);
-    splitLay->setSpacing(0);
-
-    m_scroll = new QScrollArea(bodySplit);
-    m_scroll->setObjectName(QStringLiteral("NewNoteScroll"));
-    m_scroll->setWidgetResizable(true);
-    m_scroll->setFrameShape(QFrame::NoFrame);
-    m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    m_scroll->setMinimumHeight(0);
-
-    auto *body = new QWidget(m_scroll);
+    auto *body = new QWidget(m_composer);
     body->setObjectName(QStringLiteral("NewNoteBody"));
     body->setAttribute(Qt::WA_StyledBackground, true);
+    body->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *bodyLay = new QVBoxLayout(body);
     bodyLay->setContentsMargins(UiScale::dp(22), UiScale::dp(14),
                                 UiScale::dp(18), UiScale::dp(18));
@@ -504,7 +485,7 @@ void NewNoteDialog::setupUi()
         {0, "Leer"}, {1, "Liniert"}, {2, "Kariert"},
         {3, "Punktiert"}, {4, "Legal"},
     };
-    constexpr int kIcon = 32;
+    constexpr int kIcon = 24;
     for (const auto &opt : opts) {
         auto *tb = new QToolButton(m_layoutSection);
         tb->setText(QString::fromUtf8(opt.name));
@@ -513,7 +494,8 @@ void NewNoteDialog::setupUi()
         tb->setCursor(Qt::PointingHandCursor);
         tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         tb->setIconSize(QSize(UiScale::dp(kIcon), UiScale::dp(kIcon)));
-        tb->setMinimumHeight(UiScale::dp(68));
+        tb->setMinimumWidth(0);
+        tb->setMinimumHeight(UiScale::dp(64));
         tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         tb->setProperty("blopBgType", opt.type);
         m_groupLayout->addButton(tb, opt.type);
@@ -530,18 +512,19 @@ void NewNoteDialog::setupUi()
     layoutSectionLay->addLayout(tplRow);
 
     m_paperSection = new QWidget(m_layoutSection);
-    auto *paperLay = new QHBoxLayout(m_paperSection);
-    paperLay->setContentsMargins(0, UiScale::dp(4), 0, 0);
-    paperLay->setSpacing(UiScale::dp(8));
+    auto *paperCol = new QVBoxLayout(m_paperSection);
+    paperCol->setContentsMargins(0, UiScale::dp(4), 0, 0);
+    paperCol->setSpacing(UiScale::dp(8));
     auto *paperLbl = new QLabel(QStringLiteral("Seitenfarbe"), m_paperSection);
     paperLbl->setObjectName(QStringLiteral("NewNotePaperLbl"));
-    paperLay->addWidget(paperLbl);
+    paperCol->addWidget(paperLbl);
+    auto *paperLay = new QHBoxLayout();
+    paperLay->setSpacing(UiScale::dp(8));
     m_paperSwatch = new QPushButton(m_paperSection);
     m_paperSwatch->setFixedSize(UiScale::dp(40), UiScale::dp(28));
     m_paperSwatch->setCursor(Qt::PointingHandCursor);
     refreshPaperSwatch();
     paperLay->addWidget(m_paperSwatch);
-    paperLay->addStretch(1);
 
     const QColor presets[] = {
         QColor(252, 250, 245), QColor(255, 255, 255), QColor(245, 248, 255),
@@ -562,7 +545,14 @@ void NewNoteDialog::setupUi()
         });
         paperLay->addWidget(sw);
     }
+    paperLay->addStretch(1);
+    paperCol->addLayout(paperLay);
+
+    m_livePreview = new QLabel(m_layoutSection);
+    m_livePreview->setAlignment(Qt::AlignCenter);
+    m_livePreview->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     layoutSectionLay->addWidget(m_paperSection);
+    layoutSectionLay->addWidget(m_livePreview, 0, Qt::AlignHCenter);
     bodyLay->addWidget(m_layoutSection);
 
     m_strukturHint = new QLabel(
@@ -590,12 +580,15 @@ void NewNoteDialog::setupUi()
     });
 
     bodyLay->addWidget(sectionLabel(QStringLiteral("TAGS"), body, tok.muted));
-    m_tagSearch = new QLineEdit(body);
-    m_tagSearch->setPlaceholderText(QStringLiteral("Tags durchsuchen…"));
-    m_tagSearch->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp() - 4));
-    bodyLay->addWidget(m_tagSearch);
-    connect(m_tagSearch, &QLineEdit::textChanged, this,
-            [this](const QString &) { applyTagFilter(); });
+    m_tagChipHost = new QWidget(body);
+    m_tagChipHost->setObjectName(QStringLiteral("NewNoteTagChips"));
+    m_tagChipLay = new QGridLayout(m_tagChipHost);
+    m_tagChipLay->setContentsMargins(0, 0, 0, 0);
+    m_tagChipLay->setHorizontalSpacing(UiScale::dp(6));
+    m_tagChipLay->setVerticalSpacing(UiScale::dp(6));
+    m_tagGroup = new QButtonGroup(this);
+    m_tagGroup->setExclusive(false);
+    bodyLay->addWidget(m_tagChipHost);
 
     auto *tagRow = new QHBoxLayout();
     tagRow->setSpacing(UiScale::dp(8));
@@ -611,15 +604,6 @@ void NewNoteDialog::setupUi()
     tagRow->addWidget(btnAddTag);
     bodyLay->addLayout(tagRow);
 
-    m_tagList = new QListWidget(body);
-    m_tagList->setSelectionMode(QAbstractItemView::MultiSelection);
-    m_tagList->setFrameShape(QFrame::NoFrame);
-    m_tagList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_tagList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_tagList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_tagList->setFixedHeight(UiScale::dp(88));
-    bodyLay->addWidget(m_tagList);
-
     auto addTagFromInput = [this]() {
         const QString n = LibraryTagStore::normalize(m_tagInput->text());
         if (n.isEmpty())
@@ -627,42 +611,17 @@ void NewNoteDialog::setupUi()
         LibraryTagStore::addTagToCatalog(m_tagInput->text());
         m_tagInput->clear();
         rebuildTagList();
-        for (int i = 0; i < m_tagList->count(); ++i) {
-            if (m_tagList->item(i)->text() == n)
-                m_tagList->item(i)->setSelected(true);
+        if (!m_tagGroup)
+            return;
+        for (QAbstractButton *b : m_tagGroup->buttons()) {
+            if (b && b->text() == n)
+                b->setChecked(true);
         }
     };
     connect(btnAddTag, &QPushButton::clicked, this, addTagFromInput);
     connect(m_tagInput, &QLineEdit::returnPressed, this, addTagFromInput);
 
-    m_scroll->setWidget(body);
-    splitLay->addWidget(m_scroll, 3);
-
-    auto *previewCol = new QWidget(bodySplit);
-    previewCol->setObjectName(QStringLiteral("NewNotePreviewCol"));
-    previewCol->setAttribute(Qt::WA_StyledBackground, true);
-    previewCol->setMinimumWidth(UiScale::dp(170));
-    previewCol->setMaximumWidth(UiScale::dp(240));
-    auto *previewLay = new QVBoxLayout(previewCol);
-    previewLay->setContentsMargins(UiScale::dp(14), UiScale::dp(18),
-                                   UiScale::dp(16), UiScale::dp(16));
-    previewLay->setSpacing(UiScale::dp(10));
-    auto *previewLbl = new QLabel(QStringLiteral("VORSCHAU"), previewCol);
-    previewLbl->setObjectName(QStringLiteral("NewNotePreviewLbl"));
-    previewLay->addWidget(previewLbl);
-    m_livePreview = new QLabel(previewCol);
-    m_livePreview->setAlignment(Qt::AlignCenter);
-    m_livePreview->setMinimumHeight(UiScale::dp(180));
-    previewLay->addWidget(m_livePreview, 0, Qt::AlignHCenter);
-    auto *previewHint = new QLabel(
-        QStringLiteral("So wirkt deine Notiz mit Titel, Vorlage und Farbe."),
-        previewCol);
-    previewHint->setObjectName(QStringLiteral("NewNotePreviewHint"));
-    previewHint->setWordWrap(true);
-    previewLay->addWidget(previewHint);
-    previewLay->addStretch(1);
-    splitLay->addWidget(previewCol, 0);
-    composerLay->addWidget(bodySplit, 1);
+    composerLay->addWidget(body, 1);
 
     auto *footer = new QWidget(m_composer);
     footer->setObjectName(QStringLiteral("NewNoteFooter"));
@@ -829,18 +788,9 @@ void NewNoteDialog::applyChrome()
         }
     }
 
-    if (m_scroll) {
-        m_scroll->setStyleSheet(QStringLiteral(
-                                    "QScrollArea#NewNoteScroll { background: %1; border: none; }")
-                                    .arg(surfaceAlt)
-                                + tok.scrollQss);
-    }
-    if (auto *body =
-            m_scroll ? m_scroll->findChild<QWidget *>(QStringLiteral("NewNoteBody"))
-                     : nullptr) {
+    if (auto *body = findChild<QWidget *>(QStringLiteral("NewNoteBody"))) {
         body->setStyleSheet(
-            QStringLiteral("QWidget#NewNoteBody { background: %1; }")
-                .arg(surfaceAlt));
+            QStringLiteral("QWidget#NewNoteBody { background: transparent; }"));
         for (QLabel *lbl : body->findChildren<QLabel *>()) {
             if (lbl->property("blopSection").toBool()) {
                 lbl->setStyleSheet(QStringLiteral(
@@ -850,32 +800,9 @@ void NewNoteDialog::applyChrome()
             }
         }
     }
-    if (auto *previewCol =
-            m_composer
-                ? m_composer->findChild<QWidget *>(QStringLiteral("NewNotePreviewCol"))
-                : nullptr) {
-        previewCol->setStyleSheet(QStringLiteral(
-            "QWidget#NewNotePreviewCol {"
-            "  background: %1; border-left: 1px solid %2;"
-            "}")
-                                      .arg(surface, border));
-    }
-    if (auto *pl = findChild<QLabel *>(QStringLiteral("NewNotePreviewLbl"))) {
-        pl->setStyleSheet(QStringLiteral(
-            "font-size: 10px; font-weight: 700; letter-spacing: 0.7px;"
-            "color: %1; background: transparent;")
-                              .arg(muted));
-    }
-    if (auto *ph = findChild<QLabel *>(QStringLiteral("NewNotePreviewHint"))) {
-        ph->setStyleSheet(QStringLiteral(
-            "font-size: 11px; font-weight: 500; color: %1; background: transparent;")
-                              .arg(muted));
-    }
 
     if (m_nameInput)
         m_nameInput->setStyleSheet(tok.inputQss);
-    if (m_tagSearch)
-        m_tagSearch->setStyleSheet(tok.inputQss);
     if (m_tagInput)
         m_tagInput->setStyleSheet(tok.inputQss);
 
@@ -933,18 +860,25 @@ void NewNoteDialog::applyChrome()
             "QPushButton:hover { background: %2; }")
                                   .arg(acc, accHover, QString::number(radMd)));
     }
-    if (m_tagList) {
-        m_tagList->setStyleSheet(QStringLiteral(
-            "QListWidget { background: transparent; color: %1; border: none; "
-            "font-size: 13px; outline: none; }"
-            "QListWidget::item { padding: 6px 10px; border-radius: %4px;"
-            "  min-height: %3px; }"
-            "QListWidget::item:selected { background: %2; color: %5; }"
-            "QListWidget::item:hover:!selected { background: %6; }")
-                                     .arg(ink, soft,
-                                          QString::number(UiScale::dp(28)),
-                                          QString::number(radMd), acc, hover)
-                                 + tok.scrollQss);
+    if (m_tagGroup) {
+        for (QAbstractButton *b : m_tagGroup->buttons()) {
+            auto *tb = qobject_cast<QToolButton *>(b);
+            if (!tb)
+                continue;
+            tb->setStyleSheet(QStringLiteral(
+                "QToolButton {"
+                "  background: %1; color: %2; border: 1px solid %3;"
+                "  border-radius: %4px; padding: 4px 10px;"
+                "  font-size: 12px; font-weight: 600;"
+                "}"
+                "QToolButton:checked {"
+                "  background: %5; color: %6; border: 1px solid %6;"
+                "}"
+                "QToolButton:hover:!checked { background: %7; }")
+                                  .arg(surface, ink, border,
+                                       QString::number(radMd), soft, acc,
+                                       hover));
+        }
     }
     if (auto *footer =
             m_composer
@@ -996,7 +930,7 @@ void NewNoteDialog::refreshLivePreview()
 {
     if (!m_livePreview)
         return;
-    const int px = UiScale::dp(140);
+    const int px = UiScale::dp(88);
     NotePreviewIcon::Spec spec;
     const int fmt = createFormat();
     if (fmt == 0) {
@@ -1112,7 +1046,7 @@ void NewNoteDialog::refreshTemplateIcons()
 {
     if (!m_groupLayout)
         return;
-    constexpr int kIcon = 48;
+    constexpr int kIcon = 24;
     for (QAbstractButton *b : m_groupLayout->buttons()) {
         auto *tb = qobject_cast<QToolButton *>(b);
         if (!tb)
@@ -1125,37 +1059,38 @@ void NewNoteDialog::refreshTemplateIcons()
 
 void NewNoteDialog::rebuildTagList()
 {
-    if (!m_tagList)
+    if (!m_tagChipLay || !m_tagGroup)
         return;
     const QStringList selected = selectedTags();
-    m_tagList->clear();
+    const auto old = m_tagGroup->buttons();
+    for (QAbstractButton *b : old) {
+        m_tagGroup->removeButton(b);
+        m_tagChipLay->removeWidget(b);
+        delete b;
+    }
     QStringList catalog = LibraryTagStore::catalog();
     if (catalog.isEmpty()) {
         LibraryTagStore::addTagToCatalog(QStringLiteral("Projekt"));
         LibraryTagStore::addTagToCatalog(QStringLiteral("Entwurf"));
         catalog = LibraryTagStore::catalog();
     }
+    int i = 0;
+    constexpr int kCols = 4;
     for (const QString &tag : catalog) {
-        auto *item = new QListWidgetItem(tag, m_tagList);
-        item->setSelected(selected.contains(tag));
+        auto *chip = new QToolButton(m_tagChipHost);
+        chip->setObjectName(QStringLiteral("NewNoteTagChip"));
+        chip->setText(tag);
+        chip->setCheckable(true);
+        chip->setChecked(selected.contains(tag));
+        chip->setCursor(Qt::PointingHandCursor);
+        chip->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        chip->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        chip->setMinimumHeight(UiScale::dp(28));
+        m_tagGroup->addButton(chip);
+        m_tagChipLay->addWidget(chip, i / kCols, i % kCols);
+        ++i;
     }
-    applyTagFilter();
-}
-
-void NewNoteDialog::applyTagFilter()
-{
-    if (!m_tagList)
-        return;
-    const QString needle =
-        m_tagSearch ? m_tagSearch->text().trimmed().toLower() : QString();
-    for (int i = 0; i < m_tagList->count(); ++i) {
-        QListWidgetItem *it = m_tagList->item(i);
-        if (!it)
-            continue;
-        const bool hit =
-            needle.isEmpty() || it->text().toLower().contains(needle);
-        it->setHidden(!hit);
-    }
+    applyChrome();
 }
 
 QString NewNoteDialog::getNoteName() const
@@ -1184,12 +1119,11 @@ bool NewNoteDialog::isStrukturFormat() const
 QStringList NewNoteDialog::selectedTags() const
 {
     QStringList out;
-    if (!m_tagList)
+    if (!m_tagGroup)
         return out;
-    const auto items = m_tagList->selectedItems();
-    for (QListWidgetItem *it : items) {
-        if (it)
-            out.append(it->text());
+    for (QAbstractButton *b : m_tagGroup->buttons()) {
+        if (b && b->isChecked())
+            out.append(b->text());
     }
     return out;
 }
