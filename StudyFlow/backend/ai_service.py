@@ -1170,8 +1170,9 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
         match = re.search(r"can only afford\s+(\d+)", str(error), re.IGNORECASE)
         if not match:
             return None
-        affordable = int(match.group(1)) - 200
-        if affordable >= current or affordable < 400:
+        # Leave a little headroom; still try when the balance is very low.
+        affordable = int(match.group(1)) - 100
+        if affordable >= current or affordable < 256:
             return None
         return affordable
 
@@ -1717,7 +1718,7 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
         compact = level_key in {"Kurz", "Normal"}
         max_followups = 1 if compact else (6 if level_key == "Sehr detailliert" else 4)
         # Reserve fewer tokens up front so low OpenRouter balances do not 402 before generation.
-        initial_cap = 4096 if compact else (8192 if level_key != "Sehr detailliert" else 10000)
+        initial_cap = 3072 if compact else (6144 if level_key != "Sehr detailliert" else 8192)
         detail_hint = {
             "Kurz": "Kompakt, aber immer noch substanziell. Nicht künstlich in die Länge ziehen.",
             "Normal": "Vollständig und klar, ohne Wiederholungen. Nicht künstlich in die Länge ziehen.",

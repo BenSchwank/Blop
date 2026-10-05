@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -494,6 +495,19 @@ def _with_system(system_instruction: str, messages: List[Dict[str, Any]]) -> Lis
     return out
 
 
+def _affordable_max_tokens(detail: str, current: Optional[int]) -> Optional[int]:
+    """Parse OpenRouter 402 'can only afford N' into a smaller max_tokens."""
+    match = re.search(r"can only afford\s+(\d+)", detail or "", re.IGNORECASE)
+    if not match:
+        return None
+    affordable = int(match.group(1)) - 100
+    if affordable < 256:
+        return None
+    if current is not None and affordable >= int(current):
+        return None
+    return affordable
+
+
 def _complete(
     model: str,
     messages: List[Dict[str, Any]],
@@ -557,6 +571,18 @@ def _complete(
             active["model"] = fallback
             response = _post(active, timeout, stream=stream)
             detail = _error_text(response) if not response.ok else detail
+        if (
+            not response.ok
+            and response.status_code == 402
+            and "can only afford" in (detail or "").lower()
+        ):
+            smaller = _affordable_max_tokens(detail, active.get("max_tokens"))
+            if smaller:
+                print(f"OpenRouter 402 retry with max_tokens={smaller}")
+                response.close()
+                active["max_tokens"] = smaller
+                response = _post(active, timeout, stream=stream)
+                detail = _error_text(response) if not response.ok else detail
     if not response.ok:
         response.close()
         raise OpenRouterError(f"OpenRouter {response.status_code}: {detail[:800]}")
