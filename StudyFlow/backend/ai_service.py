@@ -1165,14 +1165,19 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
             raise Exception(f"Fehler bei der Aufgaben-Hilfe: {str(e)}")
 
     @staticmethod
-    def _podcast_token_cap(error: BaseException, current: int) -> Optional[int]:
+    def _affordable_output_tokens(error: BaseException, current: int) -> Optional[int]:
+        """OpenRouter 402: request fewer max_tokens when the account cannot reserve `current`."""
         match = re.search(r"can only afford\s+(\d+)", str(error), re.IGNORECASE)
         if not match:
             return None
-        affordable = int(match.group(1)) - 400
-        if affordable >= current or affordable < 600:
+        affordable = int(match.group(1)) - 200
+        if affordable >= current or affordable < 400:
             return None
         return affordable
+
+    @staticmethod
+    def _podcast_token_cap(error: BaseException, current: int) -> Optional[int]:
+        return AIService._affordable_output_tokens(error, current)
 
     @staticmethod
     def _cap_podcast_material(content: Any, max_chars: int = 60_000) -> Any:
@@ -1708,38 +1713,29 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
         substantive_check: bool = True,
     ) -> Any:
         """Generates a detailed elaboration/essay based on the material and user instructions."""
-        try:
-            elaboration_generation_config = {
-                "max_output_tokens": 16384,
-                "temperature": 0.4,
-            }
-            model = genai.GenerativeModel(
-                model_for_task("elaboration", model_preference),
-                generation_config=elaboration_generation_config,
-            )
-            level_key = (detail_level or "Normal").strip()
-            compact = level_key in {"Kurz", "Normal"}
-            max_followups = 1 if compact else (6 if level_key == "Sehr detailliert" else 4)
-            if compact:
-                elaboration_generation_config["max_output_tokens"] = 8192
-            detail_hint = {
-                "Kurz": "Kompakt, aber immer noch substanziell. Nicht künstlich in die Länge ziehen.",
-                "Normal": "Vollständig und klar, ohne Wiederholungen. Nicht künstlich in die Länge ziehen.",
-                "Detailliert": "Sehr detailliert mit vielen Erklärungen, Beispielen und Transfer.",
-                "Sehr detailliert": "Maximal ausführlich, mehrseitig und didaktisch aufgebaut.",
-            }.get(level_key, f"Vom Nutzer gewünscht: {detail_level}. Interpretiere dies als hohe Detailtiefe.")
-            umfang = (
-                """UMFANG:
+        level_key = (detail_level or "Normal").strip()
+        compact = level_key in {"Kurz", "Normal"}
+        max_followups = 1 if compact else (6 if level_key == "Sehr detailliert" else 4)
+        # Reserve fewer tokens up front so low OpenRouter balances do not 402 before generation.
+        initial_cap = 4096 if compact else (8192 if level_key != "Sehr detailliert" else 10000)
+        detail_hint = {
+            "Kurz": "Kompakt, aber immer noch substanziell. Nicht künstlich in die Länge ziehen.",
+            "Normal": "Vollständig und klar, ohne Wiederholungen. Nicht künstlich in die Länge ziehen.",
+            "Detailliert": "Sehr detailliert mit vielen Erklärungen, Beispielen und Transfer.",
+            "Sehr detailliert": "Maximal ausführlich, mehrseitig und didaktisch aufgebaut.",
+        }.get(level_key, f"Vom Nutzer gewünscht: {detail_level}. Interpretiere dies als hohe Detailtiefe.")
+        umfang = (
+            """UMFANG:
 - Arbeite das Material vollständig durch, auch Schlussaufgaben und Anhänge.
 - Zieh den Text nicht künstlich in die Länge. Lieber klar und prüfbar als seitenlang wiederholt.
 - Hauptteil in wenige Unterkapitel gliedern."""
-                if compact
-                else """UMFANG (verbindlich):
+            if compact
+            else """UMFANG (verbindlich):
 - Schreibe eine lange, substanzielle Ausarbeitung (mindestens Umfang mehrerer DIN-A4-Seiten, wenn das Material groß ist).
 - Hauptteil soll den größten Anteil haben und in mehrere Unterkapitel gegliedert sein."""
-            )
+        )
 
-            prompt = f"""
+        prompt = f"""
 Du bist ein akademischer Autor und Tutor. Erstelle eine Ausarbeitung auf Deutsch, die als Lern- und Arbeitsdokument taugt.
 
 Detailgrad-Vorgabe: {detail_level}
@@ -1782,52 +1778,83 @@ Schreibe im Fließtext auf Deutsch, verwende Absätze zur besseren Lesbarkeit un
 Hier ist das Quellenmaterial:
 """
 
-            input_parts = [prompt]
-            if isinstance(content, list):
-                input_parts.extend(content)
-            else:
-                input_parts.append(content)
-            try:
-                full_result = AIService._generate_with_continuation(
-                    model=model,
-                    input_parts=input_parts,
-                    continuation_prompt=AIService._ELABORATION_CONTINUATION_PROMPT,
-                    max_followups=max_followups,
-                    log_prefix="Elaboration",
-                    return_meta=return_meta,
-                )
-            except Exception as mt_err:
-                print(f"Elaboration multiturn failed ({mt_err}), falling back to single-shot generate_content")
-                response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
-                fb = AIService._extract_response_text_safe(response)
-                if not fb:
-                    raise Exception("Leere Antwort vom Modell erhalten.")
-                if not return_meta:
-                    full_result = fb
-                else:
-                    full_result = {
-                        "text": fb,
-                        "usage": AIService._extract_usage(response),
-                        "used_model": str(getattr(model, "model_name", "") or ""),
-                    }
-            full_text = full_result["text"] if return_meta else full_result
-            ft = (full_text or "").strip()
-            if not ft:
-                raise Exception("Leere Antwort vom Modell erhalten.")
-            # Verhindert „Erfolg“ mit nur Anführungszeichen / minimalem Müll (schnell fertig, kein Inhalt)
-            if substantive_check and (len(ft) < 80 or len(ft.split()) < 25):
-                raise Exception(
-                    "Die Ausarbeitung ist zu kurz oder wurde nicht geliefert (Safety/Blockierung oder leeres Modell). "
-                    "Bitte Ordner-Material prüfen, ggf. erneut versuchen oder ein anderes Modell wählen."
-                )
-            if return_meta:
-                full_result["text"] = ft
-            else:
-                full_result = ft
-            return full_result
-        except Exception as e:
-            print(f"Elaboration Error: {e}")
-            raise Exception(f"Fehler bei der Ausarbeitung: {str(e)}")
+        input_parts = [prompt]
+        if isinstance(content, list):
+            input_parts.extend(content)
+        else:
+            input_parts.append(content)
+
+        primary = model_for_task("elaboration", model_preference)
+        candidates = [primary]
+        for fallback in ("gemini-3.7-flash", "gemini-2.5-flash"):
+            if fallback not in candidates:
+                candidates.append(fallback)
+
+        last_exc: Optional[BaseException] = None
+        for model_name in candidates:
+            token_cap = initial_cap
+            for _attempt in range(2):
+                try:
+                    model = genai.GenerativeModel(
+                        model_name,
+                        generation_config={
+                            "max_output_tokens": token_cap,
+                            "temperature": 0.4,
+                        },
+                    )
+                    followups = max_followups
+                    if token_cap < 2500:
+                        followups = min(followups, 2)
+                    try:
+                        full_result = AIService._generate_with_continuation(
+                            model=model,
+                            input_parts=input_parts,
+                            continuation_prompt=AIService._ELABORATION_CONTINUATION_PROMPT,
+                            max_followups=followups,
+                            log_prefix="Elaboration",
+                            return_meta=return_meta,
+                        )
+                    except Exception as mt_err:
+                        print(f"Elaboration multiturn failed ({mt_err}), falling back to single-shot generate_content")
+                        response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+                        fb = AIService._extract_response_text_safe(response)
+                        if not fb:
+                            raise Exception("Leere Antwort vom Modell erhalten.")
+                        if not return_meta:
+                            full_result = fb
+                        else:
+                            full_result = {
+                                "text": fb,
+                                "usage": AIService._extract_usage(response),
+                                "used_model": str(getattr(model, "model_name", "") or ""),
+                            }
+                    full_text = full_result["text"] if return_meta else full_result
+                    ft = (full_text or "").strip()
+                    if not ft:
+                        raise Exception("Leere Antwort vom Modell erhalten.")
+                    # Verhindert „Erfolg“ mit nur Anführungszeichen / minimalem Müll (schnell fertig, kein Inhalt)
+                    if substantive_check and (len(ft) < 80 or len(ft.split()) < 25):
+                        raise Exception(
+                            "Die Ausarbeitung ist zu kurz oder wurde nicht geliefert (Safety/Blockierung oder leeres Modell). "
+                            "Bitte Ordner-Material prüfen, ggf. erneut versuchen oder ein anderes Modell wählen."
+                        )
+                    if return_meta:
+                        full_result["text"] = ft
+                        full_result["used_model"] = str(getattr(model, "model_name", "") or model_name)
+                    else:
+                        full_result = ft
+                    return full_result
+                except Exception as e:
+                    smaller = AIService._affordable_output_tokens(e, token_cap)
+                    if smaller:
+                        print(f"Elaboration {model_name} retry with max_output_tokens={smaller}")
+                        token_cap = smaller
+                        continue
+                    last_exc = e
+                    print(f"Elaboration {model_name} failed: {e}")
+                    break
+        print(f"Elaboration Error: {last_exc}")
+        raise Exception(f"Fehler bei der Ausarbeitung: {last_exc}")
 
     @staticmethod
     def refine_document_with_chat(

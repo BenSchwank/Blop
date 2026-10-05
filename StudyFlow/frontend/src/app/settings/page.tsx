@@ -333,7 +333,7 @@ export default function Settings() {
                             <AiModelOptions current={preferredModel} />
                         </select>
                         <p className="text-xs text-gray-500">
-                            Claude und GPT ziehen mehr Tokens ab. Gemini 3.7 Flash ist die sparsame Wahl.
+                            Claude, GPT und Pro-Modelle ziehen mehr Tokens ab. Flash und Flash Lite sind sparsamer.
                         </p>
                         <button
                             onClick={savePreferredModel}
