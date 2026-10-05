@@ -8,11 +8,13 @@
 
 class QEnterEvent;
 class QKeyEvent;
+class QPaintEvent;
 class QShowEvent;
 class QLabel;
 class QLineEdit;
 class QMouseEvent;
 class QPushButton;
+class QTimer;
 class SpeechInput;
 
 class NotchWindow : public QWidget, public QAbstractNativeEventFilter {
@@ -31,6 +33,7 @@ signals:
 
 protected:
     void showEvent(QShowEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
     void enterEvent(QEnterEvent *event) override;
     void leaveEvent(QEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
@@ -46,7 +49,11 @@ private:
     void bringToFront();
     void registerHotkey();
     void setListening(bool on);
-    void toggleSpeech();
+    void beginHold();
+    void pollHold();
+    Q_INVOKABLE void releaseHoldKey(quint32 vk);
+    void finishHold();
+    void scheduleIdle();
     bool surfaceOpen() const;
 
     CommandEngine m_engine;
@@ -61,4 +68,8 @@ private:
     bool m_hovered = false;
     bool m_hotkey = false;
     bool m_listening = false;
+    bool m_sawHold = false;
+    quint32 m_hotMods = 0;
+    quint32 m_hotVk = 0;
+    QTimer *m_holdTimer = nullptr;
 };
