@@ -1713,7 +1713,9 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     QStringLiteral(
                         "Auf dem Handy speichert Blop Notizen lokal auf dem "
                         "Gerät.\n\nGoogle Drive und andere Clouds öffnest du "
-                        "über „Öffnen“ — nicht über einen Android-Dateiordner."));
+                        "über „Öffnen“ im System-Browser "
+                        "(Cookies & Passwörter) — nicht über einen "
+                        "Android-Dateiordner."));
                 return QString();
 #else
                 QString start =
@@ -2870,6 +2872,13 @@ void SettingsDialog::setAppShellMode(bool on)
     setLiteralQss(this, QStringLiteral(
         "QDialog { background-color: %1; border: none; border-radius: 0px; }")
         .arg(contentHex));
+}
+
+void SettingsDialog::focusSearchField() {
+  if (auto *search = findChild<QLineEdit *>(QStringLiteral("SettingsSearch"))) {
+    search->setFocus(Qt::ShortcutFocusReason);
+    search->selectAll();
+  }
 }
 
 void SettingsDialog::setSectionIndex(int index)

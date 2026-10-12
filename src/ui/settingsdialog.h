@@ -36,6 +36,8 @@ public:
     QStringList sectionTitles() const { return m_sectionTitles; }
     void setSectionIndex(int index);
     int sectionIndex() const;
+    /// Focus the in-content settings search (Ctrl+K in app-shell mode).
+    void focusSearchField();
     /// Drop stuck opacity effects so reopen never shows a blank white page.
     void clearSectionPageEffects();
 

@@ -26,6 +26,7 @@ public:
   void setInnerEdge(bool on);
   /// Blop logo, or the picture chosen in Einstellungen → Logo.
   void setBrandPixmap(const QPixmap &pm);
+  void setLogoToolTip(const QString &tip);
 
   /// ToolButton for a given rail id, or nullptr if unknown.
   QToolButton *buttonFor(const QString &id) const;

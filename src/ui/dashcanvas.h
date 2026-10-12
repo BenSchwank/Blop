@@ -72,13 +72,19 @@ private:
   void layoutPhoneStack();
   void layoutDesktopGrid();
   int contentBottom() const;
+  int contentBottomOf(const QVector<DashboardWidgetSpec> &specs) const;
 
   bool overlaps(const DashboardWidgetSpec &a,
                 const DashboardWidgetSpec &b) const;
   bool canPlace(const DashboardWidgetSpec &candidate,
                 const QString &ignoreId) const;
   DashboardWidgetSpec *findSpec(const QString &id);
+  DashboardWidgetSpec *findSpecIn(QVector<DashboardWidgetSpec> &specs,
+                                  const QString &id);
   void clampSpec(DashboardWidgetSpec &s) const;
+  /// South-only push-down (Struktur-style). floatUp closes vertical gaps.
+  void reflowPushDown(QVector<DashboardWidgetSpec> &specs,
+                      const QString &anchorId, bool floatUp);
   void reflowKeeping(const QString &anchorId);
   DashSizeClass nearestSizeClass(int colSpan, int rowSpan) const;
 
@@ -95,7 +101,16 @@ private:
   QScrollArea *scrollArea() const;
   void wireWidget(DashWidget *w);
 
+  /// Live gesture: push neighbors from preview specs (anchor stays ghost-only).
+  void syncGesturePreview(bool animate);
+  void applySpecGeometries(const QVector<DashboardWidgetSpec> &specs,
+                           bool animate, const QString &skipId);
+  void stopNeighborAnims();
+  static bool specsLayoutEqual(const QVector<DashboardWidgetSpec> &a,
+                               const QVector<DashboardWidgetSpec> &b);
+
   QVector<DashboardWidgetSpec> m_specs;
+  QVector<DashboardWidgetSpec> m_previewSpecs;
   QHash<QString, DashWidget *> m_widgets;
   bool m_phone{false};
   bool m_besideRail{false};

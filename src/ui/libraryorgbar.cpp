@@ -27,14 +27,15 @@ QIcon chipGlyph(LibraryOrgBar::SmartView view, const QColor &color) {
   pm.fill(Qt::transparent);
   QPainter p(&pm);
   p.setRenderHint(QPainter::Antialiasing, true);
-  p.setPen(QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  // Inset strokes so RoundCap never clips at the pixmap edge.
+  p.setPen(QPen(color, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
   p.setBrush(Qt::NoBrush);
   switch (view) {
   case LibraryOrgBar::SmartView::All: {
-    p.drawRoundedRect(QRectF(6, 6, 8, 8), 1.6, 1.6);
-    p.drawRoundedRect(QRectF(18, 6, 8, 8), 1.6, 1.6);
-    p.drawRoundedRect(QRectF(6, 18, 8, 8), 1.6, 1.6);
-    p.drawRoundedRect(QRectF(18, 18, 8, 8), 1.6, 1.6);
+    p.drawRoundedRect(QRectF(7, 7, 7, 7), 1.4, 1.4);
+    p.drawRoundedRect(QRectF(18, 7, 7, 7), 1.4, 1.4);
+    p.drawRoundedRect(QRectF(7, 18, 7, 7), 1.4, 1.4);
+    p.drawRoundedRect(QRectF(18, 18, 7, 7), 1.4, 1.4);
     break;
   }
   case LibraryOrgBar::SmartView::Favorites: {
@@ -44,30 +45,30 @@ QIcon chipGlyph(LibraryOrgBar::SmartView view, const QColor &color) {
     QPolygonF star;
     for (int i = 0; i < 5; ++i) {
       const qreal a = -M_PI / 2 + i * 2 * M_PI / 5;
-      star << QPointF(c.x() + qCos(a) * 10.0, c.y() + qSin(a) * 10.0);
+      star << QPointF(c.x() + qCos(a) * 9.0, c.y() + qSin(a) * 9.0);
       const qreal b = a + M_PI / 5;
-      star << QPointF(c.x() + qCos(b) * 4.2, c.y() + qSin(b) * 4.2);
+      star << QPointF(c.x() + qCos(b) * 3.8, c.y() + qSin(b) * 3.8);
     }
     p.drawPolygon(star);
     break;
   }
   case LibraryOrgBar::SmartView::Recent: {
-    p.drawEllipse(QRectF(6, 6, 20, 20));
-    p.drawLine(QPointF(16, 10), QPointF(16, 16));
-    p.drawLine(QPointF(16, 16), QPointF(21, 19));
+    p.drawEllipse(QRectF(7.5, 7.5, 17, 17));
+    p.drawLine(QPointF(16, 11), QPointF(16, 16.5));
+    p.drawLine(QPointF(16, 16.5), QPointF(20.5, 19));
     break;
   }
   case LibraryOrgBar::SmartView::Untagged: {
     QPainterPath tag;
-    tag.moveTo(7, 11);
-    tag.lineTo(16, 6);
-    tag.lineTo(25, 11);
-    tag.lineTo(25, 22);
-    tag.lineTo(16, 26);
-    tag.lineTo(7, 22);
+    tag.moveTo(8, 11);
+    tag.lineTo(16, 7);
+    tag.lineTo(24, 11);
+    tag.lineTo(24, 21);
+    tag.lineTo(16, 25);
+    tag.lineTo(8, 21);
     tag.closeSubpath();
     p.drawPath(tag);
-    p.drawEllipse(QPointF(16, 12), 1.6, 1.6);
+    p.drawEllipse(QPointF(16, 12.5), 1.5, 1.5);
     break;
   }
   }
@@ -142,6 +143,20 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
     btn->setFixedHeight(UiScale::dp(phone ? 44 : 28));
     btn->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     btn->setObjectName(QStringLiteral("libraryOrgChip"));
+    switch (c.view) {
+    case SmartView::All:
+      btn->setToolTip(QStringLiteral("Smart View: alle Notizen in diesem Ordner"));
+      break;
+    case SmartView::Favorites:
+      btn->setToolTip(QStringLiteral("Smart View: nur Favoriten"));
+      break;
+    case SmartView::Recent:
+      btn->setToolTip(QStringLiteral("Smart View: zuletzt geöffnete Notizen"));
+      break;
+    case SmartView::Untagged:
+      btn->setToolTip(QStringLiteral("Smart View: Notizen ohne Tags"));
+      break;
+    }
     m_viewGroup->addButton(btn, int(c.view));
     btn->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
     if (c.view == m_view)
@@ -158,18 +173,38 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
   connect(m_viewGroup, &QButtonGroup::idClicked, this,
           &LibraryOrgBar::onViewClicked);
 
+  m_viewModeHost = new QWidget(this);
+  m_viewModeHost->setObjectName(QStringLiteral("LibraryOrgViewModeHost"));
+  m_viewModeLay = new QHBoxLayout(m_viewModeHost);
+  m_viewModeLay->setContentsMargins(0, 0, 0, 0);
+  m_viewModeLay->setSpacing(UiScale::dp(4));
+  root->addWidget(m_viewModeHost, 0);
+
   m_btnSort = new QPushButton(this);
   m_btnSort->setObjectName(QStringLiteral("libraryOrgSort"));
   m_btnSort->setCursor(Qt::PointingHandCursor);
-  const int sortDp = phone ? 44 : 32;
+  const int sortDp = phone ? 44 : 28;
   m_btnSort->setFixedSize(UiScale::dp(sortDp), UiScale::dp(sortDp));
   m_btnSort->setText(QStringLiteral("\u22EF"));
   m_btnSort->setToolTip(QStringLiteral("Anordnen"));
   connect(m_btnSort, &QPushButton::clicked, this, &LibraryOrgBar::showSortMenu);
-  // Sort starts in this bar; placeSortInActionBar() can lift it into the header.
+  // Sort stays on this tool row (above notes), with raster/list.
   root->addWidget(m_btnSort);
 
   rebuildStyles();
+}
+
+void LibraryOrgBar::placeViewModeButtons(QPushButton *grid, QPushButton *list) {
+  if (!m_viewModeLay)
+    return;
+  if (grid) {
+    grid->setParent(m_viewModeHost);
+    m_viewModeLay->addWidget(grid);
+  }
+  if (list) {
+    list->setParent(m_viewModeHost);
+    m_viewModeLay->addWidget(list);
+  }
 }
 
 void LibraryOrgBar::placeSortInActionBar(QLayout *actionRow) {
@@ -274,26 +309,32 @@ void LibraryOrgBar::rebuildStyles() {
   const QString muted = paperLibrary
                             ? BlopStyle::paperInkMuted().name(QColor::HexRgb)
                             : BlopTheme::textSecondary().name(QColor::HexRgb);
-  const QString border = paperLibrary ? QStringLiteral("rgba(20,24,40,0.14)")
-                                      : BlopTheme::borderDefault().name(QColor::HexArgb);
-  const QString hoverIdle = paperLibrary ? QStringLiteral("rgba(0,0,0,0.05)")
-                                         : QStringLiteral("rgba(255,255,255,0.07)");
-  const QString sortIdle = paperLibrary ? QStringLiteral("rgba(0,0,0,0.04)")
-                                        : QStringLiteral("rgba(255,255,255,0.06)");
-  const QString sortHover = paperLibrary ? QStringLiteral("rgba(0,0,0,0.07)")
-                                         : QStringLiteral("rgba(255,255,255,0.10)");
-  const QString sortBorder = paperLibrary ? QStringLiteral("rgba(20,24,40,0.10)")
-                                          : QStringLiteral("rgba(255,255,255,0.10)");
+  const QString border =
+      paperLibrary ? BlopStyle::paperBorder().name(QColor::HexRgb)
+                   : BlopTheme::borderDefault().name(QColor::HexArgb);
+  const QString hoverIdle =
+      paperLibrary ? BlopStyle::paperHover().name(QColor::HexRgb)
+                   : QStringLiteral("rgba(255,255,255,0.07)");
+  const QString sortIdle =
+      paperLibrary ? BlopStyle::paperChipBg().name(QColor::HexRgb)
+                   : QStringLiteral("rgba(255,255,255,0.06)");
+  const QString sortHover =
+      paperLibrary ? BlopStyle::paperHover().name(QColor::HexRgb)
+                   : QStringLiteral("rgba(255,255,255,0.10)");
+  const QString sortBorder =
+      paperLibrary ? BlopStyle::paperBorder().name(QColor::HexRgb)
+                   : QStringLiteral("rgba(255,255,255,0.10)");
   const int chipMinH = UiScale::dp(28);
-  const int sortPx = UiScale::dp(32);
+  const int sortPx = UiScale::dp(28);
+  const int chipRad = UiScale::dp(BlopStyle::radiusLgDp());
   setStyleSheet(
       QStringLiteral(
           "QWidget#LibraryOrgBar { background: transparent; }"
           "QPushButton#libraryOrgChip {"
           "  background: transparent; color: %1;"
-          "  border: 1px solid %2; border-radius: 8px;"
+          "  border: 1px solid %2; border-radius: %12px;"
           "  padding: 0 10px 0 8px; font-size: 12px; font-weight: 600;"
-          "  min-height: %12px;"
+          "  min-height: %13px;"
           "}"
           "QPushButton#libraryOrgChip:checked {"
           "  background: rgba(%3,%4,%5,0.18); color: %6;"
@@ -304,10 +345,10 @@ void LibraryOrgBar::rebuildStyles() {
           "}"
           "QPushButton#libraryOrgSort {"
           "  background: %9; color: %6;"
-          "  border: 1px solid %10; border-radius: 8px;"
+          "  border: 1px solid %10; border-radius: %12px;"
           "  padding: 0; font-size: 16px; font-weight: 600;"
-          "  min-width: %13px; max-width: %13px;"
-          "  min-height: %13px; max-height: %13px;"
+          "  min-width: %14px; max-width: %14px;"
+          "  min-height: %14px; max-height: %14px;"
           "}"
           "QPushButton#libraryOrgSort:hover {"
           "  background: %11; border-color: %7; color: %7;"
@@ -318,6 +359,7 @@ void LibraryOrgBar::rebuildStyles() {
           .arg(m_accent.blue())
           .arg(text, accent, hoverIdle)
           .arg(sortIdle, sortBorder, sortHover)
+          .arg(chipRad)
           .arg(chipMinH)
           .arg(sortPx));
 
@@ -327,14 +369,15 @@ void LibraryOrgBar::rebuildStyles() {
     m_btnSort->setStyleSheet(QStringLiteral(
         "QPushButton#libraryOrgSort {"
         "  background: %1; color: %2;"
-        "  border: 1px solid %3; border-radius: 8px;"
+        "  border: 1px solid %3; border-radius: %6px;"
         "  padding: 0; font-size: 16px; font-weight: 600;"
         "}"
         "QPushButton#libraryOrgSort:hover {"
         "  background: %4; border-color: %5; color: %5;"
         "}")
                                  .arg(sortIdle, text, sortBorder, sortHover,
-                                      accent));
+                                      accent)
+                                 .arg(chipRad));
   }
 
   if (!m_viewGroup)

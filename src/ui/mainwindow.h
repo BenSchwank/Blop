@@ -67,6 +67,7 @@ class PhoneLibraryNav;
 class PhoneShell;
 class LibraryIconRail;
 class LibraryDetailPanel;
+class LibraryExplorerTree;
 class SettingsDialog;
 class QSortFilterProxyModel;
 class QStandardItemModel;
@@ -187,7 +188,8 @@ public:
   void applyAndroidTabStyles(int index);
 #endif
 
-  void showContextMenu(const QPoint &globalPos, const QModelIndex &index);
+  void showContextMenu(const QPoint &globalPos, const QModelIndex &index,
+                       bool explorerExtras = false);
   void startRename(const QModelIndex &index);
 
   // Set by AndroidTileDelegate::editorEvent when the user taps the
@@ -200,9 +202,12 @@ public:
 
   void switchToSelectTool();
 
-  /// Open Drive / Nextcloud / OneDrive / Dropbox / custom URL in-app
-  /// (desktop WebEngine overlay, Android Study WebView).
+  /// Open Drive / Nextcloud / OneDrive / Dropbox / custom URL in the
+  /// system browser (cookies / saved passwords). Name kept for call sites.
   void openEmbeddedCloudBrowser(const CloudStorageEntry &entry);
+  /// API clouds: OAuth in system browser if needed, then BlopNotizen explorer.
+  /// Others: system browser for the web URL.
+  void openCloudIntegration(const CloudStorageEntry &entry);
   void restoreWindowState();
 
   bool isAuthNavigationLocked() const { return m_authNavigationLocked; }
@@ -393,6 +398,8 @@ private:
   void openLoadedA4Note(const QString &path, const QString &fileName, Note note);
   void applyTheme();
   void refreshSidebarSearchHint();
+  void refreshSidebarHeaderChrome();
+  void refreshSidebarCloudSectionChrome();
   void applyAutoSavePrefs();
   void applyToolHotkeys();
   /// Title-bar mark: built-in Blop logo, or a user logo / wide banner.
@@ -408,6 +415,20 @@ private:
   void refreshFavoritesModel();
   void setLibraryFavoritesMode(bool on);
   bool libraryFavoritesMode() const { return m_libraryFavoritesMode; }
+  void refreshCloudNotesModel();
+  void setLibraryCloudNotesMode(bool on, const QString &providerType = {},
+                                const QString &displayName = {});
+  bool libraryCloudNotesMode() const { return m_libraryCloudNotesMode; }
+  void enterCloudFolder(const QString &folderId, const QString &folderName);
+  void cloudNavigateUp();
+  QString ensureCloudNoteCached(const QModelIndex &index);
+  void openCloudLibraryItem(const QModelIndex &index);
+  void renameCloudLibraryItem(const QModelIndex &index);
+  void deleteCloudLibraryItems();
+  void createCloudFolder();
+  void showCloudContextMenu(const QPoint &globalPos, const QModelIndex &index);
+  void syncCloudDetailFromIndex(const QModelIndex &index);
+  void wireLibrarySelectionModel();
   QString movePathToTrash(const QString &absolutePath);
   QString restorePathFromTrash(const QString &absolutePath);
   bool isLibraryTrashView() const;
@@ -418,6 +439,12 @@ private:
   QStringList selectedLibraryPaths() const;
   QStringList libraryContextTargetPaths(const QString &clickedPath) const;
   void assignTagsForNotePaths(const QStringList &paths);
+  void updateLibraryBulkBar();
+  void promptMoveSelectedLibraryItems();
+  void openSelectedLibraryItem();
+  void flashLibraryStatus(const QString &text);
+  void syncLibraryShellCorners();
+  QString m_libraryOverviewChromeQss;
 
   void updateGrid();
   void showLibrarySizeMenu(const QPoint &globalPos);
@@ -428,9 +455,16 @@ private:
   QRect sidebarPushContentRect() const;
   /// Drawer width: capped on narrow Android screens so the panel never exceeds ~86% of window width.
   int effectiveSidebarWidthPx() const;
+#ifndef Q_OS_ANDROID
+  /// Icon-rail width while the nav panel is folded (desktop).
+  int collapsedSidebarWidthPx() const;
+#endif
   /// Keep push offset + sidebar geometry in sync (no overlap with main content).
   void syncSidebarPushLayout();
   void syncTitleBarSidebarInset();
+  void refreshSidebarToggleButton();
+  /// Float the expand control on MainWindow above the sidebar overlay.
+  void syncSidebarToggleOverlayGeometry();
   void setTitleBarSidebarInset(int insetPx);
 #ifdef Q_OS_ANDROID
   void updateAndroidSidebarScrimGeometry();
@@ -492,6 +526,11 @@ private:
   void applyNoteChromeTheme();
   /// Dark note: icon rail + sidebar header stay the title-bar color; the list well shifts.
   void applyLibraryNoteFrame(bool on);
+  void setLibrarySidebarMode(bool explorer);
+  void applyLibrarySidebarMode();
+  void refreshLibraryModeSwitchChrome();
+  /// Move note/folder paths into destDir; remaps tags/org metadata.
+  bool moveLibraryPaths(const QStringList &sources, const QString &destDir);
   void styleNoteHeaderChrome();
   void refreshTopNavChrome();
   void applyWindowControlsChrome(const QColor &foreground, bool lightTitleBar);
@@ -584,6 +623,9 @@ private:
   QString m_pendingAndroidWebUrl;
   QString m_pendingCloudBrowserTitle;
 #endif
+  /// After CloudLink OAuth, open BlopNotizen explorer for this type.
+  QString m_pendingCloudNotesType;
+  QString m_pendingCloudNotesName;
   QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};
   QComboBox *m_modeSelector{nullptr};
@@ -714,8 +756,19 @@ private:
   QSortFilterProxyModel *m_libraryProxy{nullptr};
   QStandardItemModel *m_favoritesModel{nullptr};
   bool m_libraryFavoritesMode{false};
+  QStandardItemModel *m_cloudNotesModel{nullptr};
+  bool m_libraryCloudNotesMode{false};
+  QString m_cloudNotesProviderType;
+  QString m_cloudNotesDisplayName;
+  QString m_cloudNotesFolderId; ///< empty = provider root
+  QStringList m_cloudNotesFolderStack; ///< parent folder ids (root → …)
+  QStringList m_cloudNotesFolderNames; ///< display names for stack + current
   LibraryTagsPanel *m_libraryTagsPanel{nullptr};
   LibraryDetailPanel *m_libraryDetail{nullptr};
+  LibraryExplorerTree *m_libraryExplorer{nullptr};
+  QWidget *m_libraryModeSwitch{nullptr};
+  class QButtonGroup *m_libraryModeGroup{nullptr};
+  bool m_libraryExplorerMode{false};
   PhoneLibraryNav *m_phoneLibraryNav{nullptr};
   PhoneShell *m_phoneShell{nullptr};
   LibraryOrgBar *m_libraryOrgBar{nullptr};
@@ -724,6 +777,14 @@ private:
   QPushButton *m_btnLibraryGrid{nullptr};
   QPushButton *m_btnLibraryList{nullptr};
   QPushButton *m_btnEmptyTrash{nullptr};
+  QPushButton *m_btnLibraryDetailShow{nullptr};
+  QWidget *m_libraryBulkBar{nullptr};
+  QLabel *m_lblLibraryBulkCount{nullptr};
+  QPushButton *m_btnLibraryBulkDelete{nullptr};
+  QPushButton *m_btnLibraryBulkMove{nullptr};
+  QPushButton *m_btnLibraryBulkTag{nullptr};
+  QLabel *m_lblLibraryStatusFlash{nullptr};
+  QLabel *m_lblLibraryShellHint{nullptr};
   bool m_libraryListMode{false};
   // 0 klein, 1 mittel, 2 groß — list row height and grid tile size.
   int m_libraryDensity{1};

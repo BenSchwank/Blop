@@ -422,6 +422,162 @@ QPixmap pixmapForPath(const QString &path, bool isDirectory, int px) {
   return *stored;
 }
 
+struct CloudStyle {
+  QColor accent;
+  QString badge; ///< short label drawn on the tile (DOC, PDF, …)
+};
+
+CloudStyle cloudStyleFor(const QString &name, const QString &mimeType,
+                         bool isFolder) {
+  if (isFolder ||
+      mimeType == QLatin1String("application/vnd.google-apps.folder"))
+    return {QColor(0xFB, 0xBC, 0x04), {}};
+
+  const QString mime = mimeType.toLower();
+  const QString ext = QFileInfo(name).suffix().toLower();
+
+  if (mime.contains(QLatin1String("google-apps.document")) ||
+      ext == QLatin1String("gdoc") || ext == QLatin1String("docx") ||
+      ext == QLatin1String("doc") || ext == QLatin1String("odt") ||
+      ext == QLatin1String("rtf"))
+    return {QColor(0x42, 0x85, 0xF4), QStringLiteral("DOC")};
+  if (mime.contains(QLatin1String("google-apps.spreadsheet")) ||
+      ext == QLatin1String("gsheet") || ext == QLatin1String("xlsx") ||
+      ext == QLatin1String("xls") || ext == QLatin1String("csv") ||
+      ext == QLatin1String("ods"))
+    return {QColor(0x0F, 0x9D, 0x58), QStringLiteral("XLS")};
+  if (mime.contains(QLatin1String("google-apps.presentation")) ||
+      ext == QLatin1String("gslides") || ext == QLatin1String("pptx") ||
+      ext == QLatin1String("ppt") || ext == QLatin1String("odp"))
+    return {QColor(0xF4, 0xB4, 0x00), QStringLiteral("PPT")};
+  if (mime.contains(QLatin1String("google-apps.form")))
+    return {QColor(0x67, 0x3A, 0xB7), QStringLiteral("FORM")};
+  if (mime.contains(QLatin1String("google-apps.drawing")))
+    return {QColor(0xF4, 0xB4, 0x00), QStringLiteral("DRAW")};
+  if (mime == QLatin1String("application/pdf") || ext == QLatin1String("pdf"))
+    return {QColor(0xEA, 0x43, 0x35), QStringLiteral("PDF")};
+  if (mime.startsWith(QLatin1String("image/")) ||
+      ext == QLatin1String("png") || ext == QLatin1String("jpg") ||
+      ext == QLatin1String("jpeg") || ext == QLatin1String("gif") ||
+      ext == QLatin1String("webp") || ext == QLatin1String("heic") ||
+      ext == QLatin1String("svg"))
+    return {QColor(0xA1, 0x42, 0xF4), QStringLiteral("IMG")};
+  if (mime.startsWith(QLatin1String("video/")) ||
+      ext == QLatin1String("mp4") || ext == QLatin1String("mov") ||
+      ext == QLatin1String("mkv") || ext == QLatin1String("avi") ||
+      ext == QLatin1String("webm"))
+    return {QColor(0xDB, 0x44, 0x37), QStringLiteral("VID")};
+  if (mime.startsWith(QLatin1String("audio/")) ||
+      ext == QLatin1String("mp3") || ext == QLatin1String("wav") ||
+      ext == QLatin1String("m4a") || ext == QLatin1String("flac"))
+    return {QColor(0xF4, 0x51, 0x1E), QStringLiteral("AUD")};
+  if (mime.contains(QLatin1String("zip")) || mime.contains(QLatin1String("rar")) ||
+      mime.contains(QLatin1String("compressed")) ||
+      ext == QLatin1String("zip") || ext == QLatin1String("rar") ||
+      ext == QLatin1String("7z") || ext == QLatin1String("tar") ||
+      ext == QLatin1String("gz"))
+    return {QColor(0x5F, 0x63, 0x68), QStringLiteral("ZIP")};
+  if (mime.startsWith(QLatin1String("text/")) ||
+      ext == QLatin1String("txt") || ext == QLatin1String("md") ||
+      ext == QLatin1String("json") || ext == QLatin1String("xml"))
+    return {QColor(0x5F, 0x63, 0x68), QStringLiteral("TXT")};
+  if (ext == QLatin1String("bnote") || ext == QLatin1String("blop") ||
+      ext == QLatin1String("struct"))
+    return {QColor(0x5B, 0x9D, 0xFF), QStringLiteral("NOTE")};
+
+  QString badge = ext.toUpper();
+  if (badge.size() > 4)
+    badge = badge.left(4);
+  if (badge.isEmpty())
+    badge = QStringLiteral("FILE");
+  return {QColor(0x42, 0x85, 0xF4), badge};
+}
+
+void paintCloudTypeIcon(QPainter *p, const QRect &full, const QString &name,
+                        const QString &mimeType, bool isFolder) {
+  if (!p || full.width() < 8)
+    return;
+  if (isFolder ||
+      mimeType == QLatin1String("application/vnd.google-apps.folder")) {
+    paintFolder(p, full);
+    return;
+  }
+
+  const CloudStyle st = cloudStyleFor(name, mimeType, false);
+  const qreal s = qMin(full.width(), full.height());
+  const QRectF box(full.center().x() - s * 0.42, full.center().y() - s * 0.46,
+                   s * 0.84, s * 0.92);
+
+  // Soft shadow
+  p->setPen(Qt::NoPen);
+  p->setBrush(QColor(0, 0, 0, 36));
+  p->drawRoundedRect(box.translated(0, s * 0.03), s * 0.08, s * 0.08);
+
+  // Document body
+  QLinearGradient body(box.topLeft(), box.bottomLeft());
+  body.setColorAt(0, QColor(255, 255, 255));
+  body.setColorAt(1, QColor(245, 246, 248));
+  p->setBrush(body);
+  p->setPen(QPen(QColor(0, 0, 0, 28), 1.0));
+  p->drawRoundedRect(box, s * 0.08, s * 0.08);
+
+  // Folded corner
+  QPainterPath fold;
+  const qreal f = s * 0.22;
+  fold.moveTo(box.right() - f, box.top());
+  fold.lineTo(box.right(), box.top());
+  fold.lineTo(box.right(), box.top() + f);
+  fold.closeSubpath();
+  p->setPen(Qt::NoPen);
+  p->setBrush(QColor(0xEE, 0xF0, 0xF4));
+  p->drawPath(fold);
+  p->setPen(QPen(QColor(0, 0, 0, 22), 1.0));
+  p->drawLine(QPointF(box.right() - f, box.top()),
+              QPointF(box.right() - f, box.top() + f));
+  p->drawLine(QPointF(box.right() - f, box.top() + f),
+              QPointF(box.right(), box.top() + f));
+
+  // Accent type stripe / badge (Drive-like)
+  const QRectF badge(box.left() + s * 0.10, box.bottom() - s * 0.34,
+                     box.width() - s * 0.20, s * 0.20);
+  p->setPen(Qt::NoPen);
+  p->setBrush(st.accent);
+  p->drawRoundedRect(badge, s * 0.04, s * 0.04);
+
+  QFont fnt = p->font();
+  fnt.setBold(true);
+  fnt.setPixelSize(qMax(8, int(s * 0.11)));
+  p->setFont(fnt);
+  p->setPen(Qt::white);
+  p->drawText(badge, Qt::AlignCenter, st.badge);
+
+  // Accent header bar
+  p->setBrush(st.accent);
+  p->drawRoundedRect(QRectF(box.left(), box.top(), box.width(), s * 0.12),
+                     s * 0.08, s * 0.08);
+  p->drawRect(QRectF(box.left(), box.top() + s * 0.06, box.width(), s * 0.06));
+}
+
+QPixmap pixmapForCloud(const QString &name, const QString &mimeType,
+                       bool isFolder, int px) {
+  px = qMax(16, px);
+  QPixmap pm(px, px);
+  pm.fill(Qt::transparent);
+  QPainter p(&pm);
+  p.setRenderHint(QPainter::Antialiasing, true);
+  p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+  paintCloudTypeIcon(&p, QRect(0, 0, px, px), name, mimeType, isFolder);
+  return pm;
+}
+
+void paintCloudHero(QPainter *p, const QRect &r, const QString &name,
+                    const QString &mimeType, bool isFolder) {
+  if (!p || r.width() < 8 || r.height() < 8)
+    return;
+  p->setRenderHint(QPainter::Antialiasing, true);
+  paintCloudTypeIcon(p, r, name, mimeType, isFolder);
+}
+
 void paintHero(QPainter *p, const QRect &r, const Spec &spec) {
   if (!p || r.width() < 8 || r.height() < 8)
     return;

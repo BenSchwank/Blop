@@ -133,6 +133,9 @@ void AndroidTileDelegate::paint(QPainter *painter,
 
   bool isDir = false;
   QString path;
+  const bool cloudItem =
+      !index.data(Qt::UserRole + 13).toString().isEmpty();
+  const QString cloudMime = index.data(Qt::UserRole + 15).toString();
   if (auto *proxy = qobject_cast<const QSortFilterProxyModel *>(index.model())) {
     const QModelIndex src = proxy->mapToSource(index);
     if (auto *fsm =
@@ -144,6 +147,9 @@ void AndroidTileDelegate::paint(QPainter *painter,
                  qobject_cast<const QFileSystemModel *>(index.model())) {
     isDir = fsm->isDir(index);
     path = fsm->filePath(index);
+  } else if (cloudItem) {
+    path = index.data(Qt::UserRole).toString();
+    isDir = index.data(Qt::UserRole + 14).toBool();
   } else {
     const QString fn = index.data(Qt::DisplayRole).toString();
     if (!fn.contains(QLatin1Char('.')))
@@ -168,7 +174,11 @@ void AndroidTileDelegate::paint(QPainter *painter,
                                        (rect.height() - contentH) / 2);
   const QRect iconRect(rect.center().x() - iconDim / 2, startY, iconDim,
                        iconDim);
-  const QPixmap glyph = NotePreviewIcon::pixmapForPath(path, isDir, iconDim);
+  QPixmap glyph;
+  if (cloudItem)
+    glyph = NotePreviewIcon::pixmapForCloud(text, cloudMime, isDir, iconDim);
+  else
+    glyph = NotePreviewIcon::pixmapForPath(path, isDir, iconDim);
   if (!glyph.isNull())
     painter->drawPixmap(iconRect, glyph);
 

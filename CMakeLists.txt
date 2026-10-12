@@ -218,12 +218,16 @@ qt_add_executable(Blop
     src/ui/librarytagspanel.h
     src/ui/librarydetailpanel.cpp
     src/ui/librarydetailpanel.h
+    src/ui/libraryexplorertree.cpp
+    src/ui/libraryexplorertree.h
     src/ui/cloudstoragestore.cpp
     src/ui/cloudstoragestore.h
     src/ui/cloudlink.cpp
     src/ui/cloudlink.h
     src/ui/cloudwebexplorer.cpp
     src/ui/cloudwebexplorer.h
+    src/ui/cloudnotesbrowser.cpp
+    src/ui/cloudnotesbrowser.h
     src/ui/phonelibrarynav.cpp
     src/ui/phonelibrarynav.h
     src/ui/phonechrome.cpp

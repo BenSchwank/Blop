@@ -160,6 +160,41 @@ bool LibraryTagStore::removeTag(const QString &tag) {
   return true;
 }
 
+int LibraryTagStore::usageCount(const QString &tag) {
+  const QString n = normalize(tag);
+  if (n.isEmpty())
+    return 0;
+  QSettings s(QString::fromLatin1(kOrg), QString::fromLatin1(kApp));
+  const auto map = loadMap(s);
+  int count = 0;
+  for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+    for (const QString &t : it.value()) {
+      if (t.compare(n, Qt::CaseInsensitive) == 0) {
+        ++count;
+        break;
+      }
+    }
+  }
+  return count;
+}
+
+QHash<QString, int> LibraryTagStore::usageCounts() {
+  QHash<QString, int> raw;
+  QSettings s(QString::fromLatin1(kOrg), QString::fromLatin1(kApp));
+  const auto map = loadMap(s);
+  for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+    for (const QString &t : it.value()) {
+      const QString n = normalize(t);
+      if (!n.isEmpty())
+        raw[n.toLower()] = raw.value(n.toLower()) + 1;
+    }
+  }
+  QHash<QString, int> keyed;
+  for (const QString &cat : catalog())
+    keyed.insert(cat, raw.value(cat.toLower(), 0));
+  return keyed;
+}
+
 void LibraryTagStore::remapPath(const QString &fromPath, const QString &toPath) {
   if (fromPath.isEmpty() || toPath.isEmpty() || fromPath == toPath)
     return;

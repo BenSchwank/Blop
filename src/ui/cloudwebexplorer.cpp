@@ -22,10 +22,7 @@
 #include <QWebEngineView>
 #endif
 
-#ifndef BLOP_HAS_WEBENGINE
-#include "mainwindow.h"
 #include <QDesktopServices>
-#endif
 
 #ifdef BLOP_HAS_WEBENGINE
 namespace {
@@ -277,13 +274,15 @@ void CloudWebExplorer::openEntry(const CloudStorageEntry &entry) {
 
 CloudWebExplorer *CloudWebExplorer::showOver(QWidget *host,
                                              CloudStorageEntry entry) {
-  if (!host)
-    return nullptr;
-  QWidget *win = host->window() ? host->window() : host;
+  // Cloud login/browse always uses the system browser so the user's
+  // cookies and saved passwords apply (no in-app WebEngine overlay).
+  QWidget *win = host ? (host->window() ? host->window() : host) : nullptr;
 
   if ((entry.type == QLatin1String("nextcloud") ||
        entry.type == QLatin1String("custom")) &&
       entry.webUrl.isEmpty()) {
+    if (!win)
+      return nullptr;
     const QString typed = BlopDialogs::promptText(
         win, entry.name.isEmpty() ? QStringLiteral("Cloud-Adresse")
                                   : entry.name,
@@ -292,35 +291,20 @@ CloudWebExplorer *CloudWebExplorer::showOver(QWidget *host,
     if (typed.trimmed().isEmpty())
       return nullptr;
     entry.webUrl = QUrl::fromUserInput(typed.trimmed()).toString();
-    CloudStorageStore::upsert(entry);
   }
 
-#ifndef BLOP_HAS_WEBENGINE
-  // Android has no Qt WebEngine. Reuse the Study QtWebView (single SurfaceView)
-  // so Drive / Nextcloud / … open in-app instead of Chrome.
-  if (auto *mw = qobject_cast<MainWindow *>(win)) {
-    mw->openEmbeddedCloudBrowser(entry);
-    return nullptr;
-  }
-  const QUrl url = QUrl::fromUserInput(
-      entry.webUrl.isEmpty() ? CloudStorageStore::defaultWebUrl(entry.type)
-                             : entry.webUrl);
-  entry.webConnected = true;
   if (entry.webUrl.isEmpty())
     entry.webUrl = CloudStorageStore::defaultWebUrl(entry.type);
+  if (entry.webUrl.isEmpty())
+    return nullptr;
+
+  entry.webConnected = true;
   CloudStorageStore::upsert(entry);
+
+  const QUrl url = QUrl::fromUserInput(entry.webUrl);
   if (url.isValid())
     QDesktopServices::openUrl(url);
   return nullptr;
-#endif
-
-  auto *ex = win->findChild<CloudWebExplorer *>(
-      QStringLiteral("CloudWebExplorer"), Qt::FindDirectChildrenOnly);
-  if (!ex)
-    ex = new CloudWebExplorer(win);
-  ex->setGeometry(win->rect());
-  ex->openEntry(entry);
-  return ex;
 }
 
 bool CloudWebExplorer::eventFilter(QObject *watched, QEvent *event) {

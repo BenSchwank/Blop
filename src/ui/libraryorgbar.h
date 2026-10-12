@@ -28,6 +28,8 @@ public:
   /// Sort control for embedding in the library action bar (higher up).
   QPushButton *sortButton() const { return m_btnSort; }
   void placeSortInActionBar(QLayout *actionRow);
+  /// Place raster/list toggles on this bar (right of chips, before sort).
+  void placeViewModeButtons(QPushButton *grid, QPushButton *list);
 
 signals:
   void smartViewChanged(LibraryOrgBar::SmartView view);
@@ -44,6 +46,8 @@ private:
 
   QButtonGroup *m_viewGroup{nullptr};
   QPushButton *m_btnSort{nullptr};
+  QWidget *m_viewModeHost{nullptr};
+  QHBoxLayout *m_viewModeLay{nullptr};
   SmartView m_view{SmartView::All};
   SortMode m_sort{SortMode::Name};
   QColor m_accent;

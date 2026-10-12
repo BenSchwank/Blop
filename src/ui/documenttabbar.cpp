@@ -39,7 +39,8 @@ int tabMaxWidthPx() {
 }
 
 bool readingMarkUsesDarkBar() {
-  return BlopTheme::instance().isDark();
+  // Library title bar can be charcoal in Light Mode — follow its luminance.
+  return BlopStyle::libraryTitleBar().lightness() < 148;
 }
 } // namespace
 

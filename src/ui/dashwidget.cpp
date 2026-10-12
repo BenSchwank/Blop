@@ -19,6 +19,7 @@
 #include <QDateTime>
 #include <QEvent>
 #include <QFileInfo>
+#include <QFont>
 #include <QFontMetrics>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -45,7 +46,7 @@ QString muted() {
              ? QColor(255, 255, 255, 150).name(QColor::HexArgb)
              : BlopStyle::paperInkMuted().name(QColor::HexRgb);
 }
-/// Soft sheet — closer to desk than a floating admin card.
+/// Soft sheet — clearly lifts off the desk without looking like an admin card.
 QString cardBg() {
   return BlopTheme::instance().isDark()
              ? BlopStyle::obsidianSheet().name(QColor::HexRgb)
@@ -53,8 +54,8 @@ QString cardBg() {
 }
 QString cardBorder() {
   return BlopTheme::instance().isDark()
-             ? QColor(255, 255, 255, 14).name(QColor::HexArgb)
-             : QColor(15, 23, 42, 18).name(QColor::HexArgb);
+             ? QColor(255, 255, 255, 22).name(QColor::HexArgb)
+             : QColor(55, 53, 47, 28).name(QColor::HexArgb);
 }
 QString accent() { return BlopTheme::accentPrimary().name(QColor::HexRgb); }
 
@@ -231,9 +232,9 @@ DashWidget *DashWidget::create(const QString &id, QWidget *parent) {
 void DashWidget::applyChrome() {
   const bool intro = (m_id == QLatin1String("intro"));
   const bool banner = DashboardLayoutStore::isBannerId(m_id);
-  // Banner always stays page-chrome (wash/cover) — never a gray card plate,
-  // including in edit mode (edit lives on DashDeskHero buttons).
-  const bool chromeless = banner;
+  // Banner + intro read as page chrome outside edit — no floating gray plate
+  // under the cover (Notion title block).
+  const bool chromeless = banner || (intro && !m_editMode);
   const int r = UiScale::dp(cardRadiusDp());
   const bool compact = isCompact();
 
@@ -251,7 +252,23 @@ void DashWidget::applyChrome() {
     bg = BlopTheme::instance().isDark() ? QStringLiteral("#303440")
                                         : QStringLiteral("#FFFFFF");
   } else if (!chromeless && m_bgEnabled) {
-    bg = m_bgColor.isEmpty() ? cardBg() : m_bgColor;
+    if (!m_bgColor.isEmpty()) {
+      bg = m_bgColor;
+    } else {
+      // Soft per-block washes break the all-white plate monotony.
+      const bool dark = BlopTheme::instance().isDark();
+      if (m_id == QLatin1String("calendar"))
+        bg = dark ? QStringLiteral("rgba(91,157,255,0.10)")
+                  : QStringLiteral("rgba(91,157,255,0.07)");
+      else if (m_id == QLatin1String("todos"))
+        bg = dark ? QStringLiteral("rgba(52,211,153,0.09)")
+                  : QStringLiteral("rgba(16,185,129,0.07)");
+      else if (m_id == QLatin1String("recent"))
+        bg = dark ? QStringLiteral("rgba(255,255,255,0.04)")
+                  : QStringLiteral("#FFFFFF");
+      else
+        bg = cardBg();
+    }
   }
 
   setStyleSheet(QStringLiteral(
@@ -270,11 +287,12 @@ void DashWidget::applyChrome() {
                                            : hoverBorder())));
   setGraphicsEffect(nullptr);
   if (m_title) {
-    const int titlePx = compact ? 13 : 15;
+    // Section labels — muted but readable, shared rhythm across board cards.
+    const int titlePx = compact ? 12 : 13;
     m_title->setStyleSheet(
-        QStringLiteral("color: %1; font-size: %2px; font-weight: 600;"
-                       "letter-spacing: -0.3px; background: transparent;")
-            .arg(ink())
+        QStringLiteral("color: %1; font-size: %2px; font-weight: 650;"
+                       "letter-spacing: 0.15px; background: transparent;")
+            .arg(muted())
             .arg(titlePx));
   }
   if (m_root) {
@@ -283,17 +301,17 @@ void DashWidget::applyChrome() {
       m_root->setContentsMargins(0, 0, 0, 0);
       m_root->setSpacing(0);
     } else if (intro && !m_editMode) {
-      // Slightly tighter greeting inset — chrome plate still applies above.
-      m_root->setContentsMargins(UiScale::dp(14), UiScale::dp(12),
-                                 UiScale::dp(14), UiScale::dp(10));
-      m_root->setSpacing(UiScale::dp(6));
-    } else if (compact) {
-      m_root->setContentsMargins(UiScale::dp(10), UiScale::dp(8),
-                                 UiScale::dp(10), UiScale::dp(8));
+      // Breathe under the cover — greeting descenders + CTA chips need room.
+      m_root->setContentsMargins(UiScale::dp(4), UiScale::dp(10),
+                                 UiScale::dp(4), UiScale::dp(12));
       m_root->setSpacing(UiScale::dp(4));
+    } else if (compact) {
+      m_root->setContentsMargins(UiScale::dp(12), UiScale::dp(10),
+                                 UiScale::dp(12), UiScale::dp(10));
+      m_root->setSpacing(UiScale::dp(6));
     } else {
       m_root->setContentsMargins(UiScale::dp(16), UiScale::dp(14),
-                                 UiScale::dp(16), UiScale::dp(12));
+                                 UiScale::dp(16), UiScale::dp(14));
       m_root->setSpacing(UiScale::dp(8));
     }
   }
@@ -415,8 +433,35 @@ void DashWidget::setBody(QWidget *body) {
   }
   if (body) {
     body->setParent(m_bodyHost);
-    m_bodyLay->addWidget(body, 1);
+    // Intro hugs content — stretch would invent empty white under the CTAs.
+    const int stretch = (m_id == QLatin1String("intro")) ? 0 : 1;
+    m_bodyLay->addWidget(body, stretch);
   }
+}
+
+QSize DashWidget::sizeHint() const {
+  if (m_id == QLatin1String("intro") && m_root) {
+    const int w = width() > 0 ? width() : UiScale::dp(480);
+    m_root->activate();
+    // Greeting + meta + CTA row — floor beats underreported stylesheet hints.
+    const int h = qMax(UiScale::dp(176),
+                       qMax(m_root->totalSizeHint().height(),
+                            m_root->totalMinimumSize().height()));
+    return QSize(w, h);
+  }
+  return QFrame::sizeHint();
+}
+
+QSize DashWidget::minimumSizeHint() const {
+  if (m_id == QLatin1String("intro") && m_root) {
+    const int w = width() > 0 ? width() : UiScale::dp(280);
+    m_root->activate();
+    const int h = qMax(UiScale::dp(176),
+                       qMax(m_root->totalMinimumSize().height(),
+                            m_root->totalSizeHint().height()));
+    return QSize(w, h);
+  }
+  return QFrame::minimumSizeHint();
 }
 
 void DashWidget::refreshContent() {
@@ -454,8 +499,8 @@ void DashWidget::rebuildBody() {
 QWidget *DashWidget::buildIntro() {
   auto *body = new QWidget();
   auto *lay = new QVBoxLayout(body);
-  lay->setContentsMargins(0, 0, 0, UiScale::dp(14));
-  lay->setSpacing(UiScale::dp(6));
+  lay->setContentsMargins(0, UiScale::dp(4), 0, UiScale::dp(4));
+  lay->setSpacing(UiScale::dp(8));
 
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   const QString custom =
@@ -473,11 +518,20 @@ QWidget *DashWidget::buildIntro() {
 
   auto *helloLbl = new QLabel(hello, body);
   helloLbl->setWordWrap(true);
+  helloLbl->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+  const int helloPx = m_sizeClass == DashSizeClass::Title ? 28 : 32;
+  // Real QFont so sizeHint/fontMetrics include descenders (stylesheet fonts don't).
+  QFont helloFont = helloLbl->font();
+  helloFont.setPixelSize(helloPx);
+  helloFont.setWeight(QFont::DemiBold);
+  helloFont.setLetterSpacing(QFont::AbsoluteSpacing, -1.0);
+  helloLbl->setFont(helloFont);
   helloLbl->setStyleSheet(
-      QStringLiteral("color: %1; font-size: %2px; font-weight: 700;"
-                     "letter-spacing: -1.0px; background: transparent;")
-          .arg(ink())
-          .arg(m_sizeClass == DashSizeClass::Title ? 26 : 30));
+      QStringLiteral("color: %1; background: transparent; padding: 0;")
+          .arg(ink()));
+  const int helloH =
+      QFontMetrics(helloFont).height() + UiScale::dp(6);
+  helloLbl->setFixedHeight(helloH);
   lay->addWidget(helloLbl);
 
   int open = 0;
@@ -519,17 +573,23 @@ QWidget *DashWidget::buildIntro() {
   auto *meta = new QLabel(
       QStringLiteral("%1  ·  %2").arg(dateStr, focus), body);
   meta->setWordWrap(true);
+  meta->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+  QFont metaFont = meta->font();
+  metaFont.setPixelSize(13);
+  metaFont.setWeight(QFont::Medium);
+  meta->setFont(metaFont);
   meta->setStyleSheet(
-      QStringLiteral("color: %1; font-size: 13px; font-weight: 450;"
-                     "background: transparent;")
+      QStringLiteral("color: %1; background: transparent;")
           .arg(muted()));
+  meta->setFixedHeight(QFontMetrics(metaFont).height() + UiScale::dp(2));
   lay->addWidget(meta);
 
   // Quick actions fill the empty title strip — Notion-page feeling.
   auto *actions = new QWidget(body);
+  actions->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
   auto *actLay = new QHBoxLayout(actions);
-  actLay->setContentsMargins(0, UiScale::dp(6), 0, 0);
-  actLay->setSpacing(UiScale::dp(8));
+  actLay->setContentsMargins(0, UiScale::dp(2), 0, 0);
+  actLay->setSpacing(UiScale::dp(10));
   struct Quick {
     const char *de;
     const char *en;
@@ -541,11 +601,27 @@ QWidget *DashWidget::buildIntro() {
       {"Lernen", "Study", [this]() { emit studyRequested(); }},
   };
   const QString chipBg =
-      BlopTheme::instance().isDark() ? QStringLiteral("rgba(255,255,255,0.07)")
-                                     : QStringLiteral("rgba(15,23,42,0.06)");
+      BlopTheme::instance().isDark() ? QStringLiteral("rgba(255,255,255,0.09)")
+                                     : QStringLiteral("rgba(55,53,47,0.08)");
   const QString chipHover =
-      BlopTheme::instance().isDark() ? QStringLiteral("rgba(255,255,255,0.12)")
-                                     : QStringLiteral("rgba(15,23,42,0.09)");
+      BlopTheme::instance().isDark() ? QStringLiteral("rgba(255,255,255,0.14)")
+                                     : QStringLiteral("rgba(55,53,47,0.12)");
+  const QColor accC = BlopTheme::accentPrimary();
+  const QString primaryBg =
+      QStringLiteral("rgba(%1,%2,%3,%4)")
+          .arg(accC.red())
+          .arg(accC.green())
+          .arg(accC.blue())
+          .arg(BlopTheme::instance().isDark() ? QStringLiteral("0.22")
+                                              : QStringLiteral("0.14"));
+  const QString primaryHover =
+      QStringLiteral("rgba(%1,%2,%3,%4)")
+          .arg(accC.red())
+          .arg(accC.green())
+          .arg(accC.blue())
+          .arg(BlopTheme::instance().isDark() ? QStringLiteral("0.32")
+                                              : QStringLiteral("0.22"));
+  bool first = true;
   for (const auto &q : quicks) {
     auto *btn = new QPushButton(
         BlopLocale::instance().isGerman() ? QString::fromUtf8(q.de)
@@ -554,6 +630,8 @@ QWidget *DashWidget::buildIntro() {
     btn->setCursor(Qt::PointingHandCursor);
     btn->setFlat(true);
     btn->setMinimumHeight(UiScale::dp(36));
+    const bool primary = first;
+    first = false;
     btn->setStyleSheet(
         QStringLiteral("QPushButton {"
                        "  background: %1; border: none; border-radius: %2px;"
@@ -561,10 +639,10 @@ QWidget *DashWidget::buildIntro() {
                        "  padding: 8px 14px;"
                        "}"
                        "QPushButton:hover { background: %4; }")
-            .arg(chipBg)
+            .arg(primary ? primaryBg : chipBg)
             .arg(UiScale::dp(BlopStyle::radiusMdDp()))
-            .arg(ink())
-            .arg(chipHover));
+            .arg(primary ? accC.name(QColor::HexRgb) : ink())
+            .arg(primary ? primaryHover : chipHover));
     connect(btn, &QPushButton::clicked, this, q.fire);
     actLay->addWidget(btn, 0);
   }
@@ -887,8 +965,9 @@ QWidget *DashWidget::buildTodos() {
   lay->setSpacing(0);
 
   const bool compact = isCompact();
-  const int fontPx = compact ? 12 : 14;
-  const int padY = compact ? 4 : 8;
+  // Shared list rhythm with Zuletzt — same type size and row padding.
+  const int fontPx = compact ? 13 : 14;
+  const int padY = compact ? 6 : 8;
   const int maxItems = maxListItems();
   const int textBudget =
       qMax(UiScale::dp(56),
@@ -909,7 +988,7 @@ QWidget *DashWidget::buildTodos() {
     auto *row = new QWidget(body);
     auto *rowLay = new QHBoxLayout(row);
     rowLay->setContentsMargins(0, UiScale::dp(padY), 0, UiScale::dp(padY));
-    rowLay->setSpacing(UiScale::dp(compact ? 6 : 8));
+    rowLay->setSpacing(UiScale::dp(8));
     auto *cb = new QCheckBox(row);
     cb->setStyleSheet(checkBoxQss());
     const QString tid = t.id;
@@ -922,7 +1001,8 @@ QWidget *DashWidget::buildTodos() {
     auto *lbl = new QLabel(shownTitle, row);
     lbl->setToolTip(t.title);
     lbl->setStyleSheet(
-        QStringLiteral("color: %1; font-size: %2px; background: transparent;")
+        QStringLiteral("color: %1; font-size: %2px; font-weight: 500;"
+                       "background: transparent;")
             .arg(ink())
             .arg(fontPx));
     lbl->setWordWrap(false);
@@ -965,7 +1045,7 @@ QWidget *DashWidget::buildCalendar() {
   auto *body = new QWidget();
   auto *lay = new QVBoxLayout(body);
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(UiScale::dp(4));
+  lay->setSpacing(UiScale::dp(6));
 
   const int cs = DashboardLayoutStore::colSpanFor(m_sizeClass);
   const int rs = DashboardLayoutStore::rowSpanFor(m_sizeClass);
@@ -998,12 +1078,13 @@ QWidget *DashWidget::buildRecent() {
   lay->setSpacing(0);
 
   const bool compact = isCompact();
-  const int fontPx = compact ? 12 : 14;
-  const int padY = compact ? 5 : 9;
+  // Shared list rhythm with Aufgaben — same type size and row padding.
+  const int fontPx = compact ? 13 : 14;
+  const int padY = compact ? 6 : 8;
   const int maxItems = maxListItems();
   const QString hoverFill =
       BlopTheme::instance().isDark()
-          ? QStringLiteral("rgba(255,255,255,0.05)")
+          ? QStringLiteral("rgba(255,255,255,0.06)")
           : BlopStyle::paperHover().name(QColor::HexRgb);
 
   const QStringList paths = LibraryOrgStore::recentPaths(maxItems);
@@ -1033,7 +1114,7 @@ QWidget *DashWidget::buildRecent() {
     btn->setFlat(true);
     btn->setStyleSheet(QStringLiteral(
                            "QPushButton {"
-                           "  text-align: left; padding: %1px 4px;"
+                           "  text-align: left; padding: %1px 6px;"
                            "  color: %2; font-size: %3px; font-weight: 500;"
                            "  background: transparent; border: none;"
                            "  border-radius: %5px;"
@@ -1043,7 +1124,7 @@ QWidget *DashWidget::buildRecent() {
                            .arg(ink())
                            .arg(fontPx)
                            .arg(hoverFill)
-                           .arg(UiScale::dp(cardRadiusDp() - 2)));
+                           .arg(UiScale::dp(6)));
     connect(btn, &QPushButton::clicked, this, [this, path]() {
       emit openNotePath(path);
     });

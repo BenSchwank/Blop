@@ -57,8 +57,8 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   m_logo->setAlignment(Qt::AlignCenter);
   m_logo->setScaledContents(false);
   m_logo->setCursor(Qt::PointingHandCursor);
-  m_logo->setToolTip(QStringLiteral("Hauptmenü"));
-  m_logo->setAccessibleName(QStringLiteral("Hauptmenü"));
+  m_logo->setToolTip(QStringLiteral("Seitenleiste ein-/ausklappen"));
+  m_logo->setAccessibleName(QStringLiteral("Seitenleiste"));
   m_logo->installEventFilter(this);
   lay->addWidget(m_logo, 0, Qt::AlignHCenter);
   lay->addSpacing(UiScale::dp(8));
@@ -168,6 +168,11 @@ void LibraryIconRail::setBrandPixmap(const QPixmap &pm) {
   applyBrand();
 }
 
+void LibraryIconRail::setLogoToolTip(const QString &tip) {
+  if (m_logo)
+    m_logo->setToolTip(tip);
+}
+
 void LibraryIconRail::applyBrand() {
   if (!m_logo)
     return;
@@ -240,16 +245,25 @@ void LibraryIconRail::showFlyout(QToolButton *btn) {
   } else if (m_flyout->parentWidget() != host) {
     m_flyout->setParent(host);
   }
+  const bool dark = BlopTheme::instance().isDark();
+  const QString tipBg =
+      dark ? BlopStyle::obsidianSheet().name(QColor::HexRgb)
+           : BlopStyle::paperSurface().name(QColor::HexRgb);
+  const QString tipFg =
+      dark ? BlopStyle::obsidianText().name(QColor::HexRgb)
+           : BlopStyle::paperInk().name(QColor::HexRgb);
+  const QString tipBd =
+      dark ? QStringLiteral("rgba(255,255,255,0.14)")
+           : BlopStyle::paperBorder().name(QColor::HexRgb);
   m_flyout->setStyleSheet(QStringLiteral(
       "QLabel#LibraryIconRailTip {"
       "  background: %1; color: %2;"
-      "  border: 1px solid rgba(255,255,255,0.14);"
-      "  border-radius: %3px;"
-      "  padding: %4px %5px;"
+      "  border: 1px solid %3;"
+      "  border-radius: %4px;"
+      "  padding: %5px %6px;"
       "  font-size: 12px; font-weight: 650;"
       "}")
-                              .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb),
-                                   BlopStyle::obsidianText().name(QColor::HexRgb),
+                              .arg(tipBg, tipFg, tipBd,
                                    QString::number(UiScale::dp(8)),
                                    QString::number(UiScale::dp(4)),
                                    QString::number(UiScale::dp(10))));
@@ -284,17 +298,15 @@ void LibraryIconRail::setInnerEdge(bool on) {
 void LibraryIconRail::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);
-  p.fillRect(rect(), BlopStyle::librarySidebar());
+  p.fillRect(rect(), BlopStyle::libraryIconRail());
   if (m_innerEdge) {
-    // Start under the top bar so the horizontal leg stays one piece.
+    // Start under the title/header band so the L-leg reads as one piece.
     const int y = UiScale::dp(44);
     p.setPen(QPen(QColor(0x4A, 0x4E, 0x58), 1));
     p.drawLine(width() - 1, y, width() - 1, height() - 1);
   }
-  // Charcoal hairlines (never white) — top under logo / bottom above footer.
-  p.setPen(QPen(QColor(255, 255, 255, 18), 1));
-  const int midY = height() / 2;
-  Q_UNUSED(midY);
+  const bool lightRail = BlopStyle::libraryIconRail().lightness() > 140;
+  p.setPen(QPen(lightRail ? QColor(0, 0, 0, 20) : QColor(255, 255, 255, 18), 1));
   // Soft divider above the stretch footer cluster (settings/help/account).
   if (QToolButton *settings = m_btns.value(QStringLiteral("settings"))) {
     const int y = settings->geometry().top() - UiScale::dp(6);
@@ -309,7 +321,7 @@ void LibraryIconRail::paintEvent(QPaintEvent *event) {
 }
 
 void LibraryIconRail::refreshStyles() {
-  const QString nav = BlopStyle::librarySidebar().name(QColor::HexRgb);
+  const QString nav = BlopStyle::libraryIconRail().name(QColor::HexRgb);
   const QString hover = accentRgba(m_accent, 0.16);
   const QString onBg = accentRgba(m_accent, 0.18);
   const QString onHover = accentRgba(m_accent, 0.28);
@@ -333,8 +345,9 @@ void LibraryIconRail::refreshStyles() {
     const bool isNew = it.key() == QLatin1String("new");
     const bool on = !isNew && it.key() == m_active;
     const QString iconKey = btn->property("iconKey").toString();
-    // Cool gray icons — never pure white (invisible on light hover washes).
-    const QColor idleIcon(0xB8, 0xBE, 0xC9);
+    const bool lightRail = BlopStyle::libraryIconRail().lightness() > 140;
+    const QColor idleIcon =
+        lightRail ? BlopStyle::paperInkMuted() : QColor(0xB8, 0xBE, 0xC9);
     if (it.key() == QLatin1String("account") && !m_avatar.isEmpty()) {
       // Avatar icon set separately.
     } else {

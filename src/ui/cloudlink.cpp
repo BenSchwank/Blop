@@ -26,6 +26,7 @@
 #include <QTimer>
 #include <QUrlQuery>
 #include <QUuid>
+#include <QXmlStreamReader>
 
 namespace {
 
@@ -42,6 +43,30 @@ constexpr const char *kExchangeUrl =
     "https://www.blop-study.com/api/auth/google/desktop/exchange";
 
 QString notesName() { return QString::fromLatin1(kNotes); }
+
+/// Drive / Graph timestamps often include fractional seconds + Z.
+QDateTime parseCloudTime(const QString &raw) {
+  if (raw.isEmpty())
+    return {};
+  QDateTime dt = QDateTime::fromString(raw, Qt::ISODateWithMs);
+  if (!dt.isValid())
+    dt = QDateTime::fromString(raw, Qt::ISODate);
+  if (!dt.isValid()) {
+    // Strip fractional seconds: 2024-01-01T12:00:00.123456Z → …00Z
+    QString s = raw;
+    const int dot = s.indexOf(QLatin1Char('.'));
+    if (dot > 0) {
+      int end = dot + 1;
+      while (end < s.size() && s.at(end).isDigit())
+        ++end;
+      s.remove(dot, end - dot);
+      dt = QDateTime::fromString(s, Qt::ISODate);
+    }
+  }
+  if (dt.isValid() && !dt.timeZone().isValid())
+    dt = dt.toUTC();
+  return dt.toUTC();
+}
 
 QSettings settings() {
   return QSettings(QString::fromLatin1(kOrg), QString::fromLatin1(kApp));
@@ -337,11 +362,24 @@ bool oneDriveEnsureFolder(QNetworkAccessManager *nam, const QString &token,
   return false;
 }
 
-QString davBase() {
+QString davUserRoot() {
   const QString server = setting(QStringLiteral("nextcloud"), "server");
   const QString user = setting(QStringLiteral("nextcloud"), "user");
-  return server + QStringLiteral("/remote.php/dav/files/") + enc(user) +
-         QLatin1Char('/') + enc(notesName());
+  return server + QStringLiteral("/remote.php/dav/files/") + enc(user);
+}
+
+/// BlopNotizen folder — used for note sync uploads, not for browse.
+QString davBase() {
+  return davUserRoot() + QLatin1Char('/') + enc(notesName());
+}
+
+QString davUrlForRelative(const QString &relativePath) {
+  QString url = davUserRoot();
+  const QStringList parts =
+      relativePath.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+  for (const QString &p : parts)
+    url += QLatin1Char('/') + enc(p);
+  return url;
 }
 
 QNetworkRequest davReq(const QUrl &url) {
@@ -1024,6 +1062,91 @@ bool CloudLinkHub::googleRename(const QString &oldName, const QString &newName) 
   return r.status >= 200 && r.status < 300;
 }
 
+QVector<CloudRemoteItem> CloudLinkHub::googleList(const QString &folderId) {
+  QVector<CloudRemoteItem> out;
+  QString err;
+  const QString token = googleAccess(m_nam, &err);
+  if (token.isEmpty()) {
+    m_lastError = err;
+    return out;
+  }
+  const QString parent =
+      folderId.isEmpty() ? QStringLiteral("root") : folderId;
+  QString pageToken;
+  do {
+    QUrl url(QStringLiteral("https://www.googleapis.com/drive/v3/files"));
+    QUrlQuery query;
+    query.addQueryItem(
+        QStringLiteral("q"),
+        QStringLiteral("'%1' in parents and trashed=false").arg(parent));
+    query.addQueryItem(
+        QStringLiteral("fields"),
+        QStringLiteral("nextPageToken,files(id,name,mimeType,modifiedTime,"
+                       "createdTime,size)"));
+    query.addQueryItem(QStringLiteral("pageSize"), QStringLiteral("100"));
+    query.addQueryItem(QStringLiteral("spaces"), QStringLiteral("drive"));
+    query.addQueryItem(QStringLiteral("orderBy"),
+                       QStringLiteral("folder,name_natural"));
+    if (!pageToken.isEmpty())
+      query.addQueryItem(QStringLiteral("pageToken"), pageToken);
+    url.setQuery(query);
+    const HttpResult r = http(m_nam, jsonReq(url, token), "GET", {});
+    if (r.status < 200 || r.status >= 300) {
+      m_lastError = QStringLiteral("Drive-Liste fehlgeschlagen.");
+      break;
+    }
+    const QJsonObject root = QJsonDocument::fromJson(r.body).object();
+    const QJsonArray files = root.value(QStringLiteral("files")).toArray();
+    for (const QJsonValue &v : files) {
+      const QJsonObject o = v.toObject();
+      CloudRemoteItem item;
+      item.id = o.value(QStringLiteral("id")).toString();
+      item.name = o.value(QStringLiteral("name")).toString();
+      item.mimeType = o.value(QStringLiteral("mimeType")).toString();
+      item.isFolder =
+          item.mimeType ==
+          QLatin1String("application/vnd.google-apps.folder");
+      item.modified =
+          parseCloudTime(o.value(QStringLiteral("modifiedTime")).toString());
+      item.created =
+          parseCloudTime(o.value(QStringLiteral("createdTime")).toString());
+      if (o.contains(QStringLiteral("size")))
+        item.sizeBytes = o.value(QStringLiteral("size")).toString().toLongLong();
+      if (!item.id.isEmpty() && !item.name.isEmpty())
+        out.append(item);
+    }
+    pageToken = root.value(QStringLiteral("nextPageToken")).toString();
+  } while (!pageToken.isEmpty());
+  return out;
+}
+
+bool CloudLinkHub::googleFetch(const QString &remoteId,
+                               const QString &localPath) {
+  if (remoteId.isEmpty() || localPath.isEmpty())
+    return false;
+  QString err;
+  const QString token = googleAccess(m_nam, &err);
+  if (token.isEmpty()) {
+    m_lastError = err;
+    return false;
+  }
+  QNetworkRequest req(QUrl(
+      QStringLiteral("https://www.googleapis.com/drive/v3/files/%1?alt=media")
+          .arg(remoteId)));
+  req.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
+  req.setTransferTimeout(60000);
+  const HttpResult r = http(m_nam, req, "GET", {});
+  if (r.status < 200 || r.status >= 300 || r.body.isEmpty()) {
+    m_lastError = QStringLiteral("Download von Drive fehlgeschlagen.");
+    return false;
+  }
+  QDir().mkpath(QFileInfo(localPath).absolutePath());
+  QFile f(localPath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    return false;
+  return f.write(r.body) == r.body.size();
+}
+
 bool CloudLinkHub::nextcloudPut(const QString &localPath) {
   QString err;
   if (!davEnsure(m_nam, &err)) {
@@ -1060,6 +1183,117 @@ bool CloudLinkHub::nextcloudRename(const QString &oldName, const QString &newNam
   req.setRawHeader("Overwrite", "T");
   const HttpResult r = http(m_nam, req, "MOVE", {});
   return r.status == 201 || r.status == 204 || r.status == 404;
+}
+
+QVector<CloudRemoteItem> CloudLinkHub::nextcloudList(const QString &folderPath) {
+  QVector<CloudRemoteItem> out;
+  const QString user = setting(QStringLiteral("nextcloud"), "user");
+  const QString server = setting(QStringLiteral("nextcloud"), "server");
+  if (user.isEmpty() || server.isEmpty()) {
+    m_lastError = QStringLiteral("Nextcloud ist nicht verbunden.");
+    return out;
+  }
+  const QString listUrl = davUrlForRelative(folderPath) + QLatin1Char('/');
+  QNetworkRequest req = davReq(QUrl(listUrl));
+  req.setRawHeader("Depth", "1");
+  req.setHeader(QNetworkRequest::ContentTypeHeader,
+                QStringLiteral("application/xml; charset=utf-8"));
+  const QByteArray body =
+      "<?xml version=\"1.0\"?>"
+      "<d:propfind xmlns:d=\"DAV:\">"
+      "<d:prop><d:displayname/><d:getlastmodified/><d:resourcetype/>"
+      "<d:getcontenttype/><d:getcontentlength/><d:creationdate/>"
+      "</d:prop></d:propfind>";
+  const HttpResult r = http(m_nam, req, "PROPFIND", body);
+  if (r.status != 207 && (r.status < 200 || r.status >= 300)) {
+    m_lastError = QStringLiteral("Nextcloud-Liste fehlgeschlagen.");
+    return out;
+  }
+  QString folderBase = davUrlForRelative(folderPath);
+  while (folderBase.endsWith(QLatin1Char('/')))
+    folderBase.chop(1);
+  const QString davPrefix = davUserRoot();
+  QXmlStreamReader xml(r.body);
+  CloudRemoteItem cur;
+  bool inResponse = false;
+  bool isCollection = false;
+  QString href;
+  while (!xml.atEnd()) {
+    xml.readNext();
+    if (xml.isStartElement()) {
+      const QStringView n = xml.name();
+      if (n == QLatin1String("response")) {
+        inResponse = true;
+        cur = CloudRemoteItem{};
+        isCollection = false;
+        href.clear();
+      } else if (inResponse && n == QLatin1String("href")) {
+        href = xml.readElementText();
+      } else if (inResponse && n == QLatin1String("displayname")) {
+        cur.name = xml.readElementText();
+      } else if (inResponse && n == QLatin1String("getlastmodified")) {
+        cur.modified =
+            QDateTime::fromString(xml.readElementText(), Qt::RFC2822Date);
+      } else if (inResponse && n == QLatin1String("creationdate")) {
+        cur.created = parseCloudTime(xml.readElementText());
+      } else if (inResponse && n == QLatin1String("getcontenttype")) {
+        cur.mimeType = xml.readElementText();
+      } else if (inResponse && n == QLatin1String("getcontentlength")) {
+        bool ok = false;
+        const qint64 nBytes = xml.readElementText().toLongLong(&ok);
+        if (ok)
+          cur.sizeBytes = nBytes;
+      } else if (inResponse && n == QLatin1String("collection")) {
+        isCollection = true;
+      }
+    } else if (xml.isEndElement() && xml.name() == QLatin1String("response")) {
+      inResponse = false;
+      cur.isFolder = isCollection;
+      if (cur.isFolder)
+        cur.mimeType = QStringLiteral("application/vnd.google-apps.folder");
+      QString path = QUrl::fromPercentEncoding(href.toUtf8());
+      while (path.endsWith(QLatin1Char('/')))
+        path.chop(1);
+      if (path == folderBase)
+        continue;
+      if (cur.name.isEmpty())
+        cur.name = path.section(QLatin1Char('/'), -1);
+      // Relative path from user root for fetch / nested list.
+      QString rel = path;
+      if (rel.startsWith(davPrefix))
+        rel = rel.mid(davPrefix.size());
+      while (rel.startsWith(QLatin1Char('/')))
+        rel = rel.mid(1);
+      cur.id = rel;
+      if (!cur.name.isEmpty() && !cur.id.isEmpty())
+        out.append(cur);
+    }
+  }
+  return out;
+}
+
+bool CloudLinkHub::nextcloudFetch(const QString &remoteId,
+                                  const QString &localPath) {
+  if (remoteId.isEmpty() || localPath.isEmpty())
+    return false;
+  const QString user = setting(QStringLiteral("nextcloud"), "user");
+  const QString server = setting(QStringLiteral("nextcloud"), "server");
+  if (user.isEmpty() || server.isEmpty()) {
+    m_lastError = QStringLiteral("Nextcloud ist nicht verbunden.");
+    return false;
+  }
+  QNetworkRequest req = davReq(QUrl(davUrlForRelative(remoteId)));
+  req.setTransferTimeout(60000);
+  const HttpResult r = http(m_nam, req, "GET", {});
+  if (r.status < 200 || r.status >= 300) {
+    m_lastError = QStringLiteral("Download von Nextcloud fehlgeschlagen.");
+    return false;
+  }
+  QDir().mkpath(QFileInfo(localPath).absolutePath());
+  QFile f(localPath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    return false;
+  return f.write(r.body) == r.body.size();
 }
 
 bool CloudLinkHub::oneDrivePut(const QString &localPath) {
@@ -1115,6 +1349,325 @@ bool CloudLinkHub::oneDriveRename(const QString &oldName, const QString &newName
               token),
       "PATCH", QJsonDocument(meta).toJson(QJsonDocument::Compact));
   return r.status == 404 || (r.status >= 200 && r.status < 300);
+}
+
+QVector<CloudRemoteItem> CloudLinkHub::oneDriveList(const QString &folderId) {
+  QVector<CloudRemoteItem> out;
+  QString err;
+  const QString token = oneDriveAccess(m_nam, &err);
+  if (token.isEmpty()) {
+    m_lastError = err;
+    return out;
+  }
+  const QUrl url(
+      folderId.isEmpty()
+          ? QUrl(QStringLiteral(
+                "https://graph.microsoft.com/v1.0/me/drive/root/children"
+                "?$select=id,name,folder,file,size,createdDateTime,"
+                "lastModifiedDateTime&$top=200&$orderby=name"))
+          : QUrl(QStringLiteral(
+                     "https://graph.microsoft.com/v1.0/me/drive/items/"
+                     "%1/children?$select=id,name,folder,file,size,"
+                     "createdDateTime,lastModifiedDateTime&$top=200"
+                     "&$orderby=name")
+                     .arg(folderId)));
+  const HttpResult r = http(m_nam, jsonReq(url, token), "GET", {});
+  if (r.status < 200 || r.status >= 300) {
+    m_lastError = QStringLiteral("OneDrive-Liste fehlgeschlagen.");
+    return out;
+  }
+  const QJsonArray values =
+      QJsonDocument::fromJson(r.body).object().value(QStringLiteral("value")).toArray();
+  for (const QJsonValue &v : values) {
+    const QJsonObject o = v.toObject();
+    CloudRemoteItem item;
+    item.id = o.value(QStringLiteral("id")).toString();
+    item.name = o.value(QStringLiteral("name")).toString();
+    item.isFolder = o.contains(QStringLiteral("folder"));
+    item.mimeType =
+        o.value(QStringLiteral("file")).toObject().value(QStringLiteral("mimeType")).toString();
+    if (item.isFolder)
+      item.mimeType = QStringLiteral("application/vnd.google-apps.folder");
+    item.modified = parseCloudTime(
+        o.value(QStringLiteral("lastModifiedDateTime")).toString());
+    item.created =
+        parseCloudTime(o.value(QStringLiteral("createdDateTime")).toString());
+    if (o.contains(QStringLiteral("size")))
+      item.sizeBytes = static_cast<qint64>(o.value(QStringLiteral("size")).toDouble());
+    if (!item.id.isEmpty() && !item.name.isEmpty())
+      out.append(item);
+  }
+  return out;
+}
+
+bool CloudLinkHub::oneDriveFetch(const QString &remoteId,
+                                 const QString &localPath) {
+  if (remoteId.isEmpty() || localPath.isEmpty())
+    return false;
+  QString err;
+  const QString token = oneDriveAccess(m_nam, &err);
+  if (token.isEmpty()) {
+    m_lastError = err;
+    return false;
+  }
+  QNetworkRequest req(QUrl(
+      QStringLiteral(
+          "https://graph.microsoft.com/v1.0/me/drive/items/%1/content")
+          .arg(remoteId)));
+  req.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
+  req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                   QNetworkRequest::NoLessSafeRedirectPolicy);
+  req.setTransferTimeout(60000);
+  const HttpResult r = http(m_nam, req, "GET", {});
+  if (r.status < 200 || r.status >= 300) {
+    m_lastError = QStringLiteral("Download von OneDrive fehlgeschlagen.");
+    return false;
+  }
+  QDir().mkpath(QFileInfo(localPath).absolutePath());
+  QFile f(localPath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    return false;
+  return f.write(r.body) == r.body.size();
+}
+
+QVector<CloudRemoteItem> CloudLinkHub::listNotes(const QString &type,
+                                                 const QString &folderId) {
+  m_lastError.clear();
+  if (type == QLatin1String("googledrive"))
+    return googleList(folderId);
+  if (type == QLatin1String("nextcloud"))
+    return nextcloudList(folderId);
+  if (type == QLatin1String("onedrive"))
+    return oneDriveList(folderId);
+  m_lastError = QStringLiteral("Dieser Anbieter hat keine API-Liste.");
+  return {};
+}
+
+bool CloudLinkHub::fetchNote(const QString &type, const QString &remoteId,
+                             const QString &localPath) {
+  m_lastError.clear();
+  if (type == QLatin1String("googledrive"))
+    return googleFetch(remoteId, localPath);
+  if (type == QLatin1String("nextcloud"))
+    return nextcloudFetch(remoteId, localPath);
+  if (type == QLatin1String("onedrive"))
+    return oneDriveFetch(remoteId, localPath);
+  m_lastError = QStringLiteral("Dieser Anbieter hat keinen API-Download.");
+  return false;
+}
+
+bool CloudLinkHub::createFolder(const QString &type, const QString &parentId,
+                                const QString &name) {
+  m_lastError.clear();
+  const QString clean = name.trimmed();
+  if (clean.isEmpty()) {
+    m_lastError = QStringLiteral("Ordnername fehlt.");
+    return false;
+  }
+  if (type == QLatin1String("googledrive")) {
+    QString err;
+    const QString token = googleAccess(m_nam, &err);
+    if (token.isEmpty()) {
+      m_lastError = err;
+      return false;
+    }
+    QJsonObject meta;
+    meta.insert(QStringLiteral("name"), clean);
+    meta.insert(QStringLiteral("mimeType"),
+                QStringLiteral("application/vnd.google-apps.folder"));
+    const QString parent = parentId.isEmpty() ? QStringLiteral("root") : parentId;
+    meta.insert(QStringLiteral("parents"), QJsonArray{parent});
+    const HttpResult r = http(
+        m_nam,
+        jsonReq(QUrl(QStringLiteral("https://www.googleapis.com/drive/v3/files")),
+                token),
+        "POST", QJsonDocument(meta).toJson(QJsonDocument::Compact));
+    if (r.status < 200 || r.status >= 300) {
+      m_lastError = QStringLiteral("Ordner konnte nicht angelegt werden.");
+      return false;
+    }
+    return true;
+  }
+  if (type == QLatin1String("onedrive")) {
+    QString err;
+    const QString token = oneDriveAccess(m_nam, &err);
+    if (token.isEmpty()) {
+      m_lastError = err;
+      return false;
+    }
+    QJsonObject meta;
+    meta.insert(QStringLiteral("name"), clean);
+    meta.insert(QStringLiteral("folder"), QJsonObject());
+    meta.insert(QStringLiteral("@microsoft.graph.conflictBehavior"),
+                QStringLiteral("rename"));
+    const QUrl url(
+        parentId.isEmpty()
+            ? QUrl(QStringLiteral(
+                  "https://graph.microsoft.com/v1.0/me/drive/root/children"))
+            : QUrl(QStringLiteral(
+                       "https://graph.microsoft.com/v1.0/me/drive/items/%1/"
+                       "children")
+                       .arg(parentId)));
+    const HttpResult r =
+        http(m_nam, jsonReq(url, token), "POST",
+             QJsonDocument(meta).toJson(QJsonDocument::Compact));
+    if (r.status < 200 || r.status >= 300) {
+      m_lastError = QStringLiteral("Ordner konnte nicht angelegt werden.");
+      return false;
+    }
+    return true;
+  }
+  if (type == QLatin1String("nextcloud")) {
+    const QString user = setting(QStringLiteral("nextcloud"), "user");
+    const QString server = setting(QStringLiteral("nextcloud"), "server");
+    if (user.isEmpty() || server.isEmpty()) {
+      m_lastError = QStringLiteral("Nextcloud ist nicht verbunden.");
+      return false;
+    }
+    QString rel = parentId;
+    if (!rel.isEmpty() && !rel.endsWith(QLatin1Char('/')))
+      rel += QLatin1Char('/');
+    rel += clean;
+    const HttpResult r =
+        http(m_nam, davReq(QUrl(davUrlForRelative(rel))), "MKCOL", {});
+    if (r.status != 201 && r.status != 405 &&
+        (r.status < 200 || r.status >= 300)) {
+      m_lastError = QStringLiteral("Ordner konnte nicht angelegt werden.");
+      return false;
+    }
+    return true;
+  }
+  m_lastError = QStringLiteral("Ordner anlegen nicht unterstützt.");
+  return false;
+}
+
+bool CloudLinkHub::deleteRemote(const QString &type, const QString &remoteId) {
+  m_lastError.clear();
+  if (remoteId.isEmpty())
+    return false;
+  if (type == QLatin1String("googledrive")) {
+    QString err;
+    const QString token = googleAccess(m_nam, &err);
+    if (token.isEmpty()) {
+      m_lastError = err;
+      return false;
+    }
+    const HttpResult r = http(
+        m_nam,
+        jsonReq(QUrl(QStringLiteral("https://www.googleapis.com/drive/v3/files/%1")
+                         .arg(remoteId)),
+                token),
+        "DELETE", {});
+    if (!(r.status == 204 || (r.status >= 200 && r.status < 300))) {
+      m_lastError = QStringLiteral("Löschen fehlgeschlagen.");
+      return false;
+    }
+    return true;
+  }
+  if (type == QLatin1String("onedrive")) {
+    QString err;
+    const QString token = oneDriveAccess(m_nam, &err);
+    if (token.isEmpty()) {
+      m_lastError = err;
+      return false;
+    }
+    const HttpResult r = http(
+        m_nam,
+        jsonReq(QUrl(QStringLiteral(
+                         "https://graph.microsoft.com/v1.0/me/drive/items/%1")
+                         .arg(remoteId)),
+                token),
+        "DELETE", {});
+    if (!(r.status == 204 || r.status == 404 ||
+          (r.status >= 200 && r.status < 300))) {
+      m_lastError = QStringLiteral("Löschen fehlgeschlagen.");
+      return false;
+    }
+    return true;
+  }
+  if (type == QLatin1String("nextcloud")) {
+    const HttpResult r =
+        http(m_nam, davReq(QUrl(davUrlForRelative(remoteId))), "DELETE", {});
+    if (!(r.status == 204 || r.status == 404 ||
+          (r.status >= 200 && r.status < 300))) {
+      m_lastError = QStringLiteral("Löschen fehlgeschlagen.");
+      return false;
+    }
+    return true;
+  }
+  m_lastError = QStringLiteral("Löschen nicht unterstützt.");
+  return false;
+}
+
+bool CloudLinkHub::renameRemote(const QString &type, const QString &remoteId,
+                                const QString &newName) {
+  m_lastError.clear();
+  const QString clean = newName.trimmed();
+  if (remoteId.isEmpty() || clean.isEmpty())
+    return false;
+  if (type == QLatin1String("googledrive")) {
+    QString err;
+    const QString token = googleAccess(m_nam, &err);
+    if (token.isEmpty()) {
+      m_lastError = err;
+      return false;
+    }
+    QJsonObject meta;
+    meta.insert(QStringLiteral("name"), clean);
+    const HttpResult r = http(
+        m_nam,
+        jsonReq(QUrl(QStringLiteral("https://www.googleapis.com/drive/v3/files/%1")
+                         .arg(remoteId)),
+                token),
+        "PATCH", QJsonDocument(meta).toJson(QJsonDocument::Compact));
+    if (r.status < 200 || r.status >= 300) {
+      m_lastError = QStringLiteral("Umbenennen fehlgeschlagen.");
+      return false;
+    }
+    return true;
+  }
+  if (type == QLatin1String("onedrive")) {
+    QString err;
+    const QString token = oneDriveAccess(m_nam, &err);
+    if (token.isEmpty()) {
+      m_lastError = err;
+      return false;
+    }
+    QJsonObject meta;
+    meta.insert(QStringLiteral("name"), clean);
+    const HttpResult r = http(
+        m_nam,
+        jsonReq(QUrl(QStringLiteral(
+                         "https://graph.microsoft.com/v1.0/me/drive/items/%1")
+                         .arg(remoteId)),
+                token),
+        "PATCH", QJsonDocument(meta).toJson(QJsonDocument::Compact));
+    if (r.status < 200 || r.status >= 300) {
+      m_lastError = QStringLiteral("Umbenennen fehlgeschlagen.");
+      return false;
+    }
+    return true;
+  }
+  if (type == QLatin1String("nextcloud")) {
+    QString destRel = remoteId;
+    const int slash = destRel.lastIndexOf(QLatin1Char('/'));
+    if (slash >= 0)
+      destRel = destRel.left(slash + 1) + clean;
+    else
+      destRel = clean;
+    QNetworkRequest req = davReq(QUrl(davUrlForRelative(remoteId)));
+    req.setRawHeader("Destination", davUrlForRelative(destRel).toUtf8());
+    req.setRawHeader("Overwrite", "F");
+    const HttpResult r = http(m_nam, req, "MOVE", {});
+    if (!(r.status == 201 || r.status == 204 ||
+          (r.status >= 200 && r.status < 300))) {
+      m_lastError = QStringLiteral("Umbenennen fehlgeschlagen.");
+      return false;
+    }
+    return true;
+  }
+  m_lastError = QStringLiteral("Umbenennen nicht unterstützt.");
+  return false;
 }
 
 bool CloudLinkHub::putNote(const QString &localPath) {

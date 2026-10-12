@@ -58,14 +58,14 @@ QColor textSecondary();
 // charcoal regardless of Light/Dark. Do not pass these through BlopTheme::themed().
 QColor paperBg();            // #F8FAFC app/dialog desk
 QColor paperBgLibrary();     // #F4F5F7 library page
-QColor paperInk();           // #1E293B
-QColor paperInkMuted();      // #64748B
-QColor paperChipBg();        // #F1F5F9 quiet chip / hover cousin
+QColor paperInk();           // #222222
+QColor paperInkMuted();      // #6B6B6B
+QColor paperChipBg();        // #EBEBEB quiet chip / hover cousin
 QColor paperRowBg();         // #FFFFFF elevated row groups
 QColor paperSurface();       // #FFFFFF modal/card surface alias
-QColor paperBorder();        // #E2E8F0
+QColor paperBorder();        // #E3E3E3
 QColor paperPrimaryLight();  // #EFF6FF active segment / nav fill
-QColor paperHover();         // #F1F5F9 menu/row hover
+QColor paperHover();         // #EBEBEB menu/row hover
 QColor lightModalBackdrop(); // rgba(15,23,42,0.4)
 QColor obsidianBg();         // #23252A chrome / content
 QColor obsidianDesk();       // #1A1916 workspace rail (= sidebar)
@@ -74,10 +74,11 @@ QColor obsidianText();       // #F4F5F7
 QColor obsidianSheet();      // #353840 overflow / elevated note cards
 QColor obsidianContent();    // #23252A Dark library desk (cards float above)
 
-/// Library shell: title bar, sidebars, and the note list are three surfaces.
-QColor libraryTitleBar();
-QColor librarySidebar();
-QColor libraryMain();
+/// Library shell: title bar, icon rail, sidebars, and the note list.
+QColor libraryTitleBar();  // Light: dark charcoal chrome (#1A1C1E)
+QColor libraryIconRail();  // Light: same dark charcoal as title bar
+QColor librarySidebar();   // Light: #F0F0F0 nav/explorer well
+QColor libraryMain();      // Light: #FFFFFF note list
 
 int surfaceRadiusDp();
 int radiusLgDp(); // 10 — modals / large sheets (soft, not pill)
@@ -133,6 +134,11 @@ void applyModalShadow(QWidget *card);
 /// and sidebar icon strips (mouse hover + touch press).
 /// minDp defaults to touchTargetMinDp(); pass 32 for compact library header icons.
 QString quietIconButtonQss(int radiusPx = 8, int minDp = -1);
+
+/// Framed charcoal chrome icon button (sidebar header + / collapse, explorer +).
+/// darkChrome: light borders on dark title strip; else dark borders on light.
+QString framedChromeIconButtonQss(bool darkChrome, int radiusPx = 8,
+                                  int sizeDp = 28);
 
 /// In-window menu row (Overflow ⋯): theme-aware (paper in Light, Obsidian in Dark).
 QString menuItemQss(bool destructive = false);

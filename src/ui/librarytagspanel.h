@@ -56,5 +56,5 @@ private:
   QPushButton *m_btnManage{nullptr};
   QColor m_accent{QColor(QStringLiteral("#7C5CFC"))};
   bool m_sidebarMode{false};
-  bool m_collapsed{false};
+  bool m_collapsed{true};
 };

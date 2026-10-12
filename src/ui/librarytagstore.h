@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QString>
 #include <QStringList>
 
@@ -16,6 +17,11 @@ public:
   static bool addTagToCatalog(const QString &tag);
   static bool renameTag(const QString &from, const QString &to);
   static bool removeTag(const QString &tag);
+
+  /// How many notes currently carry this tag (case-insensitive).
+  static int usageCount(const QString &tag);
+  /// All catalog tags → note counts in one pass.
+  static QHash<QString, int> usageCounts();
 
   /// Keep tag assignments when notes/folders are moved or renamed.
   static void remapPath(const QString &fromPath, const QString &toPath);

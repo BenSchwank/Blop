@@ -54,23 +54,23 @@ QColor textSecondary() {
   return c;
 }
 
-int surfaceRadiusDp() { return radiusMdDp(); } // 8 — soft, not pill-round
-int radiusLgDp() { return 10; }                 // modals / large sheets
-int radiusMdDp() { return 8; }                  // cards / menus / chips
+int surfaceRadiusDp() { return 8; } // note tiles / soft controls (not pane wells)
+int radiusLgDp() { return 10; }     // modals / large sheets
+int radiusMdDp() { return 8; }      // cards / menus / chips
 
 int touchTargetMinDp() { return 40; }
 
+// Obsidian-like light neutrals (no cream, no purple wash).
 QColor paperBg() { return QColor(0xFF, 0xFF, 0xFF); }
-QColor paperBgLibrary() { return QColor(0xF4, 0xF5, 0xF7); }
-QColor paperInk() { return QColor(0x1E, 0x29, 0x3B); }
-QColor paperInkMuted() { return QColor(0x64, 0x74, 0x8B); }
-QColor paperChipBg() { return QColor(0xF1, 0xF5, 0xF9); }
-// Cool pure white — warm cream (#F7F7F5) read as "vergilbt".
+QColor paperBgLibrary() { return QColor(0xF0, 0xF0, 0xF0); }
+QColor paperInk() { return QColor(0x22, 0x22, 0x22); }
+QColor paperInkMuted() { return QColor(0x6B, 0x6B, 0x6B); }
+QColor paperChipBg() { return QColor(0xEB, 0xEB, 0xEB); }
 QColor paperRowBg() { return QColor(0xFF, 0xFF, 0xFF); }
 QColor paperSurface() { return paperRowBg(); }
-QColor paperBorder() { return QColor(0xE2, 0xE8, 0xF0); }
+QColor paperBorder() { return QColor(0xE3, 0xE3, 0xE3); }
 QColor paperPrimaryLight() { return QColor(0xEF, 0xF6, 0xFF); }
-QColor paperHover() { return QColor(0xF1, 0xF5, 0xF9); }
+QColor paperHover() { return QColor(0xEB, 0xEB, 0xEB); }
 QColor lightModalBackdrop() { return QColor(15, 23, 42, 102); } // 0.4 alpha
 // Dark shell: black sidebar, quieter library desk, elevated note cards.
 QColor obsidianBg() { return QColor(0x23, 0x25, 0x2A); }
@@ -81,12 +81,18 @@ QColor obsidianSheet() { return QColor(0x35, 0x38, 0x40); }
 QColor obsidianContent() { return QColor(0x23, 0x25, 0x2A); }
 
 QColor libraryTitleBar() {
+  // Drawboard-style dark chrome in Light; near-black in Dark.
   return BlopTheme::instance().isDark() ? QColor(0x10, 0x12, 0x16)
-                                        : QColor(0xEE, 0xF1, 0xF6);
+                                        : QColor(0x1A, 0x1C, 0x1E);
+}
+QColor libraryIconRail() {
+  // Obsidian-style dark rail accent in Light; matches dark sidebar in Dark.
+  return BlopTheme::instance().isDark() ? QColor(0x1A, 0x1D, 0x26)
+                                        : QColor(0x1A, 0x1C, 0x1E);
 }
 QColor librarySidebar() {
   return BlopTheme::instance().isDark() ? QColor(0x1A, 0x1D, 0x26)
-                                        : QColor(0xF4, 0xF6, 0xFA);
+                                        : QColor(0xF0, 0xF0, 0xF0);
 }
 QColor libraryMain() {
   return BlopTheme::instance().isDark() ? QColor(0x26, 0x29, 0x32)
@@ -437,6 +443,37 @@ QString quietIconButtonQss(int radiusPx, int minDp) {
       .arg(radiusPx)
       .arg(minPx)
       .arg(hover, press, fg);
+}
+
+QString framedChromeIconButtonQss(bool darkChrome, int radiusPx, int sizeDp) {
+  const int sizePx = UiScale::dp(sizeDp);
+  const QString border = darkChrome ? QStringLiteral("rgba(255,255,255,0.18)")
+                                    : QStringLiteral("rgba(0,0,0,0.14)");
+  const QString borderHover = darkChrome
+                                  ? QStringLiteral("rgba(255,255,255,0.28)")
+                                  : QStringLiteral("rgba(0,0,0,0.20)");
+  const QString hover = darkChrome ? QStringLiteral("rgba(255,255,255,0.10)")
+                                   : QStringLiteral("rgba(0,0,0,0.06)");
+  const QString press = darkChrome ? QStringLiteral("rgba(255,255,255,0.16)")
+                                   : QStringLiteral("rgba(0,0,0,0.10)");
+  const QString fg = darkChrome ? QStringLiteral("#C8CDD8")
+                                : paperInkMuted().name(QColor::HexRgb);
+  return QStringLiteral(
+             "QToolButton, QPushButton {"
+             "  background: transparent; border: 1px solid %1;"
+             "  border-radius: %2px; padding: 0;"
+             "  min-width: %3px; min-height: %3px;"
+             "  max-width: %3px; max-height: %3px;"
+             "  color: %6; font-weight: 700; font-size: 14px;"
+             "}"
+             "QToolButton:hover, QPushButton:hover {"
+             "  background: %4; border: 1px solid %5; color: %6;"
+             "}"
+             "QToolButton:pressed, QPushButton:pressed {"
+             "  background: %7; border: 1px solid %5; color: %6;"
+             "}")
+      .arg(border, QString::number(radiusPx), QString::number(sizePx), hover,
+           borderHover, fg, press);
 }
 
 QString menuItemQss(bool destructive) {

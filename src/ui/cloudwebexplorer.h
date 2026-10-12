@@ -13,16 +13,15 @@ class QPushButton;
 class QWebEngineView;
 #endif
 
-/// In-app cloud file explorer: sign in at the provider and browse like a
-/// web app (Google Drive / Nextcloud / OneDrive / Dropbox / custom URL).
+/// Legacy in-app cloud explorer chrome (kept for linkage). Login/browse is
+/// opened in the system browser via showOver — cookies / passwords apply.
 class CloudWebExplorer : public QWidget {
   Q_OBJECT
 public:
   explicit CloudWebExplorer(QWidget *parent = nullptr);
 
-  /// Cover `host`'s window with the explorer for this cloud entry.
-  /// On Android this hands off to MainWindow's in-app WebView (same surface
-  /// as Study) instead of opening Chrome.
+  /// Resolve URL (prompt for Nextcloud/custom if needed) and open it in the
+  /// system browser. Always returns nullptr (no overlay).
   static CloudWebExplorer *showOver(QWidget *host, CloudStorageEntry entry);
 
   void openEntry(const CloudStorageEntry &entry);

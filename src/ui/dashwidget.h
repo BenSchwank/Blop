@@ -28,6 +28,9 @@ public:
   void applyChromePrefs(bool bgEnabled, bool borderEnabled,
                         const QString &bgColor, const QString &borderColor);
 
+  QSize sizeHint() const override;
+  QSize minimumSizeHint() const override;
+
   static DashWidget *create(const QString &id, QWidget *parent = nullptr);
 
 signals:

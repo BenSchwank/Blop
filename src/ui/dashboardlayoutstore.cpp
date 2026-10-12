@@ -265,18 +265,18 @@ DashboardWidgetSpec DashboardLayoutStore::defaultFor(const QString &id) {
 }
 
 QVector<DashboardWidgetSpec> DashboardLayoutStore::defaults() {
-  // Cover → full-width title → aligned 6+6 content row → tasks.
+  // Short cover → title → 6+6 content → tasks (no tall empty hero band).
   auto today = make(QStringLiteral("today"), 99, 0, 0, DashSizeClass::M);
   today.visible = false;
   auto shortcuts = make(QStringLiteral("shortcuts"), 99, 0, 0, DashSizeClass::L);
   shortcuts.visible = false;
   return {
-      make(QStringLiteral("banner"), 0, 0, 0, DashSizeClass::L),
-      make(QStringLiteral("intro"), 1, 2, 0, DashSizeClass::Title),
+      make(QStringLiteral("banner"), 0, 0, 0, DashSizeClass::Title),
+      make(QStringLiteral("intro"), 1, 1, 0, DashSizeClass::Title),
       today,
-      make(QStringLiteral("calendar"), 2, 3, 0, DashSizeClass::Tall),
-      make(QStringLiteral("recent"), 3, 3, 6, DashSizeClass::Tall),
-      make(QStringLiteral("todos"), 4, 6, 0, DashSizeClass::M),
+      make(QStringLiteral("calendar"), 2, 2, 0, DashSizeClass::Tall),
+      make(QStringLiteral("recent"), 3, 2, 6, DashSizeClass::Tall),
+      make(QStringLiteral("todos"), 4, 5, 0, DashSizeClass::M),
       shortcuts,
   };
 }
@@ -604,6 +604,128 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
                    QJsonDocument(arr).toJson(QJsonDocument::Compact));
     }
   }
+
+  // One-shot: keep intro flush under cover (no overlap / no floating gray gap).
+  {
+    QSettings mig(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    constexpr const char *kCoverIntro = "dashboard/layout.coverIntroCalmV1";
+    if (!mig.value(QLatin1String(kCoverIntro)).toBool()) {
+      mig.setValue(QLatin1String(kCoverIntro), true);
+      DashboardWidgetSpec *banner = nullptr;
+      DashboardWidgetSpec *intro = nullptr;
+      for (auto &s : out) {
+        if (s.id == QLatin1String("banner") && s.visible)
+          banner = &s;
+        if (s.id == QLatin1String("intro"))
+          intro = &s;
+      }
+      if (intro) {
+        intro->visible = true;
+        intro->col = 0;
+        intro->sizeClass = DashSizeClass::Title;
+        if (banner) {
+          const int bannerBottom =
+              banner->row + rowSpanFor(banner->sizeClass);
+          if (intro->row < bannerBottom)
+            intro->row = bannerBottom;
+        }
+        QJsonArray arr;
+        for (int i = 0; i < out.size(); ++i) {
+          const auto &s = out[i];
+          QJsonObject o;
+          o.insert(QStringLiteral("id"), s.id);
+          o.insert(QStringLiteral("visible"), s.visible);
+          o.insert(QStringLiteral("order"), i);
+          o.insert(QStringLiteral("row"), s.row);
+          o.insert(QStringLiteral("col"), s.col);
+          o.insert(QStringLiteral("sizeClass"), sizeClassToString(s.sizeClass));
+          o.insert(QStringLiteral("bgEnabled"), s.bgEnabled);
+          o.insert(QStringLiteral("borderEnabled"), s.borderEnabled);
+          if (!s.bgColor.isEmpty())
+            o.insert(QStringLiteral("bgColor"), s.bgColor);
+          if (!s.borderColor.isEmpty())
+            o.insert(QStringLiteral("borderColor"), s.borderColor);
+          arr.append(o);
+        }
+        mig.setValue(settingsKey(),
+                     QJsonDocument(arr).toJson(QJsonDocument::Compact));
+      }
+    }
+  }
+
+  // One-shot: kill empty rows between cover/intro and content (dense pack).
+  auto packToDefaults = [&](const char *key) {
+    QSettings mig(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    if (mig.value(QLatin1String(key)).toBool())
+      return;
+    mig.setValue(QLatin1String(key), true);
+
+    QHash<QString, bool> visibility;
+    QHash<QString, DashboardWidgetSpec> chrome;
+    for (const auto &s : out) {
+      visibility.insert(s.id, s.visible);
+      chrome.insert(s.id, s);
+    }
+    QVector<DashboardWidgetSpec> extras;
+    for (const auto &s : out) {
+      if (isBannerId(s.id) && s.id != QLatin1String("banner"))
+        extras.append(s);
+    }
+
+    out = defaults();
+    for (auto &s : out) {
+      if (visibility.contains(s.id))
+        s.visible = visibility.value(s.id);
+      if (chrome.contains(s.id)) {
+        const auto &c = chrome.value(s.id);
+        s.bgEnabled = c.bgEnabled;
+        s.borderEnabled = c.borderEnabled;
+        s.bgColor = c.bgColor;
+        s.borderColor = c.borderColor;
+      }
+      if (s.id == QLatin1String("intro") || s.id == QLatin1String("banner"))
+        s.visible = true;
+      if (s.id == QLatin1String("today") || s.id == QLatin1String("shortcuts"))
+        s.visible = false;
+    }
+    int maxBottom = 0;
+    for (const auto &x : out) {
+      if (!x.visible)
+        continue;
+      maxBottom = qMax(maxBottom, x.row + rowSpanFor(x.sizeClass));
+    }
+    for (DashboardWidgetSpec extra : extras) {
+      extra.row = maxBottom;
+      extra.col = 0;
+      extra.visible = true;
+      out.append(extra);
+      maxBottom += rowSpanFor(extra.sizeClass);
+    }
+
+    QJsonArray arr;
+    for (int i = 0; i < out.size(); ++i) {
+      const auto &s = out[i];
+      QJsonObject o;
+      o.insert(QStringLiteral("id"), s.id);
+      o.insert(QStringLiteral("visible"), s.visible);
+      o.insert(QStringLiteral("order"), i);
+      o.insert(QStringLiteral("row"), s.row);
+      o.insert(QStringLiteral("col"), s.col);
+      o.insert(QStringLiteral("sizeClass"), sizeClassToString(s.sizeClass));
+      o.insert(QStringLiteral("bgEnabled"), s.bgEnabled);
+      o.insert(QStringLiteral("borderEnabled"), s.borderEnabled);
+      if (!s.bgColor.isEmpty())
+        o.insert(QStringLiteral("bgColor"), s.bgColor);
+      if (!s.borderColor.isEmpty())
+        o.insert(QStringLiteral("borderColor"), s.borderColor);
+      arr.append(o);
+    }
+    mig.setValue(settingsKey(),
+                 QJsonDocument(arr).toJson(QJsonDocument::Compact));
+  };
+  packToDefaults("dashboard/layout.packDenseV2");
+  // Short cover + denser stack (banner Title instead of tall empty L band).
+  packToDefaults("dashboard/layout.packDenseV3");
 
   std::sort(out.begin(), out.end(),
             [](const DashboardWidgetSpec &a, const DashboardWidgetSpec &b) {

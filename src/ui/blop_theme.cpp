@@ -130,8 +130,8 @@ BlopTheme::Accent BlopTheme::accentFromKey(const QString &k) {
 // =====================================================================
 
 QColor BlopTheme::surfaceBackground() {
-  // Match library sidebar (obsidianNav) — never pure black.
-  return instance().isDark() ? QColor(0x1A, 0x19, 0x16) : QColor(0xF5, 0xF4, 0xF8);
+  // Light: Obsidian-like #FAFAFA (no purple wash). Dark: never pure black.
+  return instance().isDark() ? QColor(0x1A, 0x19, 0x16) : QColor(0xFA, 0xFA, 0xFA);
 }
 
 QColor BlopTheme::surfaceBase() {
@@ -144,23 +144,23 @@ QColor BlopTheme::surfaceElevated() {
 }
 
 QColor BlopTheme::surfaceMuted() {
-  return instance().isDark() ? QColor(0x42, 0x46, 0x50) : QColor(0xEC, 0xEB, 0xF1);
+  return instance().isDark() ? QColor(0x42, 0x46, 0x50) : QColor(0xEB, 0xEB, 0xEB);
 }
 
 QColor BlopTheme::surfaceInverse() {
-  return instance().isDark() ? QColor(0xF5, 0xF4, 0xF8) : QColor(0x1A, 0x19, 0x16);
+  return instance().isDark() ? QColor(0xFA, 0xFA, 0xFA) : QColor(0x1A, 0x19, 0x16);
 }
 
 QColor BlopTheme::textPrimary() {
-  return instance().isDark() ? QColor(0xF4, 0xF5, 0xF7) : QColor(0x1A, 0x17, 0x26);
+  return instance().isDark() ? QColor(0xF4, 0xF5, 0xF7) : QColor(0x22, 0x22, 0x22);
 }
 
 QColor BlopTheme::textSecondary() {
-  return instance().isDark() ? QColor(0xA7, 0xAD, 0xB6) : QColor(0x52, 0x51, 0x6B);
+  return instance().isDark() ? QColor(0xA7, 0xAD, 0xB6) : QColor(0x6B, 0x6B, 0x6B);
 }
 
 QColor BlopTheme::textTertiary() {
-  return instance().isDark() ? QColor(0x7D, 0x83, 0x8C) : QColor(0x80, 0x7F, 0x9A);
+  return instance().isDark() ? QColor(0x7D, 0x83, 0x8C) : QColor(0x8A, 0x8A, 0x8A);
 }
 
 QColor BlopTheme::textOnAccent() { return QColor(0xFF, 0xFF, 0xFF); }

@@ -12,9 +12,11 @@
 #include <QEvent>
 #include <QGuiApplication>
 #include <QKeyEvent>
+#include <QLayout>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QPropertyAnimation>
 #include <QRadialGradient>
 #include <QResizeEvent>
 #include <QScrollArea>
@@ -24,6 +26,7 @@
 #include <QTimer>
 #include <QtMath>
 #include <QWheelEvent>
+#include <algorithm>
 #include <climits>
 
 class DashSnapGhost : public QWidget {
@@ -371,10 +374,11 @@ QRect DashCanvas::cellRect(int row, int col, int rowSpan, int colSpan) const {
   return QRect(x, y, w, h);
 }
 
-int DashCanvas::contentBottom() const {
+int DashCanvas::contentBottomOf(
+    const QVector<DashboardWidgetSpec> &specs) const {
   if (m_phone) {
     int y = boardMargins().top();
-    for (const auto &s : m_specs) {
+    for (const auto &s : specs) {
       if (!s.visible)
         continue;
       const int rs = DashboardLayoutStore::rowSpanFor(s.sizeClass);
@@ -383,7 +387,7 @@ int DashCanvas::contentBottom() const {
     return y + boardMargins().bottom();
   }
   int maxBottom = boardMargins().top();
-  for (const auto &s : m_specs) {
+  for (const auto &s : specs) {
     if (!s.visible)
       continue;
     const int rs = DashboardLayoutStore::rowSpanFor(s.sizeClass);
@@ -392,6 +396,8 @@ int DashCanvas::contentBottom() const {
   }
   return maxBottom + boardMargins().bottom();
 }
+
+int DashCanvas::contentBottom() const { return contentBottomOf(m_specs); }
 
 QSize DashCanvas::sizeHint() const {
   return QSize(width() > 0 ? width() : UiScale::dp(720),
@@ -403,7 +409,10 @@ QSize DashCanvas::minimumSizeHint() const {
 }
 
 void DashCanvas::layoutPhoneStack() {
-  int row = 0;
+  int y = boardMargins().top();
+  const int x = boardMargins().left();
+  const int wAvail =
+      qMax(12, width() - boardMargins().left() - boardMargins().right());
   for (const auto &s : m_specs) {
     if (!s.visible)
       continue;
@@ -411,16 +420,51 @@ void DashCanvas::layoutPhoneStack() {
     if (!w)
       continue;
     const int rs = DashboardLayoutStore::rowSpanFor(s.sizeClass);
-    const QRect r = cellRect(row, 0, rs, 12);
-    w->setGeometry(r);
-    w->setFixedHeight(r.height());
+    const int cellH = rs * rowUnit() + (rs - 1) * vGap();
+    int h = cellH;
+    if (!m_editMode && s.id == QLatin1String("intro")) {
+      w->setMinimumHeight(0);
+      w->setMaximumHeight(QWIDGETSIZE_MAX);
+      w->setFixedWidth(wAvail);
+      // Never clip greeting/CTAs — grow past the Title cell if needed.
+      h = qMax(UiScale::dp(176), w->sizeHint().height());
+    }
+    w->setGeometry(x, y, wAvail, h);
+    w->setFixedHeight(h);
     w->raise();
-    row += rs;
+    y += h + vGap();
   }
-  setMinimumHeight(contentBottom());
+  setMinimumHeight(y + boardMargins().bottom());
 }
 
 void DashCanvas::layoutDesktopGrid() {
+  // Intro sizes to content. Positive slack = reclaim empty Title space;
+  // negative slack = grow past Title and push cards down (no clipped greeting).
+  int introRow = -1;
+  int introSlack = 0;
+  if (!m_editMode) {
+    for (const auto &s : m_specs) {
+      if (!s.visible || s.id != QLatin1String("intro"))
+        continue;
+      DashWidget *intro = m_widgets.value(s.id);
+      if (!intro)
+        break;
+      const int cs = DashboardLayoutStore::colSpanFor(s.sizeClass);
+      const int rs = DashboardLayoutStore::rowSpanFor(s.sizeClass);
+      const QRect full = cellRect(s.row, s.col, rs, cs);
+      // Drop prior fixedHeight so sizeHint isn't capped to the Title cell.
+      intro->setMinimumHeight(0);
+      intro->setMaximumHeight(QWIDGETSIZE_MAX);
+      intro->setFixedWidth(full.width());
+      if (intro->layout())
+        intro->layout()->activate();
+      const int hug = qMax(UiScale::dp(176), intro->sizeHint().height());
+      introRow = s.row;
+      introSlack = full.height() - hug;
+      break;
+    }
+  }
+
   for (const auto &s : m_specs) {
     if (!s.visible)
       continue;
@@ -429,14 +473,19 @@ void DashCanvas::layoutDesktopGrid() {
       continue;
     const int cs = DashboardLayoutStore::colSpanFor(s.sizeClass);
     const int rs = DashboardLayoutStore::rowSpanFor(s.sizeClass);
-    const QRect r = cellRect(s.row, s.col, rs, cs);
+    QRect r = cellRect(s.row, s.col, rs, cs);
+    if (introSlack != 0 && introRow >= 0 && s.row > introRow)
+      r.translate(0, -introSlack);
+    if (!m_editMode && s.id == QLatin1String("intro"))
+      r.setHeight(r.height() - introSlack);
     w->setGeometry(r);
     w->setFixedHeight(r.height());
   }
+  const int slack = (!m_editMode) ? introSlack : 0;
   if (m_editMode)
     setMinimumHeight(contentBottom() + 3 * (rowUnit() + vGap()));
   else
-    setMinimumHeight(contentBottom());
+    setMinimumHeight(qMax(0, contentBottom() - slack));
 }
 
 void DashCanvas::applyPositions() {
@@ -485,7 +534,12 @@ void DashCanvas::clampSpec(DashboardWidgetSpec &s) const {
 }
 
 DashboardWidgetSpec *DashCanvas::findSpec(const QString &id) {
-  for (auto &s : m_specs) {
+  return findSpecIn(m_specs, id);
+}
+
+DashboardWidgetSpec *DashCanvas::findSpecIn(QVector<DashboardWidgetSpec> &specs,
+                                            const QString &id) {
+  for (auto &s : specs) {
     if (s.id == id)
       return &s;
   }
@@ -496,83 +550,191 @@ DashSizeClass DashCanvas::nearestSizeClass(int colSpan, int rowSpan) const {
   return DashboardLayoutStore::fromSpans(colSpan, rowSpan);
 }
 
-void DashCanvas::reflowKeeping(const QString &anchorId) {
-  if (auto *anchor = findSpec(anchorId))
-    clampSpec(*anchor);
+bool DashCanvas::specsLayoutEqual(const QVector<DashboardWidgetSpec> &a,
+                                  const QVector<DashboardWidgetSpec> &b) {
+  if (a.size() != b.size())
+    return false;
+  for (int i = 0; i < a.size(); ++i) {
+    if (a[i].id != b[i].id || a[i].visible != b[i].visible ||
+        a[i].row != b[i].row || a[i].col != b[i].col ||
+        a[i].sizeClass != b[i].sizeClass)
+      return false;
+  }
+  return true;
+}
 
-  for (int pass = 0; pass < 32; ++pass) {
-    bool changed = false;
-    for (int i = 0; i < m_specs.size(); ++i) {
-      if (!m_specs[i].visible)
-        continue;
-      for (int j = 0; j < m_specs.size(); ++j) {
-        if (i == j || !m_specs[j].visible)
-          continue;
-        if (!overlaps(m_specs[i], m_specs[j]))
-          continue;
+void DashCanvas::reflowPushDown(QVector<DashboardWidgetSpec> &specs,
+                                const QString &anchorId, bool floatUp) {
+  for (auto &s : specs)
+    clampSpec(s);
 
-        DashboardWidgetSpec *stay = &m_specs[i];
-        DashboardWidgetSpec *move = &m_specs[j];
-        if (move->id == anchorId) {
-          stay = &m_specs[j];
-          move = &m_specs[i];
-        } else if (stay->id != anchorId && move->id != anchorId) {
-          // Prefer moving the one further down / right.
-          if (m_specs[i].row > m_specs[j].row ||
-              (m_specs[i].row == m_specs[j].row &&
-               m_specs[i].col >= m_specs[j].col)) {
-            stay = &m_specs[j];
-            move = &m_specs[i];
-          }
+  QVector<int> order;
+  int pinned = -1;
+  for (int i = 0; i < specs.size(); ++i) {
+    if (!specs[i].visible)
+      continue;
+    if (specs[i].id == anchorId)
+      pinned = i;
+    else
+      order.append(i);
+  }
+  std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+    if (specs[a].row != specs[b].row)
+      return specs[a].row < specs[b].row;
+    return specs[a].col < specs[b].col;
+  });
+  if (pinned >= 0)
+    order.prepend(pinned);
+
+  // Push-down: later cards move below anything they collide with (col stays).
+  QVector<int> placed;
+  for (int idx : order) {
+    DashboardWidgetSpec &it = specs[idx];
+    bool moved = true;
+    while (moved) {
+      moved = false;
+      for (int p : placed) {
+        if (overlaps(it, specs[p])) {
+          it.row = specs[p].row +
+                   DashboardLayoutStore::rowSpanFor(specs[p].sizeClass);
+          clampSpec(it);
+          moved = true;
         }
-
-        const int stayRight =
-            stay->col + DashboardLayoutStore::colSpanFor(stay->sizeClass);
-        const int stayBottom =
-            stay->row + DashboardLayoutStore::rowSpanFor(stay->sizeClass);
-        const int moveCs = DashboardLayoutStore::colSpanFor(move->sizeClass);
-        const int oldRow = move->row;
-        const int oldCol = move->col;
-
-        // 1) Try east of the staying block.
-        if (stayRight + moveCs <= 12) {
-          move->col = stayRight;
-          move->row = stay->row;
-          clampSpec(*move);
-          if (!overlaps(*stay, *move)) {
-            // Check vs all others briefly — if still overlapping someone, keep trying.
-            bool ok = true;
-            for (const auto &o : m_specs) {
-              if (!o.visible || o.id == move->id)
-                continue;
-              if (overlaps(*move, o)) {
-                ok = false;
-                break;
-              }
-            }
-            if (ok) {
-              changed = true;
-              continue;
-            }
-          }
-          move->row = oldRow;
-          move->col = oldCol;
-        }
-
-        // 2) Push south — always keeps the board valid.
-        move->row = stayBottom;
-        move->col = qBound(0, move->col, 12 - moveCs);
-        if (move->row != oldRow || move->col != oldCol)
-          changed = true;
       }
     }
-    if (!changed)
-      break;
+    placed.append(idx);
   }
 
-  // Final clamp all.
-  for (auto &s : m_specs)
+  if (floatUp) {
+    QVector<int> byRow;
+    byRow.reserve(specs.size());
+    for (int i = 0; i < specs.size(); ++i) {
+      if (specs[i].visible)
+        byRow.append(i);
+    }
+    std::stable_sort(byRow.begin(), byRow.end(), [&](int a, int b) {
+      if (specs[a].row != specs[b].row)
+        return specs[a].row < specs[b].row;
+      return specs[a].col < specs[b].col;
+    });
+    QVector<int> settled;
+    for (int idx : byRow) {
+      DashboardWidgetSpec &it = specs[idx];
+      while (it.row > 0) {
+        DashboardWidgetSpec probe = it;
+        --probe.row;
+        bool blocked = false;
+        for (int s : settled) {
+          if (overlaps(probe, specs[s])) {
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked)
+          break;
+        it.row = probe.row;
+      }
+      settled.append(idx);
+    }
+  }
+
+  for (auto &s : specs)
     clampSpec(s);
+}
+
+void DashCanvas::reflowKeeping(const QString &anchorId) {
+  reflowPushDown(m_specs, anchorId, /*floatUp=*/true);
+}
+
+void DashCanvas::stopNeighborAnims() {
+  for (auto it = m_widgets.begin(); it != m_widgets.end(); ++it) {
+    DashWidget *w = it.value();
+    if (!w)
+      continue;
+    const auto anims = w->findChildren<QPropertyAnimation *>(
+        QStringLiteral("dashMove"), Qt::FindDirectChildrenOnly);
+    for (QPropertyAnimation *a : anims) {
+      a->setObjectName(QString());
+      a->stop();
+    }
+  }
+}
+
+void DashCanvas::applySpecGeometries(const QVector<DashboardWidgetSpec> &specs,
+                                     bool animate, const QString &skipId) {
+  const int bottom = contentBottomOf(specs);
+  if (m_editMode)
+    setMinimumHeight(bottom + 3 * (rowUnit() + vGap()));
+  else
+    setMinimumHeight(bottom);
+
+  for (const auto &s : specs) {
+    if (!s.visible || s.id == skipId)
+      continue;
+    DashWidget *w = m_widgets.value(s.id);
+    if (!w)
+      continue;
+    const int cs = DashboardLayoutStore::colSpanFor(s.sizeClass);
+    const int rs = DashboardLayoutStore::rowSpanFor(s.sizeClass);
+    const QRect target = cellRect(s.row, s.col, rs, cs);
+
+    QPropertyAnimation *running = nullptr;
+    const auto anims = w->findChildren<QPropertyAnimation *>(
+        QStringLiteral("dashMove"), Qt::FindDirectChildrenOnly);
+    for (QPropertyAnimation *a : anims) {
+      if (a->state() == QAbstractAnimation::Running)
+        running = a;
+    }
+    if (running && running->endValue().toRect() == target && animate)
+      continue;
+    if (running) {
+      running->setObjectName(QString());
+      running->stop();
+    }
+    if (!animate || !isVisible()) {
+      w->setGeometry(target);
+      w->setFixedHeight(target.height());
+      continue;
+    }
+    if (w->geometry() == target) {
+      w->setFixedHeight(target.height());
+      continue;
+    }
+    // Allow geometry animation (fixedHeight would freeze the rect).
+    w->setMinimumHeight(0);
+    w->setMaximumHeight(QWIDGETSIZE_MAX);
+    auto *anim = new QPropertyAnimation(w, "geometry", w);
+    anim->setObjectName(QStringLiteral("dashMove"));
+    anim->setDuration(BlopMotion::kFast);
+    anim->setEasingCurve(BlopMotion::kEaseStandard);
+    anim->setStartValue(w->geometry());
+    anim->setEndValue(target);
+    connect(anim, &QPropertyAnimation::finished, w, [w, target]() {
+      if (w)
+        w->setFixedHeight(target.height());
+    });
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+  }
+}
+
+void DashCanvas::syncGesturePreview(bool animate) {
+  m_previewSpecs = m_specs;
+  if (DashboardWidgetSpec *anchor = findSpecIn(m_previewSpecs, m_dragId)) {
+    anchor->row = m_previewRow;
+    anchor->col = m_previewCol;
+    anchor->sizeClass = m_previewSize;
+    clampSpec(*anchor);
+  }
+  // Live gesture: push only — float-up on commit closes holes after shrink.
+  reflowPushDown(m_previewSpecs, m_dragId, /*floatUp=*/false);
+  applySpecGeometries(m_previewSpecs, animate, m_dragId);
+
+  if (auto *anchor = findSpecIn(m_previewSpecs, m_dragId)) {
+    const int cs = DashboardLayoutStore::colSpanFor(anchor->sizeClass);
+    const int rs = DashboardLayoutStore::rowSpanFor(anchor->sizeClass);
+    if (m_ghost)
+      m_ghost->showAt(cellRect(anchor->row, anchor->col, rs, cs));
+  }
 }
 
 void DashCanvas::resizeBlock(const QString &id, DashSizeClass sizeClass) {
@@ -672,15 +834,13 @@ void DashCanvas::beginMove(DashWidget *w, const QPoint &globalPos) {
   m_previewSize = spec->sizeClass;
   m_previewRow = spec->row;
   m_previewCol = spec->col;
+  m_previewSpecs = m_specs;
 
   setScrollLocked(true);
   w->setLifted(true);
   w->raise();
   w->clearFocus();
-  const int cs = DashboardLayoutStore::colSpanFor(spec->sizeClass);
-  const int rs = DashboardLayoutStore::rowSpanFor(spec->sizeClass);
-  if (m_ghost)
-    m_ghost->showAt(cellRect(m_previewRow, m_previewCol, rs, cs));
+  syncGesturePreview(/*animate=*/false);
   // App-wide filter only — no mouse grab. Grabbing inside a QScrollArea makes
   // the viewport chase the cursor while/after resize.
   qApp->installEventFilter(this);
@@ -709,15 +869,13 @@ void DashCanvas::beginResize(DashWidget *w, const QPoint &globalPos) {
   m_previewSize = spec->sizeClass;
   m_previewRow = spec->row;
   m_previewCol = spec->col;
+  m_previewSpecs = m_specs;
 
   setScrollLocked(true);
   w->setLifted(true);
   w->raise();
   w->clearFocus();
-  const int cs = DashboardLayoutStore::colSpanFor(spec->sizeClass);
-  const int rs = DashboardLayoutStore::rowSpanFor(spec->sizeClass);
-  if (m_ghost)
-    m_ghost->showAt(cellRect(m_previewRow, m_previewCol, rs, cs));
+  syncGesturePreview(/*animate=*/false);
   qApp->installEventFilter(this);
   startDragWatch();
 }
@@ -740,12 +898,11 @@ void DashCanvas::updateGesture(const QPoint &globalPos) {
   const int pitchY = rowUnit() + vGap();
 
   if (m_gesture == Gesture::Move) {
-    // Ghost-only move: never relocate the live card during drag — that made
-    // QScrollArea chase the cursor until the next click.
+    // Ghost-only anchor: never relocate the live card during drag — that made
+    // QScrollArea chase the cursor until the next click. Neighbors push-down.
     const QPoint delta = globalPos - m_pressGlobal;
     const QPoint topLeft = m_originTopLeft + delta;
     const int cs = DashboardLayoutStore::colSpanFor(spec->sizeClass);
-    const int rs = DashboardLayoutStore::rowSpanFor(spec->sizeClass);
     int col = qRound(double(topLeft.x() - mg.left()) / double(pitchX));
     int row = qRound(double(topLeft.y() - mg.top()) / double(pitchY));
     col = qBound(0, col, 12 - cs);
@@ -753,8 +910,7 @@ void DashCanvas::updateGesture(const QPoint &globalPos) {
     m_previewRow = row;
     m_previewCol = col;
     m_previewSize = spec->sizeClass;
-    if (m_ghost)
-      m_ghost->showAt(cellRect(m_previewRow, m_previewCol, rs, cs));
+    syncGesturePreview(/*animate=*/true);
     pinScrollNow();
     return;
   }
@@ -800,12 +956,8 @@ void DashCanvas::updateGesture(const QPoint &globalPos) {
   }
 
   m_previewSize = next;
-  const int rs = DashboardLayoutStore::rowSpanFor(next);
-  const QRect target = cellRect(m_previewRow, m_previewCol, rs, cs);
-  // Ghost-only resize preview — live geometry stays put until commit so the
-  // scroll area cannot chase a growing child under the cursor.
-  if (m_ghost)
-    m_ghost->showAt(target);
+  // Neighbors animate down as the ghost grows; anchor stays put (scroll-safe).
+  syncGesturePreview(/*animate=*/true);
   pinScrollNow();
 }
 
@@ -819,6 +971,7 @@ void DashCanvas::endGesture(bool commit) {
   stopDragWatch();
   const int keepScrollY = m_frozenScrollY;
   const Gesture finished = m_gesture;
+  const QString dragId = m_dragId;
   m_gesture = Gesture::None;
 
   // Tear down input capture before layout commits.
@@ -833,46 +986,34 @@ void DashCanvas::endGesture(bool commit) {
   }
   setScrollLocked(false);
 
-  auto *spec = findSpec(m_dragId);
-  if (spec) {
-    if (commit) {
-      const bool changed =
-          (finished == Gesture::Move &&
-           (spec->row != m_previewRow || spec->col != m_previewCol)) ||
-          (finished == Gesture::Resize &&
-           (spec->sizeClass != m_previewSize || spec->row != m_previewRow ||
-            spec->col != m_previewCol));
-      if (changed)
-        emit layoutAboutToChange();
-      if (finished == Gesture::Move) {
-        spec->row = m_previewRow;
-        spec->col = m_previewCol;
-        clampSpec(*spec);
-        reflowKeeping(m_dragId);
-      } else if (finished == Gesture::Resize) {
-        spec->sizeClass = m_previewSize;
-        spec->row = m_previewRow;
-        spec->col = m_previewCol;
-        clampSpec(*spec);
-        reflowKeeping(m_dragId);
-      }
-      if (changed)
-        emit specsChanged(m_specs);
-    } else {
-      // Esc / cancel: restore footprint, do not persist preview.
-      spec->row = m_startRow;
-      spec->col = m_startCol;
-      spec->sizeClass = m_startSize;
-      clampSpec(*spec);
-    }
+  auto *spec = findSpec(dragId);
+  if (commit && (finished == Gesture::Move || finished == Gesture::Resize) &&
+      !m_previewSpecs.isEmpty()) {
+    // Commit already-reflowed preview, then float-up to close holes after shrink.
+    QVector<DashboardWidgetSpec> next = m_previewSpecs;
+    reflowPushDown(next, dragId, /*floatUp=*/true);
+    const bool changed = !specsLayoutEqual(m_specs, next);
+    if (changed)
+      emit layoutAboutToChange();
+    m_specs = next;
+    if (changed)
+      emit specsChanged(m_specs);
+  } else if (spec) {
+    // Esc / cancel: restore footprint, do not persist preview.
+    spec->row = m_startRow;
+    spec->col = m_startCol;
+    spec->sizeClass = m_startSize;
+    clampSpec(*spec);
   }
 
+  stopNeighborAnims();
   clearGhost();
-  if (m_dragWidget && spec)
+  if (m_dragWidget && (spec = findSpec(dragId)))
     m_dragWidget->setSizeClass(spec->sizeClass);
 
   m_dragWidget = nullptr;
   m_dragId.clear();
+  m_previewSpecs.clear();
 
   if (QScrollArea *sa = scrollArea()) {
     auto *bar = sa->verticalScrollBar();

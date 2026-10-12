@@ -43,8 +43,9 @@ constexpr int kRailWidthDp = 188;
 enum class SegStyle { Plain, Soft, Callout };
 
 QColor railFill() {
+  // Match dashboard desk — no second charcoal stripe beside the board.
   if (BlopTheme::instance().isDark())
-    return QColor(0x27, 0x29, 0x2E);
+    return BlopStyle::obsidianContent();
   return BlopStyle::paperBg();
 }
 QString railInk() {
@@ -59,39 +60,41 @@ QString railMuted() {
 }
 QString hairline() {
   return BlopTheme::instance().isDark()
-             ? QStringLiteral("rgba(255,255,255,0.08)")
-             : QStringLiteral("rgba(55,53,47,0.10)");
+             ? QStringLiteral("rgba(255,255,255,0.07)")
+             : QStringLiteral("rgba(55,53,47,0.09)");
 }
 
 SegStyle styleForModule(const QString &id) {
+  // Notion rhythm: few tinted callouts, most blocks plain with hairlines.
   if (id == QLatin1String("weather") || id == QLatin1String("focus"))
     return SegStyle::Callout;
-  if (id == QLatin1String("clock") || id == QLatin1String("shortcuts") ||
-      id == QLatin1String("favorites") || id == QLatin1String("recent"))
-    return SegStyle::Plain;
-  return SegStyle::Soft;
+  if (id == QLatin1String("search") || id == QLatin1String("capture") ||
+      id == QLatin1String("todos"))
+    return SegStyle::Soft;
+  return SegStyle::Plain;
 }
 
 QString calloutWash(const QString &id) {
   if (id == QLatin1String("weather")) {
     return BlopTheme::instance().isDark()
-               ? QStringLiteral("rgba(91,157,255,0.14)")
-               : QStringLiteral("rgba(91,157,255,0.11)");
+               ? QStringLiteral("rgba(91,157,255,0.12)")
+               : QStringLiteral("rgba(91,157,255,0.09)");
   }
   if (id == QLatin1String("focus")) {
     return BlopTheme::instance().isDark()
-               ? QStringLiteral("rgba(52,211,153,0.14)")
-               : QStringLiteral("rgba(16,185,129,0.10)");
+               ? QStringLiteral("rgba(52,211,153,0.12)")
+               : QStringLiteral("rgba(16,185,129,0.08)");
   }
   return BlopTheme::instance().isDark()
-             ? QStringLiteral("rgba(255,255,255,0.04)")
+             ? QStringLiteral("rgba(255,255,255,0.03)")
              : QStringLiteral("rgba(15,23,42,0.03)");
 }
 
 QString softWash() {
+  // Barely-there interactive plate — not another gray brick.
   return BlopTheme::instance().isDark()
-             ? QStringLiteral("rgba(255,255,255,0.04)")
-             : QStringLiteral("rgba(55,53,47,0.04)");
+             ? QStringLiteral("rgba(255,255,255,0.025)")
+             : QStringLiteral("rgba(55,53,47,0.03)");
 }
 
 QString fieldBorder() {
@@ -233,8 +236,8 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   m_body->setObjectName(QStringLiteral("DashRailBody"));
   m_body->setStyleSheet(QStringLiteral("background: transparent;"));
   m_bodyLay = new QVBoxLayout(m_body);
-  m_bodyLay->setContentsMargins(0, UiScale::dp(4), 0, UiScale::dp(8));
-  m_bodyLay->setSpacing(UiScale::dp(6));
+  m_bodyLay->setContentsMargins(0, UiScale::dp(6), 0, UiScale::dp(12));
+  m_bodyLay->setSpacing(UiScale::dp(14));
   m_bodyLay->addStretch(1);
   m_bodyScroll->setWidget(m_body);
   root->addWidget(m_bodyScroll, 1);
@@ -337,6 +340,19 @@ void DashRightRail::loadModulePrefs() {
                      QStringLiteral("capture"), QStringLiteral("shortcuts")};
     m_hiddenModules = {QStringLiteral("search"), QStringLiteral("favorites"),
                        QStringLiteral("recent"), QStringLiteral("todos")};
+    saveModulePrefs();
+  }
+
+  // Calm rail: drop duplicates of board/intro (clock, nextup, shortcuts).
+  constexpr const char *kModulesV5 = "dashboard/rightRail.modulesV5";
+  if (!st.value(QLatin1String(kModulesV5)).toBool()) {
+    st.setValue(QLatin1String(kModulesV5), true);
+    m_moduleOrder = {QStringLiteral("weather"), QStringLiteral("focus"),
+                     QStringLiteral("capture")};
+    m_hiddenModules = {QStringLiteral("clock"), QStringLiteral("nextup"),
+                       QStringLiteral("shortcuts"), QStringLiteral("search"),
+                       QStringLiteral("favorites"), QStringLiteral("recent"),
+                       QStringLiteral("todos")};
     saveModulePrefs();
   }
 
@@ -526,16 +542,16 @@ QWidget *DashRightRail::makeSegment(const QString &id, const QString &title,
   QString bg = QStringLiteral("transparent");
   QString border = QStringLiteral("none");
   int padX = UiScale::dp(2);
-  int padY = UiScale::dp(10);
+  int padY = UiScale::dp(14);
   if (style == SegStyle::Callout) {
     bg = calloutWash(id);
-    border = QStringLiteral("1px solid %1").arg(hairline());
+    border = QStringLiteral("none");
     padX = UiScale::dp(12);
-    padY = UiScale::dp(12);
+    padY = UiScale::dp(14);
   } else if (style == SegStyle::Soft) {
     bg = softWash();
     padX = UiScale::dp(10);
-    padY = UiScale::dp(10);
+    padY = UiScale::dp(12);
   }
 
   seg->setStyleSheet(
@@ -624,8 +640,8 @@ QWidget *DashRightRail::buildWeatherContent() {
     temp->setCursor(Qt::PointingHandCursor);
     temp->setToolTip(QStringLiteral("Aktualisieren"));
     temp->setStyleSheet(
-        QStringLiteral("QPushButton { color: %1; font-size: 32px; font-weight: 700;"
-                       "  letter-spacing: -1.2px; background: transparent;"
+        QStringLiteral("QPushButton { color: %1; font-size: 28px; font-weight: 700;"
+                       "  letter-spacing: -1.0px; background: transparent;"
                        "  border: none; text-align: left; padding: 0; }"
                        "QPushButton:hover { color: %2; }")
             .arg(railInk(), BlopTheme::accentPrimary().name(QColor::HexRgb)));
@@ -676,8 +692,8 @@ QWidget *DashRightRail::buildClockContent() {
   const QTime now = QTime::currentTime();
   auto *time = new QLabel(now.toString(QStringLiteral("HH:mm")), box);
   time->setStyleSheet(
-      QStringLiteral("color: %1; font-size: 34px; font-weight: 700;"
-                     "letter-spacing: -1.4px; background: transparent;")
+      QStringLiteral("color: %1; font-size: 28px; font-weight: 700;"
+                     "letter-spacing: -1.0px; background: transparent;")
           .arg(railInk()));
   lay->addWidget(time);
 
@@ -980,8 +996,8 @@ QWidget *DashRightRail::buildFocusContent() {
                          box);
   lbl->setObjectName(QStringLiteral("DashFocusLabel"));
   lbl->setStyleSheet(
-      QStringLiteral("color: %1; font-size: 30px; font-weight: 700;"
-                     "letter-spacing: -1.0px; background: transparent;")
+      QStringLiteral("color: %1; font-size: 26px; font-weight: 700;"
+                     "letter-spacing: -0.8px; background: transparent;")
           .arg(railInk()));
   lay->addWidget(lbl);
 
