@@ -2177,21 +2177,17 @@ MainWindow::MainWindow(QWidget *parent)
   qInfo() << "MainWindow: after updateSidebarUser authLocked=" << m_authNavigationLocked
           << "sidebarOpen=" << m_isSidebarOpen
           << "mainStack=" << (m_mainContentStack ? m_mainContentStack->currentIndex() : -1);
-  // Start unfolded in Notes for logged-in users — not on phone burger UI.
-  // Respect Sidebar-beim-Start pref. The notes library itself always opens
-  // the drawer (see ensureNotesLibrarySidebar).
-  {
-    QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-    const bool openSidebar =
-        st.value(QStringLiteral("ui/sidebarStartOpen"), true).toBool();
-    const bool dashboardHome =
-        m_shellStack && m_shellStack->currentIndex() == 0;
-    if (!m_authNavigationLocked && !UiScale::usePhoneBurgerMenu(this) &&
-        (openSidebar || dashboardHome)) {
-      animateSidebar(true);
-    }
+  // Defer rail open until after restoreWindowState() — during ctor the
+  // frameless window is often still <600dp wide, so usePhoneBurgerMenu()
+  // would skip the sidebar and leave the icon rail missing forever.
+  QTimer::singleShot(0, this, [this]() {
+    if (m_authNavigationLocked)
+      return;
+#ifndef Q_OS_ANDROID
+    ensureDesktopIconRail();
+#endif
     ensureNotesLibrarySidebar();
-  }
+  });
 
   // First-run wizard before reopening the last note (modal, blocks).
   QTimer::singleShot(0, this, [this]() { showOnboardingWizard(false); });
@@ -9707,12 +9703,77 @@ void MainWindow::setupWebBrowser() {
   });
 
 #else
-  QLabel *lblInfo = new QLabel(
-      "Web-Modul fehlt.\nBitte 'Qt WebEngine' installieren.", m_studyContainer);
-  lblInfo->setAlignment(Qt::AlignCenter);
-  lblInfo->setStyleSheet(
-      "color: #AAA; font-size: 16px; font-weight: bold; background: #1E1E1E;");
-  layout->addWidget(lblInfo);
+  // MinGW / builds without Qt WebEngine: system-browser login (same as
+  // BLOP_FORCE_BROWSER_LOGIN), never a dead-end "install WebEngine" screen.
+  {
+    QWidget *fallback = new QWidget(m_studyContainer);
+    fallback->setObjectName(QStringLiteral("StudyBrowserFallback"));
+    fallback->setStyleSheet(BlopTheme::themed("background: #1e1e1e;"));
+    auto *fallbackLayout = new QVBoxLayout(fallback);
+    fallbackLayout->setContentsMargins(UiScale::dp(32), UiScale::dp(32),
+                                       UiScale::dp(32), UiScale::dp(32));
+    fallbackLayout->setSpacing(UiScale::dp(14));
+    fallbackLayout->addStretch(1);
+
+    auto *title = new QLabel(tr("Anmeldung"), fallback);
+    title->setAlignment(Qt::AlignHCenter);
+    title->setStyleSheet(BlopTheme::themed(
+        "color: #E8E4FF; font-size: 22px; font-weight: 700;"));
+    fallbackLayout->addWidget(title);
+
+    auto *info = new QLabel(
+        tr("Dieses Build hat kein eingebettetes Web-Modul.\n"
+           "Melde dich im Browser an — danach wechselt Blop zu den Notizen."),
+        fallback);
+    info->setWordWrap(true);
+    info->setAlignment(Qt::AlignHCenter);
+    info->setStyleSheet(BlopTheme::themed("color: #C8C4E8; font-size: 13px;"));
+    fallbackLayout->addWidget(info);
+
+    auto *btnGoogle = new QPushButton(tr("Mit Google anmelden"), fallback);
+    btnGoogle->setCursor(Qt::PointingHandCursor);
+    btnGoogle->setMinimumHeight(UiScale::dp(42));
+    btnGoogle->setMaximumWidth(UiScale::dp(320));
+    btnGoogle->setStyleSheet(
+        "QPushButton { background: #4285F4; color: white; border: none; "
+        "border-radius: 8px; padding: 0 18px; font-weight: 700; font-size: 14px; }"
+        "QPushButton:hover { background: #3367d6; }");
+    connect(btnGoogle, &QPushButton::clicked, this,
+            &MainWindow::requestGoogleLogin);
+    fallbackLayout->addWidget(btnGoogle, 0, Qt::AlignHCenter);
+
+    auto *btnBrowser =
+        new QPushButton(tr("Study im Browser öffnen"), fallback);
+    btnBrowser->setCursor(Qt::PointingHandCursor);
+    btnBrowser->setMinimumHeight(UiScale::dp(38));
+    btnBrowser->setMaximumWidth(UiScale::dp(320));
+    btnBrowser->setStyleSheet(BlopTheme::themed(
+        "QPushButton { background: #2d2b42; color: #E8E4FF; "
+        "border: 1px solid rgba(124,92,252,0.45); border-radius: 8px; "
+        "padding: 0 16px; font-weight: 600; font-size: 13px; }"
+        "QPushButton:hover { background: #3a3754; }"));
+    connect(btnBrowser, &QPushButton::clicked, this, []() {
+      QDesktopServices::openUrl(QUrl(kBlopStudyUrl + QStringLiteral("/login")));
+    });
+    fallbackLayout->addWidget(btnBrowser, 0, Qt::AlignHCenter);
+
+    auto *btnNotes = new QPushButton(tr("Zurück zu Notizen"), fallback);
+    btnNotes->setCursor(Qt::PointingHandCursor);
+    btnNotes->setFlat(true);
+    btnNotes->setStyleSheet(BlopTheme::themed(
+        "QPushButton { color: #9A94C4; border: none; font-size: 13px; "
+        "font-weight: 600; padding: 8px; }"
+        "QPushButton:hover { color: #E8E4FF; }"));
+    connect(btnNotes, &QPushButton::clicked, this, [this]() {
+      if (m_modeSelector)
+        m_modeSelector->setCurrentIndex(0);
+      onModeChanged(0);
+    });
+    fallbackLayout->addWidget(btnNotes, 0, Qt::AlignHCenter);
+
+    fallbackLayout->addStretch(2);
+    layout->addWidget(fallback, 1);
+  }
 #endif
 #endif
 }
@@ -10418,6 +10479,10 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (m_isSidebarOpen) {
       onToggleSidebar();
     }
+#ifndef Q_OS_ANDROID
+    // Guests hide the rail; restore it after a successful login.
+    ensureDesktopIconRail();
+#endif
   } else {
     m_authNavigationLocked = true;
     // Logged out: Switch back to Study/Login web view
@@ -10536,6 +10601,10 @@ QRect MainWindow::sidebarPushContentRect() const {
 void MainWindow::syncSidebarPushLayout() {
   if (!m_centralContainer)
     return;
+  // Heal a stuck animating flag if the QObject was destroyed early — otherwise
+  // we permanently skip spacer updates and the drawer paints over note chrome.
+  if (m_sidebarAnimating && m_sidebarAnim.isNull())
+    m_sidebarAnimating = false;
   // Don't fight an in-flight fold/unfold animation.
   if (m_sidebarAnimating)
     return;
@@ -10568,15 +10637,12 @@ void MainWindow::syncSidebarPushLayout() {
   // Dashboard never hosts the library nav panel.
   if (!notesApp && m_sidebarNavPanel && m_sidebarNavPanel->isVisible())
     m_sidebarNavPanel->setVisible(false);
-  // Heal open flag from nav visibility + width so spacer matches the overlay.
-  const int railW = collapsedSidebarWidthPx();
-  if (!notesApp) {
+  // Open = nav panel visible on Notes. Do not infer from width alone — a
+  // visible Explorer with a stale collapsed spacer was painting over the note.
+  if (!notesApp)
     m_isSidebarOpen = false;
-  } else if (m_sidebarNavPanel && !m_sidebarNavPanel->isVisible()) {
-    m_isSidebarOpen = false;
-  } else if (m_sidebarContainer->width() > railW + UiScale::dp(8)) {
-    m_isSidebarOpen = true;
-  }
+  else
+    m_isSidebarOpen = m_sidebarNavPanel && m_sidebarNavPanel->isVisible();
   const int w =
       m_isSidebarOpen ? effectiveSidebarWidthPx() : collapsedSidebarWidthPx();
 #else
@@ -10588,21 +10654,17 @@ void MainWindow::syncSidebarPushLayout() {
     // Overlay drawer: no horizontal push on Android; insets handled by active page.
     mainLayout->setContentsMargins(0, 0, 0, 0);
   }
-#else
-  if (m_desktopSidebarPushSpacer)
-    m_desktopSidebarPushSpacer->setFixedWidth(w);
 #endif
-  m_sidebarContainer->setMaximumWidth(qMax(w, effectiveSidebarWidthPx()));
-  // Collapsed: lock width to the rail so the container cannot grow under the
-  // title-bar expand control and steal its clicks.
-  if (!m_isSidebarOpen) {
-    m_sidebarContainer->setFixedWidth(w);
-  } else {
-    m_sidebarContainer->setMinimumWidth(0);
-    m_sidebarContainer->setMaximumWidth(qMax(w, effectiveSidebarWidthPx()));
-  }
+  // Always lock overlay width (open and collapsed). Leaving it unlocked while
+  // open let the drawer and the push spacer diverge — page tabs / tool chips
+  // then sat under the Explorer edge.
+  m_sidebarContainer->setFixedWidth(w);
   m_sidebarContainer->setGeometry(r.x(), r.y(), w, h);
   m_sidebarContainer->raise();
+#ifndef Q_OS_ANDROID
+  if (m_desktopSidebarPushSpacer)
+    m_desktopSidebarPushSpacer->setFixedWidth(m_sidebarContainer->width());
+#endif
   syncTitleBarSidebarInset();
   // Expand control is a MainWindow-level overlay — always on top of the rail.
   if (btnEditorMenu && btnEditorMenu->isVisible())
@@ -10614,10 +10676,12 @@ void MainWindow::syncTitleBarSidebarInset() {
   if (!m_titleBarWidget)
     return;
   int inset = 0;
-  if (m_libraryIconRail ||
-      (m_sidebarContainer && m_sidebarContainer->isVisible())) {
-    inset = m_isSidebarOpen ? effectiveSidebarWidthPx()
-                            : collapsedSidebarWidthPx();
+  if (m_sidebarContainer && m_sidebarContainer->isVisible()) {
+    // Match the live overlay — not a stale open/collapsed guess — so title
+    // tabs and the pushed note column share one left edge.
+    inset = m_sidebarContainer->width();
+  } else if (m_libraryIconRail) {
+    inset = collapsedSidebarWidthPx();
   }
   setTitleBarSidebarInset(inset);
   syncSidebarToggleOverlayGeometry();
@@ -11291,19 +11355,17 @@ void MainWindow::setupSidebar() {
       if (!e.path.isEmpty() && StoragePrefs::isUsableFilesystemDir(e.path))
         item->setData(Qt::UserRole + 10, e.path);
       item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-      const bool apiType =
-          e.type == QLatin1String("googledrive") ||
-          e.type == QLatin1String("nextcloud") ||
-          e.type == QLatin1String("onedrive");
+      const bool browse =
+          CloudStorageStore::supportsLibraryBrowse(e.type);
       item->setToolTip(
-          apiType ? QStringLiteral(
-                        "Anmelden im Browser → BlopNotizen in Blop")
-                  : (e.webConnected
-                         ? QStringLiteral(
-                               "Im System-Browser öffnen "
-                               "(Cookies & gespeicherte Passwörter)")
-                         : QStringLiteral(
-                               "Tippen — Anmeldung im System-Browser")));
+          browse ? QStringLiteral(
+                       "Anmelden → Dateien in der Bibliothek browsen")
+                 : (e.webConnected
+                        ? QStringLiteral(
+                              "Im System-Browser öffnen "
+                              "(Cookies & gespeicherte Passwörter)")
+                        : QStringLiteral(
+                              "Tippen — Anmeldung im System-Browser")));
     }
 
     auto *addCloud = new QListWidgetItem(m_navSidebar);
@@ -11343,9 +11405,10 @@ void MainWindow::setupSidebar() {
   auto *cloudHeader = new QLabel(QStringLiteral("INTEGRATIONEN"), mid);
   cloudHeader->setObjectName(QStringLiteral("SidebarCloudHeader"));
   cloudHeader->setToolTip(
-      QStringLiteral("Drive / Nextcloud / OneDrive: Anmelden im Browser, "
-                     "danach BlopNotizen in Blop.\n"
-                     "Andere Clouds: Web-Adresse im System-Browser."));
+      QStringLiteral(
+          "Drive / OneDrive / Nextcloud / Dropbox / iCloud: Anmelden, "
+          "danach Dateien in der Bibliothek browsen.\n"
+          "Eigene Cloud: System-Browser (Cookies)."));
   midLay->addWidget(cloudHeader);
   m_sidebarCloudList = new QListWidget(mid);
   m_sidebarCloudList->setObjectName(QStringLiteral("SidebarCloudList"));
@@ -12989,19 +13052,17 @@ void MainWindow::refreshSidebarCloudList() {
     if (!e.path.isEmpty() && StoragePrefs::isUsableFilesystemDir(e.path))
       item->setData(Qt::UserRole + 10, e.path);
     {
-      const bool apiType =
-          e.type == QLatin1String("googledrive") ||
-          e.type == QLatin1String("nextcloud") ||
-          e.type == QLatin1String("onedrive");
+      const bool browse =
+          CloudStorageStore::supportsLibraryBrowse(e.type);
       item->setToolTip(
-          apiType ? QStringLiteral(
-                        "Anmelden im Browser → BlopNotizen in Blop browsen.")
-                  : (e.webConnected
-                         ? QStringLiteral(
-                               "Im System-Browser öffnen "
-                               "(Cookies & Passwörter).")
-                         : QStringLiteral(
-                               "Anmeldung im System-Browser.")));
+          browse ? QStringLiteral(
+                       "Anmelden → Dateien in der Bibliothek browsen.")
+                 : (e.webConnected
+                        ? QStringLiteral(
+                              "Im System-Browser öffnen "
+                              "(Cookies & Passwörter).")
+                        : QStringLiteral(
+                              "Anmeldung im System-Browser.")));
     }
     item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
   }
@@ -15085,9 +15146,11 @@ void MainWindow::animateSidebar(bool show) {
     // fixed-width lock before expanding.
     m_sidebarContainer->setMinimumSize(0, 0);
     m_sidebarContainer->setMaximumWidth(qMax(fullW, endW));
+#ifndef Q_OS_ANDROID
     if (show)
       m_sidebarContainer->setFixedWidth(
           qMax(collapsedW, m_sidebarContainer->width()));
+#endif
     if (QLayout *lay = m_sidebarContainer->layout())
       lay->setSizeConstraint(QLayout::SetNoConstraint);
     m_sidebarContainer->setAttribute(Qt::WA_LayoutUsesWidgetRect, true);
@@ -15210,10 +15273,9 @@ void MainWindow::animateSidebar(bool show) {
     m_sidebarAnimating = false;
     m_sidebarAnim.clear();
     if (m_sidebarContainer) {
-      m_sidebarContainer->setMaximumWidth(qMax(fullW, endW));
-      m_sidebarContainer->setMinimumWidth(0);
-      // Clear fixed-width lock from the animation ticks.
-      m_sidebarContainer->setMinimumSize(0, 0);
+      // Keep the final animated width locked — unlocking here let the drawer
+      // grow past the push spacer and cover note chrome.
+      m_sidebarContainer->setFixedWidth(endW);
       m_sidebarContainer->setMaximumHeight(QWIDGETSIZE_MAX);
     }
     if (show) {
@@ -15400,6 +15462,22 @@ void MainWindow::ensureNotesLibrarySidebar() {
     return;
   animateSidebar(true);
 }
+
+#ifndef Q_OS_ANDROID
+void MainWindow::ensureDesktopIconRail() {
+  if (m_authNavigationLocked || UiScale::usePhoneBurgerMenu(this))
+    return;
+  if (!m_sidebarContainer || m_sidebarAnimating)
+    return;
+  if (m_sidebarContainer->isVisible() &&
+      m_sidebarContainer->width() >= UiScale::dp(8)) {
+    syncSidebarPushLayout();
+    return;
+  }
+  // Dashboard stays rail-only; Notes gets the full drawer via animateSidebar.
+  animateSidebar(true);
+}
+#endif
 
 void MainWindow::switchToApp(bool notesApp) {
   if (!m_shellStack)
@@ -15908,6 +15986,9 @@ void MainWindow::updateSidebarState() {
   const bool titleNoteChrome =
       isEditor && m_documentTabBar && m_documentTabBar->noteChromeMode();
   refreshNoteTitleChrome(titleNoteChrome);
+  // Re-assert push inset after editor chrome toggles — opening a note used to
+  // leave the Explorer drawer overlapping page tabs / tool chips.
+  syncSidebarPushLayout();
 #endif
 #ifdef Q_OS_ANDROID
   refreshAndroidTopChrome();
@@ -18234,11 +18315,16 @@ void MainWindow::openStudyAuthPage(const QString &path) {
 #else
   if (m_modeSelector)
     m_modeSelector->setCurrentIndex(1);
-#if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
+  onModeChanged(1);
+#if defined(BLOP_HAS_WEBENGINE)
   QTimer::singleShot(120, this, [this, url]() {
     if (m_studyWebView)
       m_studyWebView->setUrl(QUrl(url));
   });
+#else
+  // No WebEngine (e.g. MinGW): open Study in the system browser and keep the
+  // in-app fallback buttons visible on the Study tab.
+  QDesktopServices::openUrl(QUrl(url));
 #endif
 #endif
 }
@@ -18273,9 +18359,7 @@ void MainWindow::openCloudIntegration(const CloudStorageEntry &entry) {
   if (e.type.isEmpty())
     e.type = e.id;
   const QString type = e.type;
-  const bool apiType =
-      type == QLatin1String("googledrive") ||
-      type == QLatin1String("nextcloud") || type == QLatin1String("onedrive");
+  const bool libraryBrowse = CloudStorageStore::supportsLibraryBrowse(type);
 
   auto showCloudNotesInGrid = [this](const QString &t, const QString &name) {
 #ifndef Q_OS_ANDROID
@@ -18294,7 +18378,7 @@ void MainWindow::openCloudIntegration(const CloudStorageEntry &entry) {
 #endif
   };
 
-  if (!apiType) {
+  if (!libraryBrowse) {
     openEmbeddedCloudBrowser(e);
     return;
   }
@@ -18308,7 +18392,7 @@ void MainWindow::openCloudIntegration(const CloudStorageEntry &entry) {
   m_pendingCloudNotesType = type;
   m_pendingCloudNotesName =
       e.name.isEmpty() ? CloudStorageStore::displayNameForType(type) : e.name;
-  // Wire once: after OAuth in the system browser, fill the normal notes grid.
+  // Wire once: after OAuth / folder link, fill the normal notes grid.
   static bool cloudNotesWired = false;
   if (!cloudNotesWired) {
     cloudNotesWired = true;
@@ -18539,8 +18623,16 @@ void MainWindow::syncPhoneShell() {
 
 void MainWindow::applyCompactNavPref() {
   setupPhoneLibraryNav();
-  if (UiScale::usePhoneBurgerMenu(this) && m_isSidebarOpen)
-    animateSidebar(false);
+  if (UiScale::usePhoneBurgerMenu(this)) {
+    if (m_isSidebarOpen)
+      animateSidebar(false);
+  }
+#ifndef Q_OS_ANDROID
+  else if (!m_authNavigationLocked) {
+    // Leaving a narrow/burger bootstrap size must restore the icon rail.
+    ensureDesktopIconRail();
+  }
+#endif
   updateSidebarState();
 #ifndef Q_OS_ANDROID
   // Force title chrome now — settings toggle must not leave a stale paper bar.
@@ -21147,9 +21239,17 @@ void MainWindow::restoreWindowState() {
         return;
       if (geometry() != avail)
         setGeometry(avail);
+#ifndef Q_OS_ANDROID
+      if (!m_authNavigationLocked)
+        ensureDesktopIconRail();
+#endif
     });
 #endif
   }
+#ifndef Q_OS_ANDROID
+  if (!m_authNavigationLocked)
+    ensureDesktopIconRail();
+#endif
 }
 
 void MainWindow::keyPressEvent(QKeyEvent *event) {

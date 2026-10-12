@@ -67,6 +67,7 @@ private:
 
   void beginGoogle();
   void beginOneDrive();
+  void beginDropbox();
   void beginNextcloud(QWidget *parent);
   void beginIcloud();
   void pollNextcloud();
@@ -88,6 +89,16 @@ private:
   bool oneDriveRename(const QString &oldName, const QString &newName);
   QVector<CloudRemoteItem> oneDriveList(const QString &folderId);
   bool oneDriveFetch(const QString &remoteId, const QString &localPath);
+  bool dropboxPut(const QString &localPath);
+  bool dropboxRemove(const QString &fileName);
+  bool dropboxRename(const QString &oldName, const QString &newName);
+  QVector<CloudRemoteItem> dropboxList(const QString &folderPath);
+  bool dropboxFetch(const QString &remoteId, const QString &localPath);
+  QVector<CloudRemoteItem> icloudList(const QString &folderPath);
+  bool icloudFetch(const QString &remoteId, const QString &localPath);
+  bool icloudCreateFolder(const QString &parentId, const QString &name);
+  bool icloudDelete(const QString &remoteId);
+  bool icloudRename(const QString &remoteId, const QString &newName);
 
   QString m_lastError;
   bool m_busy{false};

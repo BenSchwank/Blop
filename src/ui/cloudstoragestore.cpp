@@ -151,7 +151,24 @@ QString defaultWebUrl(const QString &type) {
     return QStringLiteral("https://www.dropbox.com/home");
   if (type == QLatin1String("nextcloud"))
     return QString();
+  if (type == QLatin1String("icloud"))
+    return QStringLiteral("https://www.icloud.com/iclouddrive");
   return QString();
+}
+
+bool supportsApiBrowse(const QString &type) {
+  return type == QLatin1String("googledrive") ||
+         type == QLatin1String("onedrive") ||
+         type == QLatin1String("nextcloud") ||
+         type == QLatin1String("dropbox");
+}
+
+bool supportsLocalBrowse(const QString &type) {
+  return type == QLatin1String("icloud");
+}
+
+bool supportsLibraryBrowse(const QString &type) {
+  return supportsApiBrowse(type) || supportsLocalBrowse(type);
 }
 
 void upsert(const CloudStorageEntry &entry) {

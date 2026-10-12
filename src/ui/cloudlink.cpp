@@ -39,6 +39,9 @@ constexpr const char *kGoogleClientId =
 // at once. The Desktop OAuth client must also list http://127.0.0.1:27185/
 constexpr quint16 kGooglePort = 27185;
 constexpr quint16 kMicrosoftPort = 27184;
+constexpr quint16 kDropboxPort = 27186;
+// Public Dropbox app key (PKCE). Env / QSettings can override for local apps.
+constexpr const char *kDropboxClientId = "76gdb16m8axjskl";
 constexpr const char *kExchangeUrl =
     "https://www.blop-study.com/api/auth/google/desktop/exchange";
 
@@ -133,6 +136,57 @@ QString microsoftClientId() {
   if (!env.trimmed().isEmpty())
     return QString::fromUtf8(env.trimmed());
   return settings().value(QStringLiteral("cloud/onedrive/clientId")).toString().trimmed();
+}
+
+QString dropboxClientId() {
+  const QByteArray env = qgetenv("BLOP_DROPBOX_CLIENT_ID");
+  if (!env.trimmed().isEmpty())
+    return QString::fromUtf8(env.trimmed());
+  const QString fromSettings =
+      settings().value(QStringLiteral("cloud/dropbox/clientId")).toString().trimmed();
+  if (!fromSettings.isEmpty())
+    return fromSettings;
+  return QString::fromLatin1(kDropboxClientId);
+}
+
+QString mimeFromFileName(const QString &name) {
+  const QString ext = QFileInfo(name).suffix().toLower();
+  if (ext == QLatin1String("pdf"))
+    return QStringLiteral("application/pdf");
+  if (ext == QLatin1String("png"))
+    return QStringLiteral("image/png");
+  if (ext == QLatin1String("jpg") || ext == QLatin1String("jpeg"))
+    return QStringLiteral("image/jpeg");
+  if (ext == QLatin1String("gif") || ext == QLatin1String("webp") ||
+      ext == QLatin1String("bmp"))
+    return QStringLiteral("image/") + ext;
+  if (ext == QLatin1String("mp4") || ext == QLatin1String("mov") ||
+      ext == QLatin1String("webm"))
+    return QStringLiteral("video/") + ext;
+  if (ext == QLatin1String("mp3") || ext == QLatin1String("wav") ||
+      ext == QLatin1String("m4a"))
+    return QStringLiteral("audio/") + ext;
+  if (ext == QLatin1String("txt") || ext == QLatin1String("md"))
+    return QStringLiteral("text/plain");
+  if (ext == QLatin1String("html") || ext == QLatin1String("htm"))
+    return QStringLiteral("text/html");
+  if (ext == QLatin1String("json"))
+    return QStringLiteral("application/json");
+  if (ext == QLatin1String("zip"))
+    return QStringLiteral("application/zip");
+  if (ext == QLatin1String("docx") || ext == QLatin1String("doc"))
+    return QStringLiteral(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  if (ext == QLatin1String("xlsx") || ext == QLatin1String("xls"))
+    return QStringLiteral(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  if (ext == QLatin1String("pptx") || ext == QLatin1String("ppt"))
+    return QStringLiteral(
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+  if (ext == QLatin1String("bnote") || ext == QLatin1String("blop") ||
+      ext == QLatin1String("struct"))
+    return QStringLiteral("application/x-blop-note");
+  return QStringLiteral("application/octet-stream");
 }
 
 QString enc(const QString &s) {
@@ -337,6 +391,42 @@ QString oneDriveAccess(QNetworkAccessManager *nam, QString *err) {
   return token;
 }
 
+QString dropboxAccess(QNetworkAccessManager *nam, QString *err) {
+  const QString type = QStringLiteral("dropbox");
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  const QString access = setting(type, "accessToken");
+  if (!access.isEmpty() && expiry(type) > now + 60000)
+    return access;
+  const QString refresh = setting(type, "refreshToken");
+  const QString client = dropboxClientId();
+  if (refresh.isEmpty() || client.isEmpty()) {
+    if (err)
+      *err = QStringLiteral("Dropbox ist nicht verbunden.");
+    return {};
+  }
+  QUrlQuery body;
+  body.addQueryItem(QStringLiteral("client_id"), client);
+  body.addQueryItem(QStringLiteral("grant_type"),
+                    QStringLiteral("refresh_token"));
+  body.addQueryItem(QStringLiteral("refresh_token"), refresh);
+  QNetworkRequest req(
+      QUrl(QStringLiteral("https://api.dropboxapi.com/oauth2/token")));
+  req.setHeader(QNetworkRequest::ContentTypeHeader,
+                QStringLiteral("application/x-www-form-urlencoded"));
+  const HttpResult r =
+      http(nam, req, "POST", body.toString(QUrl::FullyEncoded).toUtf8());
+  const QJsonObject obj = QJsonDocument::fromJson(r.body).object();
+  const QString token = obj.value(QStringLiteral("access_token")).toString();
+  if (token.isEmpty()) {
+    if (err)
+      *err = QStringLiteral("Dropbox-Token konnte nicht erneuert werden.");
+    return {};
+  }
+  setSetting(type, "accessToken", token);
+  setExpiry(type, obj.value(QStringLiteral("expires_in")).toInt(14400));
+  return token;
+}
+
 bool oneDriveEnsureFolder(QNetworkAccessManager *nam, const QString &token,
                           QString *err) {
   const QUrl existing(QStringLiteral(
@@ -416,6 +506,15 @@ QString icloudFolder() {
   return {};
 }
 
+QString icloudLinkedRoot() {
+  for (const CloudStorageEntry &e : CloudStorageStore::load()) {
+    if ((e.id == QLatin1String("icloud") || e.type == QLatin1String("icloud")) &&
+        StoragePrefs::isUsableFilesystemDir(e.path))
+      return e.path;
+  }
+  return icloudFolder();
+}
+
 QString trimServer(QString url) {
   url = url.trimmed();
   while (url.endsWith(QLatin1Char('/')))
@@ -474,7 +573,7 @@ void CloudLinkHub::markApi(const QString &type) {
 
 bool CloudLinkHub::providerReady(const QString &type) const {
   if (type == QLatin1String("googledrive") ||
-      type == QLatin1String("onedrive")) {
+      type == QLatin1String("onedrive") || type == QLatin1String("dropbox")) {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (!setting(type, "refreshToken").isEmpty())
       return true;
@@ -487,17 +586,18 @@ bool CloudLinkHub::providerReady(const QString &type) const {
   }
   if (type == QLatin1String("icloud")) {
     for (const CloudStorageEntry &e : CloudStorageStore::load()) {
-      if (e.id == type && StoragePrefs::isUsableFilesystemDir(e.path))
+      if ((e.id == type || e.type == type) &&
+          StoragePrefs::isUsableFilesystemDir(e.path))
         return true;
     }
+    return !icloudFolder().isEmpty();
   }
   return false;
 }
 
 bool CloudLinkHub::primaryUsesApi() const {
   const QString id = StoragePrefs::primaryCloudId();
-  if (id != QLatin1String("googledrive") && id != QLatin1String("nextcloud") &&
-      id != QLatin1String("onedrive"))
+  if (!CloudStorageStore::supportsApiBrowse(id))
     return false;
   if (!providerReady(id))
     return false;
@@ -513,8 +613,7 @@ void CloudLinkHub::connectProvider(const QString &type, QWidget *parent) {
   Q_UNUSED(parent);
   fail(type, QStringLiteral(
                  "Auf dem Handy bleiben Notizen auf dem Gerät. "
-                 "Google Drive, Nextcloud und OneDrive werden hier nicht "
-                 "hochgeladen."));
+                 "Cloud-APIs werden hier nicht hochgeladen."));
   return;
 #else
   if (m_busy) {
@@ -526,6 +625,8 @@ void CloudLinkHub::connectProvider(const QString &type, QWidget *parent) {
     beginGoogle();
   else if (type == QLatin1String("onedrive"))
     beginOneDrive();
+  else if (type == QLatin1String("dropbox"))
+    beginDropbox();
   else if (type == QLatin1String("nextcloud"))
     beginNextcloud(parent);
   else if (type == QLatin1String("icloud"))
@@ -552,8 +653,12 @@ void CloudLinkHub::beginIcloud() {
          QStringLiteral("Der iCloud-Ordner konnte nicht verknüpft werden."));
     return;
   }
+  markApi(QStringLiteral("icloud"));
   succeed(QStringLiteral("icloud"),
-          QStringLiteral("iCloud-Ordner verknüpft: %1").arg(folder));
+          QStringLiteral(
+              "iCloud verknüpft. Dateien erscheinen in der Bibliothek "
+              "(Sync-Notizen weiter unter BlopNotizen). Ordner: %1")
+              .arg(folder));
 }
 
 void CloudLinkHub::beginNextcloud(QWidget *parent) {
@@ -659,7 +764,9 @@ void CloudLinkHub::finishNextcloud(const QString &server, const QString &user,
   }
   markApi(QStringLiteral("nextcloud"));
   succeed(QStringLiteral("nextcloud"),
-          QStringLiteral("Nextcloud verbunden. Notizen liegen in BlopNotizen."));
+          QStringLiteral(
+              "Nextcloud verbunden. Dateien erscheinen in der Bibliothek "
+              "(Sync-Notizen weiter unter BlopNotizen)."));
 }
 
 void CloudLinkHub::beginGoogle() {
@@ -760,7 +867,8 @@ void CloudLinkHub::beginGoogle() {
             markApi(QStringLiteral("googledrive"));
             succeed(QStringLiteral("googledrive"),
                     QStringLiteral(
-                        "Google Drive verbunden. Notizen liegen in BlopNotizen."));
+                        "Google Drive verbunden. Dateien erscheinen in der "
+                        "Bibliothek (Sync-Notizen weiter unter BlopNotizen)."));
           });
         };
         if (status >= 200 && status < 300) {
@@ -951,7 +1059,8 @@ void CloudLinkHub::beginOneDrive() {
           markApi(QStringLiteral("onedrive"));
           succeed(QStringLiteral("onedrive"),
                   QStringLiteral(
-                      "OneDrive verbunden. Notizen liegen in BlopNotizen."));
+                      "OneDrive verbunden. Dateien erscheinen in der "
+                      "Bibliothek (Sync-Notizen weiter unter BlopNotizen)."));
         });
       });
     };
@@ -971,6 +1080,123 @@ void CloudLinkHub::beginOneDrive() {
   q.addQueryItem(QStringLiteral("response_mode"), QStringLiteral("query"));
   q.addQueryItem(QStringLiteral("scope"),
                  QStringLiteral("offline_access Files.ReadWrite"));
+  q.addQueryItem(QStringLiteral("code_challenge"), codeChallenge);
+  q.addQueryItem(QStringLiteral("code_challenge_method"), QStringLiteral("S256"));
+  q.addQueryItem(QStringLiteral("state"), m_state);
+  auth.setQuery(q);
+  QDesktopServices::openUrl(auth);
+}
+
+void CloudLinkHub::beginDropbox() {
+  const QString client = dropboxClientId();
+  if (client.isEmpty()) {
+    fail(QStringLiteral("dropbox"),
+         QStringLiteral(
+             "Die Dropbox-App fehlt. Setze BLOP_DROPBOX_CLIENT_ID "
+             "oder den Einstellungswert cloud/dropbox/clientId. "
+             "Redirect: http://127.0.0.1:27186/"));
+    return;
+  }
+  if (m_loopback)
+    m_loopback->close();
+  delete m_loopback;
+  m_loopback = new QTcpServer(this);
+  if (!m_loopback->listen(QHostAddress(QStringLiteral("127.0.0.1")),
+                          kDropboxPort)) {
+    fail(QStringLiteral("dropbox"),
+         QStringLiteral("Port 27186 ist belegt."));
+    return;
+  }
+  m_busy = true;
+  m_verifier = randomToken(64);
+  m_state = randomToken(32);
+  m_redirect = QStringLiteral("http://127.0.0.1:%1/").arg(kDropboxPort);
+  const QByteArray challenge = QCryptographicHash::hash(
+      m_verifier.toUtf8(), QCryptographicHash::Sha256);
+  const QString codeChallenge =
+      QString::fromLatin1(challenge.toBase64(QByteArray::Base64UrlEncoding |
+                                             QByteArray::OmitTrailingEquals));
+  connect(m_loopback, &QTcpServer::newConnection, this, [this, client]() {
+    QTcpSocket *sock = m_loopback ? m_loopback->nextPendingConnection() : nullptr;
+    if (!sock)
+      return;
+    auto handle = [this, sock, client]() {
+      const QString req = QString::fromUtf8(sock->readAll());
+      const QString path =
+          req.section(QLatin1Char('\n'), 0, 0).section(QLatin1Char(' '), 1, 1);
+      const QUrlQuery q(QUrl(QStringLiteral("http://127.0.0.1") + path.trimmed()));
+      const QByteArray page =
+          "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:2rem'>"
+          "<h2>Blop</h2><p>Dropbox ist verbunden. Dieses Fenster kannst du "
+          "schlie&szlig;en.</p></body></html>";
+      sock->write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
+                  "Connection: close\r\nContent-Length: " +
+                  QByteArray::number(page.size()) + "\r\n\r\n" + page);
+      sock->waitForBytesWritten(2000);
+      sock->disconnectFromHost();
+      sock->deleteLater();
+      if (m_loopback)
+        m_loopback->close();
+      const QString code = q.queryItemValue(QStringLiteral("code"));
+      if (q.queryItemValue(QStringLiteral("state")) != m_state || code.isEmpty()) {
+        fail(QStringLiteral("dropbox"),
+             QStringLiteral("Dropbox-Anmeldung abgebrochen."));
+        return;
+      }
+      QUrlQuery form;
+      form.addQueryItem(QStringLiteral("client_id"), client);
+      form.addQueryItem(QStringLiteral("grant_type"),
+                        QStringLiteral("authorization_code"));
+      form.addQueryItem(QStringLiteral("code"), code);
+      form.addQueryItem(QStringLiteral("redirect_uri"), m_redirect);
+      form.addQueryItem(QStringLiteral("code_verifier"), m_verifier);
+      QNetworkRequest treq(
+          QUrl(QStringLiteral("https://api.dropboxapi.com/oauth2/token")));
+      treq.setHeader(QNetworkRequest::ContentTypeHeader,
+                     QStringLiteral("application/x-www-form-urlencoded"));
+      QNetworkReply *tr =
+          m_nam->post(treq, form.toString(QUrl::FullyEncoded).toUtf8());
+      connect(tr, &QNetworkReply::finished, this, [this, tr]() {
+        const QByteArray raw = tr->readAll();
+        const int st =
+            tr->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        tr->deleteLater();
+        const QJsonObject obj = QJsonDocument::fromJson(raw).object();
+        const QString access = obj.value(QStringLiteral("access_token")).toString();
+        if (st >= 400 || access.isEmpty()) {
+          fail(QStringLiteral("dropbox"),
+               QStringLiteral(
+                   "Dropbox-Anmeldung fehlgeschlagen. Die Redirect-URI "
+                   "http://127.0.0.1:27186/ muss in der Dropbox-App stehen."));
+          return;
+        }
+        setSetting(QStringLiteral("dropbox"), "accessToken", access);
+        const QString refresh =
+            obj.value(QStringLiteral("refresh_token")).toString();
+        if (!refresh.isEmpty())
+          setSetting(QStringLiteral("dropbox"), "refreshToken", refresh);
+        setExpiry(QStringLiteral("dropbox"),
+                  obj.value(QStringLiteral("expires_in")).toInt(14400));
+        markApi(QStringLiteral("dropbox"));
+        succeed(QStringLiteral("dropbox"),
+                QStringLiteral(
+                    "Dropbox verbunden. Dateien erscheinen in der Bibliothek "
+                    "(Sync-Notizen weiter unter BlopNotizen)."));
+      });
+    };
+    if (sock->bytesAvailable() > 0)
+      QTimer::singleShot(0, this, handle);
+    else
+      connect(sock, &QTcpSocket::readyRead, this, handle,
+              Qt::SingleShotConnection);
+  });
+
+  QUrl auth(QStringLiteral("https://www.dropbox.com/oauth2/authorize"));
+  QUrlQuery q;
+  q.addQueryItem(QStringLiteral("client_id"), client);
+  q.addQueryItem(QStringLiteral("response_type"), QStringLiteral("code"));
+  q.addQueryItem(QStringLiteral("redirect_uri"), m_redirect);
+  q.addQueryItem(QStringLiteral("token_access_type"), QStringLiteral("offline"));
   q.addQueryItem(QStringLiteral("code_challenge"), codeChallenge);
   q.addQueryItem(QStringLiteral("code_challenge_method"), QStringLiteral("S256"));
   q.addQueryItem(QStringLiteral("state"), m_state);
@@ -1251,6 +1477,8 @@ QVector<CloudRemoteItem> CloudLinkHub::nextcloudList(const QString &folderPath) 
       cur.isFolder = isCollection;
       if (cur.isFolder)
         cur.mimeType = QStringLiteral("application/vnd.google-apps.folder");
+      else if (cur.mimeType.isEmpty() && !cur.name.isEmpty())
+        cur.mimeType = mimeFromFileName(cur.name);
       QString path = QUrl::fromPercentEncoding(href.toUtf8());
       while (path.endsWith(QLatin1Char('/')))
         path.chop(1);
@@ -1359,7 +1587,7 @@ QVector<CloudRemoteItem> CloudLinkHub::oneDriveList(const QString &folderId) {
     m_lastError = err;
     return out;
   }
-  const QUrl url(
+  QUrl url(
       folderId.isEmpty()
           ? QUrl(QStringLiteral(
                 "https://graph.microsoft.com/v1.0/me/drive/root/children"
@@ -1371,31 +1599,43 @@ QVector<CloudRemoteItem> CloudLinkHub::oneDriveList(const QString &folderId) {
                      "createdDateTime,lastModifiedDateTime&$top=200"
                      "&$orderby=name")
                      .arg(folderId)));
-  const HttpResult r = http(m_nam, jsonReq(url, token), "GET", {});
-  if (r.status < 200 || r.status >= 300) {
-    m_lastError = QStringLiteral("OneDrive-Liste fehlgeschlagen.");
-    return out;
-  }
-  const QJsonArray values =
-      QJsonDocument::fromJson(r.body).object().value(QStringLiteral("value")).toArray();
-  for (const QJsonValue &v : values) {
-    const QJsonObject o = v.toObject();
-    CloudRemoteItem item;
-    item.id = o.value(QStringLiteral("id")).toString();
-    item.name = o.value(QStringLiteral("name")).toString();
-    item.isFolder = o.contains(QStringLiteral("folder"));
-    item.mimeType =
-        o.value(QStringLiteral("file")).toObject().value(QStringLiteral("mimeType")).toString();
-    if (item.isFolder)
-      item.mimeType = QStringLiteral("application/vnd.google-apps.folder");
-    item.modified = parseCloudTime(
-        o.value(QStringLiteral("lastModifiedDateTime")).toString());
-    item.created =
-        parseCloudTime(o.value(QStringLiteral("createdDateTime")).toString());
-    if (o.contains(QStringLiteral("size")))
-      item.sizeBytes = static_cast<qint64>(o.value(QStringLiteral("size")).toDouble());
-    if (!item.id.isEmpty() && !item.name.isEmpty())
-      out.append(item);
+  for (;;) {
+    const HttpResult r = http(m_nam, jsonReq(url, token), "GET", {});
+    if (r.status < 200 || r.status >= 300) {
+      m_lastError = QStringLiteral("OneDrive-Liste fehlgeschlagen.");
+      break;
+    }
+    const QJsonObject root = QJsonDocument::fromJson(r.body).object();
+    const QJsonArray values = root.value(QStringLiteral("value")).toArray();
+    for (const QJsonValue &v : values) {
+      const QJsonObject o = v.toObject();
+      CloudRemoteItem item;
+      item.id = o.value(QStringLiteral("id")).toString();
+      item.name = o.value(QStringLiteral("name")).toString();
+      item.isFolder = o.contains(QStringLiteral("folder"));
+      item.mimeType = o.value(QStringLiteral("file"))
+                          .toObject()
+                          .value(QStringLiteral("mimeType"))
+                          .toString();
+      if (item.isFolder)
+        item.mimeType = QStringLiteral("application/vnd.google-apps.folder");
+      else if (item.mimeType.isEmpty())
+        item.mimeType = mimeFromFileName(item.name);
+      item.modified = parseCloudTime(
+          o.value(QStringLiteral("lastModifiedDateTime")).toString());
+      item.created =
+          parseCloudTime(o.value(QStringLiteral("createdDateTime")).toString());
+      if (o.contains(QStringLiteral("size")))
+        item.sizeBytes =
+            static_cast<qint64>(o.value(QStringLiteral("size")).toDouble());
+      if (!item.id.isEmpty() && !item.name.isEmpty())
+        out.append(item);
+    }
+    const QString next =
+        root.value(QStringLiteral("@odata.nextLink")).toString();
+    if (next.isEmpty())
+      break;
+    url = QUrl(next);
   }
   return out;
 }
@@ -1430,6 +1670,297 @@ bool CloudLinkHub::oneDriveFetch(const QString &remoteId,
   return f.write(r.body) == r.body.size();
 }
 
+QVector<CloudRemoteItem> CloudLinkHub::dropboxList(const QString &folderPath) {
+  QVector<CloudRemoteItem> out;
+  QString err;
+  const QString token = dropboxAccess(m_nam, &err);
+  if (token.isEmpty()) {
+    m_lastError = err;
+    return out;
+  }
+  auto parseEntries = [&](const QJsonArray &entries) {
+    for (const QJsonValue &v : entries) {
+      const QJsonObject o = v.toObject();
+      const QString tag =
+          o.value(QStringLiteral(".tag")).toString();
+      CloudRemoteItem item;
+      item.name = o.value(QStringLiteral("name")).toString();
+      item.id = o.value(QStringLiteral("path_display")).toString();
+      if (item.id.isEmpty())
+        item.id = o.value(QStringLiteral("path_lower")).toString();
+      item.isFolder = tag == QLatin1String("folder");
+      if (item.isFolder)
+        item.mimeType = QStringLiteral("application/vnd.google-apps.folder");
+      else
+        item.mimeType = mimeFromFileName(item.name);
+      item.modified =
+          parseCloudTime(o.value(QStringLiteral("client_modified")).toString());
+      if (!item.modified.isValid())
+        item.modified = parseCloudTime(
+            o.value(QStringLiteral("server_modified")).toString());
+      if (o.contains(QStringLiteral("size")))
+        item.sizeBytes =
+            static_cast<qint64>(o.value(QStringLiteral("size")).toDouble());
+      if (!item.id.isEmpty() && !item.name.isEmpty())
+        out.append(item);
+    }
+  };
+
+  QJsonObject body;
+  body.insert(QStringLiteral("path"),
+              folderPath.isEmpty() ? QStringLiteral("") : folderPath);
+  body.insert(QStringLiteral("recursive"), false);
+  body.insert(QStringLiteral("include_media_info"), false);
+  body.insert(QStringLiteral("include_deleted"), false);
+  HttpResult r = http(
+      m_nam,
+      jsonReq(QUrl(QStringLiteral(
+                  "https://api.dropboxapi.com/2/files/list_folder")),
+              token),
+      "POST", QJsonDocument(body).toJson(QJsonDocument::Compact));
+  if (r.status < 200 || r.status >= 300) {
+    m_lastError = QStringLiteral("Dropbox-Liste fehlgeschlagen.");
+    return out;
+  }
+  for (;;) {
+    const QJsonObject root = QJsonDocument::fromJson(r.body).object();
+    parseEntries(root.value(QStringLiteral("entries")).toArray());
+    if (!root.value(QStringLiteral("has_more")).toBool())
+      break;
+    QJsonObject cont;
+    cont.insert(QStringLiteral("cursor"),
+                root.value(QStringLiteral("cursor")).toString());
+    r = http(m_nam,
+             jsonReq(QUrl(QStringLiteral(
+                         "https://api.dropboxapi.com/2/files/list_folder/"
+                         "continue")),
+                     token),
+             "POST", QJsonDocument(cont).toJson(QJsonDocument::Compact));
+    if (r.status < 200 || r.status >= 300) {
+      m_lastError = QStringLiteral("Dropbox-Liste fehlgeschlagen.");
+      break;
+    }
+  }
+  return out;
+}
+
+bool CloudLinkHub::dropboxFetch(const QString &remoteId,
+                                const QString &localPath) {
+  if (remoteId.isEmpty() || localPath.isEmpty())
+    return false;
+  QString err;
+  const QString token = dropboxAccess(m_nam, &err);
+  if (token.isEmpty()) {
+    m_lastError = err;
+    return false;
+  }
+  QJsonObject arg;
+  arg.insert(QStringLiteral("path"), remoteId);
+  QNetworkRequest req(
+      QUrl(QStringLiteral("https://content.dropboxapi.com/2/files/download")));
+  req.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
+  req.setRawHeader("Dropbox-API-Arg",
+                   QJsonDocument(arg).toJson(QJsonDocument::Compact));
+  req.setTransferTimeout(60000);
+  const HttpResult r = http(m_nam, req, "POST", {});
+  if (r.status < 200 || r.status >= 300) {
+    m_lastError = QStringLiteral("Download von Dropbox fehlgeschlagen.");
+    return false;
+  }
+  QDir().mkpath(QFileInfo(localPath).absolutePath());
+  QFile f(localPath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    return false;
+  return f.write(r.body) == r.body.size();
+}
+
+bool CloudLinkHub::dropboxPut(const QString &localPath) {
+  QString err;
+  const QString token = dropboxAccess(m_nam, &err);
+  if (token.isEmpty()) {
+    m_lastError = err;
+    return false;
+  }
+  QFile f(localPath);
+  if (!f.open(QIODevice::ReadOnly))
+    return false;
+  const QString name = QFileInfo(localPath).fileName();
+  QJsonObject arg;
+  arg.insert(QStringLiteral("path"),
+             QStringLiteral("/BlopNotizen/") + name);
+  arg.insert(QStringLiteral("mode"), QStringLiteral("overwrite"));
+  arg.insert(QStringLiteral("autorename"), false);
+  QNetworkRequest req(
+      QUrl(QStringLiteral("https://content.dropboxapi.com/2/files/upload")));
+  req.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
+  req.setRawHeader("Dropbox-API-Arg",
+                   QJsonDocument(arg).toJson(QJsonDocument::Compact));
+  req.setHeader(QNetworkRequest::ContentTypeHeader,
+                QStringLiteral("application/octet-stream"));
+  const HttpResult r = http(m_nam, req, "POST", f.readAll());
+  return r.status >= 200 && r.status < 300;
+}
+
+bool CloudLinkHub::dropboxRemove(const QString &fileName) {
+  QString err;
+  const QString token = dropboxAccess(m_nam, &err);
+  if (token.isEmpty())
+    return false;
+  QJsonObject body;
+  body.insert(QStringLiteral("path"),
+              QStringLiteral("/BlopNotizen/") + fileName);
+  const HttpResult r = http(
+      m_nam,
+      jsonReq(QUrl(QStringLiteral("https://api.dropboxapi.com/2/files/delete_v2")),
+              token),
+      "POST", QJsonDocument(body).toJson(QJsonDocument::Compact));
+  return r.status >= 200 && r.status < 300;
+}
+
+bool CloudLinkHub::dropboxRename(const QString &oldName, const QString &newName) {
+  QString err;
+  const QString token = dropboxAccess(m_nam, &err);
+  if (token.isEmpty())
+    return false;
+  QJsonObject body;
+  body.insert(QStringLiteral("from_path"),
+              QStringLiteral("/BlopNotizen/") + oldName);
+  body.insert(QStringLiteral("to_path"),
+              QStringLiteral("/BlopNotizen/") + newName);
+  const HttpResult r = http(
+      m_nam,
+      jsonReq(QUrl(QStringLiteral("https://api.dropboxapi.com/2/files/move_v2")),
+              token),
+      "POST", QJsonDocument(body).toJson(QJsonDocument::Compact));
+  return r.status >= 200 && r.status < 300;
+}
+
+QVector<CloudRemoteItem> CloudLinkHub::icloudList(const QString &folderPath) {
+  QVector<CloudRemoteItem> out;
+  const QString root = icloudLinkedRoot();
+  if (root.isEmpty() || !QDir(root).exists()) {
+    m_lastError = QStringLiteral("iCloud-Ordner ist nicht verknüpft.");
+    return out;
+  }
+  QString abs = root;
+  if (!folderPath.isEmpty())
+    abs = QDir(root).filePath(folderPath);
+  QDir dir(abs);
+  if (!dir.exists()) {
+    m_lastError = QStringLiteral("Ordner nicht gefunden.");
+    return out;
+  }
+  const QFileInfoList entries = dir.entryInfoList(
+      QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden,
+      QDir::DirsFirst | QDir::Name);
+  for (const QFileInfo &fi : entries) {
+    CloudRemoteItem item;
+    item.name = fi.fileName();
+    QString rel = fi.absoluteFilePath();
+    if (rel.startsWith(root, Qt::CaseInsensitive))
+      rel = rel.mid(root.size());
+    while (rel.startsWith(QLatin1Char('/')) || rel.startsWith(QLatin1Char('\\')))
+      rel = rel.mid(1);
+    rel.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    item.id = rel;
+    item.isFolder = fi.isDir();
+    item.mimeType = item.isFolder
+                        ? QStringLiteral("application/vnd.google-apps.folder")
+                        : mimeFromFileName(item.name);
+    item.modified = fi.lastModified().toUTC();
+    item.created = fi.birthTime().isValid() ? fi.birthTime().toUTC()
+                                            : item.modified;
+    if (!item.isFolder)
+      item.sizeBytes = fi.size();
+    out.append(item);
+  }
+  return out;
+}
+
+bool CloudLinkHub::icloudFetch(const QString &remoteId,
+                               const QString &localPath) {
+  if (remoteId.isEmpty() || localPath.isEmpty())
+    return false;
+  const QString root = icloudLinkedRoot();
+  if (root.isEmpty()) {
+    m_lastError = QStringLiteral("iCloud-Ordner ist nicht verknüpft.");
+    return false;
+  }
+  const QString src = QDir(root).filePath(remoteId);
+  if (!QFileInfo::exists(src) || QFileInfo(src).isDir()) {
+    m_lastError = QStringLiteral("Datei nicht gefunden.");
+    return false;
+  }
+  if (QFileInfo(src).canonicalFilePath() ==
+      QFileInfo(localPath).canonicalFilePath())
+    return true;
+  QDir().mkpath(QFileInfo(localPath).absolutePath());
+  QFile::remove(localPath);
+  if (!QFile::copy(src, localPath)) {
+    m_lastError = QStringLiteral("Kopieren aus iCloud fehlgeschlagen.");
+    return false;
+  }
+  return true;
+}
+
+bool CloudLinkHub::icloudCreateFolder(const QString &parentId,
+                                      const QString &name) {
+  const QString root = icloudLinkedRoot();
+  if (root.isEmpty()) {
+    m_lastError = QStringLiteral("iCloud-Ordner ist nicht verknüpft.");
+    return false;
+  }
+  QString parent = root;
+  if (!parentId.isEmpty())
+    parent = QDir(root).filePath(parentId);
+  if (!QDir(parent).mkpath(name)) {
+    m_lastError = QStringLiteral("Ordner konnte nicht angelegt werden.");
+    return false;
+  }
+  return true;
+}
+
+bool CloudLinkHub::icloudDelete(const QString &remoteId) {
+  const QString root = icloudLinkedRoot();
+  if (root.isEmpty() || remoteId.isEmpty())
+    return false;
+  const QString path = QDir(root).filePath(remoteId);
+  QFileInfo fi(path);
+  if (!fi.exists())
+    return true;
+  if (fi.isDir()) {
+    QDir dir(path);
+    if (!dir.removeRecursively()) {
+      m_lastError = QStringLiteral("Löschen fehlgeschlagen.");
+      return false;
+    }
+    return true;
+  }
+  if (!QFile::remove(path)) {
+    m_lastError = QStringLiteral("Löschen fehlgeschlagen.");
+    return false;
+  }
+  return true;
+}
+
+bool CloudLinkHub::icloudRename(const QString &remoteId, const QString &newName) {
+  const QString root = icloudLinkedRoot();
+  if (root.isEmpty() || remoteId.isEmpty() || newName.trimmed().isEmpty())
+    return false;
+  const QString src = QDir(root).filePath(remoteId);
+  QFileInfo fi(src);
+  if (!fi.exists()) {
+    m_lastError = QStringLiteral("Eintrag nicht gefunden.");
+    return false;
+  }
+  const QString dest = fi.dir().filePath(newName.trimmed());
+  if (!QFile::rename(src, dest)) {
+    m_lastError = QStringLiteral("Umbenennen fehlgeschlagen.");
+    return false;
+  }
+  return true;
+}
+
 QVector<CloudRemoteItem> CloudLinkHub::listNotes(const QString &type,
                                                  const QString &folderId) {
   m_lastError.clear();
@@ -1439,6 +1970,10 @@ QVector<CloudRemoteItem> CloudLinkHub::listNotes(const QString &type,
     return nextcloudList(folderId);
   if (type == QLatin1String("onedrive"))
     return oneDriveList(folderId);
+  if (type == QLatin1String("dropbox"))
+    return dropboxList(folderId);
+  if (type == QLatin1String("icloud"))
+    return icloudList(folderId);
   m_lastError = QStringLiteral("Dieser Anbieter hat keine API-Liste.");
   return {};
 }
@@ -1452,6 +1987,10 @@ bool CloudLinkHub::fetchNote(const QString &type, const QString &remoteId,
     return nextcloudFetch(remoteId, localPath);
   if (type == QLatin1String("onedrive"))
     return oneDriveFetch(remoteId, localPath);
+  if (type == QLatin1String("dropbox"))
+    return dropboxFetch(remoteId, localPath);
+  if (type == QLatin1String("icloud"))
+    return icloudFetch(remoteId, localPath);
   m_lastError = QStringLiteral("Dieser Anbieter hat keinen API-Download.");
   return false;
 }
@@ -1537,6 +2076,38 @@ bool CloudLinkHub::createFolder(const QString &type, const QString &parentId,
     }
     return true;
   }
+  if (type == QLatin1String("dropbox")) {
+    QString err;
+    const QString token = dropboxAccess(m_nam, &err);
+    if (token.isEmpty()) {
+      m_lastError = err;
+      return false;
+    }
+    QString path = parentId;
+    if (!path.isEmpty() && !path.endsWith(QLatin1Char('/')))
+      path += QLatin1Char('/');
+    if (path.isEmpty())
+      path = QStringLiteral("/");
+    path += clean;
+    if (!path.startsWith(QLatin1Char('/')))
+      path.prepend(QLatin1Char('/'));
+    QJsonObject body;
+    body.insert(QStringLiteral("path"), path);
+    body.insert(QStringLiteral("autorename"), false);
+    const HttpResult r = http(
+        m_nam,
+        jsonReq(QUrl(QStringLiteral(
+                    "https://api.dropboxapi.com/2/files/create_folder_v2")),
+                token),
+        "POST", QJsonDocument(body).toJson(QJsonDocument::Compact));
+    if (r.status < 200 || r.status >= 300) {
+      m_lastError = QStringLiteral("Ordner konnte nicht angelegt werden.");
+      return false;
+    }
+    return true;
+  }
+  if (type == QLatin1String("icloud"))
+    return icloudCreateFolder(parentId, clean);
   m_lastError = QStringLiteral("Ordner anlegen nicht unterstützt.");
   return false;
 }
@@ -1595,6 +2166,29 @@ bool CloudLinkHub::deleteRemote(const QString &type, const QString &remoteId) {
     }
     return true;
   }
+  if (type == QLatin1String("dropbox")) {
+    QString err;
+    const QString token = dropboxAccess(m_nam, &err);
+    if (token.isEmpty()) {
+      m_lastError = err;
+      return false;
+    }
+    QJsonObject body;
+    body.insert(QStringLiteral("path"), remoteId);
+    const HttpResult r = http(
+        m_nam,
+        jsonReq(QUrl(QStringLiteral(
+                    "https://api.dropboxapi.com/2/files/delete_v2")),
+                token),
+        "POST", QJsonDocument(body).toJson(QJsonDocument::Compact));
+    if (r.status < 200 || r.status >= 300) {
+      m_lastError = QStringLiteral("Löschen fehlgeschlagen.");
+      return false;
+    }
+    return true;
+  }
+  if (type == QLatin1String("icloud"))
+    return icloudDelete(remoteId);
   m_lastError = QStringLiteral("Löschen nicht unterstützt.");
   return false;
 }
@@ -1666,6 +2260,36 @@ bool CloudLinkHub::renameRemote(const QString &type, const QString &remoteId,
     }
     return true;
   }
+  if (type == QLatin1String("dropbox")) {
+    QString err;
+    const QString token = dropboxAccess(m_nam, &err);
+    if (token.isEmpty()) {
+      m_lastError = err;
+      return false;
+    }
+    QString dest = remoteId;
+    const int slash = dest.lastIndexOf(QLatin1Char('/'));
+    if (slash >= 0)
+      dest = dest.left(slash + 1) + clean;
+    else
+      dest = QStringLiteral("/") + clean;
+    QJsonObject body;
+    body.insert(QStringLiteral("from_path"), remoteId);
+    body.insert(QStringLiteral("to_path"), dest);
+    const HttpResult r = http(
+        m_nam,
+        jsonReq(QUrl(QStringLiteral(
+                    "https://api.dropboxapi.com/2/files/move_v2")),
+                token),
+        "POST", QJsonDocument(body).toJson(QJsonDocument::Compact));
+    if (r.status < 200 || r.status >= 300) {
+      m_lastError = QStringLiteral("Umbenennen fehlgeschlagen.");
+      return false;
+    }
+    return true;
+  }
+  if (type == QLatin1String("icloud"))
+    return icloudRename(remoteId, clean);
   m_lastError = QStringLiteral("Umbenennen nicht unterstützt.");
   return false;
 }
@@ -1678,6 +2302,8 @@ bool CloudLinkHub::putNote(const QString &localPath) {
     return nextcloudPut(localPath);
   if (id == QLatin1String("onedrive"))
     return oneDrivePut(localPath);
+  if (id == QLatin1String("dropbox"))
+    return dropboxPut(localPath);
   return false;
 }
 
@@ -1689,6 +2315,8 @@ bool CloudLinkHub::removeNote(const QString &fileName) {
     return nextcloudRemove(fileName);
   if (id == QLatin1String("onedrive"))
     return oneDriveRemove(fileName);
+  if (id == QLatin1String("dropbox"))
+    return dropboxRemove(fileName);
   return false;
 }
 
@@ -1700,5 +2328,7 @@ bool CloudLinkHub::renameNote(const QString &oldName, const QString &newName) {
     return nextcloudRename(oldName, newName);
   if (id == QLatin1String("onedrive"))
     return oneDriveRename(oldName, newName);
+  if (id == QLatin1String("dropbox"))
+    return dropboxRename(oldName, newName);
   return false;
 }

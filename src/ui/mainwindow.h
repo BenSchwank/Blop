@@ -475,6 +475,10 @@ private:
   void animateSidebar(bool show);
   /// Open the drawer on the notes library. No-op in the editor and on phone burger UI.
   void ensureNotesLibrarySidebar();
+#ifndef Q_OS_ANDROID
+  /// Show the left icon rail after guest login / leaving phone-burger layout.
+  void ensureDesktopIconRail();
+#endif
   /// Smooth width change when Dashboard vs. Notes changes sidebar footprint.
   void animateSidebarWidth(int targetWidthPx);
   /// Hard-cut between Dashboard and Notes apps (dual-app shell).

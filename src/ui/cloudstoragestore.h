@@ -29,4 +29,10 @@ CloudStorageEntry *findMutable(QVector<CloudStorageEntry> &entries,
 QString displayNameForType(const QString &type);
 QString iconForType(const QString &type);
 QString defaultWebUrl(const QString &type);
+/// Drive / OneDrive / Nextcloud / Dropbox — OAuth/API FreeGrid browse.
+bool supportsApiBrowse(const QString &type);
+/// iCloud — local sync-folder browse in the same FreeGrid chrome.
+bool supportsLocalBrowse(const QString &type);
+/// Either API or local browse (opens library grid, not only the browser).
+bool supportsLibraryBrowse(const QString &type);
 } // namespace CloudStorageStore

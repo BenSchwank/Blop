@@ -801,13 +801,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             cardKonto,
             studyLoggedIn ? QStringLiteral("Öffnen →")
                           : QStringLiteral("Anmelden →"));
+        // Always open the Study auth surface — logout is the separate
+        // "Abmelden" row below (never hijack this affordance).
         connect(btnAuthScreen, &QPushButton::clicked, this,
-                [this, studyLoggedIn, closeAfterAccountAction]() {
-                  if (studyLoggedIn) {
-                    emit logoutRequested();
-                  } else {
-                    emit studyLoginRequested();
-                  }
+                [this, closeAfterAccountAction]() {
+                  emit studyLoginRequested();
                   closeAfterAccountAction();
                 });
         cardKonto->addBodyWidget(makePropertyRow(
