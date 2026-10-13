@@ -40,6 +40,19 @@ function wantsDocumentEdit(text: string): boolean {
     return /\b(änder|aender|umschreib|ergänz|erganz|korrigier|füge|fuege|lösch|loesch|ersetze|kürze|kuerze|formulier)/i.test(text);
 }
 
+/** Repair classic UTF-8-as-Latin1 mojibake (PrÃ¤prozessor, â). */
+function fixMojibake(text: string): string {
+    if (!text || !/[ÃÂâ]/.test(text)) return text;
+    try {
+        const bytes = Uint8Array.from(Array.from(text, (ch) => ch.charCodeAt(0) & 0xff));
+        const decoded = new TextDecoder("utf-8").decode(bytes);
+        if (decoded.includes("�")) return text;
+        return decoded;
+    } catch {
+        return text;
+    }
+}
+
 export default function FloatingChat({ folderId, username, modelPreference, activeFile, onUpdateActiveFile, onApplyPatch, onUndoLastPatch, canUndo = false }: FloatingChatProps) {
     const dragControls = useDragControls();
     const [isOpen, setIsOpen] = useState(false);
@@ -142,7 +155,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
             setMessages([...newMessages, { role: 'model', content: '' }]);
 
             const reader = res.body!.getReader();
-            const decoder = new TextDecoder();
+            const decoder = new TextDecoder("utf-8");
             let streamedContent = '';
             let buffer = '';
 
@@ -160,10 +173,10 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                     let data: any;
                     try { data = JSON.parse(payload); } catch { continue; }
 
-                    if (data.error) throw new Error(data.error);
+                    if (data.error) throw new Error(fixMojibake(String(data.error)));
 
                     if (data.text) {
-                        streamedContent += data.text;
+                        streamedContent = fixMojibake(streamedContent + data.text);
                         setMessages(prev => {
                             const updated = [...prev];
                             updated[aiMsgIndex] = { role: 'model', content: streamedContent };
@@ -247,34 +260,22 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.8, y: 20 }}
                         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                        className={`bg-[#1A1916] border border-[#333] shadow-2xl rounded-2xl mb-4 overflow-hidden flex flex-col ${isExpanded ? 'w-[80vw] h-[80vh] max-w-4xl' : 'w-[350px] sm:w-[400px] h-[500px]'}`}
+                        className={`bg-[#12141A] border border-[#2A3140] shadow-2xl rounded-2xl mb-4 overflow-hidden flex flex-col ${isExpanded ? 'w-[80vw] h-[80vh] max-w-4xl' : 'w-[350px] sm:w-[420px] h-[520px]'}`}
                     >
-                        {/* Header — only this bar starts a drag */}
-                        <div className="bg-[#252526] p-4 border-b border-[#333] flex items-center justify-between shrink-0">
+                        <div className="bg-[#1A1F2A] p-3.5 border-b border-[#2A3140] flex items-center justify-between shrink-0 gap-2">
                             <div
-                                className="flex items-center gap-2 cursor-grab active:cursor-grabbing min-w-0"
+                                className="flex items-center gap-2.5 cursor-grab active:cursor-grabbing min-w-0"
                                 onPointerDown={(e) => dragControls.start(e)}
                             >
-                                <div className="w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                                <div className="w-9 h-9 rounded-full bg-[#5B9DFF]/15 text-[#5B9DFF] flex items-center justify-center ring-1 ring-[#5B9DFF]/25">
                                     <MessageCircle size={18} />
                                 </div>
-                                <h3 className="text-white font-medium">Blop KI-Assistent</h3>
+                                <div className="min-w-0">
+                                    <h3 className="text-white font-semibold text-sm truncate">Blop KI-Assistent</h3>
+                                    <p className="text-[10px] text-gray-500 truncate">Zum Ordner fragen · Kopfleiste ziehen</p>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-1">
-                                <button
-                                    onClick={() => setIsExpanded(!isExpanded)}
-                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-[#333] rounded-lg transition-colors"
-                                >
-                                    {isExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-                                </button>
-                                <button
-                                    onClick={() => setIsOpen(false)}
-                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-[#333] rounded-lg transition-colors"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1 shrink-0">
                                 <button
                                     type="button"
                                     disabled={!canUndo || isLoading}
@@ -283,62 +284,73 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                         setIsLoading(true);
                                         try {
                                             await onUndoLastPatch();
-                                            setMessages((prev) => [...prev, { role: 'model', content: 'Letzte Änderung rückgängig gemacht. ↩️' }]);
+                                            setMessages((prev) => [...prev, { role: 'model', content: 'Letzte Änderung rückgängig gemacht.' }]);
                                         } catch (e: any) {
                                             setMessages((prev) => [...prev, { role: 'model', content: e?.message || 'Rückgängig fehlgeschlagen.' }]);
                                         } finally {
                                             setIsLoading(false);
                                         }
                                     }}
-                                    className="px-2 py-1 text-xs rounded-lg border border-[#3d3d3d] text-gray-300 hover:text-white hover:bg-[#333] disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-2 py-1 text-[11px] rounded-lg border border-[#3A4558] text-gray-300 hover:text-white hover:bg-[#243044] disabled:opacity-40"
                                 >
                                     Rückgängig
+                                </button>
+                                <button
+                                    onClick={() => setIsExpanded(!isExpanded)}
+                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-[#243044] rounded-lg"
+                                >
+                                    {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                                </button>
+                                <button
+                                    onClick={() => setIsOpen(false)}
+                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-[#243044] rounded-lg"
+                                >
+                                    <X size={16} />
                                 </button>
                             </div>
                         </div>
 
-                        {/* Chat History */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-[#1a1a1b]">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar bg-[#0E1117]">
                             {messages.map((msg, index) => (
                                 <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div
-                                        className={`max-w-[85%] rounded-2xl p-4 ${msg.role === 'user'
-                                            ? 'bg-blue-600 text-white rounded-tr-sm'
-                                            : 'bg-[#2d2d2d] text-gray-200 rounded-tl-sm border border-[#3d3d3d]'
+                                        className={`max-w-[88%] rounded-2xl px-3.5 py-3 ${msg.role === 'user'
+                                            ? 'bg-[#5B9DFF] text-white rounded-tr-md'
+                                            : 'bg-[#1A1F2A] text-gray-100 rounded-tl-md border border-[#2A3140]'
                                             }`}
                                     >
                                         {msg.role === 'model' ? (
-                                            <div className="prose prose-invert max-w-none text-sm leading-relaxed">
+                                            <div className="prose prose-invert prose-blop max-w-none text-sm leading-relaxed prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:bg-[#12141A] prose-pre:border prose-pre:border-[#2A3140] prose-code:text-[#9EC5FF] [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto">
                                                 <ReactMarkdown
-                                                remarkPlugins={[remarkGfm, remarkMath]}
-                                                rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
-                                            >
-                                                {msg.content}
-                                            </ReactMarkdown>
+                                                    remarkPlugins={[remarkGfm, remarkMath]}
+                                                    rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
+                                                >
+                                                    {msg.content}
+                                                </ReactMarkdown>
                                             </div>
                                         ) : (
-                                            <p className="text-sm">{msg.content}</p>
+                                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                                         )}
                                     </div>
                                 </div>
                             ))}
                             {isLoading && (
                                 <div className="flex justify-start">
-                                    <div className="bg-[#2d2d2d] text-gray-400 rounded-2xl rounded-tl-sm p-4 border border-[#3d3d3d] flex items-center gap-2">
-                                        <Loader2 size={16} className="animate-spin" />
-                                        <span className="text-sm">Denkt nach...</span>
+                                    <div className="bg-[#1A1F2A] text-gray-400 rounded-2xl rounded-tl-md px-3.5 py-3 border border-[#2A3140] flex items-center gap-2">
+                                        <Loader2 size={16} className="animate-spin text-[#5B9DFF]" />
+                                        <span className="text-sm">Denkt nach…</span>
                                     </div>
                                 </div>
                             )}
                             {pendingPatch && (
-                                <div className="bg-[#202032] border border-[#3f3f60] rounded-xl p-3">
-                                    <p className="text-xs text-gray-300 mb-2">Vorgeschlagene Änderung bereit.</p>
+                                <div className="bg-[#152033] border border-[#5B9DFF]/35 rounded-xl p-3">
+                                    <p className="text-xs text-gray-300 mb-2">Vorgeschlagene Dokumentänderung bereit.</p>
                                     <div className="flex gap-2">
                                         <button
                                             type="button"
                                             onClick={handleApplyPatch}
                                             disabled={isLoading}
-                                            className="px-3 py-1.5 text-xs rounded-lg bg-green-600 hover:bg-green-500 text-white disabled:opacity-50"
+                                            className="px-3 py-1.5 text-xs rounded-lg bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white disabled:opacity-50"
                                         >
                                             Übernehmen
                                         </button>
@@ -346,7 +358,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                             type="button"
                                             onClick={handleRejectPatch}
                                             disabled={isLoading}
-                                            className="px-3 py-1.5 text-xs rounded-lg bg-[#333] hover:bg-[#444] text-gray-200 disabled:opacity-50"
+                                            className="px-3 py-1.5 text-xs rounded-lg bg-[#243044] hover:bg-[#2E3A4F] text-gray-200 disabled:opacity-50"
                                         >
                                             Verwerfen
                                         </button>
@@ -356,18 +368,20 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                             <div ref={messagesEndRef} />
                         </div>
 
-                        {/* Input Area */}
-                        <div className="p-4 bg-[#252526] border-t border-[#333] shrink-0">
+                        <div className="p-3.5 bg-[#1A1F2A] border-t border-[#2A3140] shrink-0 space-y-2">
                             {activeFile && typeof activeFile.content === 'string' ? (
-                                <label className="mb-2 flex items-center gap-2 text-[11px] text-gray-400">
-                                    <input
-                                        type="checkbox"
-                                        checked={editDocument}
-                                        onChange={(e) => setEditDocument(e.target.checked)}
-                                        className="rounded border-[#333]"
-                                    />
+                                <button
+                                    type="button"
+                                    onClick={() => setEditDocument((v) => !v)}
+                                    className={`inline-flex items-center gap-2 text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                                        editDocument
+                                            ? 'bg-[#5B9DFF]/15 text-[#9EC5FF] border-[#5B9DFF]/40'
+                                            : 'bg-transparent text-gray-400 border-[#3A4558] hover:border-[#5B9DFF]/30'
+                                    }`}
+                                >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${editDocument ? 'bg-[#5B9DFF]' : 'bg-gray-500'}`} />
                                     Dokument ändern
-                                </label>
+                                </button>
                             ) : null}
                             <form
                                 onSubmit={(e) => { e.preventDefault(); handleSend(); }}
@@ -382,23 +396,21 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                             handleSend();
                                         }
                                     }}
-                                    placeholder="Frage etwas zum Ordner..."
-                                    className="flex-1 bg-[#1a1a1b] text-white border border-[#333] rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none max-h-32 min-h-[48px] custom-scrollbar"
+                                    placeholder="Frage etwas zum Ordner…"
+                                    className="flex-1 bg-[#0E1117] text-white border border-[#2A3140] rounded-xl px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40 focus:border-[#5B9DFF]/50 resize-none max-h-32 min-h-[48px] custom-scrollbar"
                                     rows={1}
                                 />
                                 <button
                                     type="submit"
                                     disabled={!input.trim() || isLoading}
-                                    className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white p-3 rounded-xl transition-colors shrink-0 flex items-center justify-center h-[48px] w-[48px]"
+                                    className="bg-[#5B9DFF] hover:bg-[#4A8AE6] disabled:opacity-50 disabled:cursor-not-allowed text-white p-3 rounded-xl transition-colors shrink-0 flex items-center justify-center h-[48px] w-[48px]"
                                 >
                                     <Send size={18} className={input.trim() ? 'translate-x-0.5' : ''} />
                                 </button>
                             </form>
-                            <div className="text-center mt-2">
-                                <span className="text-[10px] text-gray-500">
-                                    {lastUsageInfo || 'Kopfleiste ziehen, um den Chat zu verschieben.'}
-                                </span>
-                            </div>
+                            {lastUsageInfo ? (
+                                <p className="text-center text-[10px] text-gray-500">{lastUsageInfo}</p>
+                            ) : null}
                         </div>
                     </motion.div>
                 )}
@@ -408,7 +420,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setIsOpen(!isOpen)}
-                className="bg-blue-600 hover:bg-blue-500 text-white rounded-full p-4 shadow-xl border border-blue-400/20 flex items-center justify-center"
+                className="bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-full p-4 shadow-xl border border-[#5B9DFF]/30 flex items-center justify-center"
             >
                 {isOpen ? <X size={24} /> : <MessageCircle size={24} />}
             </motion.button>

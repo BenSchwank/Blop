@@ -9,6 +9,7 @@ import time
 from typing import List, Dict, Any, Optional, Tuple
 
 from openrouter_genai import RequestOptions
+from math_normalize import MATH_POWER_INSTRUCTIONS, normalize_math_powers
 
 # Text models go through OpenRouter. The key is also read again on each request.
 api_key = os.environ.get("OPENROUTER_API_KEY")
@@ -44,29 +45,27 @@ _PREFERRED_MODELS = [
     "gemini-pro",
 ]
 
-# Automatisch: best combined quality, speed, and cost on OpenRouter (Sept 2026).
-# Claude Sonnet 5.5 writes long study text fast and reads PDFs and images.
-# GPT-6.1 Sol is stricter on facts and short math, and also reads PDFs and images.
-# Gemini 3.7 Flash is the fast multimodal model and the one that can hear audio.
+# Automatisch: cheap Flash defaults so everyday study tasks stay affordable.
+# Premium models (Claude / GPT / Pro) remain available as an explicit UI choice.
 _TASK_MODELS = {
     "chat": "gemini-3.7-flash",
-    "summary": "claude-sonnet-5.5",
-    "quiz": "gpt-6.1-sol",
-    "flashcards": "gpt-6.1-sol",
-    "plan": "claude-sonnet-5.5",
-    "smart_learning": "claude-sonnet-5.5",
-    "podcast": "claude-sonnet-5.5",
+    "summary": "gemini-3.7-flash",
+    "quiz": "gemini-3.7-flash",
+    "flashcards": "gemini-3.7-flash",
+    "plan": "gemini-3.7-flash",
+    "smart_learning": "gemini-3.7-flash",
+    "podcast": "gemini-3.7-flash",
     "learning_video": "gemini-3.7-flash",
     "audio": "gemini-3.7-flash",
-    "image": "claude-sonnet-5.5",
-    "selection_edit": "claude-sonnet-5.5",
-    "document_patch": "claude-sonnet-5.5",
-    "artifact_refine": "gpt-6.1-sol",
-    "marketing": "claude-sonnet-5.5",
-    "elaboration": "claude-sonnet-5.5",
-    "repetition": "gpt-6.1-sol",
-    "task_help": "gpt-6.1-sol",
-    "handwriting": "gpt-6.1-sol",
+    "image": "gemini-3.7-flash",
+    "selection_edit": "gemini-3.7-flash",
+    "document_patch": "gemini-3.7-flash",
+    "artifact_refine": "gemini-3.7-flash",
+    "marketing": "gemini-3.7-flash",
+    "elaboration": "gemini-3.7-flash",
+    "repetition": "gemini-3.7-flash",
+    "task_help": "gemini-3.7-flash",
+    "handwriting": "gemini-3.7-flash",
 }
 
 
@@ -223,7 +222,12 @@ NUMERISCHE GENAUIGKEIT UND PLAUSIBILITÄT (verbindlich, sobald Zahlen, Funktione
 - Rundung transparent machen (Zwischenergebnisse mit ausreichend Stellen); wo sinnvoll, exakte Brüche oder algebraische Ausdrücke angeben.
 - Wenn du dir bei einer komplexen Zahl nicht sicher bist: den exakten Ausdruck angeben und ausdrücklich zur Nachrechnung mit dem Taschenrechner auffordern — lieber ehrlich als falsch.
 - Vor dem Abschluss: kurze Plausibilitätsprüfung (Größenordnung, Monotonie, Randwerte, ob das Ergebnis zum Modell passt).
-"""
+""" + MATH_POWER_INSTRUCTIONS
+
+
+def _finalize_study_markdown(text: str) -> str:
+    """Normalize powers so TipTap/KaTeX never show exponents as juxtaposition."""
+    return normalize_math_powers((text or "").strip())
 
 class AIService:
     _REPETITION_CONTINUATION_PROMPT = """Die Ausgabe wurde wegen des Ausgabe-Tokenslimits abgebrochen.
@@ -507,9 +511,10 @@ Du bist ein erfahrener Tutor und Lernassistent. Deine Aufgabe ist es, eine UMFAS
 Detailgrad: {detail_level}
 
 WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
-Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
-- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
-- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
+- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^{2}$
+- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^{2}$$
+- Potenzen nie als x2 oder x^2 ohne Dollars — immer $x^{2}$.
 
 {MATH_ACCURACY_INSTRUCTIONS}
 
@@ -571,10 +576,11 @@ Erstelle jetzt die vollständige, detaillierte Zusammenfassung basierend auf dem
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
+            text = _finalize_study_markdown(response.text)
             if not return_meta:
-                return response.text
+                return text
             return {
-                "text": response.text,
+                "text": text,
                 "usage": AIService._extract_usage(response),
                 "used_model": str(getattr(model, "model_name", "") or ""),
             }
@@ -1753,9 +1759,10 @@ VOLLSTÄNDIGKEIT (kritisch):
 {umfang}
 
 WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
-Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
-- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
-- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
+- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^{2}$
+- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^{2}$$
+- Potenzen nie als x2 oder x^2 ohne Dollars — immer $x^{2}$.
 
 {MATH_ACCURACY_INSTRUCTIONS}
 
@@ -1830,7 +1837,7 @@ Hier ist das Quellenmaterial:
                                 "used_model": str(getattr(model, "model_name", "") or ""),
                             }
                     full_text = full_result["text"] if return_meta else full_result
-                    ft = (full_text or "").strip()
+                    ft = _finalize_study_markdown(full_text or "")
                     if not ft:
                         raise Exception("Leere Antwort vom Modell erhalten.")
                     # Verhindert „Erfolg“ mit nur Anführungszeichen / minimalem Müll (schnell fertig, kein Inhalt)
@@ -2063,9 +2070,15 @@ Hier ist das Quellenmaterial:
                     }
                 else:
                     full_result = response.text
-            full_text = full_result["text"] if return_meta else full_result
-            if not (full_text or "").strip():
+            full_text = _finalize_study_markdown(
+                full_result["text"] if return_meta else full_result
+            )
+            if not full_text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
+            if return_meta:
+                full_result["text"] = full_text
+            else:
+                full_result = full_text
             return full_result
         except Exception as e:
             print(f"Repetition Error: {e}")
@@ -2075,15 +2088,12 @@ Hier ist das Quellenmaterial:
     def chat_stream(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None, active_file: dict = None):
         """Like chat() but yields text chunks. Final item has type='done' with usage info."""
         system_instruction = (
-            "Du bist der hilfreiche 'Blop KI-Assistent'. Deine Aufgabe ist es, Fragen des Schülers "
-            "zu seinen Lernmaterialien (PDFs, Notizen, etc.) zu beantworten.\n"
-            "Sei immer freundlich, ermutigend und hilfsbereit. Antworte in der Sprache des Nutzers (standardmäßig Deutsch).\n"
-            "Fasse dich eher kurz und präzise, um den Chatverlauf lesbar zu halten.\n\n"
-            "WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:\n"
-            "Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. \n"
-            "- Für Inline-Formeln verwende ein einzelnes Dollarzeichen: $E = mc^2$ \n"
-            "- Für Block-Formeln verwende doppelte Dollarzeichen: $$E = mc^2$$ \n"
-            "Verwende niemals andere Notationen für Mathematik.\n\n"
+            "Du bist der hilfreiche 'Blop KI-Assistent'. Beantworte Fragen zu den Lernmaterialien.\n"
+            "Sei freundlich und klar. Antworte auf Deutsch, außer der Nutzer schreibt anders.\n"
+            "FORMATIERUNG:\n"
+            "- Nutze Markdown: kurze Absätze, Listen mit '-', Code in ```fences```.\n"
+            "- Keine Unicode-Bullets wie ● oder Schmuckzeichen.\n"
+            "- Mathematik nur als LaTeX: $x^{2}$ inline, $$...$$ als Block. Nie x2 oder x^2 ohne Dollars.\n"
             + MATH_ACCURACY_INSTRUCTIONS
             + "\n"
         )
@@ -2156,15 +2166,12 @@ Hier ist das Quellenmaterial:
         """Handles a conversational chat with the AI, given the folder content context and optionally the currently active file."""
         try:
             system_instruction = (
-                "Du bist der hilfreiche 'Blop KI-Assistent'. Deine Aufgabe ist es, Fragen des Schülers "
-                "zu seinen Lernmaterialien (PDFs, Notizen, etc.) zu beantworten.\n"
-                "Sei immer freundlich, ermutigend und hilfsbereit. Antworte in der Sprache des Nutzers (standardmäßig Deutsch).\n"
-                "Fasse dich eher kurz und präzise, um den Chatverlauf lesbar zu halten.\n\n"
-                "WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:\n"
-                "Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. \n"
-                "- Für Inline-Formeln verwende ein einzelnes Dollarzeichen: $E = mc^2$ \n"
-                "- Für Block-Formeln verwende doppelte Dollarzeichen: $$E = mc^2$$ \n"
-                "Verwende niemals andere Notationen für Mathematik.\n\n"
+                "Du bist der hilfreiche 'Blop KI-Assistent'. Beantworte Fragen zu den Lernmaterialien.\n"
+                "Sei freundlich und klar. Antworte auf Deutsch, außer der Nutzer schreibt anders.\n"
+                "FORMATIERUNG:\n"
+                "- Nutze Markdown: kurze Absätze, Listen mit '-', Code in ```fences```.\n"
+                "- Keine Unicode-Bullets wie ● oder Schmuckzeichen.\n"
+                "- Mathematik nur als LaTeX: $x^{2}$ inline, $$...$$ als Block. Nie x2 oder x^2 ohne Dollars.\n"
                 + MATH_ACCURACY_INSTRUCTIONS
                 + "\n"
             )

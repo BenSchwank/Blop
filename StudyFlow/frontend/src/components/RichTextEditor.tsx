@@ -13,6 +13,9 @@ import Image from '@tiptap/extension-image';
 import { Bold, Italic, List, ListOrdered, Heading1, Heading2, Heading3, Quote, Code, ImageIcon, Save, X, Loader2, Check } from 'lucide-react';
 import { marked } from 'marked';
 import { htmlToMarkdownForPdfExport } from '@/lib/htmlToMarkdownExport';
+import { ensureMathSpansInHtml, markdownToEditorHtml, serializeEditorMathSpans } from '@/lib/mathForEditor';
+import { MathDisplay, MathInline } from '@/lib/tiptapMath';
+import 'katex/dist/katex.min.css';
 
 interface RichTextEditorProps {
     initialContent: string;
@@ -188,20 +191,23 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
     const selectionSigRef = useRef<string>('');
 
     // If initialContent is raw markdown (e.g. from the AI), Tiptap requires HTML to style it properly.
-    // If it already looks like HTML (from a previous edit), we can just use it directly. 
-    // Tiptap always wraps text in basic block elements like <p>, <h1>, <ul> etc.
+    // Math ($x^{2}$) becomes KaTeX spans so powers never look like juxtaposition (x2).
     const isHtml = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote>|<img/i.test(initialContent);
-    const parsedHtml = isHtml ? initialContent : marked.parse(initialContent, { async: false }) as string;
+    const parseMd = (src: string) => marked.parse(src, { async: false }) as string;
+    const parsedHtml = isHtml
+        ? ensureMathSpansInHtml(initialContent)
+        : markdownToEditorHtml(initialContent, parseMd);
 
-    // Fallback to ensuring simple newlines aren't completely lost if marked isn't doing what we expect
     const finalHtml = parsedHtml || '';
 
     const editor = useEditor({
         extensions: [
             StarterKit,
+            MathInline,
+            MathDisplay,
             Image.configure({
                 HTMLAttributes: {
-                    class: 'rounded-xl shadow-lg max-w-full my-6', // Added nice styling classes for images in the editor
+                    class: 'rounded-xl shadow-lg max-w-full my-6',
                 },
             }),
             Heading.configure({
@@ -215,36 +221,36 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
         content: finalHtml,
         editorProps: {
             attributes: {
-                class: 'prose-blop focus:outline-none min-h-[500px] max-w-4xl mx-auto py-10 px-6 prose-img:rounded-xl prose-img:shadow-lg prose-pre:bg-[#353840] prose-pre:border prose-pre:border-[#45484F]',
+                class: 'prose-blop focus:outline-none min-h-[500px] max-w-4xl mx-auto py-10 px-6 prose-img:rounded-xl prose-img:shadow-lg prose-pre:bg-[#353840] prose-pre:border prose-pre:border-[#45484F] [&_.blop-math-inline]:mx-0.5 [&_.blop-math-display]:my-4 [&_.blop-math-display]:overflow-x-auto',
             },
         },
         onUpdate: ({ editor }) => {
-            // Auto-save logic
-            const currentHtml = editor.getHTML();
+            const currentHtml = serializeEditorMathSpans(editor.getHTML());
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
             }
             
-            setSaveStatus('idle'); // Indicate that there are unsaved changes
+            setSaveStatus('idle');
             
             saveTimeoutRef.current = setTimeout(async () => {
                 setSaveStatus('saving');
                 try {
                     await onSave(currentHtml);
                     setSaveStatus('saved');
-                    // Reset back to idle after a while so the button looks normal
                     setTimeout(() => { if (setSaveStatus) setSaveStatus('idle'); }, 2000);
                 } catch (e) {
                     setSaveStatus('idle');
                 }
-            }, 2000); // 2 second debounce
+            }, 2000);
         }
     });
 
     useEffect(() => {
         if (!editor || typeof externalUpdateToken !== 'number') return;
         const isHtmlInput = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote>|<img/i.test(initialContent || '');
-        const html = isHtmlInput ? initialContent : (marked.parse(initialContent || '', { async: false }) as string);
+        const html = isHtmlInput
+            ? ensureMathSpansInHtml(initialContent || '')
+            : markdownToEditorHtml(initialContent || '', parseMd);
         if (editor.getHTML() !== html) {
             editor.commands.setContent(html, { emitUpdate: false });
         }
@@ -422,7 +428,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             clearTimeout(saveTimeoutRef.current);
         }
         
-        const htmlContent = editor.getHTML();
+        const htmlContent = serializeEditorMathSpans(editor.getHTML());
         await onSave(htmlContent);
         
         setIsSaving(false);
@@ -432,7 +438,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
 
     const runPdfExport = useCallback(() => {
         if (!editor) return;
-        const md = htmlToMarkdownForPdfExport(editor.getHTML());
+        const md = htmlToMarkdownForPdfExport(serializeEditorMathSpans(editor.getHTML()));
         setPrintMarkdown(md);
     }, [editor]);
 

@@ -956,6 +956,15 @@ def forgot_password(request: ForgotPasswordRequest):
         "message": "Wenn diese E-Mail bei uns registriert ist, erhältst du gleich eine Nachricht mit einem Link zum Zurücksetzen.",
     }
 
+
+@app.post("/api/auth/resend-confirmation")
+def resend_confirmation(request: ForgotPasswordRequest):
+    """Resend Supabase signup confirmation mail."""
+    ok, msg = AuthManager.resend_confirmation_email(request.email)
+    if ok:
+        return {"success": True, "message": msg}
+    raise HTTPException(status_code=400, detail=msg)
+
 @app.post("/api/auth/reset-password-confirm")
 def reset_password_confirm(request: ResetPasswordConfirmRequest):
     """Completes recovery: GoTrue updates password; local users.password_hash is synced."""
@@ -3888,20 +3897,20 @@ def chat_endpoint_stream(request: ChatRequest):
                     active_file=request.active_file,
                 ):
                     if event["type"] == "chunk":
-                        yield f"data: {json.dumps({'text': event['text']})}\n\n"
+                        yield f"data: {json.dumps({'text': event['text']}, ensure_ascii=False)}\n\n"
                     elif event["type"] == "done":
                         charge = deduct_tokens_by_usage(
                             request.username, "chat",
                             event.get("used_model", ""),
                             event.get("usage"),
                         )
-                        yield f"data: {json.dumps({'done': True, 'used_model': event.get('used_model', ''), **charge})}\n\n"
+                        yield f"data: {json.dumps({'done': True, 'used_model': event.get('used_model', ''), **charge}, ensure_ascii=False)}\n\n"
             except Exception as e:
-                yield f"data: {json.dumps({'error': sanitize_ai_provider_detail(e, username=getattr(request, 'username', None))})}\n\n"
+                yield f"data: {json.dumps({'error': sanitize_ai_provider_detail(e, username=getattr(request, 'username', None))}, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(
             generate(),
-            media_type="text/event-stream",
+            media_type="text/event-stream; charset=utf-8",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
     except HTTPException:
