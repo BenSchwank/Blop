@@ -17,6 +17,7 @@ import { getSessionId, sessionHeaders } from "@/lib/session";
 import { OVERLAY_FOLDER_KI_PANEL } from "@/constants/overlayLayout";
 import { expireStaleActiveJobs, formatQueueAge, readQueueSnapshot, QUEUE_CANCEL_NOTE } from "@/lib/globalQueueStorage";
 import FloatingChat from "@/components/FloatingChat";
+import SelectionAiPanel from "@/components/SelectionAiPanel";
 import { AiModelOptions } from "@/lib/aiModelOptions";
 import { motion, AnimatePresence } from 'framer-motion';
 import { marked } from 'marked';
@@ -955,14 +956,24 @@ export default function FolderPage() {
     const [chatPatchJumpToken, setChatPatchJumpToken] = useState(0);
     const [chatPatchJumpText, setChatPatchJumpText] = useState<string>('');
     const [readSelectionText, setReadSelectionText] = useState('');
-    const [readSelectionRect, setReadSelectionRect] = useState<{ x: number; y: number } | null>(null);
+    const [readSelectionOpen, setReadSelectionOpen] = useState(false);
     const [readSelectionInstruction, setReadSelectionInstruction] = useState('');
     const [readSelectionBusy, setReadSelectionBusy] = useState(false);
+    const [readSelectionError, setReadSelectionError] = useState('');
     const readSelectionRangeRef = useRef<Range | null>(null);
     const readModeContentRef = useRef<HTMLDivElement | null>(null);
-    const readSelectionPopupRef = useRef<HTMLDivElement | null>(null);
+    const readSelectionPanelRef = useRef<HTMLDivElement | null>(null);
     const readSelectionRafRef = useRef<number | null>(null);
     const readSelectionSigRef = useRef<string>('');
+
+    const closeReadSelectionPanel = useCallback(() => {
+        readSelectionSigRef.current = '';
+        setReadSelectionOpen(false);
+        setReadSelectionText('');
+        setReadSelectionInstruction('');
+        setReadSelectionError('');
+        readSelectionRangeRef.current = null;
+    }, []);
 
     const API_BASE = '/api';
     const backendOrigin =
@@ -1129,56 +1140,42 @@ export default function FolderPage() {
         const isHtml = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote|<img/i.test(contentStr);
         const active = isTextDoc && !isEditingFile && !isHtml;
 
-        const reset = () => {
-            readSelectionSigRef.current = '';
-            setReadSelectionRect(null);
-            setReadSelectionText('');
-            readSelectionRangeRef.current = null;
-        };
         if (!active) {
-            reset();
+            closeReadSelectionPanel();
             return;
         }
+        const focusedInsidePanel = () =>
+            !!readSelectionPanelRef.current &&
+            !!document.activeElement &&
+            readSelectionPanelRef.current.contains(document.activeElement);
+
         const flushReadSelection = () => {
             const sel = window.getSelection();
             if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-                const focusedInsidePopup =
-                    !!readSelectionPopupRef.current &&
-                    !!document.activeElement &&
-                    readSelectionPopupRef.current.contains(document.activeElement);
-                if (focusedInsidePopup || readSelectionBusy) return;
-                if (readSelectionSigRef.current !== '') {
-                    readSelectionSigRef.current = '';
-                    reset();
-                }
+                if (focusedInsidePanel() || readSelectionBusy) return;
+                if (readSelectionSigRef.current !== '') closeReadSelectionPanel();
                 return;
             }
             const range = sel.getRangeAt(0);
             const root = readModeContentRef.current;
             if (!root || !root.contains(range.commonAncestorContainer)) {
-                if (readSelectionSigRef.current !== '') {
-                    readSelectionSigRef.current = '';
-                    reset();
-                }
+                if (focusedInsidePanel() || readSelectionBusy) return;
+                if (readSelectionSigRef.current !== '') closeReadSelectionPanel();
                 return;
             }
             const txt = sel.toString().trim();
             if (!txt) {
-                if (readSelectionSigRef.current !== '') {
-                    readSelectionSigRef.current = '';
-                    reset();
-                }
+                if (focusedInsidePanel() || readSelectionBusy) return;
+                if (readSelectionSigRef.current !== '') closeReadSelectionPanel();
                 return;
             }
-            const rect = range.getBoundingClientRect();
-            const sig = `${txt}\0${Math.round(rect.left)}|${Math.round(rect.top)}|${Math.round(rect.width)}|${Math.round(rect.height)}`;
-            if (sig === readSelectionSigRef.current) {
-                return;
-            }
+            const sig = `${txt.slice(0, 120)}|${range.startOffset}|${range.endOffset}|${range.toString().length}`;
+            if (sig === readSelectionSigRef.current) return;
             readSelectionSigRef.current = sig;
             readSelectionRangeRef.current = range.cloneRange();
             setReadSelectionText(txt);
-            setReadSelectionRect({ x: rect.left + rect.width / 2, y: rect.top - 12 });
+            setReadSelectionOpen(true);
+            setReadSelectionError('');
         };
         const scheduleReadSelection = () => {
             if (readSelectionRafRef.current != null) return;
@@ -1195,22 +1192,20 @@ export default function FolderPage() {
                 readSelectionRafRef.current = null;
             }
         };
-    }, [selectedFile, isEditingFile, readSelectionBusy]);
+    }, [selectedFile, isEditingFile, readSelectionBusy, closeReadSelectionPanel]);
 
     useEffect(() => {
-        if (!readSelectionRect) return;
+        if (!readSelectionOpen) return;
         const onPointerDown = (ev: PointerEvent) => {
             const target = ev.target as Node | null;
-            const inPopup = !!(target && readSelectionPopupRef.current?.contains(target));
+            const inPanel = !!(target && readSelectionPanelRef.current?.contains(target));
             const inContent = !!(target && readModeContentRef.current?.contains(target));
-            if (inPopup || inContent) return;
-            setReadSelectionRect(null);
-            setReadSelectionText('');
-            readSelectionRangeRef.current = null;
+            if (inPanel || inContent || readSelectionBusy) return;
+            closeReadSelectionPanel();
         };
         document.addEventListener('pointerdown', onPointerDown, true);
         return () => document.removeEventListener('pointerdown', onPointerDown, true);
-    }, [readSelectionRect]);
+    }, [readSelectionOpen, readSelectionBusy, closeReadSelectionPanel]);
 
     const persistAiContext = async (next: string[] | null) => {
         const username = localStorage.getItem("username");
@@ -3367,9 +3362,10 @@ export default function FolderPage() {
         if (!readSelectionText.trim() || !readSelectionInstruction.trim() || readSelectionBusy) return;
         try {
             setReadSelectionBusy(true);
+            setReadSelectionError('');
             const username = localStorage.getItem("username") || "";
             if (!username) {
-                showToast("Nicht angemeldet.");
+                setReadSelectionError("Nicht angemeldet.");
                 return;
             }
             const range = readSelectionRangeRef.current;
@@ -3403,14 +3399,11 @@ export default function FolderPage() {
             const updatedFiles = files.map((f) => (f.id === selectedFile.id ? { ...f, content: nextContent } : f));
             setFiles(updatedFiles);
             setSelectedFile({ ...selectedFile, content: nextContent });
-            setReadSelectionInstruction("");
-            setReadSelectionRect(null);
-            setReadSelectionText("");
-            readSelectionRangeRef.current = null;
+            closeReadSelectionPanel();
             showToast("Markierte Stelle mit KI bearbeitet.", "success");
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            showToast(msg || "KI-Bearbeitung fehlgeschlagen.");
+            setReadSelectionError(msg || "KI-Bearbeitung fehlgeschlagen.");
         } finally {
             setReadSelectionBusy(false);
         }
@@ -3735,7 +3728,11 @@ export default function FolderPage() {
                             </button>
                         </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-8">
+                    <div
+                        className={`flex-1 overflow-y-auto bg-[#1a1a1a] p-8 transition-[padding] duration-200 ${
+                            readSelectionOpen ? 'pr-[min(100vw-1.5rem,22rem)] sm:pr-[calc(min(100vw-1.5rem,22rem)+1rem)]' : ''
+                        }`}
+                    >
                         <div ref={readModeContentRef} className="max-w-4xl mx-auto prose prose-invert prose-blop prose-pre:bg-[#353840] prose-pre:border prose-pre:border-[#45484F] [&_.katex-display]:max-w-full">
                             {ytId ? (
                                 <div className="not-prose mb-8 aspect-video w-full max-h-[min(50vh,420px)] rounded-xl overflow-hidden border border-[#45484F] bg-black shadow-lg">
@@ -3755,45 +3752,17 @@ export default function FolderPage() {
                                 {contentStr}
                             </ReactMarkdown>
                         </div>
-                        {readSelectionRect && (
-                            <div
-                                ref={readSelectionPopupRef}
-                                className="fixed z-[130] w-[320px] max-w-[calc(100vw-1rem)] rounded-xl border border-[#4A4E58] bg-[#353840] p-3 shadow-2xl"
-                                style={{
-                                    left: Math.max(8, Math.min(window.innerWidth - 328, readSelectionRect.x - 160)),
-                                    top: Math.max(8, readSelectionRect.y - 110),
-                                }}
-                            >
-                                <div className="text-xs text-gray-400 mb-2">Markierten Text mit KI bearbeiten</div>
-                                <textarea
-                                    value={readSelectionInstruction}
-                                    onChange={(e) => setReadSelectionInstruction(e.target.value)}
-                                    placeholder="z. B. kürzer, einfacher, professioneller formulieren ..."
-                                    className="w-full bg-[#23252A] border border-[#45484F] text-gray-200 rounded-lg px-3 py-2 text-xs min-h-[68px] focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
-                                />
-                                <div className="mt-2 flex gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setReadSelectionRect(null);
-                                            setReadSelectionText("");
-                                            readSelectionRangeRef.current = null;
-                                        }}
-                                        className="flex-1 py-1.5 rounded-lg text-xs bg-[#3A3D45] hover:bg-[#45484F] text-gray-300"
-                                    >
-                                        Schließen
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => void handleApplyReadSelectionAiEdit()}
-                                        disabled={!readSelectionInstruction.trim() || readSelectionBusy}
-                                        className="flex-1 py-1.5 rounded-lg text-xs bg-[#5B9DFF] hover:bg-[#7EB2FF] text-white disabled:opacity-50"
-                                    >
-                                        {readSelectionBusy ? 'Bearbeite…' : 'Mit KI anwenden'}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
+                        <SelectionAiPanel
+                            open={readSelectionOpen}
+                            selectedText={readSelectionText}
+                            instruction={readSelectionInstruction}
+                            busy={readSelectionBusy}
+                            error={readSelectionError}
+                            onInstructionChange={setReadSelectionInstruction}
+                            onClose={closeReadSelectionPanel}
+                            onApply={() => void handleApplyReadSelectionAiEdit()}
+                            panelRef={readSelectionPanelRef}
+                        />
                     </div>
                 </div>
             );

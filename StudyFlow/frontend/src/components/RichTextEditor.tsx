@@ -15,6 +15,7 @@ import { marked } from 'marked';
 import { htmlToMarkdownForPdfExport } from '@/lib/htmlToMarkdownExport';
 import { ensureMathSpansInHtml, markdownToEditorHtml, serializeEditorMathSpans } from '@/lib/mathForEditor';
 import { MathDisplay, MathInline } from '@/lib/tiptapMath';
+import SelectionAiPanel from '@/components/SelectionAiPanel';
 import 'katex/dist/katex.min.css';
 
 interface RichTextEditorProps {
@@ -180,15 +181,24 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [printMarkdown, setPrintMarkdown] = useState<string | null>(null);
     const [selectionText, setSelectionText] = useState('');
-    const [selectionRect, setSelectionRect] = useState<{ x: number; y: number } | null>(null);
+    const [selectionOpen, setSelectionOpen] = useState(false);
     const [selectionInstruction, setSelectionInstruction] = useState('');
     const [selectionBusy, setSelectionBusy] = useState(false);
     const [selectionError, setSelectionError] = useState('');
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const selectionPopupRef = useRef<HTMLDivElement | null>(null);
+    const selectionPanelRef = useRef<HTMLDivElement | null>(null);
     const selectionRangeRef = useRef<{ from: number; to: number } | null>(null);
     const selectionRafRef = useRef<number | null>(null);
     const selectionSigRef = useRef<string>('');
+
+    const closeSelectionPanel = useCallback(() => {
+        selectionSigRef.current = '';
+        setSelectionOpen(false);
+        setSelectionText('');
+        setSelectionError('');
+        setSelectionInstruction('');
+        selectionRangeRef.current = null;
+    }, []);
 
     // If initialContent is raw markdown (e.g. from the AI), Tiptap requires HTML to style it properly.
     // Math ($x^{2}$) becomes KaTeX spans so powers never look like juxtaposition (x2).
@@ -279,65 +289,45 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
 
     useEffect(() => {
         if (!editor) return;
+        const focusedInsidePanel = () =>
+            !!selectionPanelRef.current &&
+            !!document.activeElement &&
+            selectionPanelRef.current.contains(document.activeElement);
+
         const flushSelectionUi = () => {
             const sel = window.getSelection();
             if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-                const focusedInsidePopup =
-                    !!selectionPopupRef.current &&
-                    !!document.activeElement &&
-                    selectionPopupRef.current.contains(document.activeElement);
-                if (focusedInsidePopup || selectionBusy) {
-                    return;
-                }
-                if (selectionSigRef.current !== '') {
-                    selectionSigRef.current = '';
-                    setSelectionRect(null);
-                    setSelectionText('');
-                    selectionRangeRef.current = null;
-                }
+                if (focusedInsidePanel() || selectionBusy) return;
+                if (selectionSigRef.current !== '') closeSelectionPanel();
                 return;
             }
             const range = sel.getRangeAt(0);
             if (!editor.view.dom.contains(range.commonAncestorContainer)) {
-                // Don't dismiss if the user has focus inside the selection popup (e.g. typing instruction)
-                const focusedInsidePopup =
-                    !!selectionPopupRef.current &&
-                    !!document.activeElement &&
-                    selectionPopupRef.current.contains(document.activeElement);
-                if (focusedInsidePopup || selectionBusy) return;
-                if (selectionSigRef.current !== '') {
-                    selectionSigRef.current = '';
-                    setSelectionRect(null);
-                    setSelectionText('');
-                    selectionRangeRef.current = null;
-                }
+                if (focusedInsidePanel() || selectionBusy) return;
+                if (selectionSigRef.current !== '') closeSelectionPanel();
                 return;
             }
             const text = sel.toString().trim();
             if (!text) {
-                if (selectionSigRef.current !== '') {
-                    selectionSigRef.current = '';
-                    setSelectionRect(null);
-                    setSelectionText('');
-                    selectionRangeRef.current = null;
-                }
+                if (focusedInsidePanel() || selectionBusy) return;
+                if (selectionSigRef.current !== '') closeSelectionPanel();
                 return;
             }
-            const rect = range.getBoundingClientRect();
-            const sig = `${text}\0${Math.round(rect.left)}|${Math.round(rect.top)}|${Math.round(rect.width)}|${Math.round(rect.height)}`;
-            if (sig === selectionSigRef.current) {
-                return;
-            }
-            selectionSigRef.current = sig;
+            let from = 0;
+            let to = 0;
             try {
-                const from = editor.view.posAtDOM(range.startContainer, range.startOffset);
-                const to = editor.view.posAtDOM(range.endContainer, range.endOffset);
-                selectionRangeRef.current = { from: Math.min(from, to), to: Math.max(from, to) };
+                from = editor.view.posAtDOM(range.startContainer, range.startOffset);
+                to = editor.view.posAtDOM(range.endContainer, range.endOffset);
             } catch {
-                selectionRangeRef.current = null;
+                return;
             }
+            const sig = `${text.slice(0, 120)}|${from}|${to}`;
+            if (sig === selectionSigRef.current) return;
+            selectionSigRef.current = sig;
+            selectionRangeRef.current = { from: Math.min(from, to), to: Math.max(from, to) };
             setSelectionText(text);
-            setSelectionRect({ x: rect.left + rect.width / 2, y: rect.top - 12 });
+            setSelectionOpen(true);
+            setSelectionError('');
         };
         const scheduleSelectionUi = () => {
             if (selectionRafRef.current != null) return;
@@ -354,23 +344,20 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
                 selectionRafRef.current = null;
             }
         };
-    }, [editor, selectionBusy]);
+    }, [editor, selectionBusy, closeSelectionPanel]);
 
     useEffect(() => {
-        if (!editor || !selectionRect) return;
+        if (!editor || !selectionOpen) return;
         const onPointerDown = (ev: PointerEvent) => {
             const target = ev.target as Node | null;
-            const inPopup = !!(target && selectionPopupRef.current?.contains(target));
+            const inPanel = !!(target && selectionPanelRef.current?.contains(target));
             const inEditor = !!(target && editor.view.dom.contains(target));
-            if (inPopup || inEditor) return;
-            selectionSigRef.current = '';
-            setSelectionRect(null);
-            setSelectionText('');
-            selectionRangeRef.current = null;
+            if (inPanel || inEditor || selectionBusy) return;
+            closeSelectionPanel();
         };
         document.addEventListener('pointerdown', onPointerDown, true);
         return () => document.removeEventListener('pointerdown', onPointerDown, true);
-    }, [editor, selectionRect]);
+    }, [editor, selectionOpen, selectionBusy, closeSelectionPanel]);
 
     const applySelectionAiEdit = useCallback(async () => {
         if (!editor || !selectionText.trim() || !selectionInstruction.trim() || selectionBusy) return;
@@ -407,17 +394,13 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             const replacement = String(data?.replacement_text || '').trim();
             if (!replacement) throw new Error('Leere KI-Antwort.');
             editor.chain().focus().setTextSelection(savedRange).insertContent(replacement).run();
-            setSelectionInstruction('');
-            setSelectionRect(null);
-            setSelectionText('');
-            setSelectionError('');
-            selectionRangeRef.current = null;
+            closeSelectionPanel();
         } catch (err: any) {
             setSelectionError(err?.message || 'Fehler bei der KI-Bearbeitung.');
         } finally {
             setSelectionBusy(false);
         }
-    }, [editor, modelPreference, selectionBusy, selectionInstruction, selectionText, username]);
+    }, [closeSelectionPanel, editor, modelPreference, selectionBusy, selectionInstruction, selectionText, username]);
 
     const handleSave = async () => {
         if (!editor) return;
@@ -535,52 +518,24 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
                     </div>
                 </div>
             ) : null}
-            <div className="flex-1 overflow-y-auto bg-[#1A1916] min-h-0">
+            <div
+                className={`flex-1 overflow-y-auto bg-[#1A1916] min-h-0 transition-[padding] duration-200 ${
+                    selectionOpen ? 'pr-[min(100vw-1.5rem,22rem)] sm:pr-[calc(min(100vw-1.5rem,22rem)+1rem)]' : ''
+                }`}
+            >
                 <EditorContent editor={editor} />
             </div>
-            {selectionRect && (
-                <div
-                    ref={selectionPopupRef}
-                    className="fixed z-[120] w-[320px] max-w-[calc(100vw-1rem)] rounded-xl border border-[#4A4E58] bg-[#353840] p-3 shadow-2xl"
-                    style={{
-                        left: Math.max(8, Math.min(window.innerWidth - 328, selectionRect.x - 160)),
-                        top: Math.max(8, selectionRect.y - 110),
-                    }}
-                >
-                    <div className="text-xs text-gray-400 mb-2">Markierten Text mit KI bearbeiten</div>
-                    <textarea
-                        value={selectionInstruction}
-                        onChange={(e) => setSelectionInstruction(e.target.value)}
-                        placeholder="z. B. kürzer, einfacher, professioneller formulieren ..."
-                        className="w-full bg-[#23252A] border border-[#45484F] text-gray-200 rounded-lg px-3 py-2 text-xs min-h-[68px] focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
-                    />
-                    {selectionError && (
-                        <p className="mt-2 text-xs text-red-400">{selectionError}</p>
-                    )}
-                    <div className="mt-2 flex gap-2">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setSelectionRect(null);
-                                setSelectionText('');
-                                setSelectionError('');
-                                selectionRangeRef.current = null;
-                            }}
-                            className="flex-1 py-1.5 rounded-lg text-xs bg-[#3A3D45] hover:bg-[#45484F] text-gray-300"
-                        >
-                            Schließen
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => void applySelectionAiEdit()}
-                            disabled={!selectionInstruction.trim() || selectionBusy}
-                            className="flex-1 py-1.5 rounded-lg text-xs bg-[#5B9DFF] hover:bg-[#7EB2FF] text-white disabled:opacity-50"
-                        >
-                            {selectionBusy ? 'Bearbeite…' : 'Mit KI anwenden'}
-                        </button>
-                    </div>
-                </div>
-            )}
+            <SelectionAiPanel
+                open={selectionOpen}
+                selectedText={selectionText}
+                instruction={selectionInstruction}
+                busy={selectionBusy}
+                error={selectionError}
+                onInstructionChange={setSelectionInstruction}
+                onClose={closeSelectionPanel}
+                onApply={() => void applySelectionAiEdit()}
+                panelRef={selectionPanelRef}
+            />
             {printPortal}
 
             <style jsx global>{`

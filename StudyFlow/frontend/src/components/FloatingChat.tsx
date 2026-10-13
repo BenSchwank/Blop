@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence, useDragControls } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, X, Send, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { OVERLAY_FLOATING_CHAT } from '@/constants/overlayLayout';
+import { OVERLAY_FLOATING_CHAT, OVERLAY_FLOATING_CHAT_DOCK } from '@/constants/overlayLayout';
 
 interface Message {
     role: 'user' | 'model';
@@ -54,7 +54,6 @@ function fixMojibake(text: string): string {
 }
 
 export default function FloatingChat({ folderId, username, modelPreference, activeFile, onUpdateActiveFile, onApplyPatch, onUndoLastPatch, canUndo = false }: FloatingChatProps) {
-    const dragControls = useDragControls();
     const [isOpen, setIsOpen] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [editDocument, setEditDocument] = useState(false);
@@ -242,37 +241,27 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
     };
 
     return (
-        <motion.div
-            drag
-            dragListener={false}
-            dragControls={dragControls}
-            dragConstraints={{ left: -1000, right: 0, top: -800, bottom: 0 }}
-            dragElastic={0.1}
-            dragMomentum={false}
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={OVERLAY_FLOATING_CHAT}
-        >
+        <>
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
-                        initial={{ opacity: 0, scale: 0.8, y: 20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.8, y: 20 }}
-                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                        className={`bg-[#12141A] border border-[#2A3140] shadow-2xl rounded-2xl mb-4 overflow-hidden flex flex-col ${isExpanded ? 'w-[80vw] h-[80vh] max-w-4xl' : 'w-[350px] sm:w-[420px] h-[520px]'}`}
+                        key="chat-dock"
+                        initial={{ opacity: 0, x: 40 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 40 }}
+                        transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+                        className={`${OVERLAY_FLOATING_CHAT_DOCK} ${isExpanded ? 'w-[min(100vw-1.25rem,40rem)]' : 'w-[min(100vw-1.25rem,26rem)]'}`}
+                        role="dialog"
+                        aria-label="Blop KI-Assistent"
                     >
                         <div className="bg-[#1A1F2A] p-3.5 border-b border-[#2A3140] flex items-center justify-between shrink-0 gap-2">
-                            <div
-                                className="flex items-center gap-2.5 cursor-grab active:cursor-grabbing min-w-0"
-                                onPointerDown={(e) => dragControls.start(e)}
-                            >
+                            <div className="flex items-center gap-2.5 min-w-0">
                                 <div className="w-9 h-9 rounded-full bg-[#5B9DFF]/15 text-[#5B9DFF] flex items-center justify-center ring-1 ring-[#5B9DFF]/25">
                                     <MessageCircle size={18} />
                                 </div>
                                 <div className="min-w-0">
                                     <h3 className="text-white font-semibold text-sm truncate">Blop KI-Assistent</h3>
-                                    <p className="text-[10px] text-gray-500 truncate">Zum Ordner fragen · Kopfleiste ziehen</p>
+                                    <p className="text-[10px] text-gray-500 truncate">Rechts am Rand · zum Ordner fragen</p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
@@ -296,21 +285,25 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                     Rückgängig
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => setIsExpanded(!isExpanded)}
                                     className="p-1.5 text-gray-400 hover:text-white hover:bg-[#243044] rounded-lg"
+                                    aria-label={isExpanded ? 'Schmaler' : 'Breiter'}
                                 >
                                     {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => setIsOpen(false)}
                                     className="p-1.5 text-gray-400 hover:text-white hover:bg-[#243044] rounded-lg"
+                                    aria-label="Schließen"
                                 >
                                     <X size={16} />
                                 </button>
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar bg-[#0E1117]">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar bg-[#0E1117] min-h-0">
                             {messages.map((msg, index) => (
                                 <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div
@@ -416,14 +409,21 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                 )}
             </AnimatePresence>
 
-            <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setIsOpen(!isOpen)}
-                className="bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-full p-4 shadow-xl border border-[#5B9DFF]/30 flex items-center justify-center"
+            <motion.div
+                initial={{ opacity: 0, y: 50 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={OVERLAY_FLOATING_CHAT}
             >
-                {isOpen ? <X size={24} /> : <MessageCircle size={24} />}
-            </motion.button>
-        </motion.div>
+                <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-full p-4 shadow-xl border border-[#5B9DFF]/30 flex items-center justify-center"
+                    aria-label={isOpen ? 'Chat schließen' : 'Chat öffnen'}
+                >
+                    {isOpen ? <X size={24} /> : <MessageCircle size={24} />}
+                </motion.button>
+            </motion.div>
+        </>
     );
 }
