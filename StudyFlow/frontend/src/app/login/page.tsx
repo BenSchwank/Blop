@@ -14,6 +14,8 @@ export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [successMessage, setSuccessMessage] = useState('');
+    const [resendLoading, setResendLoading] = useState(false);
     const [loading, setLoading] = useState(false);
     const [isNativeApp, setIsNativeApp] = useState(false);
     // Native Google button (Qt loopback / Android Custom Tab) — Android only.
@@ -139,9 +141,36 @@ export default function LoginPage() {
         };
     }, []);
 
+    const handleResendConfirmation = async () => {
+        const target = (email || forgotEmail || username || '').trim();
+        if (!target.includes('@')) {
+            setError('Bitte gib oben deine E-Mail-Adresse ein, um die Bestätigung erneut zu senden.');
+            return;
+        }
+        setResendLoading(true);
+        setError('');
+        try {
+            const res = await fetch(`${API_BASE}/auth/resend-confirmation`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: target }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(typeof data?.detail === 'string' ? data.detail : 'Erneutes Senden fehlgeschlagen.');
+            }
+            setSuccessMessage(data.message || 'Bestätigungsmail wurde erneut gesendet.');
+        } catch (err: any) {
+            setError(err?.message || 'Erneutes Senden fehlgeschlagen.');
+        } finally {
+            setResendLoading(false);
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+        setSuccessMessage('');
         setLoading(true);
 
         try {
@@ -198,7 +227,7 @@ export default function LoginPage() {
                 // After registration, switch to login
                 setIsLogin(true);
                 setPassword('');
-                setError('Erfolgreich! Bitte bestätige den Link in deiner E-Mail, bevor du dich anmeldest.');
+                setSuccessMessage('Erfolgreich! Bitte bestätige den Link in deiner E-Mail, bevor du dich anmeldest.');
             }
         } catch (err: any) {
             const raw = err?.message || 'Ein Fehler ist aufgetreten';
@@ -320,7 +349,7 @@ export default function LoginPage() {
                         <>
                     <div className="flex gap-2 mb-6">
                         <button
-                            onClick={() => setIsLogin(true)}
+                            onClick={() => { setIsLogin(true); setError(''); }}
                             className={`flex-1 py-3 rounded-lg font-semibold transition-all ${isLogin
                                 ? 'bg-[#5B9DFF] text-white'
                                 : 'bg-[#252526] text-[#888] hover:bg-[#333]'
@@ -329,7 +358,7 @@ export default function LoginPage() {
                             Anmelden
                         </button>
                         <button
-                            onClick={() => setIsLogin(false)}
+                            onClick={() => { setIsLogin(false); setError(''); setSuccessMessage(''); }}
                             className={`flex-1 py-3 rounded-lg font-semibold transition-all ${!isLogin
                                 ? 'bg-[#5B9DFF] text-white'
                                 : 'bg-[#252526] text-[#888] hover:bg-[#333]'
@@ -406,12 +435,32 @@ export default function LoginPage() {
                             </div>
                         )}
 
+                        {successMessage && (
+                            <div className="p-3 rounded-lg text-sm bg-green-500/10 text-green-400 border border-green-500/20 space-y-2">
+                                <p>{successMessage}</p>
+                                <button
+                                    type="button"
+                                    onClick={() => void handleResendConfirmation()}
+                                    disabled={resendLoading}
+                                    className="text-xs underline underline-offset-2 hover:text-green-300 disabled:opacity-50"
+                                >
+                                    {resendLoading ? 'Wird gesendet …' : 'Bestätigungsmail erneut senden'}
+                                </button>
+                            </div>
+                        )}
                         {error && (
-                            <div className={`p-3 rounded-lg text-sm ${error.includes('erfolgreich')
-                                ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                }`}>
-                                {error}
+                            <div className="p-3 rounded-lg text-sm bg-red-500/10 text-red-400 border border-red-500/20 space-y-2">
+                                <p>{error}</p>
+                                {/bestätige|bestätigung|e-mail/i.test(error) ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleResendConfirmation()}
+                                        disabled={resendLoading}
+                                        className="text-xs underline underline-offset-2 hover:text-red-300 disabled:opacity-50"
+                                    >
+                                        {resendLoading ? 'Wird gesendet …' : 'Bestätigungsmail erneut senden'}
+                                    </button>
+                                ) : null}
                             </div>
                         )}
 

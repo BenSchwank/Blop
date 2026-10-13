@@ -420,6 +420,59 @@ class AuthManager:
             print(f"AuthManager: auth user cleanup failed (non-fatal): {exc}")
 
     @staticmethod
+    def _auth_email_confirmed(auth_id: str = "", email: str = "") -> bool:
+        """True when Supabase Auth marks the address confirmed (or we cannot check)."""
+        key = AuthManager._service_role_key()
+        url = AuthManager._supabase_base_url()
+        if not key or not url:
+            return True
+        headers = {
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+        }
+        try:
+            if auth_id:
+                r = requests.get(f"{url}/auth/v1/admin/users/{auth_id}", headers=headers, timeout=15)
+                if r.status_code < 300:
+                    data = r.json() or {}
+                    return bool(data.get("email_confirmed_at") or data.get("confirmed_at"))
+            if email:
+                r = requests.get(
+                    f"{url}/auth/v1/admin/users",
+                    headers=headers,
+                    params={"page": 1, "per_page": 50, "email": email},
+                    timeout=15,
+                )
+                if r.status_code < 300:
+                    users = (r.json() or {}).get("users") or []
+                    for u in users:
+                        if str(u.get("email") or "").lower() == email.lower():
+                            return bool(u.get("email_confirmed_at") or u.get("confirmed_at"))
+        except Exception as exc:
+            print(f"AuthManager: email confirm check failed (non-fatal allow): {exc}")
+            return True
+        return False
+
+    @staticmethod
+    def resend_confirmation_email(email: str) -> tuple:
+        email = (email or "").strip().lower()
+        if "@" not in email:
+            return False, "Bitte gib eine gültige E-Mail-Adresse ein"
+        db = AuthManager._get_db()
+        if not db:
+            return False, "Dienst vorübergehend nicht erreichbar."
+        try:
+            # supabase-py: auth.resend
+            db.auth.resend({"type": "signup", "email": email})
+            return True, "Falls ein Konto mit dieser E-Mail existiert, wurde die Bestätigung erneut gesendet."
+        except Exception as exc:
+            err = str(exc).lower()
+            if "rate" in err:
+                return False, "Zu viele E-Mails. Bitte ein paar Minuten warten."
+            print(f"AuthManager.resend_confirmation_email: {exc}")
+            return False, "Bestätigung konnte nicht erneut gesendet werden. Bitte später versuchen."
+
+    @staticmethod
     def _admin_create_confirmed_auth_user(email: str, password: str) -> str:
         """Create an already-confirmed auth user without sending mail (service role only).
 
@@ -588,6 +641,11 @@ class AuthManager:
 
                 if not user:
                     return False, "Benutzer nicht gefunden"
+
+                auth_id = str(user.get("auth_id") or "").strip()
+                user_email = str(user.get("email") or "").strip()
+                if auth_id and not AuthManager._auth_email_confirmed(auth_id=auth_id, email=user_email):
+                    return False, "Bitte bestätige zuerst deine E-Mail Adresse über den Link in deinem Postfach."
 
                 stored = user.get("password_hash") or ""
                 if not isinstance(stored, str):

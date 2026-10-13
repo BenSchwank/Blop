@@ -323,7 +323,7 @@ export default function Settings() {
                     <h2 className="text-xl font-semibold text-white mb-4">KI-Modell (Standard)</h2>
                     <div className="bg-[#252526] border border-[#333] rounded-2xl p-6 space-y-4">
                         <p className="text-sm text-gray-400">
-                            Automatisch wählt pro Aufgabe das Modell mit dem besten Verhältnis aus Qualität, Tempo und Kosten. Eine feste Wahl gilt für alle Aufgaben und verbraucht die genannten Tokens.
+                            Automatisch nutzt günstige Flash-Modelle. Eine feste Premium-Wahl (Claude, GPT, Pro) gilt für alle Aufgaben und kann die Kosten stark erhöhen.
                         </p>
                         <select
                             value={preferredModel}
