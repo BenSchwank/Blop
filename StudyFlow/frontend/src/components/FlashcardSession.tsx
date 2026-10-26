@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Edit, Layers, Maximize2, Shuffle } from "lucide-react";
+import MathMarkdown from "@/components/MathMarkdown";
 
 export interface FlashcardRow {
     front: string;
@@ -154,14 +155,14 @@ export default function FlashcardSession({ cards, onEditCard, onFullscreen, onEx
                         <button
                             type="button"
                             onClick={() => setFlipped((f) => !f)}
-                            className="w-full min-h-[220px] rounded-2xl border border-[#45484F] bg-[#353840] p-8 text-center shadow-lg transition-colors hover:border-[#5B9DFF]/40"
+                            className="w-full min-h-[220px] rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-8 text-center shadow-lg transition-colors hover:border-[#5B9DFF]/40"
                         >
                             <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-3">
                                 {flipped ? "Rückseite" : "Vorderseite · tippen zum Umdrehen"}
                             </p>
-                            <p className="text-lg text-white whitespace-pre-wrap leading-relaxed">
+                            <MathMarkdown className="text-lg text-white text-left">
                                 {flipped ? current.back : current.front}
-                            </p>
+                            </MathMarkdown>
                         </button>
                         {flipped ? (
                             <div className="flex flex-wrap gap-2 justify-center">
@@ -238,11 +239,11 @@ export default function FlashcardSession({ cards, onEditCard, onFullscreen, onEx
                                             isFlipped ? "[transform:rotateY(180deg)]" : ""
                                         }`}
                                     >
-                                        <div className="absolute inset-0 rounded-xl [backface-visibility:hidden] flex items-center justify-center p-6 text-center text-white text-sm whitespace-pre-wrap overflow-y-auto">
-                                            {c.front}
+                                        <div className="absolute inset-0 rounded-xl [backface-visibility:hidden] flex items-center justify-center p-6 text-center text-white text-sm overflow-y-auto">
+                                            <MathMarkdown compact className="w-full">{c.front}</MathMarkdown>
                                         </div>
-                                        <div className="absolute inset-0 rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex items-center justify-center p-6 text-center text-gray-300 bg-[#23252A] text-sm whitespace-pre-wrap overflow-y-auto">
-                                            {c.back}
+                                        <div className="absolute inset-0 rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex items-center justify-center p-6 text-center text-gray-300 bg-[#1A1F2A] text-sm overflow-y-auto">
+                                            <MathMarkdown compact className="w-full">{c.back}</MathMarkdown>
                                         </div>
                                     </div>
                                 </div>

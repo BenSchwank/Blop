@@ -614,7 +614,7 @@ Anforderungen:
 - Decke ALLE wichtigen Themen des Materials ab
 - Schwierigkeitsprofil: {difficulty}
 - Die Antwortoptionen sollen plausibel aber unterschiedlich sein
-- Achte auf klare, eindeutige Fragestellungen
+- Kurze, eindeutige Fragen (1–2 Sätze); Formeln NUR in $...$ / $$...$$
 - Formuliere auf Deutsch
 
 Ausgabe-Format: JSON Array mit genau {question_count} Objekten:
@@ -640,6 +640,15 @@ Erstelle das Quiz für das folgende Material:
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
             parsed = json.loads(response.text)
+            if isinstance(parsed, list):
+                for row in parsed:
+                    if not isinstance(row, dict):
+                        continue
+                    for key in ("question", "answer", "explanation"):
+                        if key in row:
+                            row[key] = _finalize_study_markdown(str(row.get(key) or ""))
+                    if isinstance(row.get("options"), list):
+                        row["options"] = [_finalize_study_markdown(str(o)) for o in row["options"]]
             if not return_meta:
                 return parsed
             return {
@@ -675,8 +684,8 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
 
 Anforderungen:
 - Decke ALLE wichtigen Konzepte, Begriffe und Fakten ab
-- Vorderseite: präzise Frage oder Begriff
-- Rückseite: ausführliche, vollständige Antwort/Erklärung (maximal ca. {max_text_per_card} Zeichen)
+- Vorderseite: präzise Frage oder Begriff (kurz)
+- Rückseite: klare Antwort/Erklärung (maximal ca. {max_text_per_card} Zeichen); Formeln NUR in $...$ / $$...$$
 - Variiere zwischen Definitionsfragen, Erklärungsfragen und Anwendungsfragen
 - Deutsch
 
@@ -700,6 +709,14 @@ Erstelle die Karteikarten für das folgende Material:
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
             parsed = json.loads(response.text)
+            if isinstance(parsed, list):
+                for row in parsed:
+                    if not isinstance(row, dict):
+                        continue
+                    if "front" in row:
+                        row["front"] = _finalize_study_markdown(str(row.get("front") or ""))
+                    if "back" in row:
+                        row["back"] = _finalize_study_markdown(str(row.get("back") or ""))
             if not return_meta:
                 return parsed
             return {
@@ -832,7 +849,7 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
 
             prompt = f"""
 Du bist ein KI-Lerncoach (Duolingo-Stil). Erstelle aus dem Material eine SMART-LEARNING-LERNREISE:
-Kapitel mit kurzem Überblick PLUS micro-lessons (erst erklären, dann sofort testen).
+Kapitel mit kurzem Überblick PLUS micro-lessons (erst erklären, dann sofort testen), plus Lückentexte und eine Probeklausur.
 
 FOKUS: {focus_line}
 {exam_hint}
@@ -842,12 +859,16 @@ ANFORDERUNGEN:
 1. 3–5 Kapitel in sinnvoller Lernreihenfolge (Fundament → Anwendung). Nicht mehr.
 2. Jedes Kapitel: Titel, summary (2–4 Sätze), 3 key_points.
 3. Genau 2 lessons pro Kapitel. Jede Lesson:
-   - teach: 2–5 Sätze Erklärung (klar, prüfungsnah)
-   - check: Sofort-Test (type "mc" oder "true_false") mit prompt, 2–4 options, answer, explanation
-4. Titel der Lernreise: prüfungsnah und konkret.
-5. source_hint: ein Satz zum Material.
-6. readiness immer 0; progress.completed_chapter_ids=[], completed_lesson_ids=[], practice_sessions=0.
-7. IDs: Kapitel "ch1"…; Lessons "ch1-l1", "ch1-l2", …
+   - teach: 2–5 Sätze Erklärung (klar, prüfungsnah); Formeln NUR in $...$ / $$...$$
+   - check: Sofort-Test. Typen mischen:
+     * "mc" oder "true_false": prompt, 2–4 options, answer, explanation
+     * "cloze" (Lückentext): prompt mit genau einer oder zwei Lücken als {{{{Antwort}}}}, plus blanks-Array mit denselben Antworten, explanation. KEINE options bei cloze.
+   - Pro Kapitel mindestens EINE Lesson mit type "cloze".
+4. exam (Probeklausur): 8–12 Fragen gemischt aus mc / true_false / cloze über alle Kapitel; time_limit_sec z. B. 900; title prüfungsnah.
+5. Titel der Lernreise: prüfungsnah und konkret.
+6. source_hint: ein Satz zum Material.
+7. readiness immer 0; progress.completed_chapter_ids=[], completed_lesson_ids=[], practice_sessions=0, exam_best_score=null, exam_completed_at=null.
+8. IDs: Kapitel "ch1"…; Lessons "ch1-l1", "ch1-l2", …; Exam-Fragen "ex-q1"…
 
 Ausgabe: EIN JSON-Objekt:
 {{
@@ -871,14 +892,41 @@ Ausgabe: EIN JSON-Objekt:
             "answer": "A",
             "explanation": "…"
           }}
+        }},
+        {{
+          "id": "ch1-l2",
+          "teach": "…",
+          "check": {{
+            "type": "cloze",
+            "prompt": "Strom ist Ladung pro Zeit: $I = {{{{Q/t}}}}$",
+            "blanks": ["Q/t"],
+            "answer": "Q/t",
+            "explanation": "…"
+          }}
         }}
       ]
     }}
   ],
+  "exam": {{
+    "title": "Probeklausur",
+    "time_limit_sec": 900,
+    "questions": [
+      {{
+        "id": "ex-q1",
+        "type": "mc",
+        "prompt": "…?",
+        "options": ["A", "B", "C", "D"],
+        "answer": "A",
+        "explanation": "…"
+      }}
+    ]
+  }},
   "progress": {{
     "completed_chapter_ids": [],
     "completed_lesson_ids": [],
-    "practice_sessions": 0
+    "practice_sessions": 0,
+    "exam_best_score": null,
+    "exam_completed_at": null
   }}
 }}
 
@@ -905,10 +953,13 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
             result["title"] = str(result.get("title") or "Smart Learning").strip()
             result["readiness"] = 0
             result["source_hint"] = str(result.get("source_hint") or "").strip()
+            old_progress = result.get("progress") if isinstance(result.get("progress"), dict) else {}
             result["progress"] = {
                 "completed_chapter_ids": [],
                 "completed_lesson_ids": [],
-                "practice_sessions": int((result.get("progress") or {}).get("practice_sessions") or 0),
+                "practice_sessions": int(old_progress.get("practice_sessions") or 0),
+                "exam_best_score": None,
+                "exam_completed_at": None,
             }
             normalized_chapters = []
             for i, ch in enumerate(chapters):
@@ -916,11 +967,11 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                     continue
                 cid = str(ch.get("id") or f"ch{i + 1}").strip() or f"ch{i + 1}"
                 title = str(ch.get("title") or f"Kapitel {i + 1}").strip()
-                summary = str(ch.get("summary") or "").strip()
+                summary = _finalize_study_markdown(str(ch.get("summary") or ""))
                 kps = ch.get("key_points") or []
                 if not isinstance(kps, list):
                     kps = [str(kps)]
-                key_points = [str(p).strip() for p in kps if str(p).strip()]
+                key_points = [_finalize_study_markdown(str(p)) for p in kps if str(p).strip()]
                 lessons_raw = ch.get("lessons") or []
                 if not isinstance(lessons_raw, list):
                     lessons_raw = []
@@ -928,27 +979,54 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                 for li, les in enumerate(lessons_raw):
                     if not isinstance(les, dict):
                         continue
-                    teach = str(les.get("teach") or "").strip()
+                    teach = _finalize_study_markdown(str(les.get("teach") or ""))
                     check = les.get("check") if isinstance(les.get("check"), dict) else {}
-                    prompt_q = str(check.get("prompt") or "").strip()
-                    answer = str(check.get("answer") or "").strip()
+                    prompt_q = _finalize_study_markdown(str(check.get("prompt") or ""))
+                    answer = _finalize_study_markdown(str(check.get("answer") or ""))
+                    explanation = _finalize_study_markdown(str(check.get("explanation") or ""))
+                    ctype = str(check.get("type") or "mc").strip().lower()
+                    is_cloze = ctype in ("cloze", "fill", "lueckentext", "lückentext")
+                    blanks_raw = check.get("blanks") if isinstance(check.get("blanks"), list) else []
+                    blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
                     options = check.get("options") if isinstance(check.get("options"), list) else []
-                    options = [str(o).strip() for o in options if str(o).strip()]
-                    if not teach or not prompt_q or not answer:
+                    options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
+                    if not teach or not prompt_q:
                         continue
-                    if len(options) < 2:
-                        options = ["Richtig", "Falsch"] if answer in ("Richtig", "Falsch") else [answer, "Andere Antwort"]
+                    if is_cloze:
+                        brace_answers = [_finalize_study_markdown(m) for m in re.findall(r"\{\{([^}]*)\}\}", prompt_q)]
+                        if not blanks:
+                            blanks = [b for b in brace_answers if b]
+                        if not blanks and answer:
+                            blanks = [answer]
+                        if not blanks:
+                            continue
+                        if not answer:
+                            answer = " | ".join(blanks)
+                        check_obj = {
+                            "type": "cloze",
+                            "prompt": prompt_q,
+                            "options": [],
+                            "blanks": blanks,
+                            "answer": answer,
+                            "explanation": explanation,
+                        }
+                    else:
+                        if not answer:
+                            continue
+                        if len(options) < 2:
+                            options = ["Richtig", "Falsch"] if answer in ("Richtig", "Falsch") else [answer, "Andere Antwort"]
+                        check_obj = {
+                            "type": "true_false" if ctype == "true_false" else "mc",
+                            "prompt": prompt_q,
+                            "options": options,
+                            "answer": answer,
+                            "explanation": explanation,
+                        }
                     lid = str(les.get("id") or f"{cid}-l{li + 1}").strip() or f"{cid}-l{li + 1}"
                     normalized_lessons.append({
                         "id": lid,
                         "teach": teach,
-                        "check": {
-                            "type": "true_false" if str(check.get("type") or "") == "true_false" else "mc",
-                            "prompt": prompt_q,
-                            "options": options,
-                            "answer": answer,
-                            "explanation": str(check.get("explanation") or "").strip(),
-                        },
+                        "check": check_obj,
                     })
                 # Fallback: key points → mini lessons
                 if not normalized_lessons and key_points:
@@ -974,6 +1052,91 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
             if not normalized_chapters:
                 raise Exception("Keine gültigen Kapitel erzeugt.")
             result["chapters"] = normalized_chapters
+
+            # Probeklausur / exam section
+            exam_raw = result.get("exam") if isinstance(result.get("exam"), dict) else None
+            normalized_exam_qs = []
+            if exam_raw:
+                qs = exam_raw.get("questions") if isinstance(exam_raw.get("questions"), list) else []
+                for qi, q in enumerate(qs):
+                    if not isinstance(q, dict):
+                        continue
+                    prompt_q = _finalize_study_markdown(str(q.get("prompt") or ""))
+                    answer = _finalize_study_markdown(str(q.get("answer") or ""))
+                    explanation = _finalize_study_markdown(str(q.get("explanation") or ""))
+                    ctype = str(q.get("type") or "mc").strip().lower()
+                    is_cloze = ctype in ("cloze", "fill", "lueckentext", "lückentext")
+                    blanks_raw = q.get("blanks") if isinstance(q.get("blanks"), list) else []
+                    blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
+                    options = q.get("options") if isinstance(q.get("options"), list) else []
+                    options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
+                    if not prompt_q:
+                        continue
+                    qid = str(q.get("id") or f"ex-q{qi + 1}").strip() or f"ex-q{qi + 1}"
+                    if is_cloze:
+                        brace_answers = [_finalize_study_markdown(m) for m in re.findall(r"\{\{([^}]*)\}\}", prompt_q)]
+                        if not blanks:
+                            blanks = [b for b in brace_answers if b]
+                        if not blanks and answer:
+                            blanks = [answer]
+                        if not blanks:
+                            continue
+                        if not answer:
+                            answer = " | ".join(blanks)
+                        normalized_exam_qs.append({
+                            "id": qid,
+                            "type": "cloze",
+                            "prompt": prompt_q,
+                            "options": [],
+                            "blanks": blanks,
+                            "answer": answer,
+                            "explanation": explanation,
+                        })
+                    else:
+                        if not answer:
+                            continue
+                        if len(options) < 2:
+                            options = ["Richtig", "Falsch"] if answer in ("Richtig", "Falsch") else [answer, "Andere Antwort"]
+                        normalized_exam_qs.append({
+                            "id": qid,
+                            "type": "true_false" if ctype == "true_false" else "mc",
+                            "prompt": prompt_q,
+                            "options": options,
+                            "answer": answer,
+                            "explanation": explanation,
+                        })
+            if not normalized_exam_qs:
+                # Build a lightweight exam from chapter checks if model omitted exam
+                for ch in normalized_chapters:
+                    for les in ch.get("lessons") or []:
+                        chk = les.get("check") or {}
+                        if not chk.get("prompt"):
+                            continue
+                        normalized_exam_qs.append({
+                            "id": f"ex-{les.get('id') or len(normalized_exam_qs)+1}",
+                            "type": chk.get("type") or "mc",
+                            "prompt": chk.get("prompt"),
+                            "options": chk.get("options") or [],
+                            "blanks": chk.get("blanks") or [],
+                            "answer": chk.get("answer") or "",
+                            "explanation": chk.get("explanation") or "",
+                        })
+                        if len(normalized_exam_qs) >= 10:
+                            break
+                    if len(normalized_exam_qs) >= 10:
+                        break
+            if normalized_exam_qs:
+                try:
+                    tls = int((exam_raw or {}).get("time_limit_sec") or 900)
+                except Exception:
+                    tls = 900
+                result["exam"] = {
+                    "title": str((exam_raw or {}).get("title") or "Probeklausur").strip() or "Probeklausur",
+                    "time_limit_sec": max(60, min(3600, tls)),
+                    "questions": normalized_exam_qs[:12],
+                }
+            else:
+                result["exam"] = None
 
             if not return_meta:
                 return result

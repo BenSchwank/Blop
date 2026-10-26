@@ -2802,6 +2802,8 @@ class SmartLearningProgressRequest(BaseModel):
     completed_lesson_ids: Optional[List[str]] = None
     practice_sessions: Optional[int] = None
     readiness: Optional[int] = None
+    exam_best_score: Optional[int] = None
+    exam_completed_at: Optional[str] = None
 
 class TaskHelpRequest(BaseModel):
     username: str
@@ -3159,6 +3161,10 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
         progress["completed_lesson_ids"] = [str(x) for x in body.completed_lesson_ids]
     if body.practice_sessions is not None:
         progress["practice_sessions"] = max(0, int(body.practice_sessions))
+    if body.exam_best_score is not None:
+        progress["exam_best_score"] = max(0, min(100, int(body.exam_best_score)))
+    if body.exam_completed_at is not None:
+        progress["exam_completed_at"] = str(body.exam_completed_at) if body.exam_completed_at else None
 
     chapter_count = len(content.get("chapters") or []) if isinstance(content.get("chapters"), list) else 0
     completed = progress.get("completed_chapter_ids") or []
@@ -3176,17 +3182,24 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
             if isinstance(les, dict) and les.get("id"):
                 lesson_ids.append(str(les["id"]))
 
+    exam_bonus = 0
+    try:
+        if progress.get("exam_best_score") is not None:
+            exam_bonus = min(10, int(round(int(progress.get("exam_best_score") or 0) / 20)))
+    except Exception:
+        exam_bonus = 0
+
     if body.readiness is not None:
         readiness = max(0, min(100, int(body.readiness)))
     elif lesson_ids:
         done = len(set(str(x) for x in completed_lessons) & set(lesson_ids))
         readiness = int(round(100.0 * done / len(lesson_ids)))
         sessions = int(progress.get("practice_sessions") or 0)
-        readiness = min(100, readiness + min(15, sessions * 3))
+        readiness = min(100, readiness + min(15, sessions * 3) + exam_bonus)
     elif chapter_count > 0:
         readiness = int(round(100.0 * len(set(completed)) / chapter_count))
         sessions = int(progress.get("practice_sessions") or 0)
-        readiness = min(100, readiness + min(20, sessions * 5))
+        readiness = min(100, readiness + min(20, sessions * 5) + exam_bonus)
     else:
         readiness = int(content.get("readiness") or 0)
 
@@ -3194,6 +3207,8 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
         "completed_chapter_ids": list(dict.fromkeys(completed)),
         "completed_lesson_ids": list(dict.fromkeys([str(x) for x in completed_lessons])),
         "practice_sessions": int(progress.get("practice_sessions") or 0),
+        "exam_best_score": progress.get("exam_best_score"),
+        "exam_completed_at": progress.get("exam_completed_at"),
     }
     content["readiness"] = readiness
 

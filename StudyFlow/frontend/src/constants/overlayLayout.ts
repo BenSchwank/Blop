@@ -18,17 +18,17 @@ export const OVERLAY_GLOBAL_QUEUE_PANEL =
 
 /**
  * Floating chat FAB anchor: bottom-right, left of the queue dock strip.
- * max-md: extra lift for MobileNav (ClientLayout uses pb-20 on main).
+ * Mobile: tighter right inset so the FAB stays on-screen above MobileNav.
  */
 export const OVERLAY_FLOATING_CHAT =
-    "no-print fixed bottom-32 right-20 z-[100] max-md:bottom-36 flex flex-col items-end";
+    "no-print fixed bottom-32 right-20 z-[100] max-md:bottom-36 max-md:right-3 flex flex-col items-end";
 
 /**
- * Open chat panel: fixed right-edge dock (does not float above the FAB stack).
- * Leaves a gap for the queue dock on the far right.
+ * Open chat panel: fixed right-edge dock on desktop; full-bleed sheet on mobile.
+ * Leaves a gap for the queue dock on md+; on max-md uses left/right insets (no right-16).
  */
 export const OVERLAY_FLOATING_CHAT_DOCK =
-    "no-print fixed top-16 bottom-28 right-16 z-[100] max-md:bottom-36 flex flex-col rounded-2xl border border-[#2A3140] bg-[#12141A] shadow-2xl overflow-hidden";
+    "no-print fixed z-[100] flex flex-col rounded-2xl border border-[#2A3140] bg-[#12141A] shadow-2xl overflow-hidden top-16 bottom-28 right-16 max-md:inset-x-3 max-md:top-14 max-md:bottom-28 max-md:right-3 max-md:left-3";
 
 /** Folder page “KI & Verarbeitung” — sm+ inset from right so it clears the global queue dock */
 export const OVERLAY_FOLDER_KI_PANEL =
