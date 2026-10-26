@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { CheckCircle2, ChevronRight, RotateCcw, XCircle } from "lucide-react";
+import MathMarkdown from "@/components/MathMarkdown";
 
 export interface QuizQuestion {
     question: string;
@@ -142,27 +143,31 @@ export default function QuizSession({ questions }: Props) {
                 <div className="h-full bg-[#5B9DFF] transition-all duration-300" style={{ width: `${((index) / Math.max(total, 1)) * 100}%` }} />
             </div>
 
-            <div className="rounded-2xl border border-[#45484F] bg-[#353840] p-6 shadow-md">
-                <p className="text-lg font-medium text-white leading-relaxed mb-5">{q.question}</p>
+            <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 shadow-md">
+                <div className="mb-5">
+                    <MathMarkdown className="text-lg font-medium text-white">{q.question}</MathMarkdown>
+                </div>
                 <div className="space-y-3">
                     {options.map((opt, idx) => {
                         const isSelected = selected === opt;
                         const isCorrect = opt === q.answer;
-                        let styles = "border-[#4A4E58] hover:bg-[#3A3D45] cursor-pointer text-gray-300";
+                        let styles = "border-[#4A4E58] hover:bg-[#243044] cursor-pointer text-gray-200 min-h-[48px]";
                         if (revealed) {
-                            styles = "border-[#45484F] opacity-60 cursor-default";
-                            if (isCorrect) styles = "border-green-500/50 bg-green-500/10 text-green-400 font-medium opacity-100";
-                            if (isSelected && !isCorrect) styles = "border-red-500/50 bg-red-500/10 text-red-400 font-medium opacity-100";
+                            styles = "border-[#2A3140] opacity-60 cursor-default min-h-[48px]";
+                            if (isCorrect) styles = "border-green-500/50 bg-green-500/10 text-green-300 font-medium opacity-100 min-h-[48px]";
+                            if (isSelected && !isCorrect) styles = "border-red-500/50 bg-red-500/10 text-red-300 font-medium opacity-100 min-h-[48px]";
                         }
                         return (
                             <button
                                 key={idx}
                                 type="button"
                                 onClick={() => pick(opt)}
-                                className={`w-full text-left p-3.5 rounded-xl border transition-all ${styles}`}
+                                className={`w-full text-left px-4 py-3.5 rounded-xl border transition-colors ${styles}`}
                             >
                                 <div className="flex items-center justify-between gap-3">
-                                    <span>{opt}</span>
+                                    <MathMarkdown compact className="flex-1 text-left [&_p]:my-0">
+                                        {opt}
+                                    </MathMarkdown>
                                     {revealed && isCorrect ? <CheckCircle2 size={18} className="text-green-500 shrink-0" /> : null}
                                     {revealed && isSelected && !isCorrect ? <XCircle size={18} className="text-red-500 shrink-0" /> : null}
                                 </div>
@@ -174,15 +179,15 @@ export default function QuizSession({ questions }: Props) {
                 {revealed ? (
                     <div className="mt-5 space-y-4">
                         {q.explanation ? (
-                            <div className="rounded-xl border border-[#45484F] bg-[#23252A] px-4 py-3 text-sm text-gray-300 leading-relaxed">
+                            <div className="rounded-xl border border-[#2A3140] bg-[#12141A] px-4 py-3 text-sm text-gray-300 leading-relaxed">
                                 <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Erklärung</p>
-                                {q.explanation}
+                                <MathMarkdown compact>{q.explanation}</MathMarkdown>
                             </div>
                         ) : null}
                         <button
                             type="button"
                             onClick={goNext}
-                            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold"
+                            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold min-h-[48px]"
                         >
                             {index + 1 >= total ? "Ergebnis anzeigen" : "Weiter"}
                             <ChevronRight size={18} />

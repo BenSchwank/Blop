@@ -64,7 +64,9 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
     const [isLoading, setIsLoading] = useState(false);
     const [pendingPatch, setPendingPatch] = useState<DocumentPatch | null>(null);
     const [lastUsageInfo, setLastUsageInfo] = useState<string>('');
+    const [vvOffset, setVvOffset] = useState({ top: 0, height: 0 });
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const dockRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -73,6 +75,23 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
     useEffect(() => {
         if (isOpen) scrollToBottom();
     }, [messages, isOpen]);
+
+    // Keep the mobile chat sheet inside the visual viewport (keyboard-safe).
+    useEffect(() => {
+        if (!isOpen || typeof window === 'undefined') return;
+        const vv = window.visualViewport;
+        if (!vv) return;
+        const sync = () => {
+            setVvOffset({ top: vv.offsetTop, height: vv.height });
+        };
+        sync();
+        vv.addEventListener('resize', sync);
+        vv.addEventListener('scroll', sync);
+        return () => {
+            vv.removeEventListener('resize', sync);
+            vv.removeEventListener('scroll', sync);
+        };
+    }, [isOpen]);
 
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
@@ -246,11 +265,30 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                 {isOpen && (
                     <motion.div
                         key="chat-dock"
+                        ref={dockRef}
                         initial={{ opacity: 0, x: 40 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 40 }}
                         transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-                        className={`${OVERLAY_FLOATING_CHAT_DOCK} ${isExpanded ? 'w-[min(100vw-1.25rem,40rem)]' : 'w-[min(100vw-1.25rem,26rem)]'}`}
+                        className={`${OVERLAY_FLOATING_CHAT_DOCK} max-md:w-auto ${isExpanded ? 'md:w-[min(100vw-1.25rem,40rem)]' : 'md:w-[min(100vw-1.25rem,26rem)]'}`}
+                        style={
+                            vvOffset.height > 0
+                                ? {
+                                      // Mobile: pin to visualViewport so the composer stays above the keyboard
+                                      top: typeof window !== 'undefined' && window.innerWidth < 768
+                                          ? Math.max(8, vvOffset.top + 8)
+                                          : undefined,
+                                      height:
+                                          typeof window !== 'undefined' && window.innerWidth < 768
+                                              ? Math.max(240, vvOffset.height - 16)
+                                              : undefined,
+                                      bottom:
+                                          typeof window !== 'undefined' && window.innerWidth < 768
+                                              ? 'auto'
+                                              : undefined,
+                                  }
+                                : undefined
+                        }
                         role="dialog"
                         aria-label="Blop KI-Assistent"
                     >
@@ -409,21 +447,23 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                 )}
             </AnimatePresence>
 
-            <motion.div
-                initial={{ opacity: 0, y: 50 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={OVERLAY_FLOATING_CHAT}
-            >
-                <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setIsOpen(!isOpen)}
-                    className="bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-full p-4 shadow-xl border border-[#5B9DFF]/30 flex items-center justify-center"
-                    aria-label={isOpen ? 'Chat schließen' : 'Chat öffnen'}
+            {!isOpen ? (
+                <motion.div
+                    initial={{ opacity: 0, y: 50 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={OVERLAY_FLOATING_CHAT}
                 >
-                    {isOpen ? <X size={24} /> : <MessageCircle size={24} />}
-                </motion.button>
-            </motion.div>
+                    <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setIsOpen(true)}
+                        className="bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-full p-4 shadow-xl border border-[#5B9DFF]/30 flex items-center justify-center"
+                        aria-label="Chat öffnen"
+                    >
+                        <MessageCircle size={24} />
+                    </motion.button>
+                </motion.div>
+            ) : null}
         </>
     );
 }
