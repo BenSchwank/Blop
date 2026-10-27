@@ -1,4 +1,5 @@
 #include "googleauthmanager.h"
+#include "securestore.h"
 
 #include <QDebug>
 #include <QJsonDocument>
@@ -347,7 +348,8 @@ void GoogleAuthManager::persistAccessToken(const QString &token) {
   if (token.isEmpty())
     st.remove(QStringLiteral("google/access_token"));
   else
-    st.setValue(QStringLiteral("google/access_token"), token);
+    st.setValue(QStringLiteral("google/access_token"),
+                SecureStore::protect(token));
   emit calendarTokenUpdated();
 }
 
@@ -356,17 +358,20 @@ void GoogleAuthManager::persistRefreshToken(const QString &token) {
   if (token.isEmpty())
     st.remove(QStringLiteral("google/refresh_token"));
   else
-    st.setValue(QStringLiteral("google/refresh_token"), token);
+    st.setValue(QStringLiteral("google/refresh_token"),
+                SecureStore::protect(token));
 }
 
 QString GoogleAuthManager::refreshToken() const {
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-  return st.value(QStringLiteral("google/refresh_token")).toString();
+  return SecureStore::unprotect(
+      st.value(QStringLiteral("google/refresh_token")).toString());
 }
 
 void GoogleAuthManager::loadPersistedAccessToken() {
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-  m_accessToken = st.value(QStringLiteral("google/access_token")).toString();
+  m_accessToken = SecureStore::unprotect(
+      st.value(QStringLiteral("google/access_token")).toString());
 }
 
 void GoogleAuthManager::parseUserInfoFromIdToken(const QString &idToken) {
@@ -1260,3 +1265,122 @@ void GoogleAuthManager::finishDesktopBridge(const QString &idToken,
   emit authenticated();
 }
 #endif
+
+void GoogleAuthManager::refreshAccessToken() {
+  if (m_refreshInFlight)
+    return;
+  const QString rt = refreshToken();
+  if (rt.isEmpty()) {
+    emit accessTokenRefreshFailed(QStringLiteral("no_refresh_token"));
+    return;
+  }
+  if (!m_networkManager)
+    m_networkManager = new QNetworkAccessManager(this);
+  m_refreshInFlight = true;
+
+  auto fail = [this](const QString &reason, bool revoked) {
+    m_refreshInFlight = false;
+    if (revoked) {
+      persistAccessToken(QString());
+      persistRefreshToken(QString());
+    }
+    emit accessTokenRefreshFailed(reason);
+  };
+  auto ok = [this](const QString &access) {
+    m_refreshInFlight = false;
+    persistAccessToken(access); // emits calendarTokenUpdated
+    emit accessTokenRefreshed();
+  };
+
+  // Direct call to Google: public Android client needs no secret; desktop
+  // falls back to it when a local secret exists (dev), otherwise uses backend.
+  auto direct = [this, rt, ok, fail](const QByteArray &secret) {
+    QNetworkRequest treq((QUrl(QString::fromLatin1(kGoogleTokenEndpoint))));
+    treq.setHeader(QNetworkRequest::ContentTypeHeader,
+                   QStringLiteral("application/x-www-form-urlencoded"));
+    treq.setTransferTimeout(20000);
+    QUrlQuery body;
+    body.addQueryItem(QStringLiteral("grant_type"),
+                      QStringLiteral("refresh_token"));
+    body.addQueryItem(QStringLiteral("refresh_token"), rt);
+#ifdef Q_OS_ANDROID
+    body.addQueryItem(QStringLiteral("client_id"),
+                      QString::fromLatin1(kAndroidClientId));
+#else
+    body.addQueryItem(QStringLiteral("client_id"),
+                      QString::fromLatin1(kDesktopOAuthClientId));
+#endif
+    if (!secret.isEmpty())
+      body.addQueryItem(QStringLiteral("client_secret"),
+                        QString::fromUtf8(secret));
+    QNetworkReply *r = m_networkManager->post(
+        treq, body.toString(QUrl::FullyEncoded).toUtf8());
+    connect(r, &QNetworkReply::finished, this, [r, ok, fail]() {
+      const QByteArray raw = r->readAll();
+      const int status =
+          r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+      const auto err = r->error();
+      r->deleteLater();
+      const QJsonObject obj = QJsonDocument::fromJson(raw).object();
+      const QString access = obj.value(QStringLiteral("access_token")).toString();
+      if (err == QNetworkReply::NoError && status < 400 && !access.isEmpty()) {
+        ok(access);
+        return;
+      }
+      // invalid_grant = refresh token revoked/expired; anything else
+      // (offline, 5xx) keeps the token for a later retry.
+      const bool revoked =
+          obj.value(QStringLiteral("error")).toString() ==
+          QLatin1String("invalid_grant");
+      fail(QStringLiteral("refresh_failed"), revoked);
+    });
+  };
+
+#ifdef Q_OS_ANDROID
+  direct(QByteArray());
+#else
+  const QString exchange = QString::fromLatin1(kDesktopExchangeUrl);
+  QNetworkRequest req(QUrl(QString(exchange).replace(
+      QStringLiteral("/exchange"), QStringLiteral("/refresh"))));
+  req.setHeader(QNetworkRequest::ContentTypeHeader,
+                QStringLiteral("application/json"));
+  req.setTransferTimeout(20000);
+  QJsonObject payload;
+  payload.insert(QStringLiteral("refresh_token"), rt);
+  payload.insert(QStringLiteral("client_id"),
+                 QString::fromLatin1(kDesktopOAuthClientId));
+  QNetworkReply *reply = m_networkManager->post(
+      req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+  connect(reply, &QNetworkReply::finished, this,
+          [this, reply, ok, fail, direct]() {
+            const QByteArray raw = reply->readAll();
+            const int status =
+                reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
+                    .toInt();
+            const auto err = reply->error();
+            reply->deleteLater();
+            if (err == QNetworkReply::NoError && status >= 200 &&
+                status < 300) {
+              const QString access =
+                  QJsonDocument::fromJson(raw)
+                      .object()
+                      .value(QStringLiteral("access_token"))
+                      .toString();
+              if (!access.isEmpty()) {
+                ok(access);
+                return;
+              }
+            }
+            if (status == 401) { // backend says: refresh token revoked
+              fail(QStringLiteral("refresh_revoked"), true);
+              return;
+            }
+            const QByteArray secret = loadDesktopClientSecret();
+            if (secret.isEmpty()) {
+              fail(QStringLiteral("refresh_backend_unavailable"), false);
+              return;
+            }
+            direct(secret);
+          });
+#endif
+}

@@ -4,6 +4,7 @@
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsPathItem>
+#include <QGraphicsPixmapItem>
 #include <QWheelEvent>
 #include <QTouchEvent>
 #include <QTabletEvent>
@@ -50,6 +51,12 @@ public:
     Note* note() const { return note_; }
     /// Stop any pending sticky-note debounce and sync immediately.
     void flushStickyNoteSync();
+    /// Scene -> model sync for ink strokes (moves, deletes, colour changes and
+    /// pixel-eraser cuts only live in the scene until this runs).
+    bool syncStrokesToNote();
+    void scheduleStrokeSync();
+    /// Syncs strokes, then returns a copy of the pages (for undo snapshots).
+    QVector<NotePage> pagesSnapshot();
 
     void setToolMode(ToolMode m);
     void toggleRuler(bool active);
@@ -71,6 +78,8 @@ public:
     bool exportNoteToPng(const QString &basePath);
     bool exportPageToPdf(int pageIndex, const QString &path);
     bool exportNoteToPdf(const QString &path);
+    /// Plain Markdown (title, per-page headings, text boxes, stickies).
+    bool exportNoteToMarkdown(const QString &path);
 
     // Methoden für PageManager
     QPixmap generateThumbnail(int pageIndex, const QSize& size);
@@ -251,6 +260,7 @@ private:
     void pushStrokeUndoCommand(int pageIdx, Stroke stroke);
     // void ensureOverscrollPage(); // Entfernt/Ersetzt durch Pull-Logik
     int pageAt(const QPointF& scenePos) const;
+    int pageAtNearest(const QPointF& scenePos) const;
     QRectF pageRect(int idx) const;
 
     void addNewPageWithLayout(int backgroundType, const QColor &paperColor);
@@ -283,6 +293,12 @@ private:
     void commitPendingStrokeItemsToNote(AbstractTool* tool);
     void syncGraphItemsToNote();
     void syncStickyNotesToNote();
+    /// Harvest ImageTool pixmap items (data(0)=="image_item") into the model.
+    void harvestImageItemsToNote();
+    QGraphicsPixmapItem *createImageItem(const ImageObject &data, int pageIndex);
+    /// False for pages whose scene items were never created (lazy hydration);
+    /// their model content must not be cleared and re-harvested.
+    bool pageContentLive(int pageIndex) const;
     void bindStickyNoteSignals(QGraphicsRectItem *card);
     QGraphicsRectItem *createStickyNoteItem(const StickyNoteObject &data,
                                             int pageIndex);
@@ -335,6 +351,9 @@ private:
     bool m_syncingGraphs{false};
     bool m_syncingStickies{false};
     QTimer* m_stickySyncTimer{nullptr};
+    QTimer* m_strokeSyncTimer{nullptr};
+    bool m_rebuildingScene{false};
+    int m_contentRevision{0};
     bool m_syncingTexts{false};
     QPointer<QGraphicsTextItem> m_activeTextItem;
     QVector<NotePage> m_textEditBefore;

@@ -81,8 +81,12 @@ QImage renderFullPage(const NotePage &page, int pageW, int pageH) {
     QColor c = s.color;
     if (s.isHighlighter)
       c.setAlpha(80);
-    else if (!s.isEraser)
-      c.setAlpha(255);
+    if (s.filled) {
+      p.setPen(Qt::NoPen);
+      p.setBrush(c);
+      p.drawPath(s.path);
+      continue;
+    }
     QPen pen;
     if (s.isEraser)
       pen = QPen(paper, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);

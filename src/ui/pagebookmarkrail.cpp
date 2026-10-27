@@ -18,13 +18,14 @@
 
 namespace {
 
-int tabW() { return UiScale::dp(44); }
+int tabW() { return UiScale::dp(40); }
 int tabH() { return UiScale::dp(34); }
-int addTabH() { return UiScale::dp(30); }
-int tabGap() { return UiScale::dp(6); }
-int hoverPop() { return UiScale::dp(4); }
+int addTabH() { return UiScale::dp(28); }
+int tabGap() { return UiScale::dp(4); }
+int hoverPop() { return 0; }
 int maxTabW() { return UiScale::dp(150); }
-int tabRadius() { return UiScale::dp(10); }
+int tabRadius() { return UiScale::dp(8); }
+int earR() { return UiScale::dp(8); }
 
 QFont numberFont() {
   QFont f;
@@ -40,14 +41,22 @@ QFont nameFont() {
   return f;
 }
 
-/// Tab shape flush with the canvas edge: square on the left, round on the right.
-QPainterPath registerTabPath(const QRectF &r, qreal radius) {
+/// Side tab morphing into the note well: flush left, concave ears on the right.
+QPainterPath registerTabPath(const QRectF &r, qreal /*radius*/) {
+  const qreal er = qMin(qreal(earR()), qMin(r.width() * 0.35, r.height() * 0.4));
+  const qreal top = r.top() + er;
+  const qreal bottom = r.bottom() - er;
   QPainterPath path;
+  // Flush against the L-frame / editor left edge.
   path.moveTo(r.left(), r.top());
-  path.lineTo(r.right() - radius, r.top());
-  path.quadTo(r.right(), r.top(), r.right(), r.top() + radius);
-  path.lineTo(r.right(), r.bottom() - radius);
-  path.quadTo(r.right(), r.bottom(), r.right() - radius, r.bottom());
+  path.lineTo(r.right() - er, r.top());
+  // Top concave ear into the well.
+  path.cubicTo(r.right() - er * 0.15, r.top(), r.right(), top - er * 0.05,
+               r.right(), top);
+  path.lineTo(r.right(), bottom);
+  // Bottom concave ear.
+  path.cubicTo(r.right(), bottom + er * 0.05, r.right() - er * 0.15, r.bottom(),
+               r.right() - er, r.bottom());
   path.lineTo(r.left(), r.bottom());
   path.closeSubpath();
   return path;
@@ -232,7 +241,7 @@ void PageBookmarkRail::placeIn(int x, int top, int bottom) {
     widest = qMax(widest, t.rect.width());
   const int avail = qMax(tabH(), bottom - top);
   const int h = qMin(avail, m_contentH);
-  setGeometry(x, top, widest + hoverPop() + UiScale::dp(2), qMax(1, h));
+  setGeometry(x, top, widest + UiScale::dp(2), qMax(1, h));
   setScroll(m_scroll);
 }
 
@@ -309,8 +318,11 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
   const QColor accent = NoteChrome::accent();
-  const QColor idleBg = NoteChrome::panelElevated();
-  const QColor border = NoteChrome::borderSoft();
+  const QColor well = NoteChrome::canvasBg();
+  const QColor idleBg = NoteChrome::isDark() ? QColor(255, 255, 255, 16)
+                                             : QColor(0, 0, 0, 12);
+  const QColor hoverBg = NoteChrome::isDark() ? QColor(255, 255, 255, 28)
+                                              : QColor(0, 0, 0, 20);
   const QColor fg = NoteChrome::textSecondary();
   const QFont fNum = numberFont();
   const QFont fName = nameFont();
@@ -324,18 +336,12 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
       continue;
     const bool hovered = (i == m_hover) && !m_dragging;
     const bool active = (t.kind == TabKind::Page && t.page == m_current);
-    if (hovered || active)
-      r.setRight(r.right() + hoverPop());
-    const QRectF rf = QRectF(r).adjusted(0, 0.5, -0.5, -0.5);
+    const QRectF rf = QRectF(r);
     const QPainterPath path = registerTabPath(rf, tabRadius());
 
     if (t.kind == TabKind::Add || t.kind == TabKind::AllPages) {
-      QColor bg = idleBg;
-      bg.setAlpha(hovered ? 255 : 150);
-      p.fillPath(path, bg);
-      QPen pen(hovered ? accent : border, 1, Qt::DashLine);
-      p.setPen(pen);
-      p.drawPath(path);
+      p.setPen(Qt::NoPen);
+      p.fillPath(path, hovered ? hoverBg : idleBg);
       p.setPen(QPen(hovered ? accent : fg, UiScale::dp(2) * 0.8,
                     Qt::SolidLine, Qt::RoundCap));
       const QPointF c(r.left() + tabW() / 2.0, r.center().y() + 0.5);
@@ -359,21 +365,15 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
       continue;
     }
 
+    p.setPen(Qt::NoPen);
     if (active) {
-      p.fillPath(path, accent);
+      // Same tone as the note surround — morphs into the well.
+      p.fillPath(path, well);
     } else {
-      QColor bg = idleBg;
-      if (hovered)
-        bg = bg.lighter(NoteChrome::isDark() ? 125 : 97);
-      p.fillPath(path, bg);
-      QColor edge = hovered ? accent : border;
-      if (hovered)
-        edge.setAlpha(140);
-      p.setPen(QPen(edge, 1));
-      p.drawPath(path);
+      p.fillPath(path, hovered ? hoverBg : idleBg);
     }
 
-    const QColor ink = active ? QColor(Qt::white)
+    const QColor ink = active ? NoteChrome::textPrimary()
                               : (hovered ? NoteChrome::textPrimary() : fg);
     const QRect numRect(r.left(), r.top(), tabW(), r.height());
     p.setFont(fNum);
@@ -414,8 +414,7 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
         continue;
       const QRect r = visualRect(t);
       p.setPen(QPen(accent, 2));
-      p.drawLine(r.left(), r.top() - 1, r.left() + tabW() + hoverPop(),
-                 r.top() - 1);
+      p.drawLine(r.left(), r.top() - 1, r.left() + tabW(), r.top() - 1);
       break;
     }
   } else if (m_dragging && m_dropBefore < 0) {

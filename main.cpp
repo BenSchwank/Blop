@@ -113,9 +113,24 @@ int main(int argc, char *argv[]) {
     qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
 #endif
 
+#ifdef Q_OS_WIN
+  // Must be set before the QApplication exists to take effect.
+  QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
+      Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+#endif
+
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
-  BlopLocale::instance().applyFromSettings();
+  // BlopLocale reads ui/language in its constructor; touching the singleton is
+  // enough (no second applyFromSettings()).
+  (void)BlopLocale::instance();
+#ifdef Q_OS_WIN
+  // Prefer the native Schannel TLS backend: it needs no OpenSSL DLLs. The
+  // OpenSSL backend aborts the process (qFatal) on the first HTTPS request
+  // when the matching libssl/libcrypto are not shipped next to the exe.
+  if (QSslSocket::availableBackends().contains(QStringLiteral("schannel")))
+    QSslSocket::setActiveBackend(QStringLiteral("schannel"));
+#endif
   BlopScroll::installApplicationWide(&a);
 
 #ifdef Q_OS_ANDROID
@@ -128,12 +143,30 @@ int main(int argc, char *argv[]) {
 
 #ifndef Q_OS_ANDROID
   // blop://oauth/done?state=… returns from the system-browser Google bridge.
-  DesktopDeepLink::registerProtocolHandler();
   QString deepLink = DesktopDeepLink::deepLinkFromArguments(a.arguments());
+  // A note file passed on the command line (double click in Explorer) must
+  // reach an already running instance instead of being dropped.
+  QString fileArg;
+  {
+    const QStringList args = a.arguments();
+    for (int i = 1; i < args.size(); ++i) {
+      const QString &arg = args.at(i);
+      if (arg.startsWith(QLatin1Char('-')) ||
+          arg.startsWith(QStringLiteral("blop:"), Qt::CaseInsensitive))
+        continue;
+      fileArg = QFileInfo(arg).absoluteFilePath();
+      break;
+    }
+  }
+  QString handOff = deepLink;
+  if (handOff.isEmpty() && !fileArg.isEmpty() && QFileInfo::exists(fileArg))
+    handOff = QStringLiteral("OPENFILE ") + fileArg;
   if (DesktopDeepLink::instance().handOffToRunningInstance(
-          deepLink.isEmpty() ? QStringLiteral("ACTIVATE") : deepLink)) {
+          handOff.isEmpty() ? QStringLiteral("ACTIVATE") : handOff)) {
     return 0;
   }
+  // Only the primary instance touches the registry / sidecar DLLs.
+  DesktopDeepLink::registerProtocolHandler();
   DesktopDeepLink::instance().startServer();
 #else
   QString deepLink;
@@ -174,7 +207,7 @@ int main(int argc, char *argv[]) {
 
   // Read persisted theme (Dark/Light + Accent) before any widget construction
   // so that QSS bricks built during MainWindow setup see the correct tokens.
-  // J/K overhaul: the Light + Blue default now lives in BlopTheme::install()
+  // J/K overhaul: the Dark + Blue default now lives in BlopTheme::install()
   // as a *fallback* for first launch. Forcing setMode/setAccent here would
   // overwrite (and persist over) an explicit user choice on every start.
   BlopTheme::instance().install();
@@ -189,11 +222,6 @@ int main(int argc, char *argv[]) {
   qInfo() << "[BlopDiag] Native crash capture: adb logcat -d | grep -iE "
              "\"SIGSEGV|DEBUG|AndroidRuntime|blop|Qt\" ; software GL test: "
              "BLOP_ANDROID_SOFTWARE_GL=1 before launch";
-#endif
-
-#ifdef Q_OS_WIN
-  QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
-      Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 #endif
 
   // set global app font (Blop Study Redesign)

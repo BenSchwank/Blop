@@ -169,6 +169,19 @@ QColor BlopTheme::accentPrimary() {
   return paletteFor(instance().m_accent).primary;
 }
 
+QColor BlopTheme::accentColor(Accent a) { return paletteFor(a).primary; }
+
+QVector<BlopTheme::AccentSwatch> BlopTheme::accentColors() {
+  return {{Accent::Blue, paletteFor(Accent::Blue).primary,
+           QStringLiteral("Blue")},
+          {Accent::Green, paletteFor(Accent::Green).primary,
+           QStringLiteral("Green")},
+          {Accent::Pink, paletteFor(Accent::Pink).primary,
+           QStringLiteral("Pink")},
+          {Accent::Purple, paletteFor(Accent::Purple).primary,
+           QStringLiteral("Purple")}};
+}
+
 QColor BlopTheme::accentHover() {
   return paletteFor(instance().m_accent).hover;
 }

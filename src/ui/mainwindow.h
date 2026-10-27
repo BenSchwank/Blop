@@ -2,6 +2,9 @@
 #define MAINWINDOW_H
 
 #include <QButtonGroup>
+#include <QSet>
+#include <functional>
+#include <QPointer>
 #include <QColor>
 #include <QComboBox>
 #include <QEvent>
@@ -41,6 +44,7 @@
 
 class QProgressBar;
 class QShortcut;
+class QVBoxLayout;
 
 // Forward Declarations
 class QBoxLayout;
@@ -314,6 +318,7 @@ private slots:
                   const QString &iconName = QStringLiteral("note_bnote"));
   void closeNoteTab(int index);
   void closeEditorTabAt(int index);
+  void remapOrCloseEditorTabs(const QString &oldPath, const QString &newPath);
 
   void onShowNewTabPopup();
 
@@ -354,6 +359,13 @@ private:
   void flushPendingA4Save();
   /// Synchronous save of the pending A4 debounce buffer (tab close / app exit).
   void flushPendingA4SaveSync();
+  bool pendingA4SaveValid() const {
+    return m_pendingA4SaveNote && m_pendingA4SaveOwner &&
+           !m_pendingA4SavePath.isEmpty();
+  }
+  void saveA4Async(const Note &copy, const QString &path);
+  void retrySaveForPath(const QString &path);
+  void onSaveFailed(const QString &what, const QString &path);
   /// Persist one open editor tab (Struktur / A4 stickies / infinite canvas / md).
   void flushEditorWidget(QWidget *w);
   /// Flush every open editor tab, then the A4 debounce buffer.
@@ -371,6 +383,18 @@ private:
   void applyStoragePrefsToLibrary();
   /// First-run wizard. force=true ignores ui/onboardingDone (settings replay).
   void showOnboardingWizard(bool force = false);
+  /// Help & first steps modal (rail "Hilfe").
+  void showHelp();
+  /// Opens the settings shell and jumps to a section (0 = Konto).
+  void openSettingsSection(int sectionIndex);
+  /// Defer first-run side effects (reopen last note, crash replay, update
+  /// check) until the onboarding wizard is closed.
+  class UpdateChecker *m_updateChecker{nullptr};
+  void mirrorNoteNow(const QString &notePath);
+  QSet<QString> m_mirrorQueue;
+  bool m_mirrorBusy{false};
+  bool m_mirrorScheduled{false};
+  void runWhenStartupIdle(std::function<void()> fn);
   void mirrorNoteIfNeeded(const QString &notePath);
   void refreshCloudSyncStatus(const QString &flash = QString());
   void runStudyJavaScript(const QString &js);
@@ -379,7 +403,6 @@ private:
   /// Same minimal title bar as A4, but without drawing toolbars.
   void switchToStrukturChrome();
   void switchToWorkspaceChrome();
-  void openSettingsWorkspace();
   void openSettingsShell();
   void closeSettingsShell();
   void rebuildSettingsShellNav();
@@ -400,6 +423,13 @@ private:
   void refreshSidebarSearchHint();
   void refreshSidebarHeaderChrome();
   void refreshSidebarCloudSectionChrome();
+#ifndef Q_OS_ANDROID
+  QWidget *makeSidebarSplitterPane(const QString &title,
+                                   const QString &titleObjectName,
+                                   QWidget *body);
+  void persistLibrarySidebarSplitter();
+  void restoreLibrarySidebarSplitter();
+#endif
   void applyAutoSavePrefs();
   void applyToolHotkeys();
   /// Title-bar mark: built-in Blop logo, or a user logo / wide banner.
@@ -485,6 +515,10 @@ private:
   void switchToApp(bool notesApp);
 
   void performCopy(const QModelIndex &index);
+  /// Duplicates a note/folder next to the original ("<name> Kopie"), including
+  /// tags and (for .struct) private copies of embedded notes. Returns the new
+  /// path or an empty string on failure.
+  QString duplicateLibraryItem(const QString &srcPath);
   bool copyRecursive(const QString &src, const QString &dst);
 
   void toggleFolderContent(QListWidgetItem *parentItem);
@@ -646,6 +680,7 @@ private:
   // ----------------------------
   /// True while auth is unresolved: prevent switching from Study/Login to Notes.
   bool m_authNavigationLocked{false};
+  bool m_onboardingOpen{false};
   /// Prevents duplicate OAuth browser launches from repeated poll triggers.
   bool m_googleLoginInFlight{false};
   /// Start timestamp for login in-flight guard; stale requests are auto-recovered.
@@ -732,6 +767,12 @@ private:
   QWidget *m_sidebarContainer{nullptr};
   QWidget *m_sidebarNavPanel{nullptr};
   QScrollArea *m_sidebarMidScroll{nullptr};
+  QWidget *m_sidebarMidHost{nullptr};
+  QVBoxLayout *m_sidebarMidLay{nullptr};
+  class QSplitter *m_sidebarMidSplitter{nullptr};
+  QWidget *m_sidebarSegNav{nullptr};
+  QWidget *m_sidebarSegCloud{nullptr};
+  QWidget *m_sidebarSegTags{nullptr};
   QWidget *m_sidebarSearchWrap{nullptr};
   LibraryIconRail *m_libraryIconRail{nullptr};
   QLineEdit *m_sidebarSearch{nullptr};
@@ -932,6 +973,9 @@ private:
   NoteManager m_noteManager;
   QTimer *m_a4SaveDebounce{nullptr};
   Note *m_pendingA4SaveNote{nullptr};
+  QPointer<QObject> m_pendingA4SaveOwner; // editor that owns the pending note
+  qint64 m_lastSaveFailMs{0};
+  bool m_saveFailDialogOpen{false};
   QString m_pendingA4SavePath;
   /// When opening an A4 note from a Struktur embed, scroll to this page.
   int m_pendingOpenPageIndex{-1};

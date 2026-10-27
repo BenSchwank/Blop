@@ -28,6 +28,13 @@
 #  define BLOP_DIAG_HAS_POSIX 0
 #endif
 
+#if defined(Q_OS_WIN)
+#  include <windows.h>
+#  define BLOP_DIAG_HAS_WIN 1
+#else
+#  define BLOP_DIAG_HAS_WIN 0
+#endif
+
 #if defined(Q_OS_ANDROID) || defined(Q_OS_LINUX)
 #  include <unwind.h>
 #  include <dlfcn.h>
@@ -268,6 +275,64 @@ void safeDumpRing(int fd) {
 }
 #endif // BLOP_DIAG_HAS_POSIX
 
+#if BLOP_DIAG_HAS_WIN
+// Windows: SEH-based equivalent of the POSIX signal handler. Only plain Win32
+// calls (no Qt, no allocation) run inside the filter.
+HANDLE g_crashHandle = INVALID_HANDLE_VALUE;
+LPTOP_LEVEL_EXCEPTION_FILTER g_prevFilter = nullptr;
+
+void winWrite(const char *s) {
+  if (g_crashHandle == INVALID_HANDLE_VALUE || !s)
+    return;
+  DWORD n = 0;
+  WriteFile(g_crashHandle, s, static_cast<DWORD>(std::strlen(s)), &n, nullptr);
+}
+
+void winWriteHex(uintptr_t v) {
+  char buf[2 + 16 + 1];
+  buf[0] = '0';
+  buf[1] = 'x';
+  static const char *hex = "0123456789abcdef";
+  for (int i = 0; i < 16; ++i)
+    buf[2 + (15 - i)] = hex[(v >> (i * 4)) & 0xF];
+  buf[2 + 16] = '\0';
+  winWrite(buf);
+}
+
+LONG WINAPI winCrashFilter(EXCEPTION_POINTERS *ep) {
+  if (g_crashHandle != INVALID_HANDLE_VALUE) {
+    winWrite("==== BLOP CRASH ====\n");
+    winWrite("signal: SEH exception code ");
+    winWriteHex(ep && ep->ExceptionRecord
+                    ? static_cast<uintptr_t>(ep->ExceptionRecord->ExceptionCode)
+                    : 0);
+    winWrite("\nfault_addr: ");
+    winWriteHex(ep && ep->ExceptionRecord
+                    ? reinterpret_cast<uintptr_t>(
+                          ep->ExceptionRecord->ExceptionAddress)
+                    : 0);
+    winWrite("\n---- recent log + ui actions ----\n");
+    const int idx = g_ringIndex.load(std::memory_order_relaxed);
+    const int start = idx % kRingSlots;
+    for (int i = 0; i < kRingSlots; ++i) {
+      const int s = (start + i) % kRingSlots;
+      if (g_ring[s].filled.load(std::memory_order_acquire) == 0)
+        continue;
+      winWrite(g_ring[s].text);
+      winWrite("\n");
+    }
+    winWrite("==== END ====\n");
+    FlushFileBuffers(g_crashHandle);
+    CloseHandle(g_crashHandle);
+    g_crashHandle = INVALID_HANDLE_VALUE;
+  }
+  // Let Crashpad/WER (or a previously installed filter) continue.
+  if (g_prevFilter)
+    return g_prevFilter(ep);
+  return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif // BLOP_DIAG_HAS_WIN
+
 #if BLOP_DIAG_HAS_UNWIND
 struct UnwindCtx {
   int fd;
@@ -498,6 +563,19 @@ void openCrashFd() {
   safeWriteAll(fd, ts.constData(), (size_t)ts.size());
   safeWriteCStr(fd, "\n");
   ::fsync(fd);
+#elif BLOP_DIAG_HAS_WIN
+  const std::wstring wpath = crashFilePath().toStdWString();
+  g_crashHandle = CreateFileW(wpath.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                              nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                              nullptr);
+  if (g_crashHandle != INVALID_HANDLE_VALUE) {
+    winWrite("BLOP_DIAG_RUNNING ");
+    const QByteArray ts =
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODate).toUtf8();
+    winWrite(ts.constData());
+    winWrite("\n");
+    FlushFileBuffers(g_crashHandle);
+  }
 #endif
 }
 
@@ -527,6 +605,8 @@ void install() {
 
 #if BLOP_DIAG_HAS_POSIX
   installSignalHandlers();
+#elif BLOP_DIAG_HAS_WIN
+  g_prevFilter = SetUnhandledExceptionFilter(&winCrashFilter);
 #endif
 }
 

@@ -491,8 +491,10 @@ void DashRightRail::rebuildModules() {
   if (!m_bodyLay)
     return;
   while (QLayoutItem *it = m_bodyLay->takeAt(0)) {
-    if (it->widget())
-      delete it->widget();
+    if (QWidget *w = it->widget()) {
+      w->hide();
+      w->deleteLater();
+    }
     delete it;
   }
 
@@ -927,7 +929,7 @@ QWidget *DashRightRail::buildTodosContent() {
         return;
       TodoStore::setDone(id, true);
       emit contentChanged();
-      rebuildModules();
+      QTimer::singleShot(0, this, [this]() { rebuildModules(); });
     });
     lay->addWidget(cb);
     ++shown;

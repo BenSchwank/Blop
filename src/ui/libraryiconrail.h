@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QPaintEvent>
 #include <QPixmap>
+#include <QPoint>
 #include <QWidget>
 
 class QLabel;
@@ -44,8 +45,12 @@ protected:
 private:
   QToolButton *addBtn(const QString &id, const QString &iconKey,
                       const QString &tip, QVBoxLayout *lay);
+  QWidget *addGap(QVBoxLayout *lay, int which);
   void refreshStyles();
   void applyBrand();
+  void applyGapRatio();
+  void loadGapRatio();
+  void saveGapRatio() const;
   void showFlyout(QToolButton *btn);
   void hideFlyout();
 
@@ -57,4 +62,15 @@ private:
   QColor m_accent;
   bool m_innerEdge{false};
   QString m_avatar;
+
+  QVBoxLayout *m_lay{nullptr};
+  QWidget *m_gapTop{nullptr};
+  QWidget *m_gapBot{nullptr};
+  QWidget *m_handleTop{nullptr};
+  QWidget *m_handleBot{nullptr};
+  /// Share of free space for the upper gap (0.12–0.88). Lower gets the rest.
+  qreal m_gapRatio{0.42};
+  int m_dragWhich{-1}; // 0 = top handle, 1 = bot handle
+  int m_dragStartY{0};
+  qreal m_dragStartRatio{0.42};
 };

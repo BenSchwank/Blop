@@ -52,6 +52,8 @@ signals:
     void toolbarStyleChanged(bool radial);
     /// Desktop studio layout: 0=Klassisch, 1=A, 2=B, 3=C, 4=D.
     void studioToolbarVariantChanged(int variant);
+    /// Desktop note toolbar (Balken/Floating/Radiant/Wissenschaftlich) changed.
+    void noteToolbarStyleChanged();
     void logoutRequested();
     /// Emitted when Speicher-Modus or linked cloud folders change.
     void storagePrefsChanged();

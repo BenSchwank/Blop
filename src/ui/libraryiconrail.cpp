@@ -9,6 +9,7 @@
 #include <QIcon>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QSettings>
 #include <QSizePolicy>
 #include <QPainter>
 #include <QPaintEvent>
@@ -47,9 +48,9 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   m_accent = BlopTheme::accentPrimary();
 
   setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-  auto *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(0, UiScale::dp(12), 0, UiScale::dp(12));
-  lay->setSpacing(UiScale::dp(2));
+  m_lay = new QVBoxLayout(this);
+  m_lay->setContentsMargins(0, UiScale::dp(10), 0, UiScale::dp(10));
+  m_lay->setSpacing(UiScale::dp(4));
 
   m_logo = new QLabel(this);
   m_logo->setObjectName(QStringLiteral("LibraryIconRailLogo"));
@@ -60,35 +61,88 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   m_logo->setToolTip(QStringLiteral("Seitenleiste ein-/ausklappen"));
   m_logo->setAccessibleName(QStringLiteral("Seitenleiste"));
   m_logo->installEventFilter(this);
-  lay->addWidget(m_logo, 0, Qt::AlignHCenter);
-  lay->addSpacing(UiScale::dp(8));
+  m_lay->addWidget(m_logo, 0, Qt::AlignHCenter);
+  m_lay->addSpacing(UiScale::dp(6));
 
-  // Dual-app switch first, then note utilities.
+  // Clusters: logo+home/library | mid tools | settings — gaps are draggable.
   addBtn(QStringLiteral("home"), QStringLiteral("home"),
-         QStringLiteral("Dashboard"), lay);
+         QStringLiteral("Dashboard"), m_lay);
   addBtn(QStringLiteral("library"), QStringLiteral("note"),
-         QStringLiteral("Notizen"), lay);
-  lay->addSpacing(UiScale::dp(8));
+         QStringLiteral("Notizen"), m_lay);
+  m_gapTop = addGap(m_lay, 0);
   addBtn(QStringLiteral("new"), QStringLiteral("add"),
-         QStringLiteral("Neue Notiz"), lay);
+         QStringLiteral("Neue Notiz"), m_lay);
   addBtn(QStringLiteral("favorites"), QStringLiteral("star"),
-         QStringLiteral("Favoriten"), lay);
+         QStringLiteral("Favoriten"), m_lay);
   addBtn(QStringLiteral("calendar"), QStringLiteral("calendar"),
-         QStringLiteral("Kalender"), lay);
+         QStringLiteral("Kalender"), m_lay);
   addBtn(QStringLiteral("network"), QStringLiteral("network"),
-         QStringLiteral("Gedankenfäden — verknüpfte Notizen & Übersicht"), lay);
+         QStringLiteral("Gedankenfäden — verknüpfte Notizen & Übersicht"), m_lay);
   addBtn(QStringLiteral("apps"), QStringLiteral("apps"),
-         QStringLiteral("Apps / Study"), lay);
-
-  lay->addStretch(1);
+         QStringLiteral("Apps / Study"), m_lay);
+  m_gapBot = addGap(m_lay, 1);
 
   addBtn(QStringLiteral("settings"), QStringLiteral("settings"),
-         QStringLiteral("Einstellungen"), lay);
+         QStringLiteral("Einstellungen"), m_lay);
   addBtn(QStringLiteral("help"), QStringLiteral("help"),
-         QStringLiteral("Hilfe"), lay);
+         QStringLiteral("Hilfe"), m_lay);
   addBtn(QStringLiteral("account"), QStringLiteral("person"),
-         QStringLiteral("Konto"), lay);
+         QStringLiteral("Konto"), m_lay);
+  loadGapRatio();
+  applyGapRatio();
   refreshStyles();
+}
+
+QWidget *LibraryIconRail::addGap(QVBoxLayout *lay, int which) {
+  auto *gap = new QWidget(this);
+  gap->setObjectName(QStringLiteral("LibraryIconRailGap"));
+  gap->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  gap->setMinimumHeight(UiScale::dp(8));
+  auto *gl = new QVBoxLayout(gap);
+  gl->setContentsMargins(0, 0, 0, 0);
+  gl->setSpacing(0);
+  gl->addStretch(1);
+
+  auto *handle = new QWidget(gap);
+  handle->setObjectName(QStringLiteral("LibraryIconRailGapHandle"));
+  handle->setFixedHeight(UiScale::dp(8));
+  handle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  handle->setCursor(Qt::SizeVerCursor);
+  handle->setToolTip(QStringLiteral("Ziehen — Cluster verschieben"));
+  handle->setAttribute(Qt::WA_StyledBackground, true);
+  handle->setStyleSheet(QStringLiteral("background: transparent;"));
+  handle->installEventFilter(this);
+  if (which == 0)
+    m_handleTop = handle;
+  else
+    m_handleBot = handle;
+  gl->addWidget(handle);
+  gl->addStretch(1);
+
+  lay->addWidget(gap, 1);
+  return gap;
+}
+
+void LibraryIconRail::loadGapRatio() {
+  const qreal saved =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("ui/iconRailGapRatio"), 0.42)
+          .toReal();
+  m_gapRatio = qBound(0.12, saved, 0.88);
+}
+
+void LibraryIconRail::saveGapRatio() const {
+  QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+      .setValue(QStringLiteral("ui/iconRailGapRatio"), m_gapRatio);
+}
+
+void LibraryIconRail::applyGapRatio() {
+  if (!m_lay || !m_gapTop || !m_gapBot)
+    return;
+  const int top = qMax(1, qRound(m_gapRatio * 100.0));
+  const int bot = qMax(1, 100 - top);
+  m_lay->setStretchFactor(m_gapTop, top);
+  m_lay->setStretchFactor(m_gapBot, bot);
 }
 
 int LibraryIconRail::preferredWidth() const { return UiScale::dp(48); }
@@ -217,6 +271,41 @@ bool LibraryIconRail::eventFilter(QObject *watched, QEvent *event) {
       return true;
     }
   }
+
+  const bool isTop = watched == m_handleTop;
+  const bool isBot = watched == m_handleBot;
+  if (isTop || isBot) {
+    if (event->type() == QEvent::MouseButtonPress) {
+      auto *me = static_cast<QMouseEvent *>(event);
+      if (me->button() == Qt::LeftButton) {
+        m_dragWhich = isTop ? 0 : 1;
+        m_dragStartY = me->globalPosition().toPoint().y();
+        m_dragStartRatio = m_gapRatio;
+        return true;
+      }
+    }
+    if (event->type() == QEvent::MouseMove && m_dragWhich >= 0) {
+      auto *me = static_cast<QMouseEvent *>(event);
+      const int freeH =
+          (m_gapTop ? m_gapTop->height() : 0) +
+          (m_gapBot ? m_gapBot->height() : 0);
+      if (freeH > UiScale::dp(16)) {
+        const int dy = me->globalPosition().toPoint().y() - m_dragStartY;
+        // Dragging either handle down grows the upper gap (mid cluster moves down).
+        m_gapRatio =
+            qBound(0.12, m_dragStartRatio + (qreal)dy / (qreal)freeH, 0.88);
+        applyGapRatio();
+        update();
+      }
+      return true;
+    }
+    if (event->type() == QEvent::MouseButtonRelease && m_dragWhich >= 0) {
+      m_dragWhich = -1;
+      saveGapRatio();
+      return true;
+    }
+  }
+
   auto *btn = qobject_cast<QToolButton *>(watched);
   if (!btn || !m_btns.values().contains(btn))
     return QWidget::eventFilter(watched, event);
@@ -305,19 +394,18 @@ void LibraryIconRail::paintEvent(QPaintEvent *event) {
     p.setPen(QPen(QColor(0x4A, 0x4E, 0x58), 1));
     p.drawLine(width() - 1, y, width() - 1, height() - 1);
   }
+  // Hairlines at the draggable gap-handle midpoints.
   const bool lightRail = BlopStyle::libraryIconRail().lightness() > 140;
-  p.setPen(QPen(lightRail ? QColor(0, 0, 0, 20) : QColor(255, 255, 255, 18), 1));
-  // Soft divider above the stretch footer cluster (settings/help/account).
-  if (QToolButton *settings = m_btns.value(QStringLiteral("settings"))) {
-    const int y = settings->geometry().top() - UiScale::dp(6);
-    if (y > UiScale::dp(40) && y < height() - UiScale::dp(8))
-      p.drawLine(UiScale::dp(10), y, width() - UiScale::dp(10), y);
-  }
-  if (QToolButton *home = m_btns.value(QStringLiteral("home"))) {
-    const int y = home->geometry().top() - UiScale::dp(4);
-    if (y > UiScale::dp(8))
-      p.drawLine(UiScale::dp(10), y, width() - UiScale::dp(10), y);
-  }
+  p.setPen(QPen(lightRail ? QColor(0, 0, 0, 28) : QColor(255, 255, 255, 22), 1));
+  auto drawHandleLine = [&](QWidget *handle) {
+    if (!handle || !handle->isVisible())
+      return;
+    const QPoint c = handle->mapTo(this, QPoint(0, handle->height() / 2));
+    if (c.y() > UiScale::dp(8) && c.y() < height() - UiScale::dp(8))
+      p.drawLine(UiScale::dp(10), c.y(), width() - UiScale::dp(10), c.y());
+  };
+  drawHandleLine(m_handleTop);
+  drawHandleLine(m_handleBot);
 }
 
 void LibraryIconRail::refreshStyles() {

@@ -54,7 +54,7 @@ private:
   QListWidget *m_list{nullptr};
   QPushButton *m_btnAdd{nullptr};
   QPushButton *m_btnManage{nullptr};
-  QColor m_accent{QColor(QStringLiteral("#7C5CFC"))};
+  QColor m_accent{QColor(QStringLiteral("#5B9DFF"))};
   bool m_sidebarMode{false};
   bool m_collapsed{true};
 };

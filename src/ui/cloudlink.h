@@ -113,4 +113,6 @@ private:
   QString m_ncToken;
   QString m_ncServer;
   int m_ncPolls{0};
+  class QTimer *m_oauthTimer{nullptr};
+  void armOauthTimeout(const QString &type);
 };

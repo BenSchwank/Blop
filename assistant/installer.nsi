@@ -55,8 +55,8 @@ Section "Blop Assistent" SecApp
   SectionIn RO
   SetShellVarContext current
 
-  nsExec::ExecToStack 'taskkill /F /IM ${APP_EXE}'
-  Sleep 800
+  nsExec::ExecToStack 'taskkill /IM ${APP_EXE}'
+  Sleep 2000
 
   SetOutPath "$INSTDIR"
   File /r "deployment\*"
@@ -81,8 +81,8 @@ SectionEnd
 
 Section "Uninstall"
   SetShellVarContext current
-  nsExec::ExecToStack 'taskkill /F /IM ${APP_EXE}'
-  Sleep 800
+  nsExec::ExecToStack 'taskkill /IM ${APP_EXE}'
+  Sleep 2000
 
   Delete "$INSTDIR\uninstall.exe"
   Delete "$DESKTOP\Blop Assistent.lnk"

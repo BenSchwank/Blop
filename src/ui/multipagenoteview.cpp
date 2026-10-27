@@ -38,6 +38,8 @@
 #include <QGraphicsProxyWidget>
 #include <QGraphicsSceneMouseEvent>
 #include <QTextDocument>
+#include <QSaveFile>
+#include <algorithm>
 #include <QImage>
 #include <QPainter>
 #include <QPainterPath>
@@ -108,12 +110,132 @@
 #include <QSignalBlocker>
 #include <QToolTip>
 #include <QUndoCommand>
+#include <QMetaType>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
 #include <QEasingCurve>
 #include <QGraphicsItem>
+#include <algorithm>
 #include <functional>
+
+Q_DECLARE_METATYPE(Stroke)
+
+namespace {
+// Every committed ink item carries an item-coordinate snapshot of its Stroke
+// plus a runtime serial. syncStrokesToNote() rebuilds the model from them.
+constexpr int kStrokeSnapKey = 0x5301;
+constexpr int kStrokeSerialKey = 0x5302;
+quint64 g_strokeSerial = 0;
+
+void tagStrokeItem(QGraphicsItem *item, const Stroke &s) {
+  item->setData(kStrokeSnapKey, QVariant::fromValue(s));
+  item->setData(kStrokeSerialKey, QVariant::fromValue<quint64>(++g_strokeSerial));
+}
+
+bool strokesEqual(const QVector<Stroke> &a, const QVector<Stroke> &b) {
+  if (a.size() != b.size())
+    return false;
+  for (int i = 0; i < a.size(); ++i) {
+    const Stroke &x = a[i];
+    const Stroke &y = b[i];
+    if (!qFuzzyCompare(x.width + 1.0, y.width + 1.0) || x.color != y.color ||
+        x.isEraser != y.isEraser || x.isHighlighter != y.isHighlighter ||
+        x.filled != y.filled || x.points != y.points ||
+        x.pressures != y.pressures || !(x.path == y.path))
+      return false;
+  }
+  return true;
+}
+
+bool isInkGraphicsItem(QGraphicsItem *item) {
+  if (!item)
+    return false;
+  const int t = item->type();
+  if (t == GraphCanvasItem::Type || t == GraphFormulaZone::Type)
+    return false;
+  if (t == QGraphicsItem::UserType + 100)
+    return false;
+  for (QGraphicsItem *p = item->parentItem(); p; p = p->parentItem()) {
+    if (p->type() == GraphCanvasItem::Type)
+      return false;
+  }
+  const QString kind = item->data(0).toString();
+  if (kind == QLatin1String("sticky_note") ||
+      kind == QLatin1String("text_item") ||
+      kind == QLatin1String("image_item"))
+    return false;
+  if (t == StrokeItem::Type)
+    return true;
+  return item->data(kStrokeSnapKey).isValid();
+}
+
+Stroke harvestStrokeFromItem(QGraphicsItem *item, int pageIdx,
+                             const QPointF &pageTopLeft) {
+  Stroke s;
+  if (item->data(kStrokeSnapKey).canConvert<Stroke>())
+    s = item->data(kStrokeSnapKey).value<Stroke>();
+  s.pageIndex = pageIdx;
+
+  auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item);
+  if (!pathItem)
+    return s;
+
+  s.path = item->mapToScene(pathItem->path()).translated(-pageTopLeft);
+
+  auto *si = dynamic_cast<StrokeItem *>(item);
+  if (si) {
+    s.isEraser = (si->strokeStyle() == StrokeItem::Eraser);
+    s.isHighlighter = (si->strokeStyle() == StrokeItem::Highlighter);
+  }
+
+  if (pathItem->pen().style() == Qt::NoPen) {
+    s.filled = true;
+    const QColor br = pathItem->brush().color();
+    if (br.isValid())
+      s.color = br;
+    s.points.clear();
+    s.pressures.clear();
+    return s;
+  }
+
+  s.filled = false;
+  s.width = pathItem->pen().widthF();
+  if (!s.isEraser)
+    s.color = pathItem->pen().color();
+  if (si) {
+    const auto pts = si->points();
+    s.points.clear();
+    s.pressures.clear();
+    for (const StrokePoint &sp : pts) {
+      s.points.append(item->mapToScene(sp.pos) - pageTopLeft);
+      s.pressures.append(sp.pressure);
+    }
+    bool uniform = !s.pressures.isEmpty();
+    for (qreal pr : s.pressures) {
+      if (pr < 1.0) {
+        uniform = false;
+        break;
+      }
+    }
+    if (uniform)
+      s.pressures.clear();
+  } else {
+    s.points.clear();
+    s.pressures.clear();
+    for (int i = 0; i < s.path.elementCount(); ++i) {
+      const auto el = s.path.elementAt(i);
+      s.points.append(QPointF(el.x, el.y));
+    }
+    if (pathItem->brush().style() != Qt::NoBrush &&
+        pathItem->brush().color().alpha() > 0) {
+      s.filled = true;
+      s.color = pathItem->brush().color();
+    }
+  }
+  return s;
+}
+} // namespace
 
 class MultiPageNoteView;
 
@@ -328,20 +450,22 @@ class StrokeAddUndoCommand : public QUndoCommand {
 public:
   StrokeAddUndoCommand(MultiPageNoteView *view, int pageIdx, Stroke stroke)
       : QUndoCommand(), m_view(view), m_page(pageIdx),
-        m_stroke(std::move(stroke)), m_item(nullptr), m_index(-1) {}
-  ~StrokeAddUndoCommand() override { delete m_item; }
+        m_stroke(std::move(stroke)) {
+    m_stroke.pageIndex = pageIdx;
+  }
 
   void undo() override {
-    if (!m_view || !m_view->note_ || m_page < 0 ||
-        m_page >= m_view->note_->pages.size())
+    if (!m_view || !m_view->note_)
       return;
-    auto &strokes = m_view->note_->pages[m_page].strokes;
-    if (m_index < 0 || m_index >= strokes.size())
-      return;
-    strokes.removeAt(m_index);
-    delete m_item;
-    m_item = nullptr;
-    if (m_view->onSaveRequested)
+    // Capture moves/cuts made since redo(), then drop our item by serial.
+    // (Looked up by serial: the eraser may already have deleted it.)
+    m_view->syncStrokesToNote();
+    if (QGraphicsItem *it = findItem()) {
+      m_view->scene_.removeItem(it);
+      delete it;
+    }
+    m_serial = 0;
+    if (!m_view->syncStrokesToNote() && m_view->onSaveRequested)
       m_view->onSaveRequested(m_view->note_);
   }
 
@@ -349,27 +473,38 @@ public:
     if (!m_view || !m_view->note_)
       return;
     m_view->note_->ensurePage(m_page);
-    auto &strokes = m_view->note_->pages[m_page].strokes;
-    if (m_index < 0) {
-      m_index = strokes.size();
-      strokes.append(m_stroke);
-    } else {
-      strokes.insert(m_index, m_stroke);
+    if (!m_view->pageContentLive(m_page)) {
+      // Page not hydrated (lazy long note): the model is the only truth.
+      m_view->note_->pages[m_page].strokes.append(m_stroke);
+      if (m_view->onSaveRequested)
+        m_view->onSaveRequested(m_view->note_);
+      return;
     }
-    m_item = m_view->createStrokeGraphicsItem(m_stroke);
+    QGraphicsPathItem *item = m_view->createStrokeGraphicsItem(m_stroke);
     if (m_page >= 0 && m_page < m_view->pageItems_.size() &&
         m_view->pageItems_[m_page])
-      m_item->setParentItem(m_view->pageItems_[m_page]);
-    if (m_view->onSaveRequested)
+      item->setParentItem(m_view->pageItems_[m_page]);
+    m_serial = item->data(kStrokeSerialKey).toULongLong();
+    if (!m_view->syncStrokesToNote() && m_view->onSaveRequested)
       m_view->onSaveRequested(m_view->note_);
   }
 
 private:
+  QGraphicsItem *findItem() const {
+    if (m_serial == 0 || !m_view)
+      return nullptr;
+    const auto all = m_view->scene_.items();
+    for (QGraphicsItem *it : all) {
+      if (it->data(kStrokeSerialKey).toULongLong() == m_serial)
+        return it;
+    }
+    return nullptr;
+  }
+
   MultiPageNoteView *m_view;
   int m_page;
   Stroke m_stroke;
-  QGraphicsPathItem *m_item;
-  int m_index;
+  quint64 m_serial{0};
 };
 
 /// Undo/redo a single stroke added to a GraphFormulaZone.
@@ -1397,6 +1532,7 @@ static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
 #endif
 
 MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
+  qRegisterMetaType<Stroke>();
   m_undoStack = new QUndoStack(this);
   m_pageUndoStack = new QUndoStack(this);
 
@@ -1479,6 +1615,15 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     syncStickyNotesToNote();
     syncTextItemsToNote();
   });
+  m_strokeSyncTimer = new QTimer(this);
+  m_strokeSyncTimer->setSingleShot(true);
+  m_strokeSyncTimer->setInterval(400);
+  connect(m_strokeSyncTimer, &QTimer::timeout, this, [this]() {
+    if (!drawing_ && !currentPathItem_)
+      syncStrokesToNote();
+  });
+  if (m_undoStack)
+    m_undoStack->setUndoLimit(40);
 
   // Rechteck-Crop-Session (Freihand-Modus gibt es hier nicht, daher nur ✔/✕).
   m_cropMenu = new CropMenu(this, /*showModeButtons=*/false);
@@ -1775,14 +1920,9 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     // becomes a top-level QWindow (the v3.16.x EGL deadlock path). On
     // Desktop we keep the historic QDialog::exec() since the platform
     // has no such issue and exec() is the simpler control-flow.
-#ifdef Q_OS_ANDROID
     auto *dlg = new GraphAxisSettingsDialog(m_selectedGraphItem, window());
     BlopModal::execBlocking(window(), dlg);
     dlg->deleteLater();
-#else
-    GraphAxisSettingsDialog dlg(m_selectedGraphItem, window());
-    dlg.exec();
-#endif
     bindGraphChrome(m_selectedGraphItem);
     syncGraphLegendLayout();
     syncGraphItemsToNote();
@@ -1910,7 +2050,8 @@ void MultiPageNoteView::hydratePageContent(int i) {
       type = StrokeItem::Eraser;
     } else if (s.isHighlighter) {
       QColor c = s.color;
-      c.setAlpha(80);
+      if (c.alpha() == 255)
+        c.setAlpha(80);
       pen = QPen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
       type = StrokeItem::Highlighter;
     } else {
@@ -1924,18 +2065,26 @@ void MultiPageNoteView::hydratePageContent(int i) {
       for (int k = 0; k < s.points.size(); ++k)
         strokePts.append({s.points[k], s.pressures[k]});
     }
-    auto item = new StrokeItem(s.path, pen, strokePts, type);
+    QGraphicsPathItem *item = nullptr;
+    if (s.filled) {
+      item = new QGraphicsPathItem(s.path);
+      item->setPen(Qt::NoPen);
+      item->setBrush(s.color);
+    } else {
+      item = new StrokeItem(s.path, pen, strokePts, type);
+    }
 
-    if (s.isEraser || (!s.isEraser && !s.isHighlighter)) {
-        item->setZValue(1.0);
-    } else if (s.isHighlighter) {
+    if (s.isHighlighter) {
         item->setZValue(0.5);
+    } else {
+        item->setZValue(1.0);
     }
 
     item->setFlag(QGraphicsItem::ItemIsSelectable, true);
     item->setFlag(QGraphicsItem::ItemIsMovable, true);
-    scene_.addItem(item);
-    item->setPos(pageRect(i).topLeft());
+    item->setParentItem(pageItems_[i]);
+    item->setPos(0, 0);
+    tagStrokeItem(item, s);
   }
   for (const auto& g : note_->pages[i].graphs) {
     auto* gi = new GraphCanvasItem(g.rect);
@@ -1952,6 +2101,9 @@ void MultiPageNoteView::hydratePageContent(int i) {
   }
   for (const auto &t : note_->pages[i].texts) {
     createTextItem(t, i);
+  }
+  for (const auto &im : note_->pages[i].images) {
+    createImageItem(im, i);
   }
   scene_.blockSignals(wasBlocked);
 }
@@ -1983,10 +2135,14 @@ void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
   note_ = note;
   cancelCrop(); // v3.18.0: offene Crop-Session beenden, bevor scene_.clear()
                 // den Resizer löschen würde (dangling pointer).
-  if (m_undoStack)
-    m_undoStack->clear();
-  if (m_pageUndoStack && clearUndoStack)
-    m_pageUndoStack->clear();
+  m_rebuildingScene = true;
+  if (clearUndoStack) {
+    if (m_undoStack)
+      m_undoStack->clear();
+    if (m_pageUndoStack)
+      m_pageUndoStack->clear();
+  }
+  ++m_contentRevision;
   scene_.clear();
   pageItems_.clear();
   m_hydratedPages.clear();
@@ -1999,8 +2155,10 @@ void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
     RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
   }
 
-  if (!note_)
+  if (!note_) {
+    m_rebuildingScene = false;
     return;
+  }
 
   // Lazy hydrate on long notes (desktop and Android). Short notes still
   // hydrate fully so the first paint has every stroke.
@@ -2012,31 +2170,44 @@ void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
       hydratePageContent(i);
   }
   syncPagesBarVisibility();
+  m_rebuildingScene = false;
 }
 
 QGraphicsPathItem *MultiPageNoteView::createStrokeGraphicsItem(const Stroke &s) {
+  if (s.filled) {
+    auto *item = new QGraphicsPathItem(s.path);
+    item->setPen(Qt::NoPen);
+    item->setBrush(s.color);
+    item->setFlag(QGraphicsItem::ItemIsSelectable, true);
+    item->setFlag(QGraphicsItem::ItemIsMovable, true);
+    item->setZValue(s.isHighlighter ? 0.5 : 1.0);
+    tagStrokeItem(item, s);
+    return item;
+  }
   QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  StrokeItem::StrokeStyle type = StrokeItem::Normal;
   if (s.isEraser) {
     pen.setColor(Qt::white);
-    pen.setWidthF(s.width * 2);
+    pen.setWidthF(s.width);
+    type = StrokeItem::Eraser;
   } else if (s.isHighlighter) {
-    pen.setColor(QColor(s.color.red(), s.color.green(), s.color.blue(), 100));
+    QColor c = s.color;
+    if (c.alpha() == 255)
+      c.setAlpha(80);
+    pen.setColor(c);
+    type = StrokeItem::Highlighter;
   }
-  QGraphicsPathItem *pathItem = nullptr;
-  if (!s.isEraser && !s.isHighlighter &&
-      s.pressures.size() == s.points.size() && !s.points.isEmpty()) {
-    QVector<StrokePoint> strokePts;
+  QVector<StrokePoint> strokePts;
+  if (s.pressures.size() == s.points.size() && !s.points.isEmpty()) {
     strokePts.reserve(s.points.size());
     for (int k = 0; k < s.points.size(); ++k)
       strokePts.append({s.points[k], s.pressures[k]});
-    pathItem = new StrokeItem(s.path, pen, strokePts, StrokeItem::Normal);
-  } else {
-    pathItem = new QGraphicsPathItem(s.path);
   }
-  pathItem->setPen(pen);
+  auto *pathItem = new StrokeItem(s.path, pen, strokePts, type);
   pathItem->setFlag(QGraphicsItem::ItemIsSelectable, true);
   pathItem->setFlag(QGraphicsItem::ItemIsMovable, true);
   pathItem->setZValue(s.isHighlighter ? 0.5 : 1.0);
+  tagStrokeItem(pathItem, s);
   return pathItem;
 }
 
@@ -2065,10 +2236,10 @@ void MultiPageNoteView::redo() {
     m_activeTextItem->document()->redo();
     return;
   }
-  if (m_pageUndoStack && m_pageUndoStack->canRedo()) {
-    m_pageUndoStack->redo();
-  } else if (m_undoStack && m_undoStack->canRedo()) {
+  if (m_undoStack && m_undoStack->canRedo()) {
     m_undoStack->redo();
+  } else if (m_pageUndoStack && m_pageUndoStack->canRedo()) {
+    m_pageUndoStack->redo();
   }
 }
 
@@ -2174,6 +2345,34 @@ int MultiPageNoteView::pageAt(const QPointF &scenePos) const {
       return i;
   }
   return -1;
+}
+
+int MultiPageNoteView::pageAtNearest(const QPointF &scenePos) const {
+  const int hit = pageAt(scenePos);
+  if (hit >= 0)
+    return hit;
+  if (pageItems_.isEmpty())
+    return -1;
+  int best = 0;
+  qreal bestD = 1e100;
+  for (int i = 0; i < pageItems_.size(); ++i) {
+    const QRectF r = pageItems_[i]->sceneBoundingRect();
+    qreal dx = 0, dy = 0;
+    if (scenePos.x() < r.left())
+      dx = r.left() - scenePos.x();
+    else if (scenePos.x() > r.right())
+      dx = scenePos.x() - r.right();
+    if (scenePos.y() < r.top())
+      dy = r.top() - scenePos.y();
+    else if (scenePos.y() > r.bottom())
+      dy = scenePos.y() - r.bottom();
+    const qreal d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
 }
 
 void MultiPageNoteView::addNewPage() {
@@ -3272,104 +3471,94 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
-  if (!tool || !note_)
+  if (!note_)
     return;
-  QList<QGraphicsItem *> itemsToRemove;
-  for (QGraphicsItem *item : scene_.items()) {
-    if (!item->parentItem() && item->type() == QGraphicsItem::UserType + 1) {
-      auto *strokeItem = static_cast<StrokeItem *>(item);
-      auto points = strokeItem->points();
-      if (!points.isEmpty()) {
-        // ── Formula-zone eraser: must happen BEFORE the pageAt() check ──────
-        // The formula zone is positioned outside the page boundary, so when
-        // the eraser starts there pageAt() returns -1 and the inner zone check
-        // is never reached.  We handle it here unconditionally.
-        if (m_activeFormulaZone && strokeItem->strokeStyle() == StrokeItem::Eraser) {
-          QPainterPath zoneEraserPath;
-          for (int i = 0; i < points.size(); ++i) {
-            if (i == 0) zoneEraserPath.moveTo(points[i].pos);
-            else        zoneEraserPath.lineTo(points[i].pos);
-          }
-          if (m_activeFormulaZone->catchAreaSceneRect()
-                  .intersects(zoneEraserPath.boundingRect())) {
-            m_activeFormulaZone->eraseStrokesIntersecting(
-                zoneEraserPath, strokeItem->pen().widthF());
-          }
-        }
+  QGraphicsItem *item = tool ? tool->lastCompletedItem() : nullptr;
+  if (!item) {
+    syncStrokesToNote();
+    if (tool && tool->mode() == ToolMode::Lasso && !scene_.selectedItems().isEmpty())
+      startTransformSession();
+    return;
+  }
+  if (item->type() == GraphCanvasItem::Type)
+    return;
 
-        int pIdx = pageAt(points.first().pos);
-        if (pIdx >= 0 && note_) {
-          note_->ensurePage(pIdx);
-          QPointF pageTopLeft = pageRect(pIdx).topLeft();
+  auto *strokeItem = dynamic_cast<StrokeItem *>(item);
 
-          Stroke s;
-          s.pageIndex = pIdx;
-          s.color = strokeItem->pen().color();
-          s.width = strokeItem->pen().width();
-          s.isEraser = (strokeItem->strokeStyle() == StrokeItem::Eraser);
-          s.isHighlighter =
-              (strokeItem->strokeStyle() == StrokeItem::Highlighter);
-
-          QPainterPath localPath;
-          QPainterPath scenePath;
-          for (int i = 0; i < points.size(); ++i) {
-            QPointF sceneP = points[i].pos;
-            QPointF localP = sceneP - pageTopLeft;
-            s.points.append(localP);
-            s.pressures.append(points[i].pressure);
-            if (i == 0) {
-              localPath.moveTo(localP);
-              scenePath.moveTo(sceneP);
-            } else {
-              localPath.lineTo(localP);
-              scenePath.lineTo(sceneP);
-            }
-          }
-          s.path = localPath;
-
-          bool uniformPressure = true;
-          for (qreal pr : s.pressures) {
-            if (pr < 1.0) {
-              uniformPressure = false;
-              break;
-            }
-          }
-          if (uniformPressure)
-            s.pressures.clear();
-
-          bool capturedByZone = false;
-          if (m_activeFormulaZone && !s.isEraser) {
-            // Eraser is already handled above; only capture ink/highlighter here.
-            if (!s.isHighlighter) {
-              const QRectF zoneScene = m_activeFormulaZone->catchAreaSceneRect();
-              if (zoneScene.intersects(scenePath.boundingRect())) {
-                if (m_activeFormulaZone->addStroke(scenePath, s.color, s.width)) {
-                  capturedByZone = true;
-                  // Push to undo stack so Ctrl+Z removes the formula zone stroke
-                  if (m_undoStack) {
-                    m_undoStack->push(new FormulaZoneStrokeCommand(
-                        m_activeFormulaZone, scenePath, s.color, s.width));
-                  }
-                }
-              }
-            }
-          }
-
-          if (!capturedByZone) {
-            pushStrokeUndoCommand(pIdx, std::move(s));
-          }
-        }
-      }
-      itemsToRemove.append(item);
+  if (m_activeFormulaZone && strokeItem &&
+      strokeItem->strokeStyle() == StrokeItem::Eraser) {
+    const auto points = strokeItem->points();
+    QPainterPath zoneEraserPath;
+    for (int i = 0; i < points.size(); ++i) {
+      const QPointF sp = strokeItem->mapToScene(points[i].pos);
+      if (i == 0)
+        zoneEraserPath.moveTo(sp);
+      else
+        zoneEraserPath.lineTo(sp);
+    }
+    if (m_activeFormulaZone->catchAreaSceneRect().intersects(
+            zoneEraserPath.boundingRect())) {
+      m_activeFormulaZone->eraseStrokesIntersecting(
+          zoneEraserPath, strokeItem->pen().widthF());
     }
   }
 
-  for (auto *item : itemsToRemove) {
-    scene_.removeItem(item);
-    delete item;
+  bool capturedByZone = false;
+  if (m_activeFormulaZone && strokeItem &&
+      strokeItem->strokeStyle() != StrokeItem::Eraser &&
+      strokeItem->strokeStyle() != StrokeItem::Highlighter) {
+    QPainterPath scenePath;
+    const auto points = strokeItem->points();
+    for (int i = 0; i < points.size(); ++i) {
+      const QPointF sceneP = strokeItem->mapToScene(points[i].pos);
+      if (i == 0)
+        scenePath.moveTo(sceneP);
+      else
+        scenePath.lineTo(sceneP);
+    }
+    const QRectF zoneScene = m_activeFormulaZone->catchAreaSceneRect();
+    if (zoneScene.intersects(scenePath.boundingRect())) {
+      if (m_activeFormulaZone->addStroke(scenePath, strokeItem->pen().color(),
+                                         strokeItem->pen().widthF())) {
+        capturedByZone = true;
+        if (m_undoStack) {
+          m_undoStack->push(new FormulaZoneStrokeCommand(
+              m_activeFormulaZone, scenePath, strokeItem->pen().color(),
+              strokeItem->pen().widthF()));
+        }
+      }
+    }
   }
 
-  if (tool->mode() == ToolMode::Lasso && !scene_.selectedItems().isEmpty())
+  QPointF sceneHint = item->sceneBoundingRect().center();
+  if (strokeItem && !strokeItem->points().isEmpty())
+    sceneHint = strokeItem->mapToScene(strokeItem->points().first().pos);
+  else if (auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item);
+           pathItem && !pathItem->path().isEmpty())
+    sceneHint = item->mapToScene(pathItem->path().boundingRect().center());
+
+  int pIdx = pageAt(sceneHint);
+  if (pIdx < 0)
+    pIdx = pageAtNearest(sceneHint);
+
+  if (pIdx < 0 || capturedByZone) {
+    scene_.removeItem(item);
+    delete item;
+    if (tool)
+      tool->clearLastCompletedItem();
+    syncStrokesToNote();
+    return;
+  }
+
+  note_->ensurePage(pIdx);
+  Stroke s = harvestStrokeFromItem(item, pIdx, pageRect(pIdx).topLeft());
+  scene_.removeItem(item);
+  delete item;
+  if (tool)
+    tool->clearLastCompletedItem();
+  pushStrokeUndoCommand(pIdx, std::move(s));
+
+  if (tool && tool->mode() == ToolMode::Lasso && !scene_.selectedItems().isEmpty())
     startTransformSession();
 }
 
@@ -3422,14 +3611,9 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
       if (newGraph) {
         // v3.17.2: see comment in GraphQuickActionPopup connect site --
         // BlopModal::execBlocking avoids top-level QWindow on Android.
-#ifdef Q_OS_ANDROID
         auto *dlg = new GraphAxisSettingsDialog(newGraph, window());
         BlopModal::execBlocking(window(), dlg);
         dlg->deleteLater();
-#else
-        GraphAxisSettingsDialog dlg(newGraph, window());
-        dlg.exec();
-#endif
         syncGraphItemsToNote();
       }
       tool->clearLastCompletedItem();
@@ -3453,6 +3637,7 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
       const QString kind = it->data(0).toString();
       if (kind == QLatin1String("sticky_note") ||
           kind == QLatin1String("text_item") ||
+          kind == QLatin1String("image_item") ||
           (it->parentItem() &&
            it->parentItem()->data(0).toString() ==
                QLatin1String("sticky_note"))) {
@@ -3461,9 +3646,11 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
       }
     }
     QGraphicsView::mouseReleaseEvent(e);
-    if (e->button() == Qt::LeftButton && objectInPlay) {
+    if (e->button() == Qt::LeftButton &&
+        (objectInPlay || mode_ == ToolMode::Image)) {
       syncStickyNotesToNote();
       syncTextItemsToNote();
+      scheduleStrokeSync();
     }
   }
 }
@@ -3584,14 +3771,9 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
         syncGraphItemsToNote();
         syncStickyNotesToNote();
         if (newGraph) {
-#ifdef Q_OS_ANDROID
           auto *dlg = new GraphAxisSettingsDialog(newGraph, window());
           BlopModal::execBlocking(window(), dlg);
           dlg->deleteLater();
-#else
-          GraphAxisSettingsDialog dlg(newGraph, window());
-          dlg.exec();
-#endif
           syncGraphItemsToNote();
         }
         tool->clearLastCompletedItem();
@@ -3607,6 +3789,18 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
 
   int p = pageAt(scenePos);
   if (p < 0) {
+    if (e->type() == QEvent::TabletRelease && drawing_) {
+      drawing_ = false;
+      if (currentPathItem_) {
+        scene_.removeItem(currentPathItem_);
+        delete currentPathItem_;
+        currentPathItem_ = nullptr;
+      }
+      if (note_)
+        pushStrokeUndoCommand(currentPage_, std::move(currentStroke_));
+      e->accept();
+      return;
+    }
     e->ignore();
     return;
   }
@@ -3621,7 +3815,7 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
     currentStroke_.isHighlighter = (mode_ == ToolMode::Highlighter);
 
     if (currentStroke_.isEraser) {
-      currentStroke_.width = 20.0;
+      currentStroke_.width = std::max<qreal>(8.0, penWidth_);
       currentStroke_.color = UIStyles::PageBackground;
     } else if (currentStroke_.isHighlighter) {
       currentStroke_.width = 24.0;
@@ -3701,9 +3895,10 @@ QString MultiPageNoteView::thumbnailCacheKey(int pageIndex,
   // its thumbnail entry. Note* pointer alone is fine for the cache lifetime
   // since QPixmapCache is process-wide and entries get evicted on memory
   // pressure anyway.
-  return QStringLiteral("blop_thumb_%1_%2_%3x%4")
+  return QStringLiteral("blop_thumb_%1_%2_%3_%4x%5")
       .arg(reinterpret_cast<quintptr>(note_))
       .arg(pageIndex)
+      .arg(m_contentRevision)
       .arg(size.width())
       .arg(size.height());
 }
@@ -3751,11 +3946,16 @@ void MultiPageNoteView::generateThumbnailAsync(
 }
 
 bool MultiPageNoteView::exportPageToPng(int pageIndex, const QString &path) {
-  QPixmap pm = generateThumbnail(pageIndex, QSize(a4wPx(), a4hPx()));
-  return pm.save(path, "PNG");
+  flushStickyNoteSync();
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
+    return false;
+  const QImage img =
+      renderFullPageImage(note_->pages[pageIndex], a4wPx(), a4hPx());
+  return img.save(path, "PNG");
 }
 
 bool MultiPageNoteView::exportNoteToPng(const QString &basePath) {
+  flushStickyNoteSync();
   if (!note_ || note_->pages.isEmpty())
     return false;
   const QSize fullSize(a4wPx(), a4hPx());
@@ -3778,7 +3978,69 @@ bool MultiPageNoteView::exportNoteToPng(const QString &basePath) {
   return true;
 }
 
+bool MultiPageNoteView::exportNoteToMarkdown(const QString &path) {
+  if (!note_ || path.isEmpty())
+    return false;
+  flushStickyNoteSync();
+
+  QString md;
+  const QString title =
+      note_->title.trimmed().isEmpty() ? tr("Notiz") : note_->title.trimmed();
+  md += QStringLiteral("# %1\n\n").arg(title);
+  for (int i = 0; i < note_->pages.size(); ++i) {
+    const NotePage &pg = note_->pages[i];
+    QString heading = tr("Seite %1").arg(i + 1);
+    if (!pg.title.trimmed().isEmpty())
+      heading += QStringLiteral(" – %1").arg(pg.title.trimmed());
+    md += QStringLiteral("## %1\n\n").arg(heading);
+
+    // Reading order: top-to-bottom, then left-to-right.
+    QVector<TextObject> texts = pg.texts;
+    std::sort(texts.begin(), texts.end(),
+              [](const TextObject &a, const TextObject &b) {
+                if (qAbs(a.pos.y() - b.pos.y()) > 8.0)
+                  return a.pos.y() < b.pos.y();
+                return a.pos.x() < b.pos.x();
+              });
+    bool any = false;
+    for (const TextObject &t : texts) {
+      QString plain = t.text;
+      if (plain.trimmed().isEmpty() && !t.html.isEmpty()) {
+        QTextDocument doc;
+        doc.setHtml(t.html);
+        plain = doc.toPlainText();
+      }
+      plain = plain.trimmed();
+      if (plain.isEmpty())
+        continue;
+      md += plain + QStringLiteral("\n\n");
+      any = true;
+    }
+    for (const StickyNoteObject &s : pg.stickies) {
+      const QString plain = s.text.trimmed();
+      if (plain.isEmpty())
+        continue;
+      QStringList lines = plain.split(QLatin1Char(0x0A));
+      for (QString &l : lines)
+        l.prepend(QStringLiteral("> "));
+      md += lines.join(QLatin1Char(0x0A)) + QStringLiteral("\n\n");
+      any = true;
+    }
+    if (!pg.strokes.isEmpty() || !pg.images.isEmpty())
+      md += tr("_(Handschrift/Bilder auf dieser Seite nur im PDF-Export)_\n\n");
+    else if (!any)
+      md += tr("_(leer)_\n\n");
+  }
+
+  QSaveFile f(path);
+  if (!f.open(QIODevice::WriteOnly))
+    return false;
+  f.write(md.toUtf8());
+  return f.commit();
+}
+
 bool MultiPageNoteView::exportPageToPdf(int pageIndex, const QString &path) {
+  flushStickyNoteSync();
   if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
     return false;
   QPdfWriter pdf(path);
@@ -3798,6 +4060,7 @@ bool MultiPageNoteView::exportPageToPdf(int pageIndex, const QString &path) {
 }
 
 bool MultiPageNoteView::exportNoteToPdf(const QString &path) {
+  flushStickyNoteSync();
   if (!note_ || note_->pages.isEmpty() || path.isEmpty())
     return false;
 
@@ -3936,8 +4199,14 @@ int MultiPageNoteView::strokeCountOnPage(int pageIndex) const {
   return note_->pages[pageIndex].strokes.size();
 }
 
-int MultiPageNoteView::undoDepth() const { return m_undoHistory.size(); }
-int MultiPageNoteView::redoDepth() const { return m_redoHistory.size(); }
+int MultiPageNoteView::undoDepth() const {
+  return m_undoStack ? m_undoStack->index() : 0;
+}
+int MultiPageNoteView::redoDepth() const {
+  if (!m_undoStack)
+    return 0;
+  return qMax(0, m_undoStack->count() - m_undoStack->index());
+}
 
 void MultiPageNoteView::scrollToPage(int pageIndex, bool animate) {
   if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
@@ -4196,6 +4465,7 @@ void MultiPageNoteView::deleteSelection() {
     const QList<QGraphicsItem *> selected = scene_.selectedItems();
     if (selected.isEmpty() || !note_)
         return;
+    cancelCrop();
 
     // Flush any in-progress text edit into the model, then snapshot so
     // Delete from the HUD still works while a box is focused.
@@ -4242,9 +4512,11 @@ void MultiPageNoteView::deleteSelection() {
         bindGraphChrome(nullptr);
     }
     if (m_selectionMenu) m_selectionMenu->hide();
+    syncStrokesToNote();
     syncGraphItemsToNote();
     syncStickyNotesToNote();
     syncTextItemsToNote();
+    harvestImageItemsToNote();
     pushPageSnapshotCommand(before, tr("Delete selection"));
     if (onSaveRequested) onSaveRequested(note_);
 }
@@ -4540,7 +4812,7 @@ void MultiPageNoteView::changeSelectionColor() {
     }
     scene_.update();
     if (m_selectionMenu) m_selectionMenu->hide();
-    if (onSaveRequested) onSaveRequested(note_);
+    syncStrokesToNote();
 }
 
 void MultiPageNoteView::startTransformSession() {
@@ -4675,8 +4947,7 @@ void MultiPageNoteView::applyCrop() {
   scene_.update();
   if (m_selectionMenu)
     m_selectionMenu->hide();
-  if (onSaveRequested)
-    onSaveRequested(note_);
+  syncStrokesToNote();
 }
 
 void MultiPageNoteView::cancelCrop() {
@@ -5205,7 +5476,10 @@ void MultiPageNoteView::syncGraphItemsToNote() {
   if (!note_) return;
   if (m_syncingGraphs) return;
   m_syncingGraphs = true;
-  for (auto& p : note_->pages) p.graphs.clear();
+  for (int pi = 0; pi < note_->pages.size(); ++pi) {
+    if (pageContentLive(pi))
+      note_->pages[pi].graphs.clear();
+  }
 
   const auto all = scene_.items(Qt::AscendingOrder);
   for (QGraphicsItem* item : all) {
@@ -5215,6 +5489,8 @@ void MultiPageNoteView::syncGraphItemsToNote() {
     syncGraphPlusLayout(gi);
     QPointF sceneCenter = gi->sceneBoundingRect().center();
     int pIdx = pageAt(sceneCenter);
+    if (pIdx < 0)
+      pIdx = pageAtNearest(sceneCenter);
     if (pIdx < 0 || pIdx >= pageItems_.size()) continue;
     if (gi->parentItem() != pageItems_[pIdx]) {
       const QPointF sceneTopLeft = gi->sceneBoundingRect().topLeft();
@@ -5282,15 +5558,67 @@ void MultiPageNoteView::bindStickyNoteSignals(QGraphicsRectItem *card) {
 void MultiPageNoteView::flushStickyNoteSync() {
   if (m_stickySyncTimer && m_stickySyncTimer->isActive())
     m_stickySyncTimer->stop();
+  if (m_strokeSyncTimer && m_strokeSyncTimer->isActive())
+    m_strokeSyncTimer->stop();
+  syncStrokesToNote();
+  harvestImageItemsToNote();
+  syncGraphItemsToNote();
   syncStickyNotesToNote();
   syncTextItemsToNote();
 }
 
+void MultiPageNoteView::scheduleStrokeSync() {
+  if (m_strokeSyncTimer)
+    m_strokeSyncTimer->start();
+}
+
+QVector<NotePage> MultiPageNoteView::pagesSnapshot() {
+  flushStickyNoteSync();
+  if (!note_)
+    return {};
+  return note_->pages;
+}
+
+bool MultiPageNoteView::syncStrokesToNote() {
+  if (!note_ || m_rebuildingScene)
+    return false;
+  QVector<QVector<Stroke>> harvested(note_->pages.size());
+  const auto all = scene_.items(Qt::AscendingOrder);
+  for (QGraphicsItem *item : all) {
+    if (item == currentPathItem_ || !isInkGraphicsItem(item))
+      continue;
+    const QPointF hint = item->sceneBoundingRect().center();
+    int pIdx = pageAt(hint);
+    if (pIdx < 0)
+      pIdx = pageAtNearest(hint);
+    if (pIdx < 0 || pIdx >= harvested.size())
+      continue;
+    harvested[pIdx].push_back(
+        harvestStrokeFromItem(item, pIdx, pageRect(pIdx).topLeft()));
+  }
+
+  bool changed = false;
+  for (int pi = 0; pi < note_->pages.size(); ++pi) {
+    if (!pageContentLive(pi))
+      continue;
+    if (!strokesEqual(note_->pages[pi].strokes, harvested[pi])) {
+      note_->pages[pi].strokes = harvested[pi];
+      changed = true;
+    }
+  }
+  if (changed) {
+    ++m_contentRevision;
+    if (onSaveRequested)
+      onSaveRequested(note_);
+  }
+  return changed;
+}
+
 void MultiPageNoteView::pushPageSnapshotCommand(const QVector<NotePage> &before,
                                                const QString &text) {
-  if (!m_pageUndoStack)
+  if (!m_undoStack || !note_)
     return;
-  m_pageUndoStack->push(
+  m_undoStack->push(
       new PageSnapshotUndoCommand(this, before, note_->pages, text));
 }
 
@@ -5300,8 +5628,10 @@ void MultiPageNoteView::syncStickyNotesToNote() {
   if (m_syncingStickies)
     return;
   m_syncingStickies = true;
-  for (auto &p : note_->pages)
-    p.stickies.clear();
+  for (int pi = 0; pi < note_->pages.size(); ++pi) {
+    if (pageContentLive(pi))
+      note_->pages[pi].stickies.clear();
+  }
 
   const auto all = scene_.items(Qt::AscendingOrder);
   for (QGraphicsItem *item : all) {
@@ -5313,6 +5643,8 @@ void MultiPageNoteView::syncStickyNotesToNote() {
 
     const QPointF sceneCenter = card->sceneBoundingRect().center();
     int pIdx = pageAt(sceneCenter);
+    if (pIdx < 0)
+      pIdx = pageAtNearest(sceneCenter);
     if (pIdx < 0 || pIdx >= pageItems_.size())
       continue;
 
@@ -5339,9 +5671,71 @@ void MultiPageNoteView::syncStickyNotesToNote() {
     bindStickyNoteSignals(card);
   }
 
+  harvestImageItemsToNote();
+
   if (onSaveRequested)
     onSaveRequested(note_);
   m_syncingStickies = false;
+}
+
+bool MultiPageNoteView::pageContentLive(int pageIndex) const {
+  if (!note_)
+    return false;
+  return note_->pages.size() <= 8 || m_hydratedPages.contains(pageIndex);
+}
+
+QGraphicsPixmapItem *MultiPageNoteView::createImageItem(const ImageObject &data,
+                                                        int pageIndex) {
+  if (pageIndex < 0 || pageIndex >= pageItems_.size() || data.image.isNull())
+    return nullptr;
+  const QPixmap pm = QPixmap::fromImage(data.image);
+  auto *item = new QGraphicsPixmapItem(pm);
+  item->setParentItem(pageItems_[pageIndex]);
+  item->setPos(data.pos);
+  if (data.width > 0.0 && pm.width() > 0)
+    item->setScale(data.width / pm.width());
+  item->setRotation(data.rotation);
+  item->setOpacity(qBound(0.1, data.opacity, 1.0));
+  item->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
+  item->setZValue(5);
+  item->setData(0, QStringLiteral("image_item"));
+  return item;
+}
+
+void MultiPageNoteView::harvestImageItemsToNote() {
+  if (!note_)
+    return;
+  for (int pi = 0; pi < note_->pages.size(); ++pi) {
+    if (pageContentLive(pi))
+      note_->pages[pi].images.clear();
+  }
+  const auto all = scene_.items(Qt::AscendingOrder);
+  for (QGraphicsItem *item : all) {
+    if (item->data(0).toString() != QLatin1String("image_item"))
+      continue;
+    auto *pix = qgraphicsitem_cast<QGraphicsPixmapItem *>(item);
+    if (!pix || pix->pixmap().isNull())
+      continue;
+    int pIdx = pageAt(pix->sceneBoundingRect().center());
+    if (pIdx < 0)
+      pIdx = pageAtNearest(pix->sceneBoundingRect().center());
+    if (pIdx < 0 || pIdx >= pageItems_.size())
+      continue;
+    if (pix->parentItem() != pageItems_[pIdx]) {
+      const QPointF sceneTopLeft = pix->scenePos();
+      pix->setParentItem(pageItems_[pIdx]);
+      pix->setPos(pageItems_[pIdx]->mapFromScene(sceneTopLeft));
+    }
+    ImageObject im;
+    im.image = pix->pixmap().toImage();
+    im.pos = pix->pos();
+    im.width = pix->pixmap().width() * pix->scale();
+    im.height = pix->pixmap().height() * pix->scale();
+    im.opacity = pix->opacity();
+    im.rotation = pix->rotation();
+    note_->ensurePage(pIdx);
+    note_->pages[pIdx].images.push_back(std::move(im));
+  }
 }
 
 QGraphicsTextItem *
@@ -5441,8 +5835,10 @@ void MultiPageNoteView::syncTextItemsToNote() {
   if (m_syncingTexts)
     return;
   m_syncingTexts = true;
-  for (auto &p : note_->pages)
-    p.texts.clear();
+  for (int pi = 0; pi < note_->pages.size(); ++pi) {
+    if (pageContentLive(pi))
+      note_->pages[pi].texts.clear();
+  }
 
   const auto all = scene_.items(Qt::AscendingOrder);
   QList<QGraphicsTextItem *> emptyItems;
@@ -5468,6 +5864,8 @@ void MultiPageNoteView::syncTextItemsToNote() {
 
     const QPointF sceneCenter = text->sceneBoundingRect().center();
     int pIdx = pageAt(sceneCenter);
+    if (pIdx < 0)
+      pIdx = pageAtNearest(sceneCenter);
     if (pIdx < 0 || pIdx >= pageItems_.size())
       continue;
 

@@ -9,8 +9,10 @@ class BlopModal;
 class DashCanvas;
 class DashPageScroll;
 class DashRightRail;
+class QHideEvent;
 class QPushButton;
 class QShortcut;
+class QShowEvent;
 class QTimer;
 class QVBoxLayout;
 class QWidget;
@@ -37,6 +39,8 @@ signals:
 
 protected:
   void resizeEvent(QResizeEvent *event) override;
+  void hideEvent(QHideEvent *event) override;
+  void showEvent(QShowEvent *event) override;
 
 private:
   void applyChrome();

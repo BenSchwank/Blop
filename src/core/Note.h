@@ -18,6 +18,9 @@ struct Stroke {
     bool isEraser{false};
     bool isHighlighter{false};
     int pageIndex{0};
+    /// Pixel-erased remnants are filled outlines (no pen): `path` is the
+    /// filled shape in page-local coordinates, `points` stay empty.
+    bool filled{false};
 };
 
 struct GraphFunction {
@@ -72,12 +75,23 @@ struct TextObject {
     bool freeMove{false}; // off the invisible layout grid
 };
 
+/// Raster image placed on a page (ImageTool). Position/size are page-local.
+struct ImageObject {
+    QPointF pos{0, 0};
+    qreal width{0.0};   // 0 = natural image width
+    qreal height{0.0};  // 0 = natural image height
+    qreal opacity{1.0};
+    qreal rotation{0.0};
+    QImage image;
+};
+
 struct NotePage {
     QString title;        // Seitenname
     QVector<Stroke> strokes;
     QVector<GraphObject> graphs;
     QVector<StickyNoteObject> stickies;
     QVector<TextObject> texts;
+    QVector<ImageObject> images;
     QImage backgroundImage; // PDF-Import: Hintergrundbild (leer = nicht gesetzt)
     /// PageBackgroundType als int (0 Blank … 4 Legal); Standard = Grid (2)
     int backgroundType{2};

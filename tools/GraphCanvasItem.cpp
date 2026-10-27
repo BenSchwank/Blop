@@ -469,7 +469,6 @@ void GraphCanvasItem::setSelectedFunction(int idx) {
         m_data.selectedFunction = -1;
     } else {
         m_data.selectedFunction = qBound(0, idx, m_data.functions.size() - 1);
-        m_data.functions[m_data.selectedFunction].showRoots = true;
     }
     update();
     emit graphChanged();

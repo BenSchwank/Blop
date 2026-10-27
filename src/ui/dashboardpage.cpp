@@ -20,7 +20,9 @@
 #include <QHBoxLayout>
 #include <QKeySequence>
 #include <QPushButton>
+#include <QHideEvent>
 #include <QResizeEvent>
+#include <QShowEvent>
 #include <QShortcut>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -132,8 +134,9 @@ DashboardPage::DashboardPage(QWidget *parent) : QWidget(parent) {
           &DashboardPage::searchLibrary);
   connect(m_rightRail, &DashRightRail::openCalendarRequested, this,
           &DashboardPage::showCalendarMaximized);
-  connect(m_rightRail, &DashRightRail::contentChanged, this,
-          &DashboardPage::refresh);
+  connect(m_rightRail, &DashRightRail::contentChanged, this, [this]() {
+    QTimer::singleShot(0, this, &DashboardPage::refresh);
+  });
   shellLay->addWidget(m_rightRail, 0);
   m_root->addWidget(m_bodyRow, 1);
 
@@ -285,11 +288,19 @@ void DashboardPage::resizeEvent(QResizeEvent *event) {
   layoutPhoneChrome();
 }
 
+void DashboardPage::hideEvent(QHideEvent *event) {
+  QWidget::hideEvent(event);
+  if (m_clockTimer)
+    m_clockTimer->stop();
+}
+
+void DashboardPage::showEvent(QShowEvent *event) {
+  QWidget::showEvent(event);
+  if (m_clockTimer && !m_clockTimer->isActive())
+    m_clockTimer->start(30000);
+}
+
 void DashboardPage::updateHeader() {
-  if (m_canvas)
-    m_canvas->refreshAll();
-  if (m_rightRail)
-    m_rightRail->refresh();
   if (m_btnPhoneCustomize) {
     m_btnPhoneCustomize->setText(m_editMode ? QStringLiteral("Fertig")
                                             : QStringLiteral("Anpassen"));

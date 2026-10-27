@@ -2073,12 +2073,13 @@ public:
       QHBoxLayout *colors = new QHBoxLayout;
       colors->setSpacing(8);
       auto swatchStyle = [](const QColor &c, bool selected) {
+        const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
         if (selected) {
           return QStringLiteral(
                      "QPushButton { background-color: %1; border-radius: 12px; "
-                     "border: 2px solid #6BA3F5; }"
-                     "QPushButton:hover { border-color: #8EB8F8; }")
-              .arg(c.name());
+                     "border: 2px solid %2; }"
+                     "QPushButton:hover { border-color: %2; }")
+              .arg(c.name(), acc);
         }
         return QStringLiteral(
                    "QPushButton { background-color: %1; border-radius: 12px; "
@@ -2821,6 +2822,10 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnFormula->setToolTip(tr("Formel — demnächst"));
   btnMolecule = new ToolbarBtn("molecule", this);
   btnMolecule->setToolTip(tr("Molekül — demnächst"));
+  // Formula / Molecule are not implemented (no canvas behaviour): never show
+  // them, so no user-facing control promises a non-working tool.
+  btnFormula->hide();
+  btnMolecule->hide();
   btnUndo = new ToolbarBtn("undo", this);
   btnUndo->setToolTip(tr("Rückgängig"));
   btnRedo = new ToolbarBtn("redo", this);
@@ -6965,8 +6970,8 @@ void ModernToolbar::updateLayout(bool animate) {
     const int gap = UiScale::dp(6);
     const int cols = 2;
     const QList<ToolbarBtn *> grid = {
-        btnHand,     btnPen,      btnEraser, btnLasso,    btnFormula, btnRuler,
-        btnMolecule, btnShape,    btnImage,  btnText,     btnUndo,    btnRedo};
+        btnHand,  btnPen,   btnEraser, btnLasso, btnRuler,
+        btnShape, btnImage, btnText,   btnUndo,  btnRedo};
     for (ToolbarBtn *b : m_buttons) {
       if (b && !grid.contains(b) && b != btnPalette)
         b->hide();
@@ -7074,9 +7079,7 @@ void ModernToolbar::updateLayout(bool animate) {
             getButtonForMode(ToolMode::Pen),
             getButtonForMode(ToolMode::Eraser),
             getButtonForMode(ToolMode::Lasso),
-            getButtonForMode(ToolMode::Formula),
             getButtonForMode(ToolMode::Ruler),
-            getButtonForMode(ToolMode::Molecule),
             getButtonForMode(ToolMode::Shape),
             btnUndo,
             btnRedo};

@@ -42,6 +42,50 @@ bool readingMarkUsesDarkBar() {
   // Library title bar can be charcoal in Light Mode — follow its luminance.
   return BlopStyle::libraryTitleBar().lightness() < 148;
 }
+
+/// Chrome-style tab: rounded top, concave bottom ears that morph into the bar.
+QPainterPath chromeTabPath(const QRectF &r, qreal topR, qreal earR) {
+  const qreal tr = qMin(topR, qMin(r.width() * 0.25, r.height() * 0.45));
+  const qreal er = qMin(earR, qMin(r.width() * 0.22, r.height() * 0.55));
+  const qreal left = r.left() + er;
+  const qreal right = r.right() - er;
+  QPainterPath path;
+  // Start at bottom-left ear tip (flush with the bar below).
+  path.moveTo(r.left(), r.bottom());
+  // Concave scoop up into the tab body (left ear).
+  path.cubicTo(r.left() + er * 0.15, r.bottom(), left - er * 0.05,
+               r.bottom() - er, left, r.bottom() - er);
+  // Left side up to the top radius.
+  path.lineTo(left, r.top() + tr);
+  path.quadTo(left, r.top(), left + tr, r.top());
+  // Top edge.
+  path.lineTo(right - tr, r.top());
+  path.quadTo(right, r.top(), right, r.top() + tr);
+  // Right side down to the ear.
+  path.lineTo(right, r.bottom() - er);
+  // Concave scoop out to the bottom-right ear tip.
+  path.cubicTo(right + er * 0.05, r.bottom() - er, r.right() - er * 0.15,
+               r.bottom(), r.right(), r.bottom());
+  path.closeSubpath();
+  return path;
+}
+
+QColor readingMarkActiveFill(bool noteChrome) {
+  if (!readingMarkUsesDarkBar())
+    return QColor(0xFF, 0xFF, 0xFF);
+  if (noteChrome)
+    return NoteChrome::canvasBg();
+  // One step lighter than the charcoal title bar.
+  const QColor bar = BlopStyle::libraryTitleBar();
+  return QColor(qMin(255, bar.red() + 28), qMin(255, bar.green() + 30),
+                qMin(255, bar.blue() + 36));
+}
+
+QColor readingMarkIdleFill(bool hovered) {
+  if (!readingMarkUsesDarkBar())
+    return hovered ? QColor(0xF3, 0xF4, 0xF7) : QColor(0xF8, 0xF9, 0xFB);
+  return hovered ? QColor(255, 255, 255, 28) : QColor(255, 255, 255, 14);
+}
 } // namespace
 
 // -----------------------------------------------------------------------------
@@ -118,7 +162,8 @@ void DocumentTab::setReadingMarkMode(bool on) {
   if (m_readingMarkMode == on)
     return;
   m_readingMarkMode = on;
-  const int tabH = UiScale::dp(on ? 32 : 36);
+  // Reading-mark tabs sit flush on the bar bottom so concave ears morph in.
+  const int tabH = UiScale::dp(on ? 34 : 36);
   setFixedHeight(tabH);
   if (auto *iconLbl = findChild<QLabel *>(QStringLiteral("DocumentTabIcon"))) {
     if (on) {
@@ -141,18 +186,23 @@ void DocumentTab::setReadingMarkMode(bool on) {
 
 void DocumentTab::refreshChromeStyle() {
   const bool darkBar = m_readingMarkMode && readingMarkUsesDarkBar();
-  const QColor fg = m_readingMarkMode
-                        ? (m_active ? (darkBar ? QColor(0xF2, 0xF2, 0xF2)
-                                               : QColor(0x1C, 0x1E, 0x24))
-                                    : (darkBar ? QColor(0x9C, 0xA3, 0xAF)
-                                               : QColor(0x6B, 0x72, 0x80)))
-                        : (m_noteChromeMode ? NoteChrome::textPrimary()
-                                            : BlopTheme::textPrimary());
+  const QColor fg =
+      m_readingMarkMode
+          ? (m_active ? (darkBar ? QColor(0xF4, 0xF6, 0xFA)
+                                 : QColor(0x1C, 0x1E, 0x24))
+                      : (darkBar ? QColor(0xB0, 0xB6, 0xC2)
+                                 : QColor(0x6B, 0x72, 0x80)))
+          : (m_noteChromeMode ? NoteChrome::textPrimary()
+                              : BlopTheme::textPrimary());
   if (auto *iconLbl = findChild<QLabel *>(QStringLiteral("DocumentTabIcon"))) {
+    const QColor accent =
+        m_accentColor.isValid()
+            ? m_accentColor
+            : (m_noteChromeMode ? NoteChrome::accent()
+                                : BlopTheme::accentPrimary());
     const QColor iconFg =
         m_readingMarkMode
-            ? (m_active ? (darkBar ? QColor(0xE8, 0xEA, 0xEE)
-                                   : QColor(0x1C, 0x1E, 0x24))
+            ? (m_active ? (darkBar ? accent.lighter(118) : accent)
                         : (darkBar ? QColor(0x8A, 0x90, 0x9C)
                                    : QColor(0x9C, 0xA3, 0xAF)))
             : fg;
@@ -164,9 +214,11 @@ void DocumentTab::refreshChromeStyle() {
   }
   if (m_textLbl) {
     m_textLbl->setStyleSheet(
-        QStringLiteral("QLabel { color: %1; font-size: %2px; font-weight: 500; }")
+        QStringLiteral(
+            "QLabel { color: %1; font-size: %2px; font-weight: %3; }")
             .arg(fg.name(QColor::HexRgb))
-            .arg(m_readingMarkMode ? 12 : 13));
+            .arg(m_readingMarkMode ? 12 : 13)
+            .arg(m_active && m_readingMarkMode ? 600 : 500));
   }
   if (auto *closeBtn =
           findChild<QPushButton *>(QStringLiteral("DocumentTabClose"))) {
@@ -205,16 +257,11 @@ void DocumentTab::refreshChromeStyle() {
 void DocumentTab::refreshTitleLabel() {
   if (!m_textLbl)
     return;
-  const QString fg = m_noteChromeMode
-                         ? NoteChrome::textPrimary().name(QColor::HexRgb)
-                         : (m_active ? BlopTheme::textPrimary().name(QColor::HexRgb)
-                                     : BlopTheme::textTertiary().name(QColor::HexRgb));
-  m_textLbl->setStyleSheet(
-      QStringLiteral("QLabel { color: %1; font-size: 13px; font-weight: 600; }")
-          .arg(fg));
+  // Colors/weight come from refreshChromeStyle (active vs idle bookmark).
+  refreshChromeStyle();
   QFont f = m_textLbl->font();
-  f.setPixelSize(13);
-  f.setWeight(QFont::DemiBold);
+  f.setPixelSize(m_readingMarkMode ? 12 : 13);
+  f.setWeight(m_active ? QFont::DemiBold : QFont::Medium);
   m_textLbl->setFont(f);
   QFontMetrics fm(f);
   const int chromeW = UiScale::dp(12) + UiScale::dp(18) + UiScale::dp(8) +
@@ -239,8 +286,7 @@ void DocumentTab::setActive(bool active, const QColor &accent) {
     return;
   m_active = active;
   m_accentColor = accent;
-  if (m_readingMarkMode)
-    refreshChromeStyle();
+  refreshChromeStyle();
   update();
 }
 
@@ -261,7 +307,7 @@ QSize DocumentTab::sizeHint() const {
     int w = layout() ? layout()->sizeHint().width() : UiScale::dp(120);
     if (m_title.isEmpty() && !m_closable)
       w = UiScale::dp(28);
-    return QSize(qMin(w, tabMaxWidthPx()), UiScale::dp(32));
+    return QSize(qMin(w, tabMaxWidthPx()), UiScale::dp(34));
   }
   QFontMetrics fm(font());
   const QString shown = m_textLbl ? m_textLbl->text() : m_title;
@@ -282,33 +328,37 @@ void DocumentTab::paintEvent(QPaintEvent *) {
   p.setRenderHint(QPainter::Antialiasing);
 
   if (m_readingMarkMode) {
-    const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-    const qreal rad = r.height() / 2.0;
-    QPainterPath path;
-    path.addRoundedRect(r, rad, rad);
-
+    // Chrome-style morph tab: active fill matches the strip below; concave
+    // bottom ears blend into that bar. Idle tabs stay quieter with a hairline.
+    const QRectF r = QRectF(rect());
+    const qreal topR = UiScale::dp(8);
+    const qreal earR = UiScale::dp(9);
     const bool darkBar = readingMarkUsesDarkBar();
+
     if (m_active) {
-      if (darkBar) {
-        p.fillPath(path, QColor(0x2B, 0x30, 0x3B));
-        p.setPen(Qt::NoPen);
-      } else {
-        p.fillPath(path, QColor(0xFF, 0xFF, 0xFF));
-        p.setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1.0));
-        p.drawPath(path);
-      }
-    } else if (m_hovered) {
-      if (darkBar) {
-        p.fillPath(path, QColor(255, 255, 255, 16));
-      } else {
-        p.fillPath(path, QColor(0xF3, 0xF4, 0xF7));
-        p.setPen(QPen(QColor(0xD8, 0xDC, 0xE4), 1));
-        p.drawPath(path);
-      }
-    } else if (!darkBar) {
-      p.fillPath(path, QColor(0xF8, 0xF9, 0xFB));
-      p.setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1));
-      p.drawPath(path);
+      const QPainterPath path = chromeTabPath(r, topR, earR);
+      p.setPen(Qt::NoPen);
+      p.fillPath(path, readingMarkActiveFill(m_noteChromeMode));
+    } else {
+      // Idle / hover: top-rounded body inset for ear gutter, flush bottom.
+      QRectF body = r.adjusted(earR * 0.35, UiScale::dp(3), -earR * 0.35, 0);
+      QPainterPath path;
+      path.moveTo(body.left(), body.bottom());
+      path.lineTo(body.left(), body.top() + topR * 0.7);
+      path.quadTo(body.left(), body.top(), body.left() + topR * 0.7, body.top());
+      path.lineTo(body.right() - topR * 0.7, body.top());
+      path.quadTo(body.right(), body.top(), body.right(),
+                  body.top() + topR * 0.7);
+      path.lineTo(body.right(), body.bottom());
+      path.closeSubpath();
+      p.setPen(Qt::NoPen);
+      p.fillPath(path, readingMarkIdleFill(m_hovered));
+      // Quiet vertical hairline between idle tabs (Chrome separator).
+      p.setPen(QPen(darkBar ? QColor(255, 255, 255, 36) : QColor(0, 0, 0, 28),
+                    1));
+      const qreal midX = r.right() - 0.5;
+      p.drawLine(QPointF(midX, r.top() + UiScale::dp(10)),
+                 QPointF(midX, r.bottom() - UiScale::dp(8)));
     }
     return;
   }
@@ -596,8 +646,11 @@ void DocumentTabBar::setReadingMarkMode(bool on) {
     m_homeTab->setReadingMarkMode(on);
   for (DocumentTab *tab : m_tabs)
     tab->setReadingMarkMode(on);
-  if (m_tabsLayout)
-    m_tabsLayout->setContentsMargins(0, UiScale::dp(4), 0, UiScale::dp(4));
+  if (m_tabsLayout) {
+    // Top inset only — bottom flush so the active tab morphs into the strip.
+    m_tabsLayout->setContentsMargins(0, UiScale::dp(6), 0, 0);
+    m_tabsLayout->setSpacing(UiScale::dp(on ? 8 : 6));
+  }
   if (m_indicator)
     m_indicator->setVisible(!on);
   updateIndicator(false);

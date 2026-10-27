@@ -6,10 +6,14 @@ InstallDir "$PROGRAMFILES64\Blop"
 RequestExecutionLevel admin
 
 ; Version Information for Windows
-VIProductVersion "3.11.9.0"
+; APP_VERSION (x.y.z) is passed by CI: makensis /DAPP_VERSION=3.29.47 installer.nsi
+!ifndef APP_VERSION
+  !define APP_VERSION "0.0.0"
+!endif
+VIProductVersion "${APP_VERSION}.0"
 VIAddVersionKey "ProductName" "Blop"
-VIAddVersionKey "FileVersion" "3.11.9"
-VIAddVersionKey "ProductVersion" "3.11.9"
+VIAddVersionKey "FileVersion" "${APP_VERSION}"
+VIAddVersionKey "ProductVersion" "${APP_VERSION}"
 VIAddVersionKey "FileDescription" "Blop Installer"
 
 !insertmacro MUI_PAGE_WELCOME
@@ -47,9 +51,10 @@ VIAddVersionKey "FileDescription" "Blop Installer"
 !endif
 
 Section "Install"
+  SetShellVarContext current
   ; Sicherstellen, dass die App geschlossen ist, bevor Dateien überschrieben werden
-  nsExec::ExecToStack 'taskkill /F /IM Blop.exe'
-  Sleep 1000
+  nsExec::ExecToStack 'taskkill /IM Blop.exe'
+  Sleep 2000
 
   SetOutPath "$INSTDIR"
   
@@ -65,7 +70,7 @@ Section "Install"
   
   ; Registry Eintrag für Deinstallation (optional, aber gut für Systemsteuerung)
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "DisplayName" "Blop"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "DisplayVersion" "3.11.9"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
 
@@ -76,6 +81,9 @@ Section "Install"
 SectionEnd
 
 Section "Uninstall"
+  SetShellVarContext current
+  nsExec::ExecToStack 'taskkill /IM Blop.exe'
+  Sleep 2000
   Delete "$INSTDIR\uninstall.exe"
   Delete "$SMPROGRAMS\Blop.lnk"
   Delete "$DESKTOP\Blop.lnk"

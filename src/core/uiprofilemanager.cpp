@@ -1,3 +1,4 @@
+#include "atomicfile.h"
 #include "uiprofilemanager.h"
 #include "uiscale.h"
 #include <QStandardPaths>
@@ -102,10 +103,8 @@ void UiProfileManager::saveProfiles() {
     root["currentId"] = m_currentId;
     root["profiles"] = arr;
 
-    QFile file(getFilePath());
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(QJsonDocument(root).toJson());
-    }
+    AtomicFile::write(getFilePath(), QJsonDocument(root).toJson(),
+                      QStringLiteral("UI-Profile"));
 }
 
 UiProfile UiProfileManager::profileById(const QString &id) const {

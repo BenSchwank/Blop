@@ -1,3 +1,4 @@
+#include "atomicfile.h"
 #include "calendarservice.h"
 
 #include "googleauthmanager.h"
@@ -83,14 +84,13 @@ void CalendarService::saveLocal(const QVector<CalendarEvent> &events) const {
       o.insert(QStringLiteral("color"), e.color);
     arr.append(o);
   }
-  QFile f(localCalPath());
-  if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-    f.write(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+  AtomicFile::write(localCalPath(),
+                    QJsonDocument(arr).toJson(QJsonDocument::Compact),
+                    QStringLiteral("Kalender"));
 }
 
 QVector<CalendarEvent> CalendarService::upcoming(int limit) const {
-  QVector<CalendarEvent> all = loadLocal();
-  all += m_googleCache;
+  QVector<CalendarEvent> all = merged();
   const QDateTime now = QDateTime::currentDateTime();
   all.erase(std::remove_if(all.begin(), all.end(),
                            [&](const CalendarEvent &e) {
@@ -110,15 +110,19 @@ QVector<CalendarEvent> CalendarService::upcoming(int limit) const {
 QVector<CalendarEvent> CalendarService::eventsForDay(const QDate &day) const {
   if (!day.isValid())
     return {};
-  QVector<CalendarEvent> all = loadLocal();
-  all += m_googleCache;
+  const QVector<CalendarEvent> all = merged();
   QVector<CalendarEvent> out;
   for (const CalendarEvent &e : all) {
     if (!e.start.isValid())
       continue;
     const QDate s = e.start.date();
-    const QDate en = e.end.isValid() ? e.end.date() : s;
-    if (day >= s && day <= en)
+    QDate last = e.end.isValid() ? e.end.date() : s;
+    if (e.allDay || (e.end.isValid() && e.end.time() == QTime(0, 0) &&
+                     e.end > e.start))
+      last = last.addDays(-1);
+    if (last < s)
+      last = s;
+    if (day >= s && day <= last)
       out.append(e);
   }
   std::sort(out.begin(), out.end(),
@@ -126,6 +130,16 @@ QVector<CalendarEvent> CalendarService::eventsForDay(const QDate &day) const {
               return a.start < b.start;
             });
   return out;
+}
+
+CalendarEvent CalendarService::eventById(const QString &id) const {
+  if (id.isEmpty())
+    return {};
+  for (const CalendarEvent &e : merged()) {
+    if (e.id == id)
+      return e;
+  }
+  return {};
 }
 
 CalendarEvent CalendarService::addLocal(const QString &title,
@@ -150,29 +164,126 @@ CalendarEvent CalendarService::addLocal(const QString &title,
   return e;
 }
 
-CalendarEvent CalendarService::createEvent(const QString &title,
-                                           const QDateTime &start,
-                                           const QDateTime &end, bool allDay,
-                                           const QString &location,
-                                           const QString &color) {
-  const QString token = GoogleAuthManager::instance().accessToken();
-  if (token.isEmpty())
-    return addLocal(title, start, end, allDay, location, color);
+QVector<CalendarEvent> CalendarService::merged() const {
+  QVector<CalendarEvent> all = m_googleCache;
+  const QVector<CalendarEvent> local = loadLocal();
+  for (const CalendarEvent &l : local) {
+    bool dup = false;
+    for (const CalendarEvent &g : m_googleCache) {
+      if (g.title == l.title && g.start == l.start && g.allDay == l.allDay) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup)
+      all.append(l);
+  }
+  return all;
+}
 
+void CalendarService::handleGoogleUnauthorized() {
+  auto &auth = GoogleAuthManager::instance();
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  // A refresh just failed to fix the 401 (or none exists): ask for login.
+  if (!auth.hasRefreshToken() || now - m_lastRefreshAttemptMs < 60 * 1000) {
+    auth.clearCalendarAccess();
+    emit googleSyncFailed(
+        QStringLiteral("Google-Token abgelaufen — bitte erneut verbinden"));
+    emit googleAuthRequired();
+    return;
+  }
+  m_lastRefreshAttemptMs = now;
+  auto *c1 = new QMetaObject::Connection;
+  auto *c2 = new QMetaObject::Connection;
+  const auto cleanup = [c1, c2]() {
+    QObject::disconnect(*c1);
+    QObject::disconnect(*c2);
+    delete c1;
+    delete c2;
+  };
+  // accessTokenRefreshed -> persistAccessToken -> calendarTokenUpdated
+  // already triggers refreshGoogle(); only failures need handling here.
+  *c1 = connect(&auth, &GoogleAuthManager::accessTokenRefreshed, this,
+                [cleanup]() { cleanup(); });
+  *c2 = connect(&auth, &GoogleAuthManager::accessTokenRefreshFailed, this,
+                [this, cleanup](const QString &reason) {
+                  cleanup();
+                  emit googleSyncFailed(
+                      QStringLiteral("Google-Anmeldung abgelaufen (%1)")
+                          .arg(reason));
+                  emit googleAuthRequired();
+                });
+  auth.refreshAccessToken();
+}
+
+void CalendarService::googleRequest(
+    const QByteArray &verb, const QUrl &url, const QByteArray &body,
+    std::function<void(int, const QByteArray &)> done, bool retried) {
+  const QString token = GoogleAuthManager::instance().accessToken();
+  if (token.isEmpty()) {
+    if (done)
+      done(0, QByteArray());
+    return;
+  }
   auto *nam = new QNetworkAccessManager(this);
-  QUrl url(QStringLiteral(
-      "https://www.googleapis.com/calendar/v3/calendars/primary/events"));
   QNetworkRequest req(url);
   req.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
-  req.setHeader(QNetworkRequest::ContentTypeHeader,
-                QStringLiteral("application/json"));
+  req.setTransferTimeout(20000);
+  if (!body.isEmpty())
+    req.setHeader(QNetworkRequest::ContentTypeHeader,
+                  QStringLiteral("application/json"));
+  QNetworkReply *reply = nam->sendCustomRequest(req, verb, body);
+  connect(reply, &QNetworkReply::finished, this,
+          [this, reply, nam, verb, url, body, done, retried]() {
+            const QByteArray raw = reply->readAll();
+            const int status =
+                reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
+                    .toInt();
+            const QString err = reply->errorString();
+            const bool netErr = reply->error() != QNetworkReply::NoError;
+            reply->deleteLater();
+            nam->deleteLater();
+            if (status == 401 && !retried &&
+                GoogleAuthManager::instance().hasRefreshToken()) {
+              auto &auth = GoogleAuthManager::instance();
+              auto *c1 = new QMetaObject::Connection;
+              auto *c2 = new QMetaObject::Connection;
+              const auto cleanup = [c1, c2]() {
+                QObject::disconnect(*c1);
+                QObject::disconnect(*c2);
+                delete c1;
+                delete c2;
+              };
+              *c1 = connect(&auth, &GoogleAuthManager::accessTokenRefreshed,
+                            this, [this, cleanup, verb, url, body, done]() {
+                              cleanup();
+                              googleRequest(verb, url, body, done, true);
+                            });
+              *c2 = connect(&auth, &GoogleAuthManager::accessTokenRefreshFailed,
+                            this, [this, cleanup, done](const QString &) {
+                              cleanup();
+                              emit googleAuthRequired();
+                              if (done)
+                                done(401, QByteArray());
+                            });
+              auth.refreshAccessToken();
+              return;
+            }
+            if (netErr && status == 0)
+              emit googleSyncFailed(err);
+            if (done)
+              done(status, raw);
+          });
+}
 
+static QJsonObject googleEventBody(const QString &title, const QDateTime &start,
+                                   const QDateTime &end, bool allDay,
+                                   const QString &location) {
   QJsonObject body;
   body.insert(QStringLiteral("summary"),
               title.trimmed().isEmpty() ? QStringLiteral("Termin")
                                         : title.trimmed());
-  if (!location.trimmed().isEmpty())
-    body.insert(QStringLiteral("location"), location.trimmed());
+  body.insert(QStringLiteral("location"), location.trimmed());
   QJsonObject startObj;
   QJsonObject endObj;
   if (allDay) {
@@ -191,23 +302,88 @@ CalendarEvent CalendarService::createEvent(const QString &title,
   }
   body.insert(QStringLiteral("start"), startObj);
   body.insert(QStringLiteral("end"), endObj);
+  return body;
+}
 
-  // Optimistic local mirror until refresh returns.
+CalendarEvent CalendarService::createEvent(const QString &title,
+                                           const QDateTime &start,
+                                           const QDateTime &end, bool allDay,
+                                           const QString &location,
+                                           const QString &color) {
+  if (!hasGoogleAccess())
+    return addLocal(title, start, end, allDay, location, color);
+
+  // Local mirror keeps the event visible (and safe offline) until Google
+  // confirms; on success it is removed so it is not shown twice.
   CalendarEvent pending = addLocal(title, start, end, allDay, location, color);
-  pending.source = QStringLiteral("google");
-
-  QNetworkReply *reply =
-      nam->post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
-  connect(reply, &QNetworkReply::finished, this, [this, reply, nam]() {
-    reply->deleteLater();
-    nam->deleteLater();
-    if (reply->error() != QNetworkReply::NoError) {
-      emit googleSyncFailed(reply->errorString());
-      return;
-    }
-    refreshGoogle();
-  });
+  const QString mirrorId = pending.id;
+  const QJsonObject body = googleEventBody(title, start, end, allDay, location);
+  googleRequest(
+      "POST",
+      QUrl(QStringLiteral(
+          "https://www.googleapis.com/calendar/v3/calendars/primary/events")),
+      QJsonDocument(body).toJson(QJsonDocument::Compact),
+      [this, mirrorId](int status, const QByteArray &) {
+        if (status >= 200 && status < 300) {
+          removeLocal(mirrorId);
+          refreshGoogle();
+        } else {
+          emit googleSyncFailed(
+              QStringLiteral("Termin konnte nicht zu Google übertragen "
+                             "werden (lokal gespeichert)"));
+        }
+      });
   return pending;
+}
+
+bool CalendarService::updateEvent(const CalendarEvent &e) {
+  if (e.id.isEmpty())
+    return false;
+  auto items = loadLocal();
+  for (CalendarEvent &it : items) {
+    if (it.id != e.id)
+      continue;
+    it.title = e.title;
+    it.start = e.start;
+    it.end = e.end;
+    it.allDay = e.allDay;
+    it.location = e.location;
+    it.color = e.color;
+    saveLocal(items);
+    emit eventsChanged();
+    return true;
+  }
+  if (!hasGoogleAccess())
+    return false;
+
+  // Optimistic cache update, Google PATCH, then reconcile via refresh.
+  for (CalendarEvent &g : m_googleCache) {
+    if (g.id == e.id) {
+      g.title = e.title;
+      g.start = e.start;
+      g.end = e.end;
+      g.allDay = e.allDay;
+      g.location = e.location;
+    }
+  }
+  emit eventsChanged();
+  const QJsonObject body =
+      googleEventBody(e.title, e.start, e.end, e.allDay, e.location);
+  googleRequest(
+      "PATCH",
+      QUrl(QStringLiteral(
+               "https://www.googleapis.com/calendar/v3/calendars/primary/"
+               "events/") +
+           QString::fromLatin1(QUrl::toPercentEncoding(e.id))),
+      QJsonDocument(body).toJson(QJsonDocument::Compact),
+      [this](int status, const QByteArray &) {
+        if (status < 200 || status >= 300)
+          emit googleSyncFailed(
+              QStringLiteral("Änderung konnte nicht zu Google übertragen "
+                             "werden"));
+        refreshGoogle();
+      });
+  return true;
 }
 
 bool CalendarService::removeLocal(const QString &id) {
@@ -230,13 +406,9 @@ bool CalendarService::removeEvent(const QString &id) {
     return false;
   if (removeLocal(id))
     return true;
-
-  // Google event (or unknown id still try Google delete).
-  const QString token = GoogleAuthManager::instance().accessToken();
-  if (token.isEmpty())
+  if (!hasGoogleAccess())
     return false;
 
-  // Drop from cache immediately for snappy UI.
   const int before = m_googleCache.size();
   m_googleCache.erase(std::remove_if(m_googleCache.begin(), m_googleCache.end(),
                                      [&](const CalendarEvent &e) {
@@ -246,23 +418,19 @@ bool CalendarService::removeEvent(const QString &id) {
   if (m_googleCache.size() != before)
     emit eventsChanged();
 
-  auto *nam = new QNetworkAccessManager(this);
-  QUrl url(QStringLiteral(
-               "https://www.googleapis.com/calendar/v3/calendars/primary/events/") +
-           QUrl::toPercentEncoding(id));
-  QNetworkRequest req(url);
-  req.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
-  QNetworkReply *reply = nam->deleteResource(req);
-  connect(reply, &QNetworkReply::finished, this, [this, reply, nam]() {
-    reply->deleteLater();
-    nam->deleteLater();
-    if (reply->error() != QNetworkReply::NoError) {
-      emit googleSyncFailed(reply->errorString());
-      refreshGoogle();
-      return;
-    }
-    refreshGoogle();
-  });
+  googleRequest(
+      "DELETE",
+      QUrl(QStringLiteral(
+               "https://www.googleapis.com/calendar/v3/calendars/primary/"
+               "events/") +
+           QString::fromLatin1(QUrl::toPercentEncoding(id))),
+      QByteArray(), [this](int status, const QByteArray &) {
+        // 404/410: already gone remotely, fine.
+        if (status >= 400 && status != 404 && status != 410)
+          emit googleSyncFailed(
+              QStringLiteral("Löschen bei Google fehlgeschlagen"));
+        refreshGoogle();
+      });
   return true;
 }
 
@@ -281,14 +449,24 @@ void CalendarService::disconnectGoogle() {
 }
 
 void CalendarService::refreshGoogle() {
+  if (m_googleInFlight)
+    return;
   const QString token = GoogleAuthManager::instance().accessToken();
   if (token.isEmpty()) {
+    // Access token gone but a refresh token may bring it back (app restart
+    // after > 1 h): try that before treating the account as disconnected.
+    auto &auth = GoogleAuthManager::instance();
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (auth.hasRefreshToken() && now - m_lastRefreshAttemptMs > 60 * 1000) {
+      m_lastRefreshAttemptMs = now;
+      auth.refreshAccessToken();
+      return;
+    }
     m_googleCache.clear();
     emit eventsChanged();
     return;
   }
 
-  auto *nam = new QNetworkAccessManager(this);
   QUrl url(QStringLiteral("https://www.googleapis.com/calendar/v3/calendars/"
                           "primary/events"));
   QUrlQuery q;
@@ -305,23 +483,30 @@ void CalendarService::refreshGoogle() {
                      .toString(Qt::ISODate));
   url.setQuery(q);
 
+  // A direct GET (not googleRequest): its 401 handling coordinates with the
+  // calendarTokenUpdated -> refreshGoogle() loop through handleGoogleUnauthorized.
+  auto *nam = new QNetworkAccessManager(this);
   QNetworkRequest req(url);
-  req.setRawHeader("Authorization",
-                   QByteArray("Bearer ") + token.toUtf8());
+  req.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
+  req.setTransferTimeout(20000);
+  m_googleInFlight = true;
+  const int epoch = ++m_googleEpoch;
   QNetworkReply *reply = nam->get(req);
-  connect(reply, &QNetworkReply::finished, this, [this, reply, nam]() {
+  connect(reply, &QNetworkReply::finished, this, [this, reply, nam, epoch]() {
     reply->deleteLater();
     nam->deleteLater();
+    if (epoch != m_googleEpoch) {
+      m_googleInFlight = false;
+      return;
+    }
+    m_googleInFlight = false;
     if (reply->error() != QNetworkReply::NoError) {
       const int status =
           reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-      if (status == 401) {
-        GoogleAuthManager::instance().clearCalendarAccess();
-        emit googleSyncFailed(
-            QStringLiteral("Google-Token abgelaufen — bitte erneut verbinden"));
-      } else {
+      if (status == 401)
+        handleGoogleUnauthorized();
+      else
         emit googleSyncFailed(reply->errorString());
-      }
       return;
     }
     const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
@@ -330,6 +515,9 @@ void CalendarService::refreshGoogle() {
     QVector<CalendarEvent> cache;
     for (const QJsonValue &v : items) {
       const QJsonObject o = v.toObject();
+      if (o.value(QStringLiteral("status")).toString() ==
+          QLatin1String("cancelled"))
+        continue;
       CalendarEvent e;
       e.id = o.value(QStringLiteral("id")).toString();
       e.title = o.value(QStringLiteral("summary"))
