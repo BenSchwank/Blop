@@ -157,17 +157,18 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
   auto *frame = new QFrame(backdrop);
   frame->setObjectName(QStringLiteral("BlopInWindowMenuFrame"));
   frame->setAttribute(Qt::WA_StyledBackground, true);
-  // Light Mode: white paper menu. Dark: Obsidian overflow sheet.
+  // Light: paper menu. Dark: NoteChrome elevated (same as editor overlays).
   if (!BlopTheme::instance().isDark()) {
     frame->setStyleSheet(BlopStyle::paperMenuFrameQss());
   } else {
     frame->setStyleSheet(QStringLiteral(
                              "#BlopInWindowMenuFrame {"
                              "  background-color: %1;"
-                             "  border: 1px solid rgba(255,255,255,0.10);"
-                             "  border-radius: %2px;"
+                             "  border: 1px solid %2;"
+                             "  border-radius: %3px;"
                              "}")
-                             .arg(BlopStyle::obsidianSheet().name(QColor::HexRgb),
+                             .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
+                                  NoteChrome::borderSoft().name(QColor::HexRgb),
                                   QString::number(
                                       UiScale::dp(BlopStyle::radiusLgDp()))));
   }
@@ -205,9 +206,13 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
     if (it.separator) {
       auto *sep = new QFrame(frame);
       sep->setFrameShape(QFrame::HLine);
-      sep->setStyleSheet(BlopTheme::instance().isDark()
-                             ? BlopStyle::obsidianSeparatorQss()
-                             : BlopStyle::paperMenuSeparatorQss());
+      sep->setStyleSheet(
+          BlopTheme::instance().isDark()
+              ? QStringLiteral(
+                    "QFrame { background: %1; border: none; max-height: 1px;"
+                    "  margin: 6px 10px; }")
+                    .arg(NoteChrome::borderSoft().name(QColor::HexRgb))
+              : BlopStyle::paperMenuSeparatorQss());
       vlay->addWidget(sep);
       totalContentHeight += separatorH;
       continue;

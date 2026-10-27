@@ -2,6 +2,7 @@
 
 #include "blop_theme.h"
 #include "blopstyle.h"
+#include "notechrome.h"
 #include "uiscale.h"
 
 #include <QApplication>
@@ -42,6 +43,9 @@ constexpr int kDragHandleHeightDp = 28;
 QColor ownedSheetFill(QWidget *content) {
   if (content && content->property("blopForcePaper").toBool())
     return BlopStyle::paperSurface();
+  // Editor overlays (Alle Seiten, …): NoteChrome elevated panel, not Study purple.
+  if (content && content->property("blopNoteChrome").toBool())
+    return NoteChrome::panelElevated();
   if (BlopTheme::instance().isDark())
     return BlopTheme::surfaceElevated();
   return BlopStyle::paperSurface();
@@ -50,6 +54,8 @@ QColor ownedSheetFill(QWidget *content) {
 QColor ownedSheetBorder(QWidget *content) {
   if (content && content->property("blopForcePaper").toBool())
     return BlopStyle::paperBorder();
+  if (content && content->property("blopNoteChrome").toBool())
+    return NoteChrome::border();
   if (BlopTheme::instance().isDark())
     return BlopTheme::borderDefault();
   return BlopStyle::paperBorder();

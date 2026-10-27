@@ -51,13 +51,16 @@ namespace {
 static const QColor kBlopSwatches[] = {
     QColor("#0C0D17"), QColor("#1A1B2E"), QColor("#13141F"), QColor("#1C1D32"),
     QColor("#E6E4FF"), QColor("#FFFFFF"), QColor("#94A3B8"), QColor("#64748B"),
-    QColor("#7C5CFC"), QColor("#6BA3F5"), QColor("#38BDF8"), QColor("#34D399"),
+    QColor("#7C5CFC"), QColor("#4C8BF5"), QColor("#38BDF8"), QColor("#35C48A"),
     QColor("#FBBF24"), QColor("#F97316"), QColor("#FB7185"), QColor("#A78BFA"),
     QColor("#000000"), QColor("#1E293B"), QColor("#F43F5E"), QColor("#22C55E"),
     QColor("#3B82F6"), QColor("#EAB308"), QColor("#C084FC"), QColor("#06B6D4"),
 };
 
 static QString blopSliderStyleSheet() {
+  const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
+  QColor tint = BlopTheme::accentPrimary();
+  tint.setAlphaF(0.35);
   return BlopTheme::themed(QStringLiteral(
       "QSlider::groove:horizontal {"
       "  height: 7px; border-radius: 4px;"
@@ -67,18 +70,17 @@ static QString blopSliderStyleSheet() {
       "QSlider::handle:horizontal {"
       "  width: 20px; height: 20px; margin: -7px 0;"
       "  border-radius: 10px;"
-      "  background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-      "    stop:0 #8EB8F8, stop:1 #6BA3F5);"
+      "  background: %1;"
       "  border: 2px solid rgba(255,255,255,0.22);"
       "}"
       "QSlider::handle:horizontal:hover {"
-      "  background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-      "    stop:0 #A8C8FF, stop:1 #7EB0F7);"
+      "  background: %1;"
       "}"
       "QSlider::sub-page:horizontal {"
       "  height: 7px; border-radius: 4px;"
-      "  background: rgba(107, 163, 245, 0.35);"
-      "}"));
+      "  background: %2;"
+      "}")
+      .arg(acc, tint.name(QColor::HexArgb)));
 }
 
 static QLabel *makeRgbLabel(const QString &text, QWidget *parent) {
@@ -246,27 +248,27 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
 
   auto *card = new QFrame(overlay);
   card->setObjectName(QStringLiteral("ColorPickerCard"));
-  // v3.16.1: card surface comes from BlopStyle. The local stylesheet only
-  // styles the children (labels, line edits) so every overlay shares one
-  // surface bg / border / radius set.
+  // NoteChrome card — matches A4 layout / ToolPicker (no Study purple sheet).
   card->setStyleSheet(
-      BlopStyle::surfaceStyle(QStringLiteral("ColorPickerCard")) +
-      BlopTheme::themed(QStringLiteral(
-                            "QLabel { color: rgba(235, 237, 245, 0.95); }"
-                            "QLineEdit {"
-                            "  background: rgba(22, 24, 36, 0.95);"
-                            "  border: 1px solid rgba(120, 130, 160, 0.35);"
-                            "  border-radius: %1px;"
-                            "  padding: 8px 12px;"
-                            "  color: #E8EAFF;"
-                            "  font-family: monospace;"
-                            "  font-size: 13px;"
-                            "  font-weight: 600;"
-                            "}"
-                            "QLineEdit:focus {"
-                            "  border: 1px solid rgba(107, 163, 245, 0.65);"
-                            "}")
-                            .arg(UiScale::dp(BlopStyle::radiusMdDp()))));
+      NoteChrome::overlayCardStyle(QStringLiteral("ColorPickerCard")) +
+      QStringLiteral(
+          "QLabel { color: %1; }"
+          "QLineEdit {"
+          "  background: %2;"
+          "  border: 1px solid %3;"
+          "  border-radius: %4px;"
+          "  padding: 8px 12px;"
+          "  color: %1;"
+          "  font-family: monospace;"
+          "  font-size: 13px;"
+          "  font-weight: 600;"
+          "}"
+          "QLineEdit:focus { border: 1px solid %5; }")
+          .arg(NoteChrome::textPrimary().name(QColor::HexRgb),
+               NoteChrome::panelBg().name(QColor::HexRgb),
+               NoteChrome::border().name(QColor::HexRgb),
+               QString::number(UiScale::dp(BlopStyle::radiusMdDp())),
+               NoteChrome::accent().name(QColor::HexRgb)));
 
   QScreen *screen = nullptr;
   if (QWidget *ws = anchor->window())
@@ -301,8 +303,9 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
   }
 
   auto *hint = new QLabel(QStringLiteral("Blop-Palette oder RGB"), card);
-  hint->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "color: rgba(160, 168, 195, 0.88); font-size: 12px; font-weight: 500;")));
+  hint->setStyleSheet(
+      QStringLiteral("color: %1; font-size: 12px; font-weight: 500;")
+          .arg(NoteChrome::textSecondary().name(QColor::HexRgb)));
   cardLay->addWidget(hint);
 
   QColor cur = color->isValid() ? color->toRgb() : QColor(Qt::white);
@@ -353,9 +356,10 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
     sw->setStyleSheet(QStringLiteral(
         "QPushButton { background-color: %1; border-radius: 8px;"
         "  border: 1px solid rgba(255,255,255,0.18); }"
-        "QPushButton:hover { border: 2px solid #6BA3F5; }"
-        "QPushButton:pressed { border: 2px solid #7C5CFC; }")
-                          .arg(sc.name()));
+        "QPushButton:hover { border: 2px solid %2; }"
+        "QPushButton:pressed { border: 2px solid %2; }")
+                          .arg(sc.name(),
+                               BlopTheme::accentPrimary().name(QColor::HexRgb)));
     swatchGrid->addWidget(sw, i / kCols, i % kCols);
     swatchBtns.append(sw);
   }
@@ -489,17 +493,20 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
                                      card);
   bbox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
   bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Übernehmen"));
-  bbox->button(QDialogButtonBox::Cancel)->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "QPushButton { color: #8EB8F8; border: none; background: transparent; "
+  const QString acc = NoteChrome::accent().name(QColor::HexRgb);
+  bbox->button(QDialogButtonBox::Cancel)->setStyleSheet(QStringLiteral(
+      "QPushButton { color: %1; border: none; background: transparent; "
       "font-weight:600; padding:10px 18px; }"
-      "QPushButton:hover { color: #B8D4FF; background: rgba(255,255,255,0.06); "
-      "border-radius: 10px; }")));
+      "QPushButton:hover { color: %2; background: %3; border-radius: 10px; }")
+      .arg(acc, NoteChrome::textPrimary().name(QColor::HexRgb),
+           NoteChrome::accentSoft().name(QColor::HexArgb)));
   bbox->button(QDialogButtonBox::Ok)->setStyleSheet(QStringLiteral(
-      "QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-      "  stop:0 #8EB8F8, stop:1 #6BA3F5); color: #0f172a; border: none; "
+      "QPushButton { background: %1; color: #FFFFFF; border: none; "
       "border-radius: 10px; padding: 12px 24px; font-weight: 600; }"
-      "QPushButton:hover { background: #7EB0F7; }"
-      "QPushButton:pressed { background: #5A94E8; }"));
+      "QPushButton:hover { background: %2; }"
+      "QPushButton:pressed { background: %3; }")
+      .arg(acc, QColor(acc).lighter(110).name(QColor::HexRgb),
+           QColor(acc).darker(110).name(QColor::HexRgb)));
   cardLay->addWidget(bbox, 0, Qt::AlignRight);
 
   QObject::connect(bbox, &QDialogButtonBox::accepted, overlay,
@@ -647,7 +654,10 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
 
   out->accepted = false;
 
-  auto *overlay = new OverlayHost(parent);
+  QWidget *anchor = overlayAnchorForColorPicker(parent);
+  if (!anchor)
+    anchor = parent;
+  auto *overlay = new OverlayHost(anchor);
 
   auto *card = new QFrame(overlay);
   card->setObjectName(QStringLiteral("A4LayoutCard"));
@@ -866,7 +876,10 @@ void showA4LayoutOverlayAsync(
     return;
   }
 
-  auto *overlay = new OverlayHost(parent);
+  QWidget *anchor = overlayAnchorForColorPicker(parent);
+  if (!anchor)
+    anchor = parent;
+  auto *overlay = new OverlayHost(anchor);
   overlay->setObjectName(QStringLiteral("AndroidTransientOverlay"));
   auto *card = new QFrame(overlay);
   card->setObjectName(QStringLiteral("A4LayoutCardAsync"));

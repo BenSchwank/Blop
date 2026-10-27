@@ -1,6 +1,7 @@
 #include "onboardingwizard.h"
 
 #include "blop_dialogs.h"
+#include "blop_theme.h"
 #include "blopwindowcontrols.h"
 #include "cloudlink.h"
 #include "googleauthmanager.h"
@@ -239,14 +240,14 @@ QScrollArea *textScroll(QLabel *body, QWidget *parent) {
   scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   scroll->setMinimumHeight(UiScale::dp(220));
   scroll->setWidget(body);
-  scroll->setStyleSheet(QStringLiteral(
+  scroll->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "QScrollArea { background: #1A191F; border: none; border-radius: 12px; }"
       "QScrollBar:vertical { width: 10px; background: transparent; margin: 6px 2px; }"
       "QScrollBar::handle:vertical { background: #7C5CFC; border-radius: 4px;"
       "  min-height: 28px; }"
       "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
       "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
-      "  background: transparent; }"));
+      "  background: transparent; }")));
   if (scroll->viewport()) {
     scroll->viewport()->setStyleSheet(QStringLiteral("background: #1A191F;"));
     auto *fit = new ScrollFit(scroll);
@@ -263,7 +264,7 @@ QPushButton *choiceButton(const QString &title, const QString &why,
   b->setCheckable(true);
   b->setCursor(Qt::PointingHandCursor);
   b->setText(title + QStringLiteral("\n") + why);
-  b->setStyleSheet(QStringLiteral(
+  b->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "QPushButton {"
       "  text-align: left; padding: 14px 16px; border-radius: 14px;"
       "  border: 1px solid rgba(124,92,252,0.40);"
@@ -272,16 +273,16 @@ QPushButton *choiceButton(const QString &title, const QString &why,
       "QPushButton:hover { border-color: #957AFF; }"
       "QPushButton:checked {"
       "  border: 2px solid #7C5CFC; background: rgba(124,92,252,0.28);"
-      "}"));
+      "}")));
   return b;
 }
 
 QString primaryButtonQss() {
-  return QStringLiteral(
+  return BlopTheme::themed(QStringLiteral(
       "QPushButton { background: #7C5CFC; color: white; border: none;"
       "  border-radius: 12px; padding: 12px 18px; font-weight: 700; }"
       "QPushButton:hover { background: #957AFF; }"
-      "QPushButton:disabled { background: rgba(124,92,252,0.35); color: #E6DFFF; }");
+      "QPushButton:disabled { background: rgba(124,92,252,0.35); color: #E6DFFF; }"));
 }
 
 QString ghostButtonQss() {
@@ -310,7 +311,7 @@ OnboardingWizard::OnboardingWizard(QWidget *parent) : QDialog(parent) {
   pal.setColor(QPalette::Button, kPanel);
   pal.setColor(QPalette::ButtonText, kInk);
   setPalette(pal);
-  setStyleSheet(QStringLiteral(
+  setStyleSheet(BlopTheme::themed(QStringLiteral(
       "QDialog#OnboardingWizard {"
       "  background-color: #0E0C14;"
       "  background-image: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
@@ -320,7 +321,7 @@ OnboardingWizard::OnboardingWizard(QWidget *parent) : QDialog(parent) {
       "QCheckBox { color: #F4F1FF; background: transparent; spacing: 8px; }"
       "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px;"
       "  border: 1px solid #7C5CFC; background: #1C1730; }"
-      "QCheckBox::indicator:checked { background: #7C5CFC; }"));
+      "QCheckBox::indicator:checked { background: #7C5CFC; }")));
 
   m_backdrop = new BackdropWash(this);
   m_backdrop->hide();
@@ -533,13 +534,13 @@ void OnboardingWizard::layoutCard() {
     m_backdrop->lower();
   }
   if (video) {
-    setStyleSheet(QStringLiteral(
+    setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QDialog#OnboardingWizard { background-color: #000000; background-image: none; }"
         "QLabel { color: #F4F1FF; background: transparent; }"
         "QCheckBox { color: #F4F1FF; background: transparent; spacing: 8px; }"
         "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px;"
         "  border: 1px solid #7C5CFC; background: #1C1730; }"
-        "QCheckBox::indicator:checked { background: #7C5CFC; }"));
+        "QCheckBox::indicator:checked { background: #7C5CFC; }")));
     QPalette pal = palette();
     pal.setColor(QPalette::Window, Qt::black);
     setPalette(pal);
@@ -550,7 +551,7 @@ void OnboardingWizard::layoutCard() {
     placeWindowControls();
     return;
   }
-  setStyleSheet(QStringLiteral(
+  setStyleSheet(BlopTheme::themed(QStringLiteral(
       "QDialog#OnboardingWizard {"
       "  background-color: #0E0C14;"
       "  background-image: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
@@ -560,7 +561,7 @@ void OnboardingWizard::layoutCard() {
       "QCheckBox { color: #F4F1FF; background: transparent; spacing: 8px; }"
       "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px;"
       "  border: 1px solid #7C5CFC; background: #1C1730; }"
-      "QCheckBox::indicator:checked { background: #7C5CFC; }"));
+      "QCheckBox::indicator:checked { background: #7C5CFC; }")));
   QPalette pal = palette();
   pal.setColor(QPalette::Window, QColor(0x0E, 0x0C, 0x14));
   setPalette(pal);
@@ -1021,7 +1022,7 @@ void OnboardingWizard::syncSteps() {
     if (on) {
       labelColor = QStringLiteral("#F4F1FF");
       weight = QStringLiteral("650");
-      dot = QStringLiteral("#7C5CFC");
+      dot = BlopTheme::accentPrimary().name(QColor::HexRgb);
     } else if (done) {
       labelColor = QStringLiteral("#A89BC4");
       dot = QStringLiteral("#5B4A96");

@@ -1,4 +1,5 @@
 #include "settingsdialog.h"
+#include "blop_version.h"
 #include "settings_ui_helpers.h"
 #include "calendarservice.h"
 #include "cloudstoragestore.h"
@@ -17,6 +18,7 @@
 #include "overlayscrollindicator.h"
 #include "uiscale.h"
 #include "toolhotkeys.h"
+#include "notetoolbars.h"
 #include "ui_SettingsDialog.h"
 #include "blop_diag.h"
 
@@ -65,10 +67,6 @@
 #include <functional>
 #include <initializer_list>
 #include <memory>
-
-#ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.18.12"
-#endif
 
 // v3.16.1: Settings overhaul.
 //
@@ -918,36 +916,27 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 static_cast<BlopLocale::Pref>(id));
         });
         cardTheme->addBodyWidget(makePropertyRow(
-            cardTheme, QStringLiteral("Sprache"), langSeg, false,
-            QStringLiteral("sprache language locale deutsch english")));
+            // The UI texts are German only (no translation catalogs yet); this
+            // setting only drives dates and the greeting, so it says so.
+            cardTheme, QStringLiteral("Datum & Begrüßung"), langSeg, false,
+            QStringLiteral("datum begrüßung locale region deutsch english")));
 
         auto *accentRow = new QWidget(cardTheme);
         auto *accentLay = new QHBoxLayout(accentRow);
         accentLay->setContentsMargins(0, 0, 0, 0);
         accentLay->setSpacing(UiScale::dp(8));
-        struct AccentChoice {
-            BlopTheme::Accent value;
-            QString hex;
-            QString tip;
-        };
-        const QVector<AccentChoice> choices = {
-            {BlopTheme::Accent::Blue, QStringLiteral("#6BA3F5"),
-             QStringLiteral("Blue")},
-            {BlopTheme::Accent::Green, QStringLiteral("#34D399"),
-             QStringLiteral("Green")},
-            {BlopTheme::Accent::Pink, QStringLiteral("#FF6B9D"),
-             QStringLiteral("Pink")}};
         const BlopTheme::Accent activeAccent = BlopTheme::instance().accent();
         auto *accentGroup = new QButtonGroup(this);
         accentGroup->setExclusive(true);
         const int swatch = UiScale::dp(28);
+        const auto choices = BlopTheme::accentColors();
         for (int i = 0; i < choices.size(); ++i) {
-            const AccentChoice &ch = choices[i];
+            const BlopTheme::AccentSwatch &ch = choices[i];
             auto *b = new QPushButton(accentRow);
             b->setCheckable(true);
             b->setCursor(Qt::PointingHandCursor);
             b->setFixedSize(swatch, swatch);
-            b->setToolTip(ch.tip);
+            b->setToolTip(ch.label);
             b->setStyleSheet(
                 QStringLiteral(
                     "QPushButton { background-color: %1;"
@@ -955,10 +944,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     "  border: 2px solid rgba(55,53,47,0.12); }"
                     "QPushButton:hover { border: 2px solid rgba(55,53,47,0.35); }"
                     "QPushButton:checked { border: 2px solid %3; }")
-                    .arg(ch.hex, QString::number(swatch / 2),
+                    .arg(ch.color.name(QColor::HexRgb),
+                         QString::number(swatch / 2),
                          BlopStyle::paperInk().name(QColor::HexRgb)));
-            b->setChecked(ch.value == activeAccent);
-            accentGroup->addButton(b, static_cast<int>(ch.value));
+            b->setChecked(ch.accent == activeAccent);
+            accentGroup->addButton(b, static_cast<int>(ch.accent));
             BlopRipple::attachPressFeedback(b, 0.88);
             accentLay->addWidget(b);
         }
@@ -1226,18 +1216,19 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
           const char *label;
           const char *tip;
         };
+        // Desktop note chrome renders NoteToolbarHost (Bar / Floating /
+        // Radiant / Science). The old Klassisch/A-D list only drove the hidden
+        // ModernToolbar, so the segment now edits the toolbar that is
+        // actually on screen.
         const VariantOpt opts[] = {
-            {0, "Klassisch", "Legacy-Pill (Stift / Bleistift / …)"},
-            {1, "A Labels", "Horizontal mit Beschriftungen"},
-            {2, "B Flach", "Kompakte horizontale Pill"},
-            {3, "C Radial", "Radial-Toolbar unten rechts"},
-            {4, "D Vertikal", "Zweispaltige Werkzeug-Grid"},
+            {0, "Balken", "Feste Werkzeugleiste (Standard)"},
+            {1, "Floating", "Schwebende Pill"},
+            {2, "Radiant", "Radiale Auswahl"},
+            {3, "Wissenschaftlich", "Zweispaltige Werkzeug-Leiste"},
         };
-        QSettings vs(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-        int saved = vs.value(QStringLiteral("ui/studio_toolbar_variant"), 1)
-                        .toInt();
-        if (saved < 0 || saved > 4)
-          saved = 1;
+        int saved = static_cast<int>(noteToolbarStyle());
+        if (saved < 0 || saved > 3)
+          saved = 0;
         for (const VariantOpt &o : opts) {
           auto *b = new QPushButton(QString::fromUtf8(o.label), variantSeg);
           b->setCheckable(true);
@@ -1253,19 +1244,13 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
           variantLay->addWidget(b, 0);
         }
         connect(bgVariant, &QButtonGroup::idClicked, this, [this](int id) {
-          QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-          s.setValue(QStringLiteral("ui/studio_toolbar_variant"), id);
-          emit studioToolbarVariantChanged(id);
-          if (m_profileManager) {
-            auto profile = m_profileManager->currentProfile();
-            profile.toolbarStyle = (id == 3) ? 1 : 0;
-            m_profileManager->updateProfile(profile, true);
-          }
-          emit toolbarStyleChanged(id == 3);
+          setNoteToolbarStyle(static_cast<NoteToolbarStyle>(id));
+          emit noteToolbarStyleChanged();
         });
         cardLook->addBodyWidget(makePropertyRow(
-            cardLook, QStringLiteral("Layout"), variantSeg, false,
-            QStringLiteral("toolbar studio layout a b c d klassisch radial")));
+            cardLook, QStringLiteral("Werkzeugleiste"), variantSeg, false,
+            QStringLiteral("toolbar werkzeugleiste layout balken floating "
+                           "radiant wissenschaftlich")));
 #endif
 
         auto *autoSeg = new QWidget(cardLook);
@@ -2158,6 +2143,31 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
       }
 #endif
 
+      {
+        // Opt-in crash upload (enforced in blopInitCrashReporting; applies
+        // after the next start). Default: off.
+        auto *btnCrash = makeQuietAction(cardSystem, QStringLiteral("Aus"));
+        btnCrash->setCheckable(true);
+        btnCrash->setChecked(
+            QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+                .value(QStringLiteral("privacy/crashUpload"), false)
+                .toBool());
+        btnCrash->setText(btnCrash->isChecked() ? QStringLiteral("An")
+                                                : QStringLiteral("Aus"));
+        btnCrash->setToolTip(QStringLiteral(
+            "Anonyme Absturzberichte an die Entwickler senden "
+            "(gilt ab dem nächsten Start)"));
+        connect(btnCrash, &QPushButton::toggled, this, [btnCrash](bool on) {
+          QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+              .setValue(QStringLiteral("privacy/crashUpload"), on);
+          btnCrash->setText(on ? QStringLiteral("An") : QStringLiteral("Aus"));
+        });
+        cardSystem->addBodyWidget(makePropertyRow(
+            cardSystem, QStringLiteral("Absturzberichte senden"), btnCrash,
+            false,
+            QStringLiteral("absturz crash bericht datenschutz sentry")));
+      }
+
       auto *btnTrace = makeQuietAction(cardSystem, QStringLiteral("Aus"));
       btnTrace->setCheckable(true);
       btnTrace->setChecked(BlopDiag::sessionTraceActive());
@@ -2927,9 +2937,7 @@ void SettingsDialog::animateSectionPage(QWidget *page)
     if (!isVisible() || !page->isVisible())
         return;
 
-    // Respect reduce-motion pref.
-    QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-    if (st.value(QStringLiteral("ui/reduceMotion"), false).toBool())
+    if (BlopMotion::reduceMotion())
         return;
 
     auto *fx = new QGraphicsOpacityEffect(page);

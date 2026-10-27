@@ -4,7 +4,10 @@
 #include <QDateTime>
 #include <QObject>
 #include <QString>
+#include <QUrl>
 #include <QVector>
+
+#include <functional>
 
 struct CalendarEvent {
   QString id;
@@ -25,6 +28,7 @@ public:
 
   QVector<CalendarEvent> upcoming(int limit = 12) const;
   QVector<CalendarEvent> eventsForDay(const QDate &day) const;
+  CalendarEvent eventById(const QString &id) const;
   CalendarEvent addLocal(const QString &title, const QDateTime &start,
                          const QDateTime &end, bool allDay = false,
                          const QString &location = QString(),
@@ -34,6 +38,8 @@ public:
                             const QDateTime &end, bool allDay = false,
                             const QString &location = QString(),
                             const QString &color = QString());
+  /// Updates a local or Google event (matched by `e.id`).
+  bool updateEvent(const CalendarEvent &e);
   bool removeLocal(const QString &id);
   /// Deletes local or Google event by id.
   bool removeEvent(const QString &id);
@@ -52,5 +58,16 @@ private:
   explicit CalendarService(QObject *parent = nullptr);
   QVector<CalendarEvent> loadLocal() const;
   void saveLocal(const QVector<CalendarEvent> &events) const;
+  /// Local + Google, without local mirrors that Google already returned.
+  QVector<CalendarEvent> merged() const;
+  /// Authorized Google call; on 401 refreshes the token once and retries.
+  void googleRequest(const QByteArray &verb, const QUrl &url,
+                     const QByteArray &body,
+                     std::function<void(int status, const QByteArray &)> done,
+                     bool retried = false);
+  void handleGoogleUnauthorized();
   QVector<CalendarEvent> m_googleCache;
+  qint64 m_lastRefreshAttemptMs{0};
+  bool m_googleInFlight{false};
+  int m_googleEpoch{0};
 };

@@ -93,8 +93,13 @@ private:
             if (!item->shape().intersects(eraserInItem)) continue;
 
             // FEATURE: "Nur Textmarker löschen"
-            // Marker liegen auf Z <= 5 (DrawBehind=-10, Normal=5). Tinte >= 10.
-            if (m_config.eraserKeepInk && pathItem->zValue() >= 10) continue;
+            if (m_config.eraserKeepInk) {
+                auto *si = dynamic_cast<StrokeItem *>(pathItem);
+                if (si && si->strokeStyle() != StrokeItem::Highlighter)
+                    continue;
+                if (!si && pathItem->zValue() >= 1.0)
+                    continue;
+            }
 
             // --- MODUS 1: OBJEKT RADIERER (Ganzes Item weg) ---
             if (m_config.eraserMode == EraserMode::Object) {

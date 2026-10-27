@@ -392,7 +392,7 @@ void LibraryTagsPanel::refreshTheme() {
   setStyleSheet(QStringLiteral(
                     "QWidget#LibraryTagsPanel {"
                     "  background: %1;"
-                    "  border-top: 1px solid %2;"
+                    "  border: none;"
                     "}"
                     "QLabel#libraryTagsTitle {"
                     "  color: %3; font-size: 10px; font-weight: 700;"

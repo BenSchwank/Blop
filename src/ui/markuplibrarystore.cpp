@@ -1,3 +1,4 @@
+#include "atomicfile.h"
 #include "markuplibrarystore.h"
 
 #include <algorithm>
@@ -104,11 +105,9 @@ bool MarkupLibraryStore::save(const QVector<MarkupLibraryItem> &items) {
     o.insert(QStringLiteral("strokes"), strokes);
     arr.append(o);
   }
-  QFile f(storePath());
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-    return false;
-  f.write(QJsonDocument(arr).toJson(QJsonDocument::Compact));
-  return true;
+  return AtomicFile::write(storePath(),
+                           QJsonDocument(arr).toJson(QJsonDocument::Compact),
+                           QStringLiteral("Markup-Bibliothek"));
 }
 
 bool MarkupLibraryStore::addItem(const MarkupLibraryItem &item) {

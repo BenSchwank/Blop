@@ -18,10 +18,15 @@ public:
     void loadNoteAsync(const QString& path, std::function<void(bool, Note)> onDone);
 
     // Sync helpers used inside async
+    /// Atomic (QSaveFile), serialized per process, newest-wins, rolling .bak.
     static bool saveNote(const Note& note, const QString& path);
+    /// Falls back to `path + ".bak"` when the file exists but is corrupt.
     static bool loadNote(const QString& path, Note& out);
 
 private:
+    static quint64 nextSeq(const QString& path);
+    static bool writeNote(const Note& note, const QString& path, quint64 seq);
+    static bool loadNoteFile(const QString& path, Note& out);
     static QJsonDocument toJson(const Note& note);
     static bool fromJson(const QJsonDocument& doc, Note& out);
 };

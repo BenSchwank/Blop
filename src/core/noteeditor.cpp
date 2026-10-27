@@ -78,36 +78,94 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
                       SelectionMenuIcons::pdfDocIcon(),
                       [safeNote]() {
                           if (!safeNote || !safeNote->canvas_) return;
-                          const QString dir = QStandardPaths::writableLocation(
-                              QStandardPaths::DocumentsLocation);
-                          QDir().mkpath(dir);
-                          const QString path = dir + QStringLiteral("/Blop_%1.pdf")
-                              .arg(QDateTime::currentDateTime().toString(
-                                  QStringLiteral("yyyyMMdd_HHmmss")));
-                          const bool ok = safeNote->canvas_->exportNoteToPdf(path);
-                          BlopDialogs::notify(
-                              safeNote, ok ? QStringLiteral("Exportiert")
-                                           : QStringLiteral("Fehler"),
-                              ok ? QStringLiteral("PDF gespeichert:\n%1").arg(path)
-                                 : QStringLiteral("PDF konnte nicht gespeichert werden."));
+                          // SAF: user chooses the destination; we render into a
+                          // cache file and publish it into the picked URI.
+                          const QString name =
+                              (safeNote->note_ && !safeNote->note_->title.isEmpty()
+                                   ? safeNote->note_->title
+                                   : QStringLiteral("Blop")) +
+                              QStringLiteral(".pdf");
+                          AndroidContentPicker::instance().pickSave(
+                              QStringLiteral("application/pdf"), name,
+                              [safeNote](const QString &cachePath) {
+                                  if (cachePath.isEmpty() || !safeNote ||
+                                      !safeNote->canvas_)
+                                      return;
+                                  const bool ok =
+                                      safeNote->canvas_->exportNoteToPdf(cachePath);
+                                  if (ok)
+                                      AndroidContentPicker::instance().finishSave(
+                                          cachePath);
+                                  BlopDialogs::notify(
+                                      safeNote,
+                                      ok ? QStringLiteral("Exportiert")
+                                         : QStringLiteral("Fehler"),
+                                      ok ? QStringLiteral("PDF gespeichert.")
+                                         : QStringLiteral(
+                                               "PDF konnte nicht gespeichert werden."));
+                              });
+                      },
+                      false, false});
+        items.append({QStringLiteral("Als Markdown exportieren"),
+                      SelectionMenuIcons::pdfDocIcon(),
+                      [safeNote]() {
+                          if (!safeNote || !safeNote->canvas_) return;
+                          const QString name =
+                              (safeNote->note_ && !safeNote->note_->title.isEmpty()
+                                   ? safeNote->note_->title
+                                   : QStringLiteral("Blop")) +
+                              QStringLiteral(".md");
+                          AndroidContentPicker::instance().pickSave(
+                              QStringLiteral("text/markdown"), name,
+                              [safeNote](const QString &cachePath) {
+                                  if (cachePath.isEmpty() || !safeNote ||
+                                      !safeNote->canvas_)
+                                      return;
+                                  const bool ok =
+                                      safeNote->canvas_->exportNoteToMarkdown(cachePath);
+                                  if (ok)
+                                      AndroidContentPicker::instance().finishSave(
+                                          cachePath);
+                                  BlopDialogs::notify(
+                                      safeNote,
+                                      ok ? QStringLiteral("Exportiert")
+                                         : QStringLiteral("Fehler"),
+                                      ok ? QStringLiteral("Markdown gespeichert.")
+                                         : QStringLiteral(
+                                               "Markdown konnte nicht gespeichert werden."));
+                              });
                       },
                       false, false});
         items.append({QStringLiteral("Als Bild exportieren"),
                       SelectionMenuIcons::screenshotIcon(),
                       [safeNote]() {
                           if (!safeNote || !safeNote->canvas_) return;
-                          const QString dir = QStandardPaths::writableLocation(
-                              QStandardPaths::PicturesLocation);
-                          QDir().mkpath(dir);
-                          const QString path = dir + QStringLiteral("/Blop_%1.png")
-                              .arg(QDateTime::currentDateTime().toString(
-                                  QStringLiteral("yyyyMMdd_HHmmss")));
-                          const bool ok = safeNote->canvas_->exportNoteToPng(path);
-                          BlopDialogs::notify(
-                              safeNote, ok ? QStringLiteral("Exportiert")
-                                           : QStringLiteral("Fehler"),
-                              ok ? QStringLiteral("Bild gespeichert:\n%1").arg(path)
-                                 : QStringLiteral("Bild konnte nicht gespeichert werden."));
+                          // One PNG per SAF pick: export the visible page.
+                          const int page = safeNote->canvas_->currentPageIndex();
+                          const QString name =
+                              (safeNote->note_ && !safeNote->note_->title.isEmpty()
+                                   ? safeNote->note_->title
+                                   : QStringLiteral("Blop")) +
+                              QStringLiteral("_S%1.png").arg(page + 1);
+                          AndroidContentPicker::instance().pickSave(
+                              QStringLiteral("image/png"), name,
+                              [safeNote, page](const QString &cachePath) {
+                                  if (cachePath.isEmpty() || !safeNote ||
+                                      !safeNote->canvas_)
+                                      return;
+                                  const bool ok =
+                                      safeNote->canvas_->exportPageToPng(page, cachePath);
+                                  if (ok)
+                                      AndroidContentPicker::instance().finishSave(
+                                          cachePath);
+                                  BlopDialogs::notify(
+                                      safeNote,
+                                      ok ? QStringLiteral("Exportiert")
+                                         : QStringLiteral("Fehler"),
+                                      ok ? QStringLiteral("Seite als Bild gespeichert.")
+                                         : QStringLiteral(
+                                               "Bild konnte nicht gespeichert werden."));
+                              });
                       },
                       false, false});
         items.append({QStringLiteral("PDF importieren"),
@@ -222,11 +280,32 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
             return;
         bool ok = safe->canvas_->exportNoteToPdf(path);
         if (ok)
-            QMessageBox::information(safe, QStringLiteral("Exportiert"),
+            BlopDialogs::notify(safe, QStringLiteral("Exportiert"),
                                      QStringLiteral("PDF wurde gespeichert!"));
         else
-            QMessageBox::warning(safe, QStringLiteral("Fehler"),
+            BlopDialogs::notify(safe, QStringLiteral("Fehler"),
                                  QStringLiteral("PDF konnte nicht gespeichert werden."));
+    });
+
+    QAction *actExportMd =
+        menu->addAction(QStringLiteral("Als Markdown exportieren"));
+    actExportMd->setIcon(SelectionMenuIcons::pdfDocIcon());
+    QObject::connect(actExportMd, &QAction::triggered, this, [safe]() {
+        if (!safe)
+            return;
+        QString path = QFileDialog::getSaveFileName(
+            safe, QStringLiteral("Als Markdown exportieren"),
+            safe->note_ ? safe->note_->title + ".md" : "Notiz.md",
+            QStringLiteral("Markdown (*.md)"));
+        if (path.isEmpty() || !safe || !safe->canvas_)
+            return;
+        const bool ok = safe->canvas_->exportNoteToMarkdown(path);
+        if (ok)
+            BlopDialogs::notify(safe, QStringLiteral("Exportiert"),
+                                     QStringLiteral("Markdown wurde gespeichert!"));
+        else
+            BlopDialogs::notify(safe, QStringLiteral("Fehler"),
+                                 QStringLiteral("Markdown konnte nicht gespeichert werden."));
     });
 
     QAction *actExportImg =
@@ -243,10 +322,10 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
             return;
         bool ok = safe->canvas_->exportNoteToPng(path);
         if (ok)
-            QMessageBox::information(safe, QStringLiteral("Exportiert"),
+            BlopDialogs::notify(safe, QStringLiteral("Exportiert"),
                                      QStringLiteral("Bild wurde gespeichert!"));
         else
-            QMessageBox::warning(safe, QStringLiteral("Fehler"),
+            BlopDialogs::notify(safe, QStringLiteral("Fehler"),
                                  QStringLiteral("Bild konnte nicht gespeichert werden."));
     });
 
@@ -264,13 +343,13 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
             return;
         bool ok = safe->canvas_->importPdfPages(path);
         if (ok)
-            QMessageBox::information(
+            BlopDialogs::notify(
                 safe, QStringLiteral("Importiert"),
                 QStringLiteral(
                     "PDF wurde seitenweise importiert.\nJede PDF-Seite erscheint als "
                     "eigene Notizseite."));
         else
-            QMessageBox::warning(
+            BlopDialogs::notify(
                 safe, QStringLiteral("Fehler"),
                 QStringLiteral(
                     "PDF konnte nicht importiert werden.\n"

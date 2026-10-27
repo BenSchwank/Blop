@@ -43,9 +43,9 @@ ToolMode keyToMode(const QString &k) {
   if (k == QLatin1String("sticky")) return ToolMode::StickyNote;
   if (k == QLatin1String("text")) return ToolMode::Text;
   if (k == QLatin1String("hand")) return ToolMode::Hand;
-  if (k == QLatin1String("pi") || k == QLatin1String("formula"))
-    return ToolMode::Formula;
-  if (k == QLatin1String("molecule")) return ToolMode::Molecule;
+  if (k == QLatin1String("pi") || k == QLatin1String("formula") ||
+      k == QLatin1String("molecule"))
+    return ToolMode::Pen;
   return ToolMode::Pen;
 }
 

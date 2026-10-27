@@ -1,7 +1,6 @@
 #include "toolpickeroverlay.h"
 
 #include "blop_theme.h"
-#include "blopstyle.h"
 #include "moderntoolbar.h"
 #include "notechrome.h"
 #include "tools/ToolManager.h"
@@ -45,8 +44,6 @@ const ToolEntry kTools[] = {
     {ToolMode::Shape, "Sinus", "sine", 1, 3},
     {ToolMode::Shape, "Graph", "graph", 1, 4},
     {ToolMode::Ruler, "Messen", "measure", 3, -1},
-    {ToolMode::Formula, "Formel · demnächst", "pi", 3, -1},
-    {ToolMode::Molecule, "Molekül · demnächst", "molecule", 3, -1},
     {ToolMode::Text, "Text", "text", 2, -1},
     {ToolMode::Image, "Bild", "image", 4, -1},
     {ToolMode::StickyNote, "Notiz", "stickynote", 4, -1},
@@ -78,11 +75,15 @@ void ToolPickerOverlay::present(QWidget *host, const QColor &accent,
                                 SelectFn onSelect) {
   if (!host)
     return;
+  // Cover the whole window (title + sidebar), not only the editor column.
+  QWidget *win = host->window() ? host->window() : host;
   auto *overlay =
-      new ToolPickerOverlay(host, accent, alreadyInToolbar, std::move(onSelect));
-  overlay->setGeometry(host->rect());
+      new ToolPickerOverlay(win, accent, alreadyInToolbar, std::move(onSelect));
+  overlay->setGeometry(win->rect());
+  overlay->layoutCard();
   overlay->show();
   overlay->raise();
+  overlay->setFocus(Qt::PopupFocusReason);
 }
 
 ToolPickerOverlay::ToolPickerOverlay(QWidget *host, const QColor &accent,
@@ -93,14 +94,15 @@ ToolPickerOverlay::ToolPickerOverlay(QWidget *host, const QColor &accent,
       m_onSelect(std::move(onSelect)), m_inToolbar(alreadyInToolbar) {
   setAttribute(Qt::WA_DeleteOnClose, true);
   setAttribute(Qt::WA_StyledBackground, true);
+  setFocusPolicy(Qt::StrongFocus);
   setStyleSheet(QStringLiteral("background: %1;")
                     .arg(BlopTheme::scrimColor().name(QColor::HexArgb)));
 
   auto *card = new QFrame(this);
   card->setObjectName(QStringLiteral("ToolPickerCard"));
-  // Same surface language as ColorPicker / A4 / BlopModal cards.
+  // NoteChrome surface — matches Alle Seiten / page register, not Study purple.
   card->setStyleSheet(
-      BlopStyle::surfaceStyle(QStringLiteral("ToolPickerCard")) +
+      NoteChrome::overlayCardStyle(QStringLiteral("ToolPickerCard")) +
       QStringLiteral("QLabel { background: transparent; color: %1; }"
                      "QLineEdit {"
                      "  background: %2; color: %1;"
@@ -120,10 +122,6 @@ ToolPickerOverlay::ToolPickerOverlay(QWidget *host, const QColor &accent,
                NoteChrome::border().name(QColor::HexRgb),
                NoteChrome::textSecondary().name(QColor::HexRgb),
                m_accent.name(QColor::HexRgb)));
-
-  const int cardW = qMin(720, qMax(520, int(host->width() * 0.58)));
-  const int cardH = qMin(500, qMax(380, int(host->height() * 0.62)));
-  card->setGeometry((width() - cardW) / 2, (height() - cardH) / 2, cardW, cardH);
 
   auto *root = new QVBoxLayout(card);
   root->setContentsMargins(UiScale::dp(22), UiScale::dp(18), UiScale::dp(22),
@@ -273,7 +271,8 @@ void ToolPickerOverlay::rebuildGrid(int categoryIndex) {
       if (mode == ToolMode::Shape && shapeKind >= 0) {
         ToolConfig &cfg = ToolManager::instance().configFor(ToolMode::Shape);
         cfg.shapeToolKind = static_cast<ShapeToolKind>(shapeKind);
-        ToolManager::instance().setConfig(cfg);
+        // Do not call setConfig(): that writes onto the currently active
+        // tool (Pen/Highlighter/…) instead of Shape.
       }
       if (m_onSelect)
         m_onSelect(mode);
@@ -308,6 +307,33 @@ void ToolPickerOverlay::rebuildGrid(int categoryIndex) {
   grid->setRowStretch(row + 1, 1);
 }
 
+void ToolPickerOverlay::layoutCard() {
+  for (QObject *c : children()) {
+    auto *w = qobject_cast<QWidget *>(c);
+    if (!w || w->objectName() != QLatin1String("ToolPickerCard"))
+      continue;
+    const int cardW = qMin(720, qMax(520, int(width() * 0.58)));
+    const int cardH = qMin(500, qMax(380, int(height() * 0.62)));
+    w->setGeometry((width() - cardW) / 2, (height() - cardH) / 2, cardW, cardH);
+    break;
+  }
+}
+
+void ToolPickerOverlay::keyPressEvent(QKeyEvent *e) {
+  if (e->key() == Qt::Key_Escape || e->key() == Qt::Key_Back) {
+    close();
+    e->accept();
+    return;
+  }
+  QWidget::keyPressEvent(e);
+}
+
+void ToolPickerOverlay::showEvent(QShowEvent *e) {
+  QWidget::showEvent(e);
+  layoutCard();
+  setFocus(Qt::PopupFocusReason);
+}
+
 bool ToolPickerOverlay::event(QEvent *e) {
   if (e->type() == QEvent::MouseButtonPress) {
     auto *me = static_cast<QMouseEvent *>(e);
@@ -324,16 +350,7 @@ bool ToolPickerOverlay::event(QEvent *e) {
   }
   if (e->type() == QEvent::Resize && parentWidget()) {
     setGeometry(parentWidget()->rect());
-    for (QObject *c : children()) {
-      if (auto *w = qobject_cast<QWidget *>(c)) {
-        if (w->objectName() == QStringLiteral("ToolPickerCard")) {
-          const int cardW = qMin(720, qMax(520, int(width() * 0.58)));
-          const int cardH = qMin(500, qMax(380, int(height() * 0.62)));
-          w->setGeometry((width() - cardW) / 2, (height() - cardH) / 2, cardW,
-                         cardH);
-        }
-      }
-    }
+    layoutCard();
   }
   return QWidget::event(e);
 }

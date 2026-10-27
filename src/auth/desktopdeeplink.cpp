@@ -142,19 +142,8 @@ void DesktopDeepLink::registerProtocolHandler() {
   if (exe.isEmpty())
     return;
 #ifdef Q_OS_WIN
-  ensureSidecarQtRuntime(exe);
   removeLegacyLaunchers(exe);
 
-  {
-    QSettings reg(QStringLiteral("HKEY_CURRENT_USER\\Software\\Classes\\blop"),
-                  QSettings::NativeFormat);
-    reg.setValue(QStringLiteral("Default"), QStringLiteral("URL:Blop Protocol"));
-    reg.setValue(QStringLiteral("."), QStringLiteral("URL:Blop Protocol"));
-    reg.setValue(QStringLiteral("URL Protocol"), QString());
-    reg.sync();
-  }
-
-  // Always point at Blop.exe directly — never a console/.vbs wrapper.
   const QString commandValue =
       QStringLiteral("\"%1\" \"%2\"").arg(exe, QStringLiteral("%1"));
   {
@@ -162,9 +151,23 @@ void DesktopDeepLink::registerProtocolHandler() {
         QStringLiteral(
             "HKEY_CURRENT_USER\\Software\\Classes\\blop\\shell\\open\\command"),
         QSettings::NativeFormat);
+    const QString existing = cmd.value(QStringLiteral(".")).toString();
+    if (!existing.isEmpty() &&
+        !existing.contains(exe, Qt::CaseInsensitive)) {
+      qInfo() << "DesktopDeepLink: leaving existing blop:// handler" << existing;
+      return;
+    }
     cmd.setValue(QStringLiteral("."), commandValue);
     cmd.setValue(QStringLiteral("Default"), commandValue);
     cmd.sync();
+  }
+  {
+    QSettings reg(QStringLiteral("HKEY_CURRENT_USER\\Software\\Classes\\blop"),
+                  QSettings::NativeFormat);
+    reg.setValue(QStringLiteral("Default"), QStringLiteral("URL:Blop Protocol"));
+    reg.setValue(QStringLiteral("."), QStringLiteral("URL:Blop Protocol"));
+    reg.setValue(QStringLiteral("URL Protocol"), QString());
+    reg.sync();
   }
   qInfo() << "DesktopDeepLink: registered blop:// ->" << commandValue
           << "hasLocalDlls=" << exeHasLocalQtDlls(exe);
@@ -261,6 +264,7 @@ void DesktopDeepLink::startServer() {
     return;
   QLocalServer::removeServer(QString::fromLatin1(kServerName));
   m_server = new QLocalServer(this);
+  m_server->setSocketOptions(QLocalServer::UserAccessOption);
   connect(m_server, &QLocalServer::newConnection, this, [this]() {
     while (m_server->hasPendingConnections()) {
       QLocalSocket *client = m_server->nextPendingConnection();

@@ -17,7 +17,7 @@ execute_process(
 
 # Fallback if git fails
 if(NOT GIT_VERSION)
-    set(GIT_VERSION "3.18.12")
+    set(GIT_VERSION "3.29.47")
 endif()
 
 # Remove 'v' prefix if it exists for the project() call
@@ -26,7 +26,7 @@ string(REGEX REPLACE "^v" "" CLEAN_VERSION "${GIT_VERSION}")
 # We'll just extract the numeric part x.y.z.w
 string(REGEX MATCH "^([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+|[0-9]+)" SAFE_VERSION "${CLEAN_VERSION}")
 if(NOT SAFE_VERSION)
-    set(SAFE_VERSION "3.18.12")
+    set(SAFE_VERSION "3.29.47")
 endif()
 
 project(Blop VERSION ${SAFE_VERSION} LANGUAGES C CXX)
@@ -224,10 +224,6 @@ qt_add_executable(Blop
     src/ui/cloudstoragestore.h
     src/ui/cloudlink.cpp
     src/ui/cloudlink.h
-    src/ui/cloudwebexplorer.cpp
-    src/ui/cloudwebexplorer.h
-    src/ui/cloudnotesbrowser.cpp
-    src/ui/cloudnotesbrowser.h
     src/ui/phonelibrarynav.cpp
     src/ui/phonelibrarynav.h
     src/ui/phonechrome.cpp
@@ -238,10 +234,8 @@ qt_add_executable(Blop
     src/ui/storageprefs.h
     src/ui/blop_dialogs.cpp
     src/ui/blop_dialogs.h
-    src/ui/introscreen.h
-    src/ui/introscreen.cpp
-    src/ui/onboardingwizard.h
-    src/ui/onboardingwizard.cpp
+    src/ui/helpdialog.h
+    src/ui/helpdialog.cpp
     src/ui/onboardingwizard.h
     src/ui/onboardingwizard.cpp
     src/ui/overlayscrollindicator.h
@@ -271,13 +265,13 @@ qt_add_executable(Blop
     src/core/uiprofilemanager.h
     src/core/uiprofilemanager.cpp
     src/core/Note.h
+    src/core/blop_version.h
     src/core/PageItem.h
     src/core/UIStyles.h
     src/core/UIStyles.cpp
     src/core/ToolMode.h
     src/core/ToolSettings.h
     src/core/TransformOverlay.h
-    src/core/UIStyles.h
     src/core/SelectionMenuIcons.h
     src/core/uiprofile.h
 
@@ -300,19 +294,22 @@ qt_add_executable(Blop
     src/util/uiscale.cpp
     src/util/blop_scroll.h
     src/util/blop_scroll.cpp
+    src/util/atomicfile.h
+    src/util/atomicfile.cpp
+    src/util/versioncompare.h
+    src/util/settingskeys.h
+    src/ui/updatechecker.h
+    src/ui/updatechecker.cpp
+    src/util/securestore.h
+    src/util/securestore.cpp
 
     # QML async image provider
-    src/imageprovider/BlopAsyncImageProvider.h
-    src/imageprovider/BlopAsyncImageProvider.cpp
-    src/imageprovider/BlopImageResponse.h
-    src/imageprovider/BlopImageResponse.cpp
 
     # Tools (already organized under tools/)
     tools/AbstractTool.h
     tools/ToolManager.h
     tools/ToolManager.cpp
     tools/ToolUIBridge.h
-    tools/ToolFactory.h
     tools/StrokeItem.h
     tools/AbstractStrokeTool.h
     tools/WritingTools.h
@@ -371,7 +368,6 @@ target_include_directories(Blop PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/auth"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/observability"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/util"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/imageprovider"
 )
 
 # Core Libraries verlinken
@@ -566,6 +562,17 @@ endif()
 # Windows-only QA console: BlopTrace.exe (session log → Downloads). Not linked into Blop.
 if(WIN32 AND NOT ANDROID)
     add_subdirectory(tools/blop_trace)
+endif()
+
+if(WIN32)
+    target_link_libraries(Blop PRIVATE crypt32)
+endif()
+
+# --- Unit tests (QtTest; desktop only) ---
+option(BLOP_BUILD_TESTS "Build QtTest unit tests (ctest)" ON)
+if(BLOP_BUILD_TESTS AND NOT ANDROID)
+    enable_testing()
+    add_subdirectory(tests)
 endif()
 
 # --- Additive automation (benchmarks, future headless tools): never linked into Blop ---

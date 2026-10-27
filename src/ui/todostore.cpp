@@ -1,3 +1,4 @@
+#include "atomicfile.h"
 #include "todostore.h"
 
 #include <QDir>
@@ -68,9 +69,9 @@ void TodoStore::save(const QVector<TodoItem> &items) {
       o.insert(QStringLiteral("tags"), QJsonArray::fromStringList(t.tags));
     arr.append(o);
   }
-  QFile f(todoPath());
-  if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-    f.write(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+  AtomicFile::write(todoPath(),
+                    QJsonDocument(arr).toJson(QJsonDocument::Compact),
+                    QStringLiteral("Aufgaben"));
 }
 
 TodoItem TodoStore::add(const QString &title, const QDateTime &due,

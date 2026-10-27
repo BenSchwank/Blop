@@ -316,6 +316,25 @@ QString noteWriteRoot(const QString &localRoot) {
   return nested;
 }
 
+/// Path of a note inside the cloud mirror, relative to the mirror folder.
+/// Keeps the library folder structure so two notes called "Mathe.bnote" in
+/// different folders no longer overwrite each other. Notes outside the local
+/// library (or inside hidden folders such as the trash) keep the flat
+/// file-name behaviour.
+static QString mirrorRelativePath(const QString &localNotePath) {
+  const QString abs =
+      QDir::cleanPath(QFileInfo(localNotePath).absoluteFilePath());
+  const QString root = QDir::cleanPath(ensureLocalLibraryRoot());
+  if (!root.isEmpty() &&
+      abs.startsWith(root + QLatin1Char('/'), Qt::CaseInsensitive)) {
+    const QString rel = abs.mid(root.size() + 1);
+    if (!rel.startsWith(QLatin1Char('.')) &&
+        !rel.contains(QLatin1String("/.")))
+      return rel;
+  }
+  return QFileInfo(abs).fileName();
+}
+
 bool mirrorNoteToCloudIfNeeded(const QString &localNotePath) {
   const bool api = CloudLinkHub::instance().primaryUsesApi();
   const Mode m = mode();
@@ -335,14 +354,26 @@ bool mirrorNoteToCloudIfNeeded(const QString &localNotePath) {
     return false;
 
   const QString dest =
-      destDir + QLatin1Char('/') + QFileInfo(localNotePath).fileName();
+      destDir + QLatin1Char('/') + mirrorRelativePath(localNotePath);
+  if (!QDir().mkpath(QFileInfo(dest).absolutePath()))
+    return false;
   if (QFileInfo(dest).canonicalFilePath() ==
       QFileInfo(localNotePath).canonicalFilePath())
     return true;
 
-  if (QFile::exists(dest))
-    QFile::remove(dest);
-  return QFile::copy(localNotePath, dest);
+  const QString tmp = dest + QStringLiteral(".tmp");
+  QFile::remove(tmp);
+  if (!QFile::copy(localNotePath, tmp))
+    return false;
+  if (QFile::exists(dest) && !QFile::remove(dest)) {
+    QFile::remove(tmp);
+    return false;
+  }
+  if (!QFile::rename(tmp, dest)) {
+    QFile::remove(tmp);
+    return false;
+  }
+  return true;
 }
 
 bool removeCloudMirrorIfNeeded(const QString &localNotePath) {
@@ -354,7 +385,7 @@ bool removeCloudMirrorIfNeeded(const QString &localNotePath) {
     return false;
   if (api)
     return CloudLinkHub::instance().removeNote(
-        QFileInfo(localNotePath).fileName());
+        mirrorRelativePath(localNotePath));
   if (!QFileInfo::exists(localNotePath))
     return false;
 
@@ -363,8 +394,8 @@ bool removeCloudMirrorIfNeeded(const QString &localNotePath) {
     return false;
 
   const QString destDir = cloud + QLatin1Char('/') + cloudMirrorSubdir();
-  const QString dest = destDir + QLatin1Char('/') +
-                       QFileInfo(localNotePath).fileName();
+  const QString dest =
+      destDir + QLatin1Char('/') + mirrorRelativePath(localNotePath);
   if (!QFile::exists(dest))
     return true;
   return QFile::remove(dest);
@@ -380,20 +411,21 @@ bool renameCloudMirrorIfNeeded(const QString &oldLocalNotePath,
     return false;
   if (api)
     return CloudLinkHub::instance().renameNote(
-        QFileInfo(oldLocalNotePath).fileName(),
-        QFileInfo(newLocalNotePath).fileName());
+        mirrorRelativePath(oldLocalNotePath),
+        mirrorRelativePath(newLocalNotePath));
 
   const QString cloud = primaryLinkedCloudPath();
   if (cloud.isEmpty())
     return false;
 
   const QString destDir = cloud + QLatin1Char('/') + cloudMirrorSubdir();
-  const QString oldDest = destDir + QLatin1Char('/') +
-                          QFileInfo(oldLocalNotePath).fileName();
-  const QString newDest = destDir + QLatin1Char('/') +
-                          QFileInfo(newLocalNotePath).fileName();
+  const QString oldDest =
+      destDir + QLatin1Char('/') + mirrorRelativePath(oldLocalNotePath);
+  const QString newDest =
+      destDir + QLatin1Char('/') + mirrorRelativePath(newLocalNotePath);
   if (!QFile::exists(oldDest))
     return true;
+  QDir().mkpath(QFileInfo(newDest).absolutePath());
   if (QFile::exists(newDest))
     QFile::remove(newDest);
   return QFile::rename(oldDest, newDest);

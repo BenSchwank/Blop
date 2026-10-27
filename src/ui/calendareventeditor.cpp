@@ -1,5 +1,6 @@
 #include "calendareventeditor.h"
 
+#include "blop_dialogs.h"
 #include "blop_modal.h"
 #include "blop_theme.h"
 #include "blopstyle.h"
@@ -40,19 +41,21 @@ QString captionQss() {
 }
 } // namespace
 
-bool CalendarEventEditor::promptNew(QWidget *parent,
-                                    const QDateTime &presetStart,
-                                    CalendarEvent *out) {
+static bool runEditor(QWidget *parent, const CalendarEvent *existing,
+                      const QDateTime &presetStartIn, CalendarEvent *out) {
   if (!out)
     return false;
+  const QDateTime presetStart = existing ? existing->start : presetStartIn;
+  const QString headingText = existing ? QStringLiteral("Termin bearbeiten")
+                                       : QStringLiteral("Neuer Termin");
 
   QDialog dlg(parent);
-  dlg.setWindowTitle(QStringLiteral("Neuer Termin"));
+  dlg.setWindowTitle(headingText);
   auto *root = new QVBoxLayout(&dlg);
   root->setContentsMargins(20, 18, 20, 16);
   root->setSpacing(10);
 
-  auto *heading = new QLabel(QStringLiteral("Neuer Termin"), &dlg);
+  auto *heading = new QLabel(headingText, &dlg);
   heading->setStyleSheet(BlopTheme::themed(
       QStringLiteral("color: %1; font-size: 16px; font-weight: 700;"
                      "background: transparent;")
@@ -69,6 +72,8 @@ bool CalendarEventEditor::promptNew(QWidget *parent,
   auto *title = new QLineEdit(&dlg);
   title->setPlaceholderText(QStringLiteral("z. B. Meeting, Lekce…"));
   title->setStyleSheet(fieldQss());
+  if (existing)
+    title->setText(existing->title);
   root->addWidget(title);
 
   addCaption(QStringLiteral("Datum"));
@@ -109,7 +114,12 @@ bool CalendarEventEditor::promptNew(QWidget *parent,
   auto *endCap = new QLabel(QStringLiteral("Bis"), &dlg);
   endCap->setStyleSheet(captionQss());
   timeColEnd->addWidget(endCap);
-  auto *endTime = new QTimeEdit(startT.addSecs(3600), &dlg);
+  auto *endTime = new QTimeEdit(
+      existing && !existing->allDay && existing->end.isValid() &&
+              existing->end.date() == existing->start.date()
+          ? existing->end.time()
+          : startT.addSecs(3600),
+      &dlg);
   endTime->setDisplayFormat(QStringLiteral("HH:mm"));
   endTime->setStyleSheet(fieldQss());
   timeColEnd->addWidget(endTime);
@@ -123,6 +133,8 @@ bool CalendarEventEditor::promptNew(QWidget *parent,
     startCap->setEnabled(!on);
     endCap->setEnabled(!on);
   };
+  if (existing)
+    allDay->setChecked(existing->allDay);
   QObject::connect(allDay, &QCheckBox::toggled, &dlg, syncAllDay);
   syncAllDay();
 
@@ -130,6 +142,8 @@ bool CalendarEventEditor::promptNew(QWidget *parent,
   auto *location = new QLineEdit(&dlg);
   location->setPlaceholderText(QStringLiteral("Raum, Link, Adresse…"));
   location->setStyleSheet(fieldQss());
+  if (existing)
+    location->setText(existing->location);
   root->addWidget(location);
 
   addCaption(QStringLiteral("Farbe"));
@@ -140,7 +154,9 @@ bool CalendarEventEditor::promptNew(QWidget *parent,
       QStringLiteral("#FF9F0A"), QStringLiteral("#FF453A"),
       QStringLiteral("#BF5AF2"), QStringLiteral("#64D2FF"),
   };
-  QString selectedColor = palette.first();
+  QString selectedColor = existing && !existing->color.isEmpty()
+                              ? existing->color
+                              : palette.first();
   QList<QPushButton *> swatches;
   for (const QString &hex : palette) {
     auto *sw = new QPushButton(&dlg);
@@ -193,24 +209,49 @@ bool CalendarEventEditor::promptNew(QWidget *parent,
     return false;
 
   const QString t = title->text().trimmed();
-  if (t.isEmpty())
+  if (t.isEmpty()) {
+    BlopDialogs::notify(parent, QStringLiteral("Termin"),
+                        QStringLiteral("Bitte einen Titel eingeben."));
     return false;
+  }
 
   out->title = t;
   out->allDay = allDay->isChecked();
   out->location = location->text().trimmed();
   out->color = selectedColor;
-  out->source = QStringLiteral("local");
+  out->source = existing ? existing->source : QStringLiteral("local");
+  out->id = existing ? existing->id : QString();
   if (out->allDay) {
     out->start = QDateTime(date->date(), QTime(0, 0));
-    out->end = QDateTime(date->date().addDays(1), QTime(0, 0));
+    QDate endDay = date->date().addDays(1);
+    if (existing && existing->allDay && existing->end.isValid() &&
+        existing->end.date() > existing->start.date().addDays(1))
+      endDay = existing->end.date();
+    out->end = QDateTime(endDay, QTime(0, 0));
   } else {
     QTime a = startTime->time();
     QTime b = endTime->time();
-    if (b <= a)
-      b = a.addSecs(3600);
     out->start = QDateTime(date->date(), a);
-    out->end = QDateTime(date->date(), b);
+    QDate endDay = date->date();
+    if (existing && existing->end.isValid() &&
+        existing->end.date() != existing->start.date())
+      endDay = existing->end.date();
+    QDateTime endDt(endDay, b);
+    if (endDt <= out->start)
+      endDt = out->start.addSecs(3600);
+    out->end = endDt;
   }
   return true;
+}
+
+bool CalendarEventEditor::promptNew(QWidget *parent,
+                                    const QDateTime &presetStart,
+                                    CalendarEvent *out) {
+  return runEditor(parent, nullptr, presetStart, out);
+}
+
+bool CalendarEventEditor::promptEdit(QWidget *parent,
+                                     const CalendarEvent &existing,
+                                     CalendarEvent *out) {
+  return runEditor(parent, &existing, QDateTime(), out);
 }

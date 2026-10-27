@@ -17,7 +17,9 @@
 #include <QListWidgetItem>
 #include <QPainter>
 #include <QPushButton>
+#include <QEvent>
 #include <QResizeEvent>
+#include <QTimer>
 #include <QVBoxLayout>
 
 AllPagesOverlay::AllPagesOverlay(QWidget *parent) : QWidget(parent) {
@@ -72,18 +74,35 @@ AllPagesOverlay::AllPagesOverlay(QWidget *parent) : QWidget(parent) {
   connect(m_grid->model(), &QAbstractItemModel::rowsMoved, this,
           [this](const QModelIndex &, int start, int end, const QModelIndex &,
                  int dest) {
-            Q_UNUSED(end);
             if (!m_view || start < 0)
               return;
+            const int from = start;
+            const int last = qMax(start, end);
             int to = dest;
-            if (to > start)
+            if (to > from)
               --to;
-            if (to == start)
-              return;
-            m_view->movePage(start, to);
-            emit pagesChanged();
-            rebuild();
+            QTimer::singleShot(0, this, [this, from, last, to]() {
+              if (!m_view)
+                return;
+              // Move the dragged range as a block (ExtendedSelection).
+              const int count = last - from + 1;
+              if (count <= 1) {
+                if (to != from)
+                  m_view->movePage(from, to);
+              } else {
+                int cursor = to;
+                if (to > from)
+                  cursor = to - count + 1;
+                for (int i = 0; i < count; ++i) {
+                  const int src = (to > from) ? from : from + i;
+                  m_view->movePage(src, cursor + i);
+                }
+              }
+              emit pagesChanged();
+              rebuild();
+            });
           });
+  m_grid->installEventFilter(this);
   lay->addWidget(m_grid, 1);
 
   connect(m_btnClose, &QPushButton::clicked, this, &AllPagesOverlay::dismiss);
@@ -105,10 +124,17 @@ void AllPagesOverlay::setAccentColor(const QColor &c) {
 
 void AllPagesOverlay::present() {
   rebuild();
+  if (m_card) {
+    m_card->setProperty("blopOwnsBackground", true);
+    m_card->setProperty("blopNoteChrome", true);
+  }
   refreshChrome();
+  // Prefer the top-level window so the scrim covers title bar + sidebar —
+  // not only the editor center (which sits inside the push spacer).
   QWidget *host = window();
   if (host && m_card) {
     if (m_modal) {
+      m_modal->disconnect(this);
       m_modal->dismiss();
       m_modal.clear();
     }
@@ -120,6 +146,7 @@ void AllPagesOverlay::present() {
       m_modal->setPreferredCardWidth(
           qBound(UiScale::dp(520), host->width() - UiScale::dp(56),
                  UiScale::dp(760)));
+      m_modal->setPreferredCardHeightFrac(0.72);
       connect(m_modal, &BlopModal::dismissed, this, [this]() {
         if (m_card && m_card->parentWidget() != this)
           m_card->setParent(this);
@@ -215,24 +242,31 @@ void AllPagesOverlay::applyBatchDelete() {
 }
 
 void AllPagesOverlay::refreshChrome() {
+  if (m_card) {
+    m_card->setProperty("blopOwnsBackground", true);
+    m_card->setProperty("blopNoteChrome", true);
+  }
+  const QString accent =
+      (m_accent.isValid() ? m_accent : NoteChrome::accent()).name(QColor::HexRgb);
+  // Card fill comes from BlopModal (blopNoteChrome); keep inner chrome NoteChrome.
   setStyleSheet(QStringLiteral(
-      "QWidget#AllPagesCard {"
-      "  background: transparent; border: none; border-radius: 0;"
-      "}"
-      "QLabel { color: %1; background: transparent; }"
-      "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
-      "QListWidget::item {"
-      "  background: %2; border: 1px solid %3; border-radius: 10px; padding: 4px;"
-      "}"
-      "QListWidget::item:selected { border: 2px solid %4; }"
-      "QPushButton {"
-      "  background: %2; color: %1; border: 1px solid %3; border-radius: 10px;"
-      "  padding: 0 12px; font-weight: 600;"
-      "}"
-      "QPushButton:hover { border-color: %4; }")
-                    .arg(NoteChrome::textPrimary().name(),
-                         NoteChrome::panelBg().name(),
-                         NoteChrome::border().name(), m_accent.name()));
+                    "QWidget#AllPagesCard {"
+                    "  background: transparent; border: none; border-radius: 0;"
+                    "}"
+                    "QLabel { color: %1; background: transparent; }"
+                    "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
+                    "QListWidget::item {"
+                    "  background: %2; border: 1px solid %3; border-radius: 10px; padding: 4px;"
+                    "}"
+                    "QListWidget::item:selected { border: 2px solid %4; }"
+                    "QPushButton {"
+                    "  background: %2; color: %1; border: 1px solid %3; border-radius: 10px;"
+                    "  padding: 0 12px; font-weight: 600;"
+                    "}"
+                    "QPushButton:hover { border-color: %4; }")
+                    .arg(NoteChrome::textPrimary().name(QColor::HexRgb),
+                         NoteChrome::panelBg().name(QColor::HexRgb),
+                         NoteChrome::border().name(QColor::HexRgb), accent));
 }
 
 void AllPagesOverlay::paintEvent(QPaintEvent *event) {
@@ -257,8 +291,28 @@ void AllPagesOverlay::keyPressEvent(QKeyEvent *event) {
   QWidget::keyPressEvent(event);
 }
 
+bool AllPagesOverlay::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == m_grid && event->type() == QEvent::KeyPress) {
+    auto *ke = static_cast<QKeyEvent *>(event);
+    if (ke->key() == Qt::Key_Escape || ke->key() == Qt::Key_Back) {
+      dismiss();
+      return true;
+    }
+    if (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) {
+      if (auto *it = m_grid->currentItem()) {
+        emit pageActivated(it->data(Qt::UserRole).toInt());
+        dismiss();
+        return true;
+      }
+    }
+  }
+  return QWidget::eventFilter(watched, event);
+}
+
 void AllPagesOverlay::resizeEvent(QResizeEvent *event) {
   QWidget::resizeEvent(event);
+  if (!m_card || m_card->parentWidget() != this)
+    return;
   // Tighter margins on phone so the page grid has room to breathe.
   const int m = UiScale::isAndroidPhoneUi(this) ? UiScale::dp(12)
                                                  : UiScale::dp(28);

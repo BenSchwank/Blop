@@ -1,5 +1,6 @@
 #include "blopripple.h"
 
+#include "blop_theme.h"
 #include "uiscale.h"
 
 #include <QEasingCurve>
@@ -68,6 +69,8 @@ void BlopRipple::spawn(QWidget *host, const QPoint &globalPos,
   return;
 #else
   Q_UNUSED(host);
+  if (BlopMotion::reduceMotion())
+    return;
 
   QWidget *rip = new BlopRipple(accent, nullptr);
   const int w = UiScale::dp(96);

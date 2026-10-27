@@ -583,6 +583,20 @@ bool CalendarDayView::eventFilter(QObject *watched, QEvent *event) {
 void CalendarDayView::showEventMenu(const CalendarEvent &e,
                                     const QPoint &globalPos) {
   QList<BlopInWindowMenu::Item> items;
+  BlopInWindowMenu::Item edit;
+  edit.label = QStringLiteral("Bearbeiten");
+  edit.handler = [this, e]() {
+    // The hit widget only carries id/title; load the full event.
+    CalendarEvent full = CalendarService::instance().eventById(e.id);
+    if (full.id.isEmpty())
+      return;
+    CalendarEvent edited;
+    if (!CalendarEventEditor::promptEdit(this, full, &edited))
+      return;
+    CalendarService::instance().updateEvent(edited);
+    refresh();
+  };
+  items.push_back(edit);
   BlopInWindowMenu::Item del;
   del.label = QStringLiteral("Löschen");
   del.destructive = true;

@@ -267,6 +267,8 @@ public:
                     graphItem->setZValue(4.0);
                     scene->addItem(graphItem);
                     m_lastCompletedItem = graphItem;
+                } else {
+                    m_lastCompletedItem = m_currentShape;
                 }
                 emit contentModified();
             }

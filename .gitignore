@@ -122,3 +122,11 @@ jdk-*/
 
 # Cursor worktree bookkeeping is per-machine state
 .cursor/worktrees.json
+
+# Scratch output from video/frame analysis and other throw-away tooling
+.tmp-*
+.tmp-*/
+crash.txt
+*.mp4
+*.mov
+*.webm

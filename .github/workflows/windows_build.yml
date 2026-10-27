@@ -5,6 +5,8 @@ on:
     branches: [ "main", "master" ]
     tags:
       - 'v*'
+  pull_request:
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -22,6 +24,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # tags needed for git describe (app + installer version)
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -103,6 +107,15 @@ jobs:
       - name: Build
         working-directory: build
         run: nmake
+
+      - name: Build and run unit tests
+        working-directory: build
+        shell: pwsh
+        run: |
+          cmake --build . --target blop_tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Blop Assistent
         working-directory: build
@@ -287,7 +300,17 @@ jobs:
             exit 1
           }
           Write-Host "Using NSIS at: $nsisPath"
-          & $nsisPath installer.nsi
+          # Derive x.y.z from the git tag so the installer metadata matches the app.
+          $desc = (git describe --tags --always) -replace "^v", ""
+          $nums = @()
+          if ($desc -match "^(\d+)(?:\.(\d+))?(?:\.(\d+))?") {
+            $nums = @($Matches[1], $Matches[2], $Matches[3]) | ForEach-Object { if ($_) { $_ } else { "0" } }
+          } else {
+            $nums = @("0", "0", "0")
+          }
+          $appVersion = $nums -join "."
+          Write-Host "Installer version: $appVersion (from $desc)"
+          & $nsisPath "/DAPP_VERSION=$appVersion" installer.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $assistantExe = @(

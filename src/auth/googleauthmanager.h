@@ -24,6 +24,11 @@ public:
     bool hasCalendarAccess() const;
     QString accessToken() const;
     void clearCalendarAccess();
+    /// Exchanges the stored refresh token for a new access token.
+    /// Emits accessTokenRefreshed() on success, accessTokenRefreshFailed()
+    /// otherwise (no refresh token, revoked, offline). Coalesces calls.
+    void refreshAccessToken();
+    bool hasRefreshToken() const { return !refreshToken().isEmpty(); }
 
     QString userEmail() const { return m_email; }
     QString userName() const { return m_name; }
@@ -57,6 +62,8 @@ signals:
     void idTokenReceived(const QString& idToken);
     void requireBrowser(const QUrl &url);
     void calendarTokenUpdated();
+    void accessTokenRefreshed();
+    void accessTokenRefreshFailed(const QString &reason);
     /// Progress phases for native login UI: browser, callback, verify, done.
     void loginPhaseChanged(const QString &phase);
 #ifdef Q_OS_ANDROID
@@ -135,4 +142,5 @@ private:
     QString m_accessToken;
     bool m_authenticated{false};
     bool m_wantCalendar{false};
+    bool m_refreshInFlight{false};
 };

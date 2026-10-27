@@ -12,14 +12,36 @@
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QSaveFile>
+#include <QDateTime>
+#include <QHash>
+#include <QMutex>
+#include <QMutexLocker>
+#include "atomicfile.h"
 
 
 NoteManager::NoteManager(QObject *parent) : QObject(parent) {}
 
+namespace {
+QMutex g_saveMutex;
+QHash<QString, quint64> g_issuedSeq;
+QHash<QString, quint64> g_writtenSeq;
+QHash<QString, qint64> g_lastBackupMs;
+constexpr qint64 kBackupIntervalMs = 60 * 1000;
+} // namespace
+
+quint64 NoteManager::nextSeq(const QString &path) {
+  const QString key = QFileInfo(path).absoluteFilePath();
+  QMutexLocker l(&g_saveMutex);
+  return ++g_issuedSeq[key];
+}
+
 void NoteManager::saveNoteAsync(const Note &note, const QString &path,
                                 std::function<void(bool)> onDone) {
-  fireAndForget([note, path, onDone]() {
-    bool ok = saveNote(note, path);
+  // Sequence is taken on the caller thread so a slower, older snapshot can
+  // never overwrite a newer one that was queued later.
+  const quint64 seq = nextSeq(path);
+  fireAndForget([note, path, onDone, seq]() {
+    bool ok = writeNote(note, path, seq);
     if (onDone)
       QMetaObject::invokeMethod(
           qApp, [onDone, ok]() { onDone(ok); }, Qt::QueuedConnection);
@@ -38,6 +60,11 @@ void NoteManager::loadNoteAsync(const QString &path,
 }
 
 bool NoteManager::saveNote(const Note &note, const QString &path) {
+  return writeNote(note, path, nextSeq(path));
+}
+
+bool NoteManager::writeNote(const Note &note, const QString &path,
+                            quint64 seq) {
   // Android SAF `content://` tree URIs (and other remote schemes) are not
   // local files. mkpath() on them logs "Cannot create file, parent doesn't
   // exist or not a directory" and QSaveFile can abort the process.
@@ -54,15 +81,32 @@ bool NoteManager::saveNote(const Note &note, const QString &path) {
   // saving to a freshly created sub-folder or cloud mirror path can silently fail.
   QDir().mkpath(QFileInfo(path).absolutePath());
 
+  const QString key = QFileInfo(path).absoluteFilePath();
+  const QByteArray bytes = toJson(note).toJson(QJsonDocument::Compact);
+
+  QMutexLocker lock(&g_saveMutex);
+  if (g_writtenSeq.value(key, 0) > seq)
+    return true; // a newer snapshot was already written
+  // Rolling backup of the previous version (at most once a minute per note).
+  const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+  if (nowMs - g_lastBackupMs.value(key, 0) > kBackupIntervalMs) {
+    AtomicFile::rotateBackup(path);
+    g_lastBackupMs.insert(key, nowMs);
+  }
   QSaveFile file(path);
-  if (!file.open(QIODevice::WriteOnly))
+  if (!file.open(QIODevice::WriteOnly) ||
+      file.write(bytes) != bytes.size() || !file.commit()) {
+    qWarning() << "NoteManager: save failed" << path << file.errorString();
+    SaveStatus::instance().reportFailure(
+        note.title.isEmpty() ? QFileInfo(path).completeBaseName() : note.title,
+        path);
     return false;
-  auto doc = toJson(note);
-  file.write(doc.toJson(QJsonDocument::Compact));
-  return file.commit();
+  }
+  g_writtenSeq.insert(key, seq);
+  return true;
 }
 
-bool NoteManager::loadNote(const QString &path, Note &out) {
+bool NoteManager::loadNoteFile(const QString &path, Note &out) {
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))
     return false;
@@ -70,8 +114,32 @@ bool NoteManager::loadNote(const QString &path, Note &out) {
   return fromJson(doc, out);
 }
 
+bool NoteManager::loadNote(const QString &path, Note &out) {
+  if (loadNoteFile(path, out))
+    return true;
+  // The file exists but cannot be parsed (truncated/corrupt): try the backup.
+  const QFileInfo fi(path);
+  if (fi.exists() && fi.size() > 0) {
+    const QString bak = path + QStringLiteral(".bak");
+    if (QFileInfo::exists(bak) && loadNoteFile(bak, out)) {
+      qWarning() << "NoteManager: restored from backup" << bak;
+      // Keep the corrupt file for forensics and put the good copy in place,
+      // so the next rolling backup does not overwrite .bak with garbage.
+      const QString corrupt = path + QStringLiteral(".corrupt");
+      QFile::remove(corrupt);
+      QFile::rename(path, corrupt);
+      QFile::copy(bak, path);
+      SaveStatus::instance().reportRecovered(path);
+      return true;
+    }
+  }
+  return false;
+}
+
 QJsonDocument NoteManager::toJson(const Note &note) {
   QJsonObject root;
+  // Schema 2: adds per-page "images". Older files simply lack the key.
+  root["schema"] = 2;
   root["id"] = note.id;
   root["title"] = note.title;
   if (!note.pages.isEmpty()) {
@@ -93,9 +161,27 @@ QJsonDocument NoteManager::toJson(const Note &note) {
     for (const auto &s : p.strokes) {
       QJsonObject so;
       so["w"] = s.width;
-      so["c"] = s.color.name();
+      so["c"] = s.color.name(QColor::HexArgb);
       so["e"] = s.isEraser;
       so["h"] = s.isHighlighter;
+      if (s.filled) {
+        // Filled remnant of a pixel-erased stroke: serialise path elements
+        // as [type, x, y] triples (0=move, 1=line, 2=curve, 3=curve data).
+        so["f"] = true;
+        so["fr"] = static_cast<int>(s.path.fillRule());
+        QJsonArray els;
+        for (int i = 0; i < s.path.elementCount(); ++i) {
+          const QPainterPath::Element el = s.path.elementAt(i);
+          QJsonArray a;
+          a.append(static_cast<int>(el.type));
+          a.append(el.x);
+          a.append(el.y);
+          els.append(a);
+        }
+        so["fp"] = els;
+        strokesArr.append(so);
+        continue;
+      }
       QJsonArray pts;
       const bool hasPressure = s.pressures.size() == s.points.size();
       for (int i = 0; i < s.points.size(); ++i) {
@@ -180,6 +266,27 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       textsArr.append(to);
     }
     pageObj["texts"] = textsArr;
+    if (!p.images.isEmpty()) {
+      QJsonArray imagesArr;
+      for (const auto &im : p.images) {
+        if (im.image.isNull())
+          continue;
+        QByteArray bytes;
+        QBuffer buf(&bytes);
+        if (!buf.open(QIODevice::WriteOnly) || !im.image.save(&buf, "PNG"))
+          continue;
+        QJsonObject io;
+        io["x"] = im.pos.x();
+        io["y"] = im.pos.y();
+        io["w"] = im.width;
+        io["h"] = im.height;
+        io["op"] = im.opacity;
+        io["rot"] = im.rotation;
+        io["img"] = QString::fromLatin1(bytes.toBase64());
+        imagesArr.append(io);
+      }
+      pageObj["images"] = imagesArr;
+    }
     pageObj["bg"] = p.backgroundType;
     if (!p.title.isEmpty())
       pageObj["title"] = p.title;
@@ -241,6 +348,44 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       s.color = QColor(so.value("c").toString("#000000"));
       s.isEraser = so.value("e").toBool(false);
       s.isHighlighter = so.value("h").toBool(false);
+      if (so.value("f").toBool(false)) {
+        s.filled = true;
+        QPainterPath fp;
+        fp.setFillRule(so.value("fr").toInt(0) == 1 ? Qt::WindingFill
+                                                    : Qt::OddEvenFill);
+        const auto els = so.value("fp").toArray();
+        for (int k = 0; k < els.size(); ++k) {
+          const auto a = els[k].toArray();
+          if (a.size() < 3)
+            continue;
+          const QPointF pt(a[1].toDouble(), a[2].toDouble());
+          switch (a[0].toInt()) {
+          case QPainterPath::MoveToElement:
+            fp.moveTo(pt);
+            break;
+          case QPainterPath::LineToElement:
+            fp.lineTo(pt);
+            break;
+          case QPainterPath::CurveToElement: {
+            // Followed by two CurveToData elements (control 2, end point).
+            if (k + 2 < els.size()) {
+              const auto b = els[k + 1].toArray();
+              const auto c = els[k + 2].toArray();
+              if (b.size() >= 3 && c.size() >= 3)
+                fp.cubicTo(pt, QPointF(b[1].toDouble(), b[2].toDouble()),
+                           QPointF(c[1].toDouble(), c[2].toDouble()));
+              k += 2;
+            }
+            break;
+          }
+          default:
+            break;
+          }
+        }
+        s.path = fp;
+        out.pages[i].strokes.push_back(std::move(s));
+        continue;
+      }
       auto pts = so.value("pts").toArray();
       bool anyPressure = false;
       for (const auto &pv : pts) {
@@ -360,6 +505,21 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       t.fontFamily = to.value("font").toString();
       t.fontPointSize = to.value("size").toInt(14);
       out.pages[i].texts.push_back(std::move(t));
+    }
+    const auto imagesArr = pageObj.value("images").toArray();
+    for (const auto &iv : imagesArr) {
+      const auto io = iv.toObject();
+      const QByteArray raw =
+          QByteArray::fromBase64(io.value("img").toString().toLatin1());
+      ImageObject im;
+      if (raw.isEmpty() || !im.image.loadFromData(raw, "PNG"))
+        continue;
+      im.pos = QPointF(io.value("x").toDouble(0.0), io.value("y").toDouble(0.0));
+      im.width = io.value("w").toDouble(0.0);
+      im.height = io.value("h").toDouble(0.0);
+      im.opacity = io.value("op").toDouble(1.0);
+      im.rotation = io.value("rot").toDouble(0.0);
+      out.pages[i].images.push_back(std::move(im));
     }
   }
   return true;

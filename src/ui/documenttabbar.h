@@ -1,10 +1,9 @@
 #pragma once
 
-// DocumentTabBar - floating squircle tabs for open notes, Drawboard-style.
+// DocumentTabBar - open-note tabs in the title bar.
 //
-// Home stays pinned; open-note tabs live in a horizontal scroll strip so many
-// documents never crush the chrome. The active tab keeps a sliding accent
-// underline (same motion tokens as ModernToolbar).
+// Home stays pinned; open-note tabs scroll horizontally. Reading-mark mode
+// paints Chrome-style morph tabs (active flush into the strip below).
 
 #include <QColor>
 #include <QList>

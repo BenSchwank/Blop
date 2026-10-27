@@ -6,6 +6,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QSettings>
 #include <QStandardPaths>
 
 #include <cstdlib>
@@ -32,6 +33,18 @@ void blopInitCrashReporting()
 {
   // Precedence (documented in docs/ADR-observability.md): non-empty SENTRY_DSN env wins,
   // otherwise BLOP_SENTRY_COMPILE_DSN from CMake (-DBLOP_SENTRY_DSN=...).
+  // Consent: upload only when baked in at build time (opt-in builds) or the
+  // user enabled "Absturzberichte senden" in Settings.
+  const bool defaultOn = BLOP_OBS_CONSENT_CRASH_UPLOAD != 0;
+  const bool consent =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("privacy/crashUpload"), defaultOn)
+          .toBool();
+  if (!consent) {
+    qInfo() << "[BlopObs] Sentry: crash upload not enabled by the user - skipping.";
+    return;
+  }
+
   const QByteArray envDsn = qgetenv("SENTRY_DSN");
   const char *dsn = nullptr;
   if (!envDsn.isEmpty()) {

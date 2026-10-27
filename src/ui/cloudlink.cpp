@@ -1,4 +1,6 @@
+#include "atomicfile.h"
 #include "cloudlink.h"
+#include "securestore.h"
 
 #include "cloudstoragestore.h"
 #include "storageprefs.h"
@@ -11,7 +13,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHostAddress>
-#include <QInputDialog>
+#include "blop_dialogs.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -76,13 +78,22 @@ QString key(const QString &type, const char *field) {
   return QStringLiteral("cloud/%1/%2").arg(type, QString::fromLatin1(field));
 }
 
+// OAuth tokens are encrypted at rest (DPAPI on Windows); other fields stay plain.
+static bool isSecretField(const char *field) {
+  return qstrcmp(field, "accessToken") == 0 ||
+         qstrcmp(field, "refreshToken") == 0 ||
+         qstrcmp(field, "appPassword") == 0;
+}
+
 QString setting(const QString &type, const char *field) {
-  return settings().value(key(type, field)).toString();
+  const QString raw = settings().value(key(type, field)).toString();
+  return isSecretField(field) ? SecureStore::unprotect(raw) : raw;
 }
 
 void setSetting(const QString &type, const char *field, const QString &value) {
   QSettings s(QString::fromLatin1(kOrg), QString::fromLatin1(kApp));
-  s.setValue(key(type, field), value);
+  s.setValue(key(type, field),
+             isSecretField(field) ? SecureStore::protect(value) : value);
 }
 
 qint64 expiry(const QString &type) {
@@ -440,15 +451,35 @@ CloudLinkHub::CloudLinkHub(QObject *parent) : QObject(parent) {
 }
 
 void CloudLinkHub::fail(const QString &type, const QString &detail) {
+  if (m_oauthTimer)
+    m_oauthTimer->stop();
   m_busy = false;
   m_lastError = detail;
   emit connectFinished(type, false, detail);
 }
 
 void CloudLinkHub::succeed(const QString &type, const QString &detail) {
+  if (m_oauthTimer)
+    m_oauthTimer->stop();
   m_busy = false;
   m_lastError.clear();
   emit connectFinished(type, true, detail);
+}
+
+void CloudLinkHub::armOauthTimeout(const QString &type) {
+  if (!m_oauthTimer) {
+    m_oauthTimer = new QTimer(this);
+    m_oauthTimer->setSingleShot(true);
+  }
+  m_oauthTimer->disconnect();
+  connect(m_oauthTimer, &QTimer::timeout, this, [this, type]() {
+    if (!m_busy)
+      return;
+    if (m_loopback)
+      m_loopback->close();
+    fail(type, QStringLiteral("Anmeldung abgelaufen. Bitte erneut versuchen."));
+  });
+  m_oauthTimer->start(5 * 60 * 1000);
 }
 
 void CloudLinkHub::markApi(const QString &type) {
@@ -557,12 +588,11 @@ void CloudLinkHub::beginIcloud() {
 }
 
 void CloudLinkHub::beginNextcloud(QWidget *parent) {
-  bool ok = false;
-  const QString typed = QInputDialog::getText(
+  const QString typed = BlopDialogs::promptText(
       parent, QStringLiteral("Nextcloud"),
-      QStringLiteral("Adresse deines Nextcloud-Servers"), QLineEdit::Normal,
-      setting(QStringLiteral("nextcloud"), "server"), &ok);
-  if (!ok || typed.trimmed().isEmpty()) {
+      QStringLiteral("Adresse deines Nextcloud-Servers"),
+      setting(QStringLiteral("nextcloud"), "server"));
+  if (typed.trimmed().isEmpty()) {
     fail(QStringLiteral("nextcloud"), QStringLiteral("Abgebrochen."));
     return;
   }
@@ -677,6 +707,7 @@ void CloudLinkHub::beginGoogle() {
     return;
   }
   m_busy = true;
+  armOauthTimeout(QStringLiteral("googledrive"));
   m_verifier = randomToken(64);
   m_state = randomToken(32);
   m_redirect = QStringLiteral("http://127.0.0.1:%1/").arg(kGooglePort);
@@ -695,10 +726,24 @@ void CloudLinkHub::beginGoogle() {
       const QString first = req.section(QLatin1Char('\n'), 0, 0).trimmed();
       const QString path = first.section(QLatin1Char(' '), 1, 1);
       const QUrlQuery q(QUrl(QStringLiteral("http://127.0.0.1") + path));
+      const QString err = q.queryItemValue(QStringLiteral("error"));
+      const QString state = q.queryItemValue(QStringLiteral("state"));
+      const QString code = q.queryItemValue(QStringLiteral("code"));
+      if (code.isEmpty() && err.isEmpty()) {
+        sock->write("HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+        sock->waitForBytesWritten(1000);
+        sock->disconnectFromHost();
+        sock->deleteLater();
+        return;
+      }
       const QByteArray page =
-          "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:2rem'>"
-          "<h2>Blop</h2><p>Google Drive ist verbunden. Dieses Fenster kannst "
-          "du schlie&szlig;en.</p></body></html>";
+          err.isEmpty()
+              ? "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:2rem'>"
+                "<h2>Blop</h2><p>Die Anmeldung wird abgeschlossen. Dieses Fenster "
+                "kannst du schlie&szlig;en.</p></body></html>"
+              : "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:2rem'>"
+                "<h2>Blop</h2><p>Die Anmeldung wurde nicht abgeschlossen. "
+                "Dieses Fenster kannst du schlie&szlig;en.</p></body></html>";
       sock->write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
                   "Connection: close\r\nContent-Length: " +
                   QByteArray::number(page.size()) + "\r\n\r\n" + page);
@@ -707,9 +752,6 @@ void CloudLinkHub::beginGoogle() {
       sock->deleteLater();
       if (m_loopback)
         m_loopback->close();
-      const QString err = q.queryItemValue(QStringLiteral("error"));
-      const QString state = q.queryItemValue(QStringLiteral("state"));
-      const QString code = q.queryItemValue(QStringLiteral("code"));
       if (!err.isEmpty() || state != m_state || code.isEmpty()) {
         fail(QStringLiteral("googledrive"),
              err.isEmpty() ? QStringLiteral("Google-Anmeldung abgebrochen.")
@@ -854,9 +896,12 @@ void CloudLinkHub::beginOneDrive() {
   if (client.isEmpty()) {
     fail(QStringLiteral("onedrive"),
          QStringLiteral(
-             "Die Microsoft-App fehlt. Setze BLOP_MICROSOFT_CLIENT_ID "
-             "oder den Einstellungswert cloud/onedrive/clientId. "
-             "Redirect: http://127.0.0.1:27184/"));
+             "Die direkte OneDrive-Anmeldung ist in dieser Version nicht "
+             "eingerichtet. Verknüpfe stattdessen den lokalen OneDrive-Ordner "
+             "(Einstellungen → Speicher → Ordner verknüpfen) — der Sync läuft "
+             "dann über den OneDrive-Client.\n\n"
+             "Für Entwickler: BLOP_MICROSOFT_CLIENT_ID oder cloud/onedrive/"
+             "clientId setzen, Redirect http://127.0.0.1:27184/"));
     return;
   }
   if (m_loopback)
@@ -870,6 +915,7 @@ void CloudLinkHub::beginOneDrive() {
     return;
   }
   m_busy = true;
+  armOauthTimeout(QStringLiteral("onedrive"));
   m_verifier = randomToken(64);
   m_state = randomToken(32);
   m_redirect = QStringLiteral("http://127.0.0.1:%1/").arg(kMicrosoftPort);
@@ -887,10 +933,23 @@ void CloudLinkHub::beginOneDrive() {
       const QString path =
           req.section(QLatin1Char('\n'), 0, 0).section(QLatin1Char(' '), 1, 1);
       const QUrlQuery q(QUrl(QStringLiteral("http://127.0.0.1") + path.trimmed()));
+      const QString odErr = q.queryItemValue(QStringLiteral("error"));
+      const QString code = q.queryItemValue(QStringLiteral("code"));
+      if (code.isEmpty() && odErr.isEmpty()) {
+        sock->write("HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+        sock->waitForBytesWritten(1000);
+        sock->disconnectFromHost();
+        sock->deleteLater();
+        return;
+      }
       const QByteArray page =
-          "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:2rem'>"
-          "<h2>Blop</h2><p>OneDrive ist verbunden. Dieses Fenster kannst du "
-          "schlie&szlig;en.</p></body></html>";
+          odErr.isEmpty()
+              ? "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:2rem'>"
+                "<h2>Blop</h2><p>Die Anmeldung wird abgeschlossen. Dieses Fenster "
+                "kannst du schlie&szlig;en.</p></body></html>"
+              : "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:2rem'>"
+                "<h2>Blop</h2><p>Die Anmeldung wurde nicht abgeschlossen. "
+                "Dieses Fenster kannst du schlie&szlig;en.</p></body></html>";
       sock->write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
                   "Connection: close\r\nContent-Length: " +
                   QByteArray::number(page.size()) + "\r\n\r\n" + page);
@@ -899,7 +958,6 @@ void CloudLinkHub::beginOneDrive() {
       sock->deleteLater();
       if (m_loopback)
         m_loopback->close();
-      const QString code = q.queryItemValue(QStringLiteral("code"));
       if (q.queryItemValue(QStringLiteral("state")) != m_state || code.isEmpty()) {
         fail(QStringLiteral("onedrive"),
              QStringLiteral("OneDrive-Anmeldung abgebrochen."));
@@ -1141,10 +1199,7 @@ bool CloudLinkHub::googleFetch(const QString &remoteId,
     return false;
   }
   QDir().mkpath(QFileInfo(localPath).absolutePath());
-  QFile f(localPath);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-    return false;
-  return f.write(r.body) == r.body.size();
+  return AtomicFile::write(localPath, r.body, QStringLiteral("Cloud-Notiz"));
 }
 
 bool CloudLinkHub::nextcloudPut(const QString &localPath) {
@@ -1290,10 +1345,7 @@ bool CloudLinkHub::nextcloudFetch(const QString &remoteId,
     return false;
   }
   QDir().mkpath(QFileInfo(localPath).absolutePath());
-  QFile f(localPath);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-    return false;
-  return f.write(r.body) == r.body.size();
+  return AtomicFile::write(localPath, r.body, QStringLiteral("Cloud-Notiz"));
 }
 
 bool CloudLinkHub::oneDrivePut(const QString &localPath) {
@@ -1424,10 +1476,7 @@ bool CloudLinkHub::oneDriveFetch(const QString &remoteId,
     return false;
   }
   QDir().mkpath(QFileInfo(localPath).absolutePath());
-  QFile f(localPath);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-    return false;
-  return f.write(r.body) == r.body.size();
+  return AtomicFile::write(localPath, r.body, QStringLiteral("Cloud-Notiz"));
 }
 
 QVector<CloudRemoteItem> CloudLinkHub::listNotes(const QString &type,

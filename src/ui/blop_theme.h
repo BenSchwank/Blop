@@ -4,7 +4,9 @@
 #include <QEasingCurve>
 #include <QFont>
 #include <QObject>
+#include <QSettings>
 #include <QString>
+#include <QVector>
 
 class QApplication;
 class QDialog;
@@ -21,6 +23,13 @@ inline constexpr int kStandard = 220;
 inline constexpr int kEmphasis = 280;
 inline constexpr QEasingCurve::Type kEaseStandard = QEasingCurve::OutCubic;
 inline constexpr QEasingCurve::Type kEaseOvershoot = QEasingCurve::OutBack;
+
+inline bool reduceMotion() {
+  return QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+      .value(QStringLiteral("ui/reduceMotion"), false)
+      .toBool();
+}
+inline int duration(int ms) { return reduceMotion() ? 0 : ms; }
 } // namespace BlopMotion
 
 /// Central design-token + theme manager for Blop. Provides a Dark and a
@@ -82,6 +91,14 @@ public:
   static QColor accentPressed();
   static QColor accentSubtle();         // ~15% alpha tint
   static QColor accentBorder();         // ~42% alpha for outlines
+  /// Primary color for an accent, independent of the currently selected one.
+  static QColor accentColor(Accent a);
+  struct AccentSwatch {
+    Accent accent;
+    QColor color;
+    QString label;
+  };
+  static QVector<AccentSwatch> accentColors();
 
   static QColor borderDefault();
   static QColor borderSubtle();

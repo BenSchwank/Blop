@@ -3,7 +3,9 @@
 #include "ToolMode.h"
 
 #include <QEvent>
+#include <QKeyEvent>
 #include <QSet>
+#include <QShowEvent>
 #include <QWidget>
 #include <functional>
 
@@ -23,8 +25,11 @@ signals:
 
 protected:
   bool event(QEvent *e) override;
+  void keyPressEvent(QKeyEvent *e) override;
+  void showEvent(QShowEvent *e) override;
 
 private:
+  void layoutCard();
   explicit ToolPickerOverlay(QWidget *host, const QColor &accent,
                              const QSet<ToolMode> &alreadyInToolbar,
                              SelectFn onSelect);

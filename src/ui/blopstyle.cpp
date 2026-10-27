@@ -81,21 +81,22 @@ QColor obsidianSheet() { return QColor(0x35, 0x38, 0x40); }
 QColor obsidianContent() { return QColor(0x23, 0x25, 0x2A); }
 
 QColor libraryTitleBar() {
-  // Drawboard-style dark chrome in Light; near-black in Dark.
-  return BlopTheme::instance().isDark() ? QColor(0x10, 0x12, 0x16)
+  // Neutral charcoal chrome (no blue cast) — matches NoteChrome toolbar step.
+  return BlopTheme::instance().isDark() ? QColor(0x12, 0x14, 0x1A)
                                         : QColor(0x1A, 0x1C, 0x1E);
 }
 QColor libraryIconRail() {
-  // Obsidian-style dark rail accent in Light; matches dark sidebar in Dark.
-  return BlopTheme::instance().isDark() ? QColor(0x1A, 0x1D, 0x26)
-                                        : QColor(0x1A, 0x1C, 0x1E);
+  // Thin left rail: same paint as the title bar (one continuous chrome band).
+  return libraryTitleBar();
 }
 QColor librarySidebar() {
-  return BlopTheme::instance().isDark() ? QColor(0x1A, 0x1D, 0x26)
+  // One step above the rail — same hue family, slightly lifted.
+  return BlopTheme::instance().isDark() ? QColor(0x1C, 0x1F, 0x28)
                                         : QColor(0xF0, 0xF0, 0xF0);
 }
 QColor libraryMain() {
-  return BlopTheme::instance().isDark() ? QColor(0x26, 0x29, 0x32)
+  // Desk / library grid — quieter step under note paper, still neutral.
+  return BlopTheme::instance().isDark() ? QColor(0x24, 0x28, 0x30)
                                         : QColor(0xFF, 0xFF, 0xFF);
 }
 

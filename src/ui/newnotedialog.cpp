@@ -665,6 +665,10 @@ void NewNoteDialog::setupUi()
 
 void NewNoteDialog::applyHostModalSize(bool expanded, bool animate)
 {
+    // While the composer is open an accidental click on the backdrop (or a
+    // stale card rect during the resize animation) must not throw away the
+    // half-filled note. Cancel / Esc inside the dialog still close it.
+    setProperty("blopPreventDismiss", expanded);
     BlopModal *modal = hostModal();
     if (!modal)
         return;

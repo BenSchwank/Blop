@@ -45,6 +45,7 @@ public:
                 item->setFlags(QGraphicsItem::ItemIsSelectable |
                                QGraphicsItem::ItemIsMovable);
                 item->setZValue(5);
+                item->setData(0, QStringLiteral("image_item"));
                 if (self) {
                   const qreal op = self->config().imageOpacity > 0.01
                                        ? self->config().imageOpacity
@@ -68,6 +69,7 @@ public:
                 item->setPos(event->scenePos());
                 item->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
                 item->setZValue(5);
+                item->setData(0, QStringLiteral("image_item"));
                 const qreal op = m_config.imageOpacity > 0.01
                                      ? m_config.imageOpacity
                                      : m_config.opacity;

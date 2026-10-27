@@ -75,9 +75,9 @@ QColor obsidianSheet();      // #353840 overflow / elevated note cards
 QColor obsidianContent();    // #23252A Dark library desk (cards float above)
 
 /// Library shell: title bar, icon rail, sidebars, and the note list.
-QColor libraryTitleBar();  // Light: dark charcoal chrome (#1A1C1E)
-QColor libraryIconRail();  // Light: same dark charcoal as title bar
-QColor librarySidebar();   // Light: #F0F0F0 nav/explorer well
+QColor libraryTitleBar();  // Chrome band: Dark #12141A / Light #1A1C1E
+QColor libraryIconRail();  // Thin left rail — always mirrors libraryTitleBar()
+QColor librarySidebar();   // Dark #1C1F28 / Light #F0F0F0 nav well
 QColor libraryMain();      // Light: #FFFFFF note list
 
 int surfaceRadiusDp();

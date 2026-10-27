@@ -1,3 +1,5 @@
+#include <QGraphicsPixmapItem>
+#include <QSaveFile>
 #include "canvasview.h"
 #include "SelectionMenuIcons.h"
 #include "blop_theme.h"
@@ -79,26 +81,31 @@ public:
         : m_scene(scene), m_item(item) {}
 
     ~AddItemCommand() override {
-        // If the item is not on the scene, we own it and must delete it
-        if (m_item && !m_scene->items().contains(m_item))
+        if (m_ownsItem)
             delete m_item;
+        m_item = nullptr;
     }
 
     void undo() override {
-        if (m_item) m_scene->removeItem(m_item);
+        if (m_item && m_scene)
+            m_scene->removeItem(m_item);
+        m_ownsItem = true;
     }
 
     // redo() is also called on first push — but item is already on scene then.
     // We use m_firstRedo to skip that initial add.
     void redo() override {
         if (m_firstRedo) { m_firstRedo = false; return; }
-        if (m_item) m_scene->addItem(m_item);
+        if (m_item && m_scene)
+            m_scene->addItem(m_item);
+        m_ownsItem = false;
     }
 
 private:
     QGraphicsScene *m_scene;
     QGraphicsItem *m_item;
     bool m_firstRedo{true};
+    bool m_ownsItem{false};
 };
 
 class RemoveItemCommand : public QUndoCommand {
@@ -107,23 +114,27 @@ public:
         : m_scene(scene), m_item(item) {}
 
     ~RemoveItemCommand() override {
-        if (m_item && !m_scene->items().contains(m_item))
+        if (m_ownsItem)
             delete m_item;
+        m_item = nullptr;
     }
 
     void undo() override {
-        if (m_item) m_scene->addItem(m_item);
+        if (m_item && m_scene)
+            m_scene->addItem(m_item);
+        m_ownsItem = false;
     }
 
     void redo() override {
-        if (m_firstRedo) { m_firstRedo = false; return; }
-        if (m_item) m_scene->removeItem(m_item);
+        if (m_item && m_scene)
+            m_scene->removeItem(m_item);
+        m_ownsItem = true;
     }
 
 private:
     QGraphicsScene *m_scene;
     QGraphicsItem *m_item;
-    bool m_firstRedo{true};
+    bool m_ownsItem{false};
 };
 
 #include <QBitmap>
@@ -622,7 +633,8 @@ void CanvasView::addNewPage() {
 bool CanvasView::saveToFile() {
   if (m_filePath.isEmpty())
     return false;
-  QFile file(m_filePath);
+  // QSaveFile: atomic replace, a crash mid-write keeps the previous version.
+  QSaveFile file(m_filePath);
   if (!file.open(QIODevice::WriteOnly))
     return false;
   QDataStream out(&file);
@@ -699,7 +711,24 @@ bool CanvasView::saveToFile() {
     out << data.pos << data.width << data.html << data.text << data.color
         << (qint32)data.fontPointSize << data.fontFamily << data.freeMove;
   }
-  return true;
+
+  // Trailing, optional section (older readers stop before it): ImageTool
+  // pixmaps, identified by data(0) == "image_item".
+  QList<QGraphicsPixmapItem *> images;
+  for (auto *item : std::as_const(items)) {
+    if (item->data(0).toString() != QLatin1String("image_item"))
+      continue;
+    if (auto *pix = qgraphicsitem_cast<QGraphicsPixmapItem *>(item))
+      images.append(pix);
+  }
+  out << (quint32)0xB10B1A6E << (qint32)images.size();
+  for (QGraphicsPixmapItem *pix : images) {
+    out << pix->scenePos() << (qreal)pix->scale() << (qreal)pix->rotation()
+        << (qreal)pix->opacity() << pix->pixmap().toImage();
+  }
+  if (out.status() != QDataStream::Ok)
+    return false;
+  return file.commit();
 }
 
 bool CanvasView::loadFromFile() {
@@ -732,14 +761,16 @@ bool CanvasView::loadFromFile() {
 
   setPageFormat(m_isInfinite);
   updateBackgroundTile();
-  m_scene->clear();
   m_undoStack->clear();
+  m_scene->clear();
   m_graphPlusBypassItem = nullptr;
   m_graphPlotBypassItem = nullptr;
   m_graphTabletPendingItem = nullptr;
 
-  int count;
+  int count = 0;
   in >> count;
+  if (in.status() != QDataStream::Ok || count < 0 || count > 100000)
+    count = 0;
   bool wasBlocked = m_scene->blockSignals(true);
   for (int i = 0; i < count; ++i) {
     QPointF pos;
@@ -747,12 +778,17 @@ bool CanvasView::loadFromFile() {
     int width;
     QPainterPath path;
     in >> pos >> color >> width >> path;
+    if (in.status() != QDataStream::Ok)
+      break;
     QPen pen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
 
     QVector<StrokePoint> pts;
     if (magic >= 0xB10B0003) {
-        qint32 ptCount;
+        qint32 ptCount = 0;
         in >> ptCount;
+        if (in.status() != QDataStream::Ok || ptCount < 0 || ptCount > 1000000)
+          break;
+        pts.reserve(ptCount);
         for(int j = 0; j < ptCount; ++j) {
             QPointF ppos; qreal ppress;
             in >> ppos >> ppress;
@@ -773,6 +809,8 @@ bool CanvasView::loadFromFile() {
   if (magic >= 0xB10B0004) {
     qint32 stickyCount = 0;
     in >> stickyCount;
+    if (in.status() != QDataStream::Ok || stickyCount < 0 || stickyCount > 100000)
+      stickyCount = 0;
     for (qint32 i = 0; i < stickyCount; ++i) {
       QPointF pos;
       qreal w = 168, h = 148;
@@ -822,6 +860,37 @@ bool CanvasView::loadFromFile() {
           word->setProperty("wordSaveHook", true);
           connect(word->document(), &QTextDocument::contentsChanged, this,
                   [this]() { emit contentModified(); });
+        }
+      }
+    }
+  }
+
+  // Optional trailing image section (see saveToFile).
+  if (magic >= 0xB10B0005 && in.status() == QDataStream::Ok && !in.atEnd()) {
+    quint32 marker = 0;
+    in >> marker;
+    if (marker == 0xB10B1A6E) {
+      qint32 imageCount = 0;
+      in >> imageCount;
+      if (in.status() == QDataStream::Ok && imageCount > 0 &&
+          imageCount < 10000) {
+        for (qint32 i = 0; i < imageCount; ++i) {
+          QPointF pos;
+          qreal scale = 1.0, rotation = 0.0, opacity = 1.0;
+          QImage img;
+          in >> pos >> scale >> rotation >> opacity >> img;
+          if (in.status() != QDataStream::Ok || img.isNull())
+            break;
+          auto *pix = new QGraphicsPixmapItem(QPixmap::fromImage(img));
+          pix->setPos(pos);
+          pix->setScale(scale > 0.0 ? scale : 1.0);
+          pix->setRotation(rotation);
+          pix->setOpacity(qBound(0.1, opacity, 1.0));
+          pix->setFlags(QGraphicsItem::ItemIsSelectable |
+                        QGraphicsItem::ItemIsMovable);
+          pix->setZValue(5);
+          pix->setData(0, QStringLiteral("image_item"));
+          m_scene->addItem(pix);
         }
       }
     }
@@ -1002,7 +1071,7 @@ void CanvasView::deleteSelection() {
   if (selected.isEmpty())
     return;
   for (auto *item : std::as_const(selected))
-    m_scene->removeItem(item);
+    m_undoStack->push(new RemoveItemCommand(m_scene, item));
   m_selectionMenu->hide();
   emit contentModified();
 }
@@ -1013,17 +1082,17 @@ void CanvasView::duplicateSelection() {
     return;
   clearSelection();
   for (auto *item : std::as_const(selected)) {
-    if (item->type() == QGraphicsPathItem::Type) {
-      QGraphicsPathItem *pathItem = static_cast<QGraphicsPathItem *>(item);
-      QGraphicsPathItem *newItem =
-          m_scene->addPath(pathItem->path(), pathItem->pen());
-      newItem->setPos(item->pos() + QPointF(20, 20));
-      newItem->setFlags(QGraphicsItem::ItemIsSelectable |
-                        QGraphicsItem::ItemIsMovable);
-      newItem->setZValue(pathItem->zValue());
-      newItem->setSelected(true);
-      // Hier sollte eigentlich ein Undo-Command hin
-    }
+    auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item);
+    if (!pathItem)
+      continue;
+    QGraphicsPathItem *newItem =
+        m_scene->addPath(pathItem->path(), pathItem->pen(), pathItem->brush());
+    newItem->setPos(item->pos() + QPointF(20, 20));
+    newItem->setFlags(QGraphicsItem::ItemIsSelectable |
+                      QGraphicsItem::ItemIsMovable);
+    newItem->setZValue(pathItem->zValue());
+    newItem->setSelected(true);
+    m_undoStack->push(new AddItemCommand(m_scene, newItem));
   }
   updateSelectionMenuPosition();
   emit contentModified();
@@ -1437,11 +1506,7 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
                     m_undoStack->push(new AddItemCommand(m_scene, item));
                     if (auto* gi = qgraphicsitem_cast<GraphCanvasItem*>(item)) {
                         GraphAxisSettingsDialog dlg(gi, window());
-#ifdef Q_OS_ANDROID
                         BlopModal::execBlocking(window(), &dlg);
-#else
-                        dlg.exec();
-#endif
                     }
                     m_toolManager->activeTool()->clearLastCompletedItem();
                 }
@@ -1765,11 +1830,7 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
           m_undoStack->push(new AddItemCommand(m_scene, item));
           if (auto* gi = qgraphicsitem_cast<GraphCanvasItem*>(item)) {
             GraphAxisSettingsDialog dlg(gi, window());
-#ifdef Q_OS_ANDROID
             BlopModal::execBlocking(window(), &dlg);
-#else
-            dlg.exec();
-#endif
           }
           m_toolManager->activeTool()->clearLastCompletedItem();
       }
