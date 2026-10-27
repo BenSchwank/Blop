@@ -16,6 +16,7 @@ type Props = {
     onEditCard?: (index: number) => void;
     onFullscreen?: (card: FlashcardRow) => void;
     onExportCsv?: () => void;
+    onSessionComplete?: () => void;
 };
 
 function shuffleIndices(n: number): number[] {
@@ -27,7 +28,7 @@ function shuffleIndices(n: number): number[] {
     return arr;
 }
 
-export default function FlashcardSession({ cards, onEditCard, onFullscreen, onExportCsv }: Props) {
+export default function FlashcardSession({ cards, onEditCard, onFullscreen, onExportCsv, onSessionComplete }: Props) {
     const [mode, setMode] = useState<"session" | "library">("session");
     const [queue, setQueue] = useState<number[]>([]);
     const [mastery, setMastery] = useState<Record<number, number>>({});
@@ -82,7 +83,10 @@ export default function FlashcardSession({ cards, onEditCard, onFullscreen, onEx
         setQueue(rest);
         setProgress((p) => p + 1);
         setFlipped(false);
-        if (rest.length === 0) setDone(true);
+        if (rest.length === 0) {
+            setDone(true);
+            onSessionComplete?.();
+        }
     };
 
     if (cards.length === 0) {

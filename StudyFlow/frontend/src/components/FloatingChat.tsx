@@ -292,20 +292,21 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                         role="dialog"
                         aria-label="Blop KI-Assistent"
                     >
-                        <div className="bg-[#1A1F2A] p-3.5 border-b border-[#2A3140] flex items-center justify-between shrink-0 gap-2">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                                <div className="w-9 h-9 rounded-full bg-[#5B9DFF]/15 text-[#5B9DFF] flex items-center justify-center ring-1 ring-[#5B9DFF]/25">
+                        <div className="bg-[#1A1F2A] p-2.5 md:p-3.5 border-b border-[#2A3140] flex items-center justify-between shrink-0 gap-2">
+                            <div className="flex items-center gap-2 md:gap-2.5 min-w-0">
+                                <div className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-[#5B9DFF]/15 text-[#5B9DFF] flex items-center justify-center ring-1 ring-[#5B9DFF]/25">
                                     <MessageCircle size={18} />
                                 </div>
                                 <div className="min-w-0">
                                     <h3 className="text-white font-semibold text-sm truncate">Blop KI-Assistent</h3>
-                                    <p className="text-[10px] text-gray-500 truncate">Rechts am Rand · zum Ordner fragen</p>
+                                    <p className="text-[10px] text-gray-500 truncate hidden md:block">Rechts am Rand · zum Ordner fragen</p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
+                                {canUndo ? (
                                 <button
                                     type="button"
-                                    disabled={!canUndo || isLoading}
+                                    disabled={isLoading}
                                     onClick={async () => {
                                         if (!onUndoLastPatch) return;
                                         setIsLoading(true);
@@ -322,10 +323,11 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                 >
                                     Rückgängig
                                 </button>
+                                ) : null}
                                 <button
                                     type="button"
                                     onClick={() => setIsExpanded(!isExpanded)}
-                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-[#243044] rounded-lg"
+                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-[#243044] rounded-lg max-md:hidden"
                                     aria-label={isExpanded ? 'Schmaler' : 'Breiter'}
                                 >
                                     {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}

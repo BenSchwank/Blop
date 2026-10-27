@@ -7,9 +7,12 @@ import {
     CheckCircle2,
     ChevronRight,
     ClipboardList,
+    Flame,
+    Heart,
     HelpCircle,
     Layers,
     Loader2,
+    Lock,
     PenLine,
     Play,
     Sparkles,
@@ -17,6 +20,10 @@ import {
     XCircle,
 } from "lucide-react";
 import MathMarkdown, { answersMatch, parseClozePrompt } from "@/components/MathMarkdown";
+import { awardXp } from "@/lib/xpClient";
+
+const HEARTS_MAX = 5;
+const DAILY_GOAL_XP = 50;
 
 export type SmartLearningCheckType = "mc" | "true_false" | "cloze";
 
@@ -434,10 +441,42 @@ export default function SmartLearningView({
     const [examSecondsLeft, setExamSecondsLeft] = useState<number | null>(null);
     const [lastExamScore, setLastExamScore] = useState<number | null>(null);
     const examFinishingRef = React.useRef(false);
+    const [hearts, setHearts] = useState(HEARTS_MAX);
+    const [failOpen, setFailOpen] = useState(false);
+    const [celebrate, setCelebrate] = useState<{ title: string; xp: number } | null>(null);
+    const [hudXp, setHudXp] = useState(0);
+    const [hudStreak, setHudStreak] = useState(0);
+    const [dailyXp, setDailyXp] = useState(0);
 
     useEffect(() => {
         setLocal(normalizeSmartLearningContent(content));
     }, [content]);
+
+    useEffect(() => {
+        const loadMe = async () => {
+            try {
+                const res = await fetch(`/api/me?session_id=${encodeURIComponent(sessionId)}&username=${encodeURIComponent(username)}`, {
+                    headers: { "X-Session-Id": sessionId },
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                setHudXp(Number(data.xp) || 0);
+                setHudStreak(Number(data.streak_days) || 0);
+                setDailyXp(Number(data.daily_xp) || 0);
+            } catch {
+                /* ignore */
+            }
+        };
+        if (username) void loadMe();
+    }, [sessionId, username]);
+
+    const grantXp = async (amount: number, reason: string) => {
+        const data = await awardXp(amount, reason);
+        if (data?.xp != null) setHudXp(data.xp);
+        if (data?.streak_days != null) setHudStreak(data.streak_days);
+        if (data?.daily_xp != null) setDailyXp(data.daily_xp);
+        return data;
+    };
 
     const readiness = useMemo(() => computeReadiness(local), [local]);
     const completedLessonSet = useMemo(
@@ -529,14 +568,27 @@ export default function SmartLearningView({
         await persistProgress(next);
     };
 
-    const startLearn = () => {
-        const firstIncomplete = flatSteps.findIndex((s) => !completedLessonSet.has(s.lesson.id));
-        setStepIndex(firstIncomplete >= 0 ? firstIncomplete : 0);
+    const beginLessonAt = (index: number) => {
+        setStepIndex(Math.max(0, index));
         setStepPhase("teach");
         setSelected(null);
         setClozeValues([]);
         setClozeSubmitted(false);
+        setHearts(HEARTS_MAX);
+        setFailOpen(false);
+        setCelebrate(null);
         setMode("learn");
+    };
+
+    const startLearn = () => {
+        const firstIncomplete = flatSteps.findIndex((s) => !completedLessonSet.has(s.lesson.id));
+        beginLessonAt(firstIncomplete >= 0 ? firstIncomplete : 0);
+    };
+
+    const startChapter = (chapterId: string) => {
+        const idx = flatSteps.findIndex((s) => s.chapterId === chapterId && !completedLessonSet.has(s.lesson.id));
+        const fallback = flatSteps.findIndex((s) => s.chapterId === chapterId);
+        beginLessonAt(idx >= 0 ? idx : Math.max(0, fallback));
     };
 
     const startExam = () => {
@@ -578,6 +630,7 @@ export default function SmartLearningView({
             setMode("exam_result");
             setExamSecondsLeft(null);
             await persistProgress(next);
+            void grantXp(50, "exam");
         },
         [exam, local, persistProgress]
     );
@@ -591,23 +644,6 @@ export default function SmartLearningView({
     }, [examSecondsLeft, mode]);
 
     const current = flatSteps[stepIndex];
-
-    const advanceAfterCheck = async () => {
-        if (current) {
-            await markLessonDone(current.lesson.id, current.chapterId);
-        }
-        if (stepIndex + 1 >= flatSteps.length) {
-            setMode("overview");
-            setSelected(null);
-            setClozeSubmitted(false);
-            return;
-        }
-        setStepIndex((i) => i + 1);
-        setStepPhase("teach");
-        setSelected(null);
-        setClozeValues([]);
-        setClozeSubmitted(false);
-    };
 
     const chapters = local.chapters;
 
@@ -650,19 +686,57 @@ export default function SmartLearningView({
         );
     };
 
+    const spendHeart = () => {
+        setHearts((h) => {
+            const n = h - 1;
+            if (n <= 0) setFailOpen(true);
+            return Math.max(0, n);
+        });
+    };
+
+    const hudBar = (
+        <div className="flex items-center justify-between gap-3 text-xs text-gray-400">
+            <button type="button" onClick={() => setMode("overview")} className="hover:text-white">
+                ← Übersicht
+            </button>
+            <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-0.5 text-red-400">
+                    {Array.from({ length: HEARTS_MAX }).map((_, i) => (
+                        <Heart key={i} size={14} className={i < hearts ? "fill-red-400" : "opacity-25"} />
+                    ))}
+                </span>
+                <span className="inline-flex items-center gap-1 text-[#9EC5FF]">
+                    <Sparkles size={12} /> {hudXp}
+                </span>
+                <span className="inline-flex items-center gap-1 text-amber-200">
+                    <Flame size={12} /> {hudStreak}
+                </span>
+            </div>
+        </div>
+    );
+
     /* ——— Learn mode ——— */
     if (mode === "learn" && current) {
         const check = current.lesson.check;
         const isCloze = check.type === "cloze";
-        const revealed = isCloze ? clozeSubmitted : selected != null;
         const clozeOk = isCloze && clozeSubmitted ? gradeCloze(check.prompt, check.blanks, clozeValues) : false;
+        const mcOk = !isCloze && selected != null && selected === check.answer;
+        const correct = isCloze ? clozeOk : mcOk;
+        const revealed = isCloze ? clozeSubmitted : selected != null;
+
+        const onCorrectContinue = async () => {
+            await markLessonDone(current.lesson.id, current.chapterId);
+            await grantXp(25, "lesson");
+            setCelebrate({
+                title: stepIndex + 1 >= flatSteps.length ? "Lernreise abgeschlossen" : "Lektion geschafft",
+                xp: 25,
+            });
+        };
 
         return (
             <div className="w-full max-w-2xl mx-auto space-y-5 pb-8">
-                <div className="flex items-center justify-between text-xs text-gray-400">
-                    <button type="button" onClick={() => setMode("overview")} className="hover:text-white">
-                        ← Übersicht
-                    </button>
+                {hudBar}
+                <div className="flex items-center justify-between text-xs text-gray-500">
                     <span>
                         Schritt {stepIndex + 1} / {flatSteps.length} · {current.chapterTitle}
                     </span>
@@ -711,20 +785,33 @@ export default function SmartLearningView({
                                 blanks={check.blanks}
                                 values={clozeValues}
                                 onChange={setClozeValues}
-                                disabled={clozeSubmitted}
-                                showResult={clozeSubmitted}
+                                disabled={clozeSubmitted && clozeOk}
+                                showResult={clozeSubmitted && clozeOk}
                             />
                         ) : (
                             <>
                                 <MathMarkdown className="text-lg font-medium text-white">{check.prompt}</MathMarkdown>
-                                {renderMcOptions(check, selected, setSelected)}
+                                {renderMcOptions(check, selected, (opt) => {
+                                    if (mcOk) return;
+                                    setSelected(opt);
+                                    if (opt === check.answer) {
+                                        void grantXp(10, "check");
+                                    } else {
+                                        spendHeart();
+                                    }
+                                })}
                             </>
                         )}
 
                         {isCloze && !clozeSubmitted ? (
                             <button
                                 type="button"
-                                onClick={() => setClozeSubmitted(true)}
+                                onClick={() => {
+                                    setClozeSubmitted(true);
+                                    const ok = gradeCloze(check.prompt, check.blanks, clozeValues);
+                                    if (ok) void grantXp(5, "cloze");
+                                    else spendHeart();
+                                }}
                                 disabled={clozeValues.every((v) => !String(v || "").trim())}
                                 className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
                             >
@@ -736,44 +823,104 @@ export default function SmartLearningView({
                             <div className="space-y-3 pt-1">
                                 <div
                                     className={`rounded-xl px-3 py-2 text-sm border ${
-                                        isCloze
-                                            ? clozeOk
-                                                ? "border-green-500/40 bg-green-500/10 text-green-300"
-                                                : "border-red-500/40 bg-red-500/10 text-red-300"
-                                            : selected === check.answer
-                                              ? "border-green-500/40 bg-green-500/10 text-green-300"
-                                              : "border-red-500/40 bg-red-500/10 text-red-300"
+                                        correct
+                                            ? "border-green-500/40 bg-green-500/10 text-green-300"
+                                            : "border-red-500/40 bg-red-500/10 text-red-300"
                                     }`}
                                 >
-                                    {isCloze
-                                        ? clozeOk
-                                            ? "Richtig — gut gemacht."
-                                            : "Noch nicht ganz — schau dir die Lösung an."
-                                        : selected === check.answer
-                                          ? "Richtig — gut gemacht."
-                                          : "Leider falsch — die richtige Antwort ist markiert."}
+                                    {correct
+                                        ? "Richtig — gut gemacht."
+                                        : hearts > 0
+                                          ? `Leider falsch — noch ${hearts} ${hearts === 1 ? "Herz" : "Herzen"}.`
+                                          : "Keine Herzen mehr."}
                                 </div>
-                                {check.explanation ? (
+                                {correct && check.explanation ? (
                                     <div className="text-sm text-gray-300 border border-[#2A3140] rounded-xl px-4 py-3 bg-[#12141A]">
                                         <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Erklärung</p>
                                         <MathMarkdown compact>{check.explanation}</MathMarkdown>
                                     </div>
                                 ) : null}
-                                <button
-                                    type="button"
-                                    onClick={() => void advanceAfterCheck()}
-                                    disabled={savingProgress}
-                                    className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
-                                >
-                                    {savingProgress ? <Loader2 size={16} className="animate-spin" /> : null}
-                                    {stepIndex + 1 >= flatSteps.length ? "Fertig" : "Weiter"}
-                                    <ChevronRight size={18} />
-                                </button>
+                                {correct ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => void onCorrectContinue()}
+                                        disabled={savingProgress}
+                                        className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
+                                    >
+                                        {savingProgress ? <Loader2 size={16} className="animate-spin" /> : null}
+                                        {stepIndex + 1 >= flatSteps.length ? "Fertig" : "Weiter"}
+                                        <ChevronRight size={18} />
+                                    </button>
+                                ) : hearts > 0 ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelected(null);
+                                            setClozeSubmitted(false);
+                                        }}
+                                        className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] min-h-[48px]"
+                                    >
+                                        Nochmal versuchen
+                                    </button>
+                                ) : null}
                             </div>
                         ) : null}
                     </div>
                 )}
                 {error ? <p className="text-sm text-red-400">{error}</p> : null}
+
+                {failOpen ? (
+                    <div className="fixed inset-0 z-[140] bg-black/70 flex items-center justify-center p-4">
+                        <div className="w-full max-w-sm rounded-2xl border border-[#2A3140] bg-[#12141A] p-6 text-center space-y-4">
+                            <Heart className="mx-auto text-red-400" />
+                            <h3 className="text-lg font-semibold text-white">Keine Herzen mehr</h3>
+                            <p className="text-sm text-gray-400">Die Lektion bricht ab. Starte sie neu, wenn du bereit bist.</p>
+                            <div className="flex gap-2">
+                                <button type="button" onClick={() => setMode("overview")} className="flex-1 py-2.5 rounded-xl border border-[#2A3140] text-gray-300">
+                                    Übersicht
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => beginLessonAt(stepIndex)}
+                                    className="flex-1 py-2.5 rounded-xl bg-[#5B9DFF] text-white font-semibold"
+                                >
+                                    Nochmal
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+
+                {celebrate ? (
+                    <div className="fixed inset-0 z-[140] bg-black/70 flex items-center justify-center p-4">
+                        <div className="w-full max-w-sm rounded-2xl border border-[#5B9DFF]/40 bg-[#12141A] p-6 text-center space-y-3 animate-in zoom-in duration-200">
+                            <Sparkles className="mx-auto text-[#5B9DFF]" size={32} />
+                            <h3 className="text-lg font-semibold text-white">{celebrate.title}</h3>
+                            <p className="text-[#9EC5FF] font-medium">+{celebrate.xp} XP</p>
+                            <p className="text-xs text-gray-500">Streak {hudStreak} Tage</p>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const last = stepIndex + 1 >= flatSteps.length;
+                                    setCelebrate(null);
+                                    if (last) {
+                                        setMode("overview");
+                                        return;
+                                    }
+                                    setStepIndex((i) => i + 1);
+                                    setStepPhase("teach");
+                                    setSelected(null);
+                                    setClozeValues([]);
+                                    setClozeSubmitted(false);
+                                    setHearts(HEARTS_MAX);
+                                }}
+                                className="w-full py-2.5 rounded-xl bg-[#5B9DFF] text-white font-semibold"
+                            >
+                                Weiter
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
             </div>
         );
     }
@@ -786,6 +933,8 @@ export default function SmartLearningView({
                 <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-8 text-center space-y-3">
                     <p className="text-[11px] uppercase tracking-widest text-[#5B9DFF]">Probeklausur</p>
                     <p className="text-5xl font-semibold text-white">{score}%</p>
+                    <p className="text-[#9EC5FF] font-medium">+50 XP</p>
+                    <p className="text-xs text-gray-500">Streak {hudStreak} Tage</p>
                     <p className="text-sm text-gray-400">
                         {Object.values(examAnswers).filter((a) => a.correct).length} / {exam.questions.length} richtig
                         {local.progress?.exam_best_score != null
@@ -965,6 +1114,21 @@ export default function SmartLearningView({
                         ) : null}
                     </div>
 
+                    <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#5B9DFF]/10 text-[#9EC5FF]">
+                            <Sparkles size={12} /> {hudXp.toLocaleString()} XP
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 text-amber-200">
+                            <Flame size={12} /> {hudStreak} Tage Streak
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-[#2A3140] text-gray-400">
+                            Tagesziel {dailyXp}/{DAILY_GOAL_XP} XP
+                            <span className="w-16 h-1.5 rounded-full bg-[#12141A] overflow-hidden">
+                                <span className="block h-full bg-[#5B9DFF]" style={{ width: `${Math.min(100, Math.round((100 * dailyXp) / DAILY_GOAL_XP))}%` }} />
+                            </span>
+                        </span>
+                    </div>
+
                     <div className="mt-6 flex flex-wrap items-end gap-4">
                         <div className="min-w-[140px]">
                             <p className="text-xs text-gray-500 mb-1">Bereitschaft</p>
@@ -1033,21 +1197,39 @@ export default function SmartLearningView({
 
             <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
-                    <BookOpen size={16} /> Kapitel
+                    <BookOpen size={16} /> Lernpfad
                 </h3>
                 {chapters.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-[#2A3140] bg-[#1A1F2A] p-6 text-center text-gray-400 text-sm">
                         Noch keine Kapitel. Material hochladen und Smart Learning erneut generieren.
                     </div>
                 ) : (
-                    chapters.map((ch) => {
+                    chapters.map((ch, chi) => {
+                        const prevDone =
+                            chi === 0 ||
+                            chapters.slice(0, chi).every((p) => p.lessons.length > 0 && p.lessons.every((l) => completedLessonSet.has(l.id)));
+                        const locked = !prevDone;
                         const doneLessons = ch.lessons.filter((l) => completedLessonSet.has(l.id)).length;
                         const chapterDone = ch.lessons.length > 0 && doneLessons === ch.lessons.length;
                         const hasCloze = ch.lessons.some((l) => l.check.type === "cloze");
                         return (
-                            <div key={ch.id} className="rounded-xl border border-[#2A3140] bg-[#1A1F2A] px-4 py-3.5">
+                            <button
+                                key={ch.id}
+                                type="button"
+                                disabled={locked}
+                                onClick={() => startChapter(ch.id)}
+                                className={`w-full text-left rounded-xl border px-4 py-3.5 transition-colors ${
+                                    locked
+                                        ? "border-[#2A3140] bg-[#12141A] opacity-60 cursor-not-allowed"
+                                        : "border-[#2A3140] bg-[#1A1F2A] hover:border-[#5B9DFF]/40"
+                                }`}
+                            >
                                 <div className="flex items-start gap-3">
-                                    <BrainCircuit size={16} className="text-[#5B9DFF] shrink-0 mt-0.5" />
+                                    {locked ? (
+                                        <Lock size={16} className="text-gray-500 shrink-0 mt-0.5" />
+                                    ) : (
+                                        <BrainCircuit size={16} className="text-[#5B9DFF] shrink-0 mt-0.5" />
+                                    )}
                                     <div className="flex-1 min-w-0 space-y-1">
                                         <div className="flex items-center gap-2">
                                             <p className="text-sm font-medium text-white truncate flex-1">{ch.title}</p>
@@ -1080,7 +1262,7 @@ export default function SmartLearningView({
                                         ) : null}
                                     </div>
                                 </div>
-                            </div>
+                            </button>
                         );
                     })
                 )}

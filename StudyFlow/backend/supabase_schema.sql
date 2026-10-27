@@ -8,6 +8,8 @@ CREATE TABLE public.users (
     tokens INTEGER DEFAULT 500 NOT NULL,
     xp INTEGER DEFAULT 0 NOT NULL,
     streak_days INTEGER DEFAULT 0 NOT NULL,
+    last_active_date DATE,
+    daily_xp INTEGER DEFAULT 0 NOT NULL,
     is_admin BOOLEAN DEFAULT FALSE NOT NULL,
     email TEXT,
     auth_id UUID,

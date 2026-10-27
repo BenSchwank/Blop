@@ -343,6 +343,7 @@ def _podcast_job_worker(
     model_preference: Optional[str],
     tts_voice: Optional[str] = None,
     tts_voice_b: Optional[str] = None,
+    focus: str = "",
 ) -> None:
     from ai_service import AIService
     from media_pipeline import synthesize_podcast_dialogue
@@ -359,7 +360,7 @@ def _podcast_job_worker(
             )
             return
         script_result = AIService.generate_podcast_script(
-            context, model_preference=model_pref, return_meta=True
+            context, model_preference=model_pref, return_meta=True, focus=focus or ""
         )
         text = script_result["text"]
         voice_a, voice_b = podcast_voice_pair(tts_voice or "", tts_voice_b or "")
@@ -463,6 +464,7 @@ def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
         "tts_voice": voice,
         "slide_motion": slide_motion,
         "slide_crossfade": slide_crossfade,
+        "focus": (getattr(req, "focus", None) or "").strip(),
     }
 
 
@@ -701,6 +703,11 @@ class GoogleDesktopCompleteRequest(BaseModel):
     state: str
     credential: str
     access_token: Optional[str] = None
+
+
+class GoogleDesktopRefreshRequest(BaseModel):
+    refresh_token: str
+    client_id: Optional[str] = None
 
 
 class GoogleDesktopExchangeRequest(BaseModel):
@@ -1294,6 +1301,52 @@ def google_desktop_exchange(req: GoogleDesktopExchangeRequest):
     }
 
 
+@app.post("/api/auth/google/desktop/refresh")
+def google_desktop_refresh(req: GoogleDesktopRefreshRequest):
+    """Trade a desktop refresh token for a fresh access token (secret stays here)."""
+    import requests as py_requests
+
+    refresh = (req.refresh_token or "").strip()
+    if not refresh:
+        raise HTTPException(status_code=400, detail="refresh_token nötig")
+    client_id = (
+        (req.client_id or "").strip()
+        or (os.environ.get("GOOGLE_DESKTOP_CLIENT_ID") or "").strip()
+        or "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com"
+    )
+    secret = (
+        (os.environ.get("GOOGLE_DESKTOP_CLIENT_SECRET") or "").strip()
+        or (os.environ.get("GOOGLE_CLIENT_SECRET") or "").strip()
+    )
+    if not secret:
+        raise HTTPException(status_code=503, detail="Server: Client-Secret fehlt")
+    try:
+        resp = py_requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh,
+                "client_id": client_id,
+                "client_secret": secret,
+            },
+            timeout=20,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Token-Request fehlgeschlagen: {e}") from e
+    try:
+        payload = resp.json()
+    except Exception:
+        payload = {}
+    if resp.status_code >= 400:
+        # invalid_grant => token revoked; client clears it on 401.
+        code = 401 if payload.get("error") == "invalid_grant" else 400
+        raise HTTPException(status_code=code, detail=payload.get("error_description") or payload.get("error") or "refresh failed")
+    access = payload.get("access_token") or ""
+    if not access:
+        raise HTTPException(status_code=400, detail="Antwort ohne access_token")
+    return {"access_token": access, "expires_in": payload.get("expires_in"), "scope": payload.get("scope") or ""}
+
+
 @app.post("/api/auth/google/verify")
 def verify_google_oauth(req: GoogleVerifyRequest):
     try:
@@ -1852,8 +1905,50 @@ def get_user_info(http_request: Request, username: str, session_id: str = ""):
         "subscription_tier": tier,
         "preferred_model": user.get("preferred_model", ""),
         "xp": user.get("xp", 0),
+        "streak_days": user.get("streak_days", 0) or 0,
+        "daily_xp": user.get("daily_xp", 0) or 0,
+        "last_active_date": user.get("last_active_date"),
         "is_admin": user.get("is_admin", False)
     }
+
+class XpAwardRequest(BaseModel):
+    username: str = ""
+    amount: int
+    reason: str = ""
+
+
+@app.get("/api/me")
+def get_me(http_request: Request, username: str = "", session_id: str = ""):
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    row = AuthManager.get_user(user)
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "username": row.get("username"),
+        "xp": int(row.get("xp") or 0),
+        "streak_days": int(row.get("streak_days") or 0),
+        "daily_xp": int(row.get("daily_xp") or 0),
+        "last_active_date": row.get("last_active_date"),
+    }
+
+
+@app.post("/api/me/xp")
+def award_me_xp(http_request: Request, body: XpAwardRequest, session_id: str = ""):
+    user = require_session_user(
+        http_request,
+        session_id=session_id or None,
+        username=body.username or None,
+    )
+    amount = max(0, min(500, int(body.amount or 0)))
+    new_xp = AuthManager.add_xp(user, amount)
+    row = AuthManager.get_user(user) or {}
+    return {
+        "xp": int(new_xp or row.get("xp") or 0),
+        "streak_days": int(row.get("streak_days") or 0),
+        "daily_xp": int(row.get("daily_xp") or 0),
+        "reason": body.reason or "",
+    }
+
 
 @app.put("/api/user/model-preference")
 def update_user_model_preference(body: UserModelPreferenceRequest):
@@ -2748,6 +2843,7 @@ class GenRequest(BaseModel):
     quiz_difficulty: Optional[str] = None
     flashcards_count: Optional[int] = None
     flashcards_max_text: Optional[int] = None
+    focus: str = ""
 
 class SummaryRequest(BaseModel):
     username: str
@@ -2755,12 +2851,14 @@ class SummaryRequest(BaseModel):
     detail_level: str = "Normal"
     model_preference: str = None
     learning_mode: str = "normal"
+    focus: str = ""
 
 class ElaborationRequest(BaseModel):
     username: str
     folder_id: str
     detail_level: str = "Normal"
     custom_rules: str = ""
+    focus: str = ""
     model_preference: str = None
 
 class ElaborationRefineRequest(BaseModel):
@@ -2776,6 +2874,7 @@ class RepetitionRequest(BaseModel):
     username: str
     folder_id: str
     custom_rules: str = ""
+    focus: str = ""
     model_preference: str = None
     learning_mode: str = "normal"
 
@@ -2787,6 +2886,8 @@ class PlanRequest(BaseModel):
     active_days: list[int] = None # List of active weekdays (0=Mo, 6=Su). If None, all days are active.
     model_preference: str = None
     learning_mode: str = "normal"
+    focus: str = ""
+    exam_date: str = ""
 
 class SmartLearningRequest(BaseModel):
     username: str
@@ -2840,6 +2941,7 @@ class PodcastRequest(BaseModel):
     model_preference: Optional[str] = None
     tts_voice: Optional[str] = None
     tts_voice_b: Optional[str] = None
+    focus: str = ""
 
 
 class LearningVideoRequest(BaseModel):
@@ -2854,6 +2956,7 @@ class LearningVideoRequest(BaseModel):
     tts_voice: Optional[str] = None
     slide_motion: Optional[bool] = None
     slide_crossfade: Optional[bool] = None
+    focus: str = ""
 
 
 class MathInkRecognizeRequest(BaseModel):
@@ -2995,6 +3098,8 @@ def create_study_plan(request: PlanRequest):
             model_preference=model_pref,
             active_days=request.active_days,
             learning_mode=request.learning_mode,
+            focus=request.focus or "",
+            exam_date=request.exam_date or "",
             return_meta=True,
         )
         plan = plan_result["data"]
@@ -3078,6 +3183,8 @@ def create_smart_learning(request: SmartLearningRequest):
                 kept = [str(x) for x in old_completed if str(x) in new_ids]
                 kept_lessons = [str(x) for x in old_lessons if str(x) in new_lesson_ids]
                 sessions = max(0, int(old_progress.get("practice_sessions") or 0))
+                exam_best = old_progress.get("exam_best_score")
+                exam_at = old_progress.get("exam_completed_at")
                 readiness = 0
                 if new_lesson_ids:
                     readiness = int(round(100.0 * len(set(kept_lessons)) / max(len(new_lesson_ids), 1)))
@@ -3089,6 +3196,8 @@ def create_smart_learning(request: SmartLearningRequest):
                     "completed_chapter_ids": list(dict.fromkeys(kept)),
                     "completed_lesson_ids": list(dict.fromkeys(kept_lessons)),
                     "practice_sessions": sessions,
+                    "exam_best_score": exam_best,
+                    "exam_completed_at": exam_at,
                 }
                 journey["readiness"] = readiness
         except Exception as merge_err:
@@ -3426,6 +3535,7 @@ def create_quiz(request: GenRequest):
             model_preference=model_pref,
             question_count=quiz_count,
             difficulty=quiz_difficulty,
+            focus=request.focus or "",
             return_meta=True,
         )
         quiz = quiz_result["data"]
@@ -3475,6 +3585,7 @@ def create_flashcards(request: GenRequest):
             model_preference=model_pref,
             cards_count=cards_count,
             max_text_per_card=max_text,
+            focus=request.focus or "",
             return_meta=True,
         )
         cards = cards_result["data"]
@@ -3542,6 +3653,7 @@ def create_summary(
             detail_level=request.detail_level,
             model_preference=model_pref,
             learning_mode=request.learning_mode,
+            focus=request.focus or "",
             return_meta=True,
         )
         summary = summary_result["text"]
@@ -3572,6 +3684,9 @@ def create_elaboration(request: ElaborationRequest):
     except HTTPException:
         raise
     job_id = str(uuid.uuid4())
+    combined_rules = "\n\n".join(
+        p for p in [(request.focus or "").strip(), (request.custom_rules or "").strip()] if p
+    )
     with _ELABORATION_JOBS_LOCK:
         _elaboration_prune_jobs_locked()
         _ELABORATION_JOBS[job_id] = {
@@ -3587,7 +3702,7 @@ def create_elaboration(request: ElaborationRequest):
             request.username,
             request.folder_id,
             request.detail_level,
-            request.custom_rules or "",
+            combined_rules,
             request.model_preference,
         ),
         daemon=True,
@@ -3820,9 +3935,12 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         
+        combined_rules = "\n\n".join(
+            p for p in [(request.focus or "").strip(), (request.custom_rules or "").strip()] if p
+        )
         repetition_result = AIService.generate_repetition(
             context,
-            custom_rules=request.custom_rules,
+            custom_rules=combined_rules,
             model_preference=model_pref,
             learning_mode=request.learning_mode,
             return_meta=True,
@@ -4123,7 +4241,7 @@ def create_podcast(request: PodcastRequest):
     )
     thread = threading.Thread(
         target=_podcast_job_worker,
-        args=(job_id, request.username, request.folder_id, request.model_preference, request.tts_voice, request.tts_voice_b),
+        args=(job_id, request.username, request.folder_id, request.model_preference, request.tts_voice, request.tts_voice_b, request.focus or ""),
         daemon=True,
     )
     thread.start()

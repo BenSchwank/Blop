@@ -13,9 +13,10 @@ export interface QuizQuestion {
 
 type Props = {
     questions: QuizQuestion[];
+    onComplete?: (correct: number, total: number) => void;
 };
 
-export default function QuizSession({ questions }: Props) {
+export default function QuizSession({ questions, onComplete }: Props) {
     const items = useMemo(
         () => (Array.isArray(questions) ? questions.filter((q) => q && String(q.question || "").trim()) : []),
         [questions]
@@ -124,6 +125,8 @@ export default function QuizSession({ questions }: Props) {
         if (index + 1 >= total) {
             setPhase("done");
             setSelected(null);
+            const correct = items.reduce((acc, item, i) => (answers[i] != null && answers[i] === item.answer ? acc + 1 : acc), 0);
+            onComplete?.(correct, items.length);
             return;
         }
         setIndex((i) => i + 1);

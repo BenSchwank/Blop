@@ -229,6 +229,28 @@ def _finalize_study_markdown(text: str) -> str:
     """Normalize powers so TipTap/KaTeX never show exponents as juxtaposition."""
     return normalize_math_powers((text or "").strip())
 
+
+TOC_HEADING_INSTRUCTIONS = """
+STRUKTUR FÜR DAS INHALTSVERZEICHNIS (verbindlich):
+- Verwende echte Markdown-Überschriften: ein # für den Dokumenttitel, ## für Hauptabschnitte, ### für Unterabschnitte.
+- Kein HTML, kein JavaScript, keine Anker-Links und keine <div>-Container.
+- Optional direkt nach dem Titel eine Markdown-Liste „Inhaltsverzeichnis“ mit den Abschnittstiteln — die App baut das klickbare TOC selbst aus den ##/###-Überschriften.
+"""
+
+
+def _focus_block(focus: str, exam_date: str = "") -> str:
+    focus = (focus or "").strip()
+    exam = (exam_date or "").strip()
+    if not focus and not exam:
+        return ""
+    lines = ["NUTZER-FOKUS (verbindlich, gewichte stärker als den Rest des Materials):"]
+    if focus:
+        lines.append(f"- Kapitel / Themen: {focus}")
+        lines.append("- Decke diese Kapitel/Themen konkret ab. Keine vagen Aufgaben wie „lerne Kapitel X“ — nenne die Inhalte.")
+    if exam:
+        lines.append(f"- Prüfung / Zieltermin: {exam}")
+    return "\n".join(lines) + "\n"
+
 class AIService:
     _REPETITION_CONTINUATION_PROMPT = """Die Ausgabe wurde wegen des Ausgabe-Tokenslimits abgebrochen.
 
@@ -487,7 +509,7 @@ Setze NAHTLOS fort:
         return AIService._pick_available_model(preferred=None, fast_only=True)
 
     @staticmethod
-    def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal", return_meta: bool = False) -> Any:
+    def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal", focus: str = "", return_meta: bool = False) -> Any:
         """Generates a comprehensive summary from text or multimodal content."""
         try:
             model = genai.GenerativeModel(model_for_task("summary", model_preference))
@@ -509,6 +531,8 @@ Denke: "Was muss ich WISSEN und KÖNNEN, um solche Aufgaben zu meistern?"
 Du bist ein erfahrener Tutor und Lernassistent. Deine Aufgabe ist es, eine UMFASSENDE und DETAILLIERTE Zusammenfassung des gesamten Lernmaterials auf Deutsch zu erstellen.
 {mode_preamble}
 Detailgrad: {detail_level}
+{_focus_block(focus)}
+{TOC_HEADING_INSTRUCTIONS}
 
 WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
 Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
@@ -594,6 +618,7 @@ Erstelle jetzt die vollständige, detaillierte Zusammenfassung basierend auf dem
         model_preference: str = None,
         question_count: int = 10,
         difficulty: str = "gemischt",
+        focus: str = "",
         return_meta: bool = False
     ) -> Any:
         """Generates a comprehensive quiz from multimodal content."""
@@ -611,7 +636,8 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke in d
 - Die als richtig markierte Antwort und die Erklärung müssen rechnerisch stimmig sein; falsche Zahlen in Erklärungen sind inakzeptabel.
 
 Anforderungen:
-- Decke ALLE wichtigen Themen des Materials ab
+{_focus_block(focus)}
+- Decke ALLE wichtigen Themen des Materials ab (bei Fokus: diese Kapitel zuerst und gründlich)
 - Schwierigkeitsprofil: {difficulty}
 - Die Antwortoptionen sollen plausibel aber unterschiedlich sein
 - Kurze, eindeutige Fragen (1–2 Sätze); Formeln NUR in $...$ / $$...$$
@@ -666,6 +692,7 @@ Erstelle das Quiz für das folgende Material:
         model_preference: str = None,
         cards_count: int = 20,
         max_text_per_card: int = 320,
+        focus: str = "",
         return_meta: bool = False
     ) -> Any:
         """Generates comprehensive flashcards from multimodal content."""
@@ -683,7 +710,8 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
 - Auf der Rückseite bei Rechenaufgaben: nur Ergebnisse mit nachvollziehbarer Kette und Probe angeben.
 
 Anforderungen:
-- Decke ALLE wichtigen Konzepte, Begriffe und Fakten ab
+{_focus_block(focus)}
+- Decke ALLE wichtigen Konzepte, Begriffe und Fakten ab (bei Fokus: diese Kapitel zuerst)
 - Vorderseite: präzise Frage oder Begriff (kurz)
 - Rückseite: klare Antwort/Erklärung (maximal ca. {max_text_per_card} Zeichen); Formeln NUR in $...$ / $$...$$
 - Variiere zwischen Definitionsfragen, Erklärungsfragen und Anwendungsfragen
@@ -729,7 +757,7 @@ Erstelle die Karteikarten für das folgende Material:
             raise Exception(f"Fehler beim Karteikarten-Generieren: {str(e)}")
 
     @staticmethod
-    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None, active_days: list[int] = None, learning_mode: str = "normal", return_meta: bool = False) -> Any:
+    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None, active_days: list[int] = None, learning_mode: str = "normal", focus: str = "", exam_date: str = "", return_meta: bool = False) -> Any:
         """Generates a detailed, actionable study plan from multimodal content."""
         try:
             model = genai.GenerativeModel(model_for_task("plan", model_preference), generation_config={"response_mime_type": "application/json"})
@@ -763,6 +791,7 @@ RAHMENDATEN:
 - Lernzeit pro Tag: {hours_per_day} Stunden
 - Gesamtlernzeit: {total_hours} Stunden
 - Aktive Lerntage: {active_days_str}
+{_focus_block(focus, exam_date)}
 
 WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
 Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke in den Beschreibungen und Zusammenfassungen. 
@@ -774,7 +803,7 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke in d
 ANCORDERUNGEN AN DEN LERNPLAN:
 1. Teile den gesamten Stoff GLEICHMÄSSIG und SINNVOLL auf {duration_days} Tage auf. ACHTUNG: Plane NUR an den "Aktiven Lerntagen" Aufgaben ein. Wenn der Tag der Woche KEIN aktiver Lerntag ist, weise dem Tag KEINE Aufgaben zu und setze als Ziel/Summary "Ruhetag" oder "Pause".
    WICHTIGE REGEL: Tag 1 (der ERSTE Tag des Plans) darf unter keinen Umständen ein Ruhetag sein. Beginne den Plan IMMER an einem aktiven Lerntag.
-2. Jede Aufgabe muss KONKRET und UMSETZBAR sein (keine vagen Anweisungen wie "lerne Kapitel X")
+2. Jede Aufgabe muss KONKRET und UMSETZBAR sein (keine vagen Anweisungen wie "lerne Kapitel X" — nenne den Stoff, z. B. "Kirchhoffsche Maschenregel an Zweipolen üben")
 3. Gib GENAUE Zeitangaben für jede Aufgabe (Summe = {hours_per_day}h pro Tag)
 4. Berücksichtige Lernpsychologie: Wiederholungen einbauen, Pausen vorschlagen
 5. Erstelle für jeden Tag eine kurze INHALTLICHE ZUSAMMENFASSUNG (3-5 Sätze) des Tagesstoffs, sodass aus dem Lernplan direkt gelernt werden kann. (Mache dies nicht für Ruhetage).
@@ -1367,7 +1396,7 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
         return kept
 
     @staticmethod
-    def generate_podcast_script(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
+    def generate_podcast_script(content: List[Any], model_preference: str = None, return_meta: bool = False, focus: str = "") -> Any:
         """German dialogue for two podcast speakers."""
         primary = model_for_task("podcast", model_preference)
         candidates = [primary]
@@ -1389,8 +1418,9 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
                             "reasoning_effort": "low",
                         },
                     )
-                    prompt = """
+                    prompt = (_focus_block(focus) + "\n" if (focus or "").strip() else "") + """
 Du schreibst einen echten Lern-Podcast auf Deutsch — wie zwei Menschen, die sich den Stoff wirklich erklären, nicht wie eine KI-Zusammenfassung.
+Wenn ein Nutzer-Fokus gesetzt ist, dreht sich der Dialog vor allem um diese Kapitel/Themen.
 
 Ziel-Länge (gesprochen):
 - Wenig Stoff: etwa 10–14 Minuten (mindestens 40 Beiträge).
@@ -1699,6 +1729,9 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
                 hi,
                 target,
             )
+            focus_note = _focus_block(str(opts.get("focus") or ""))
+            if focus_note:
+                schema_hint += "\n" + focus_note + "Gewichte diese Kapitel/Themen in den Szenen, kürze den Rest.\n"
             if material_note:
                 schema_hint += "\nHinweis zum Umfang des Materials:\n" + material_note + "\n"
             if want_images:
@@ -1913,6 +1946,10 @@ Interpretation: {detail_hint}
 
 {"Spezifische Anweisungen des Nutzers:" if custom_rules else "Generelle Anweisung:"}
 {custom_rules if custom_rules else "Fasse die wichtigsten Aspekte des Materials in einem gut strukturierten Text zusammen."}
+
+{_focus_block(custom_rules)}
+
+{TOC_HEADING_INSTRUCTIONS}
 
 VOLLSTÄNDIGKEIT (kritisch):
 - Arbeite das Material vollständig durch, nicht nur den Anfang.
@@ -2157,6 +2194,8 @@ Ziel: Ein Lernender soll mit diesem Dokument die Inhalte und Lösungswege wirkli
 Fokus / Modus:
 {mode_note}
 
+{_focus_block(custom_rules)}
+
 UMFANG (verbindlich):
 - Schreibe lang und detailliert. Lieber zu ausführlich als zu kurz.
 - Der mittlere Hauptteil (siehe Struktur unten) soll mindestens etwa 60–70 % der Gesamtlänge ausmachen.
@@ -2173,6 +2212,8 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
 
 {MATH_ACCURACY_INSTRUCTIONS}
 - In Musterlösungen zu Prüfungsaufgaben sind falsche Zahlen besonders schädlich: jede Teilaufgabe mindestens einmal logisch gegenprüfen (Zwischenwerte, Probe).
+
+{TOC_HEADING_INSTRUCTIONS}
 
 Struktur (sauberes Markdown, in dieser Reihenfolge):
 

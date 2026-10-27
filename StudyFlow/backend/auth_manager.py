@@ -553,7 +553,7 @@ class AuthManager:
             # cannot 500 the whole profile endpoint (select('*')).
             res = (
                 db.table('users')
-                .select('username, email, tokens, subscription_tier, preferred_model, is_admin, xp, auth_id, created_at, password_hash')
+                .select('username, email, tokens, subscription_tier, preferred_model, is_admin, xp, streak_days, last_active_date, daily_xp, auth_id, created_at, password_hash')
                 .eq('username', username)
                 .execute()
             )
@@ -563,16 +563,29 @@ class AuthManager:
             missing = AuthManager._missing_column(str(e))
             if missing:
                 try:
-                    res = db.table('users').select('username, tokens, is_admin').eq('username', username).execute()
+                    res = db.table('users').select(
+                        'username, email, tokens, subscription_tier, preferred_model, is_admin, xp, streak_days, auth_id, created_at, password_hash'
+                    ).eq('username', username).execute()
                     if res.data:
                         row = dict(res.data[0])
-                        row.setdefault('email', '')
-                        row.setdefault('subscription_tier', 'free')
-                        row.setdefault('preferred_model', '')
-                        row.setdefault('xp', 0)
+                        row.setdefault('daily_xp', 0)
+                        row.setdefault('last_active_date', None)
                         return row
                 except Exception as fallback_exc:
                     print(f"AuthManager.get_user fallback failed: {fallback_exc}")
+                    try:
+                        res = db.table('users').select('username, tokens, is_admin').eq('username', username).execute()
+                        if res.data:
+                            row = dict(res.data[0])
+                            row.setdefault('email', '')
+                            row.setdefault('subscription_tier', 'free')
+                            row.setdefault('preferred_model', '')
+                            row.setdefault('xp', 0)
+                            row.setdefault('streak_days', 0)
+                            row.setdefault('daily_xp', 0)
+                            return row
+                    except Exception as inner_exc:
+                        print(f"AuthManager.get_user inner fallback failed: {inner_exc}")
             print(f"AuthManager.get_user failed: {e}")
             return None
         return None
@@ -841,21 +854,62 @@ class AuthManager:
 
     @staticmethod
     def add_xp(username, amount):
+        AuthManager.update_activity(username)
         user = AuthManager.get_user(username)
-        if not user: return 0
-        
-        new_xp = user.get("xp", 0) + amount
+        if not user:
+            return 0
+        amount = max(0, int(amount or 0))
+        if amount <= 0:
+            return int(user.get("xp", 0) or 0)
+        new_xp = int(user.get("xp", 0) or 0) + amount
+        daily = int(user.get("daily_xp", 0) or 0) + amount
         db = AuthManager._get_db()
-        db.table('users').update({"xp": new_xp}).eq('username', username).execute()
+        payload = {"xp": new_xp}
+        try:
+            payload["daily_xp"] = daily
+            db.table("users").update(payload).eq("username", username).execute()
+        except Exception:
+            try:
+                db.table("users").update({"xp": new_xp}).eq("username", username).execute()
+            except Exception as exc:
+                print(f"AuthManager.add_xp failed: {exc}")
         return new_xp
 
     @staticmethod
     def update_activity(username):
         user = AuthManager.get_user(username)
-        if not user: return
-        # A simple placeholder. To implement proper streaks, we need last_active_date in db schema.
-        # Since it's not in schema MVP, we just bump streak if needed, but skip for now to keep it simple.
-        pass
+        if not user:
+            return
+        db = AuthManager._get_db()
+        if not db:
+            return
+        today = datetime.now(timezone.utc).date()
+        last_raw = user.get("last_active_date")
+        last = None
+        if last_raw:
+            try:
+                last = datetime.fromisoformat(str(last_raw)[:10]).date()
+            except Exception:
+                last = None
+        streak = int(user.get("streak_days", 0) or 0)
+        payload = {}
+        if last == today:
+            return
+        if last is None:
+            streak = max(1, streak or 1)
+        else:
+            delta = (today - last).days
+            if delta == 1:
+                streak = max(1, streak) + 1
+            elif delta > 1:
+                streak = 1
+            payload["daily_xp"] = 0
+        payload["last_active_date"] = today.isoformat()
+        payload["streak_days"] = streak
+        try:
+            db.table("users").update(payload).eq("username", username).execute()
+        except Exception as exc:
+            print(f"AuthManager.update_activity skipped: {exc}")
 
     @staticmethod
     def get_leaderboard_data(limit=5):
