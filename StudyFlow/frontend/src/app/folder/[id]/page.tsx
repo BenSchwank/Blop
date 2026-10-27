@@ -12,6 +12,10 @@ import RichTextEditor from "@/components/RichTextEditor";
 import SmartLearningView, { normalizeSmartLearningContent } from "@/components/SmartLearningView";
 import QuizSession, { type QuizQuestion as QuizSessionQuestion } from "@/components/QuizSession";
 import FlashcardSession from "@/components/FlashcardSession";
+import DocumentMarkdown from "@/components/DocumentMarkdown";
+import DocumentToc from "@/components/DocumentToc";
+import { extractMarkdownHeadings } from "@/lib/markdownHeadings";
+import { awardXp } from "@/lib/xpClient";
 import { registerAiJobAbort, unregisterAiJobAbort, abortAiJob, isAbortError } from "@/lib/aiJobAbortRegistry";
 import { getSessionId, sessionHeaders } from "@/lib/session";
 import { OVERLAY_FOLDER_KI_PANEL } from "@/constants/overlayLayout";
@@ -333,7 +337,13 @@ type DraggableFileProps = {
 
 // Sub-component for interactive Quiz viewing — replaced by QuizSession
 const QuizViewer = ({ questions }: { questions: QuizQuestion[] }) => (
-    <QuizSession questions={questions as QuizSessionQuestion[]} />
+    <QuizSession
+        questions={questions as QuizSessionQuestion[]}
+        onComplete={(correct, total) => {
+            const xp = 10 + Math.max(0, correct) * 2;
+            void awardXp(xp, "quiz");
+        }}
+    />
 );
 
 // Subfolder Droppable Wrapper
@@ -776,6 +786,7 @@ export default function FolderPage() {
     const [planEndDate, setPlanEndDate] = useState('');
     const [planUseDate, setPlanUseDate] = useState(false);
     const [planActiveDays, setPlanActiveDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]); // 0=Mo, 6=Su
+    const [planFocus, setPlanFocus] = useState('');
 
     // Smart Learning Config Modal State
     const [isSmartLearningConfigOpen, setIsSmartLearningConfigOpen] = useState(false);
@@ -821,6 +832,7 @@ export default function FolderPage() {
     // Summary Config Modal State
     const [isSummaryConfigOpen, setIsSummaryConfigOpen] = useState(false);
     const [summaryDetailLevel, setSummaryDetailLevel] = useState('Normal');
+    const [summaryFocus, setSummaryFocus] = useState('');
 
     // Elaboration (Ausarbeitung) Config Modal State
     const [isElaborationConfigOpen, setIsElaborationConfigOpen] = useState(false);
@@ -838,9 +850,11 @@ export default function FolderPage() {
     const [isQuizConfigOpen, setIsQuizConfigOpen] = useState(false);
     const [quizQuestionCount, setQuizQuestionCount] = useState(10);
     const [quizDifficulty, setQuizDifficulty] = useState<'gemischt' | 'leicht' | 'mittel' | 'schwer'>('gemischt');
+    const [quizFocus, setQuizFocus] = useState('');
     const [isFlashcardsConfigOpen, setIsFlashcardsConfigOpen] = useState(false);
     const [flashcardsCount, setFlashcardsCount] = useState(20);
     const [flashcardsMaxText, setFlashcardsMaxText] = useState(320);
+    const [flashcardsFocus, setFlashcardsFocus] = useState('');
 
     const practiceIntentRef = useRef<string | null>(null);
     useEffect(() => {
@@ -862,6 +876,8 @@ export default function FolderPage() {
     const [isPodcastConfigOpen, setIsPodcastConfigOpen] = useState(false);
     const [podcastTtsVoice, setPodcastTtsVoice] = useState<string>("aoede");
     const [podcastTtsVoiceB, setPodcastTtsVoiceB] = useState<string>("charon");
+    const [podcastFocus, setPodcastFocus] = useState('');
+    const [lvFocus, setLvFocus] = useState('');
     const [ttsPreviewLoadingVoice, setTtsPreviewLoadingVoice] = useState<string | null>(null);
     const ttsPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
     const ttsPreviewUrlRef = useRef<string | null>(null);
@@ -962,6 +978,7 @@ export default function FolderPage() {
     const [readSelectionError, setReadSelectionError] = useState('');
     const readSelectionRangeRef = useRef<Range | null>(null);
     const readModeContentRef = useRef<HTMLDivElement | null>(null);
+    const docScrollRef = useRef<HTMLDivElement | null>(null);
     const readSelectionPanelRef = useRef<HTMLDivElement | null>(null);
     const readSelectionRafRef = useRef<number | null>(null);
     const readSelectionSigRef = useRef<string>('');
@@ -1851,6 +1868,7 @@ export default function FolderPage() {
                     model_preference: effectiveModelPreference,
                     quiz_question_count: quizQuestionCount,
                     quiz_difficulty: quizDifficulty,
+                    focus: quizFocus.trim() || undefined,
                 }),
                 signal: ac.signal,
             });
@@ -1924,6 +1942,7 @@ export default function FolderPage() {
                     model_preference: effectiveModelPreference,
                     flashcards_count: flashcardsCount,
                     flashcards_max_text: flashcardsMaxText,
+                    focus: flashcardsFocus.trim() || undefined,
                 }),
                 signal: acFc.signal,
             });
@@ -1996,7 +2015,8 @@ export default function FolderPage() {
                     folder_id: folderId,
                     detail_level: summaryDetailLevel,
                     model_preference: effectiveModelPreference,
-                    learning_mode: learningMode
+                    learning_mode: learningMode,
+                    focus: summaryFocus.trim() || undefined,
             }, acSum.signal));
 
             const data = await readGeneratedAiPayload(res, username || "", acSum.signal);
@@ -2065,6 +2085,7 @@ export default function FolderPage() {
                     folder_id: folderId,
                     detail_level: elaborationDetailLevel,
                     custom_rules: elaborationRules,
+                    focus: elaborationRules.trim() || undefined,
                     model_preference: effectiveModelPreference
                 }),
                 signal: acElab.signal,
@@ -2202,6 +2223,7 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     custom_rules: repetitionRules,
+                    focus: repetitionRules.trim() || undefined,
                     model_preference: effectiveModelPreference,
                     learning_mode: learningMode
                 }),
@@ -2286,6 +2308,7 @@ export default function FolderPage() {
                     model_preference: effectiveModelPreference,
                     tts_voice: podcastTtsVoice,
                     tts_voice_b: podcastTtsVoiceB,
+                    focus: podcastFocus.trim() || undefined,
                 }),
                 signal: ac.signal,
             });
@@ -2443,6 +2466,7 @@ export default function FolderPage() {
                     slide_motion: lvSlideMotion,
                     slide_crossfade: lvSlideCrossfade,
                     tts_voice: lvTtsVoice,
+                    focus: lvFocus.trim() || undefined,
                 }),
                 signal: ac.signal,
             });
@@ -2589,7 +2613,9 @@ export default function FolderPage() {
                     hours_per_day: planHoursPerDay,
                     active_days: planActiveDays.length < 7 ? planActiveDays : undefined,
                     model_preference: effectiveModelPreference,
-                    learning_mode: learningMode
+                    learning_mode: learningMode,
+                    focus: planFocus.trim() || undefined,
+                    exam_date: planUseDate && planEndDate ? planEndDate : undefined,
                 }),
                 signal: acPlan.signal,
             });
@@ -3729,29 +3755,33 @@ export default function FolderPage() {
                         </div>
                     </div>
                     <div
-                        className={`flex-1 overflow-y-auto bg-[#1a1a1a] p-8 transition-[padding] duration-200 ${
+                        ref={docScrollRef}
+                        className={`flex-1 overflow-y-auto bg-[#1a1a1a] p-6 sm:p-8 transition-[padding] duration-200 ${
                             readSelectionOpen ? 'pr-[min(100vw-1.5rem,22rem)] sm:pr-[calc(min(100vw-1.5rem,22rem)+1rem)]' : ''
                         }`}
                     >
-                        <div ref={readModeContentRef} className="max-w-4xl mx-auto prose prose-invert prose-blop prose-pre:bg-[#353840] prose-pre:border prose-pre:border-[#45484F] [&_.katex-display]:max-w-full">
-                            {ytId ? (
-                                <div className="not-prose mb-8 aspect-video w-full max-h-[min(50vh,420px)] rounded-xl overflow-hidden border border-[#45484F] bg-black shadow-lg">
-                                    <iframe
-                                        title="YouTube"
-                                        className="h-full w-full"
-                                        src={`https://www.youtube-nocookie.com/embed/${ytId}`}
-                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                                        allowFullScreen
-                                    />
+                        {(() => {
+                            const tocHeadings = extractMarkdownHeadings(contentStr);
+                            return (
+                                <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 items-start">
+                                    <DocumentToc headings={tocHeadings} scrollRootRef={docScrollRef} />
+                                    <div ref={readModeContentRef} className="flex-1 min-w-0 max-w-4xl prose prose-invert prose-blop prose-pre:bg-[#353840] prose-pre:border prose-pre:border-[#45484F] [&_.katex-display]:max-w-full">
+                                        {ytId ? (
+                                            <div className="not-prose mb-8 aspect-video w-full max-h-[min(50vh,420px)] rounded-xl overflow-hidden border border-[#45484F] bg-black shadow-lg">
+                                                <iframe
+                                                    title="YouTube"
+                                                    className="h-full w-full"
+                                                    src={`https://www.youtube-nocookie.com/embed/${ytId}`}
+                                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                                    allowFullScreen
+                                                />
+                                            </div>
+                                        ) : null}
+                                        <DocumentMarkdown>{contentStr}</DocumentMarkdown>
+                                    </div>
                                 </div>
-                            ) : null}
-                            <ReactMarkdown
-                                remarkPlugins={[remarkGfm, remarkMath]}
-                                rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
-                            >
-                                {contentStr}
-                            </ReactMarkdown>
-                        </div>
+                            );
+                        })()}
                         <SelectionAiPanel
                             open={readSelectionOpen}
                             selectedText={readSelectionText}
@@ -4182,6 +4212,7 @@ export default function FolderPage() {
             return (
                 <FlashcardSession
                     cards={cardRows}
+                    onSessionComplete={() => void awardXp(15, "flashcards")}
                     onExportCsv={() => exportFlashcardsToCsv(file.name, cardRows)}
                     onEditCard={(i) => {
                         const c = cardRows[i];
@@ -4755,6 +4786,15 @@ export default function FolderPage() {
                                         ))}
                                     </div>
                                 </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
+                                    <textarea
+                                        value={quizFocus}
+                                        onChange={(e) => setQuizFocus(e.target.value)}
+                                        placeholder="z.B. Kapitel 3–5 oder nur Kirchhoff"
+                                        className="w-full h-20 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-yellow-500/40 outline-none resize-none placeholder:text-gray-600"
+                                    />
+                                </div>
                                 <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
@@ -4826,6 +4866,15 @@ export default function FolderPage() {
                                         value={flashcardsMaxText}
                                         onChange={(e) => setFlashcardsMaxText(Number(e.target.value))}
                                         className="w-full accent-green-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
+                                    <textarea
+                                        value={flashcardsFocus}
+                                        onChange={(e) => setFlashcardsFocus(e.target.value)}
+                                        placeholder="z.B. nur Formeln aus Kapitel 4"
+                                        className="w-full h-20 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500/40 outline-none resize-none placeholder:text-gray-600"
                                     />
                                 </div>
                                 <div className="pt-4 border-t border-[#45484F]">
@@ -4927,6 +4976,15 @@ export default function FolderPage() {
                                     <p className="text-xs text-gray-500 mt-2">
                                         Abwechselnd, mit Emotion und Pausen — nicht wie eine Vorlese-Zusammenfassung. Test spielt eine kurze, natürliche Probe.
                                     </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
+                                    <textarea
+                                        value={podcastFocus}
+                                        onChange={(e) => setPodcastFocus(e.target.value)}
+                                        placeholder="z.B. nur Kirchhoff und Zweipole"
+                                        className="w-full h-20 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500/40 outline-none resize-none placeholder:text-gray-600"
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (optional)</label>
@@ -5150,6 +5208,15 @@ export default function FolderPage() {
                                         </button>
                                     </div>
                                 </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
+                                    <textarea
+                                        value={lvFocus}
+                                        onChange={(e) => setLvFocus(e.target.value)}
+                                        placeholder="z.B. Kapitel 3–5, nur Wechselstrom"
+                                        className="w-full h-20 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-cyan-500/40 outline-none resize-none placeholder:text-gray-600"
+                                    />
+                                </div>
                                 <div className="pt-2 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (optional)</label>
                                     <select
@@ -5202,13 +5269,12 @@ export default function FolderPage() {
                             </div>
                             <div className="p-5 space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Fokus (optional)</label>
-                                    <input
-                                        type="text"
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
+                                    <textarea
                                         value={smartLearningFocus}
                                         onChange={(e) => setSmartLearningFocus(e.target.value)}
-                                        placeholder="z.B. Klausur Kapitel 3–5"
-                                        className="w-full bg-[#353840] border border-[#45484F] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
+                                        placeholder="z.B. Kapitel 3–5, Zweipole, Kirchhoff — genaue Themen, die die Lernreise abdecken soll"
+                                        className="w-full h-24 bg-[#353840] border border-[#45484F] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50 resize-none placeholder:text-gray-600"
                                     />
                                 </div>
                                 <div>
@@ -5385,6 +5451,16 @@ export default function FolderPage() {
                                     </p>
                                 </div>
 
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus</label>
+                                    <textarea
+                                        value={planFocus}
+                                        onChange={(e) => setPlanFocus(e.target.value)}
+                                        placeholder="z.B. Kapitel 3–5, Zweipole, Kirchhoffsche Regeln, Wechselstrom. Die KI plant genau diese Inhalte."
+                                        className="w-full h-24 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none resize-none placeholder:text-gray-600"
+                                    />
+                                </div>
+
                                 {/* Active Study Days */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Aktive Lerntage</label>
@@ -5414,76 +5490,6 @@ export default function FolderPage() {
                                     {planActiveDays.length === 0 && (
                                         <p className="text-red-400 text-xs mt-2">Bitte mindestens einen Lerntag auswählen</p>
                                     )}
-                                </div>
-
-                                {/* Duration Mode Toggle */}
-                                <div className="flex gap-2 bg-[#353840] p-1 rounded-xl">
-                                    <button
-                                        onClick={() => setPlanUseDate(false)}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${!planUseDate ? 'bg-[#5B9DFF] text-white' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        <Clock size={14} /> Anzahl Tage
-                                    </button>
-                                    <button
-                                        onClick={() => setPlanUseDate(true)}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${planUseDate ? 'bg-[#5B9DFF] text-white' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        <Calendar size={14} /> Enddatum
-                                    </button>
-                                </div>
-
-                                {/* Days OR End Date */}
-                                {!planUseDate ? (
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                                            Anzahl Lerntage
-                                            <span className="ml-2 text-[#5B9DFF] font-bold">{planDays} Tage</span>
-                                        </label>
-                                        <input
-                                            type="range"
-                                            min={1} max={60} step={1}
-                                            value={planDays}
-                                            onChange={e => setPlanDays(Number(e.target.value))}
-                                            className="w-full accent-[#5B9DFF]"
-                                        />
-                                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                            <span>1 Tag</span><span>30 Tage</span><span>60 Tage</span>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">Prüfungsdatum</label>
-                                        <input
-                                            type="date"
-                                            value={planEndDate}
-                                            min={new Date().toISOString().split('T')[0]}
-                                            onChange={e => setPlanEndDate(e.target.value)}
-                                            className="w-full bg-[#353840] border border-[#45484F] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none transition-all"
-                                        />
-                                        {planEndDate && (
-                                            <p className="text-xs text-gray-400 mt-1.5">
-                                                ≈ {Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))} Tage bis zur Prüfung
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Hours per Day */}
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                                        Lernzeit pro Tag
-                                        <span className="ml-2 text-[#5B9DFF] font-bold">{planHoursPerDay} Std.</span>
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min={0.5} max={8} step={0.5}
-                                        value={planHoursPerDay}
-                                        onChange={e => setPlanHoursPerDay(Number(e.target.value))}
-                                        className="w-full accent-[#5B9DFF]"
-                                    />
-                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                        <span>30 Min</span><span>4 Std</span><span>8 Std</span>
-                                    </div>
                                 </div>
 
                                 {/* Summary */}
@@ -5602,6 +5608,15 @@ export default function FolderPage() {
                                         {summaryDetailLevel === 'Ausführlich' && 'Sehr tiefe Erklärung fast aller Details im Material.'}
                                     </p>
                                 </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
+                                    <textarea
+                                        value={summaryFocus}
+                                        onChange={(e) => setSummaryFocus(e.target.value)}
+                                        placeholder="z.B. Kapitel 3–5, nur Zweipole"
+                                        className="w-full h-20 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500/40 outline-none resize-none placeholder:text-gray-600"
+                                    />
+                                </div>
                                 {/* Model Preference */}
                                 <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
@@ -5673,11 +5688,11 @@ export default function FolderPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Spezifische Anweisungen (Optional)</label>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
                                     <textarea
                                         value={elaborationRules}
                                         onChange={(e) => setElaborationRules(e.target.value)}
-                                        placeholder="z.B. Fokussiere dich besonders auf Kapitel 3, schreibe im Stil eines Zeitungsartikels, formuliere Thesen..."
+                                        placeholder="z.B. Kapitel 3–5, Zweipole, Kirchhoff — plus Stilwünsche"
                                         className="w-full h-24 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none resize-none placeholder:text-gray-600"
                                     />
                                 </div>
@@ -5759,11 +5774,11 @@ export default function FolderPage() {
                                     )}
                                 </div>
 
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Schwerpunkte setzen (Optional)</label>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
                                 <textarea
                                     value={repetitionRules}
                                     onChange={(e) => setRepetitionRules(e.target.value)}
-                                    placeholder="z. B. „nur Vektorrechnung“ oder „Aufgabe 3 überspringen“. Leer lassen = gesamtes Material, jede Teilaufgabe ausführlich."
+                                    placeholder="z.B. Kapitel 3–5 oder nur Vektorrechnung. Leer lassen = gesamtes Material, jede Teilaufgabe ausführlich."
                                     className="w-full h-28 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
                                 />
 

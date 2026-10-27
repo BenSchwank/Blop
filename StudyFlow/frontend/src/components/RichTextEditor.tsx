@@ -16,6 +16,7 @@ import { htmlToMarkdownForPdfExport } from '@/lib/htmlToMarkdownExport';
 import { ensureMathSpansInHtml, markdownToEditorHtml, serializeEditorMathSpans } from '@/lib/mathForEditor';
 import { MathDisplay, MathInline } from '@/lib/tiptapMath';
 import SelectionAiPanel from '@/components/SelectionAiPanel';
+import { slugifyHeading, type TocHeading } from '@/lib/markdownHeadings';
 import 'katex/dist/katex.min.css';
 
 interface RichTextEditorProps {
@@ -176,10 +177,29 @@ const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveSt
     );
 };
 
+function headingsFromEditor(editor: { state: { doc: { descendants: (fn: (node: { type: { name: string }; textContent: string; attrs: { level?: number } }, pos: number) => void) => void } } }): (TocHeading & { pos: number })[] {
+    const used = new Map<string, number>();
+    const out: (TocHeading & { pos: number })[] = [];
+    editor.state.doc.descendants((node, pos) => {
+        if (node.type.name !== 'heading') return;
+        const text = (node.textContent || '').trim();
+        if (!text) return;
+        const level = node.attrs.level || 1;
+        if (level > 3) return;
+        let id = slugifyHeading(text);
+        const n = (used.get(id) || 0) + 1;
+        used.set(id, n);
+        if (n > 1) id = `${id}-${n}`;
+        out.push({ id, text, level, pos });
+    });
+    return out;
+}
+
 export default function RichTextEditor({ initialContent, title, onSave, onClose, youtubeVideoId, externalUpdateToken, jumpToText, username, modelPreference }: RichTextEditorProps) {
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [printMarkdown, setPrintMarkdown] = useState<string | null>(null);
+    const [editorHeadings, setEditorHeadings] = useState<(TocHeading & { pos: number })[]>([]);
     const [selectionText, setSelectionText] = useState('');
     const [selectionOpen, setSelectionOpen] = useState(false);
     const [selectionInstruction, setSelectionInstruction] = useState('');
@@ -234,7 +254,11 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
                 class: 'prose-blop focus:outline-none min-h-[500px] max-w-4xl mx-auto py-10 px-6 prose-img:rounded-xl prose-img:shadow-lg prose-pre:bg-[#353840] prose-pre:border prose-pre:border-[#45484F] [&_.blop-math-inline]:mx-0.5 [&_.blop-math-display]:my-4 [&_.blop-math-display]:overflow-x-auto',
             },
         },
+        onCreate: ({ editor }) => {
+            setEditorHeadings(headingsFromEditor(editor));
+        },
         onUpdate: ({ editor }) => {
+            setEditorHeadings(headingsFromEditor(editor));
             const currentHtml = serializeEditorMathSpans(editor.getHTML());
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
@@ -523,7 +547,60 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
                     selectionOpen ? 'pr-[min(100vw-1.5rem,22rem)] sm:pr-[calc(min(100vw-1.5rem,22rem)+1rem)]' : ''
                 }`}
             >
-                <EditorContent editor={editor} />
+                <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-4 items-start">
+                    {editorHeadings.length >= 2 ? (
+                        <div className="lg:hidden px-6 pt-4 no-print w-full">
+                            <details className="rounded-xl border border-[#2A3140] bg-[#1A1F2A] p-3">
+                                <summary className="text-sm text-gray-200 cursor-pointer">Inhaltsverzeichnis</summary>
+                                <nav className="mt-2 space-y-0.5">
+                                    {editorHeadings.map((h) => (
+                                        <button
+                                            key={`m-${h.id}-${h.pos}`}
+                                            type="button"
+                                            onClick={() => {
+                                                if (!editor) return;
+                                                editor.chain().focus().setTextSelection(h.pos + 1).run();
+                                            }}
+                                            className={`block w-full text-left rounded-lg px-2 py-1.5 text-xs text-gray-400 ${h.level === 3 ? 'pl-5' : h.level === 2 ? 'pl-3' : 'font-semibold'}`}
+                                        >
+                                            {h.text}
+                                        </button>
+                                    ))}
+                                </nav>
+                            </details>
+                        </div>
+                    ) : null}
+                    {editorHeadings.length >= 2 ? (
+                        <aside className="hidden lg:block no-print sticky top-4 self-start w-52 shrink-0 max-h-[calc(100vh-8rem)] overflow-y-auto custom-scrollbar rounded-2xl border border-[#2A3140] bg-[#1A1F2A]/90 p-3 mt-6 ml-4">
+                            <p className="text-[11px] uppercase tracking-widest text-[#5B9DFF] mb-2">Inhalt</p>
+                            <nav aria-label="Inhaltsverzeichnis" className="space-y-0.5">
+                                {editorHeadings.map((h) => (
+                                    <button
+                                        key={`${h.id}-${h.pos}`}
+                                        type="button"
+                                        onClick={() => {
+                                            if (!editor) return;
+                                            editor.chain().focus().setTextSelection(h.pos + 1).run();
+                                            const { view } = editor;
+                                            const coords = view.coordsAtPos(h.pos + 1);
+                                            const scroller = view.dom.closest('.overflow-y-auto');
+                                            if (scroller && coords) {
+                                                const rect = (scroller as HTMLElement).getBoundingClientRect();
+                                                (scroller as HTMLElement).scrollBy({ top: coords.top - rect.top - 80, behavior: 'smooth' });
+                                            }
+                                        }}
+                                        className={`block w-full text-left rounded-lg px-2 py-1.5 text-xs leading-snug text-gray-400 hover:text-white hover:bg-[#243044] ${h.level === 3 ? 'pl-5' : h.level === 2 ? 'pl-3' : 'font-semibold'}`}
+                                    >
+                                        {h.text}
+                                    </button>
+                                ))}
+                            </nav>
+                        </aside>
+                    ) : null}
+                    <div className="flex-1 min-w-0">
+                        <EditorContent editor={editor} />
+                    </div>
+                </div>
             </div>
             <SelectionAiPanel
                 open={selectionOpen}

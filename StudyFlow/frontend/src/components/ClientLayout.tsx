@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import CommandMenu from "@/components/CommandMenu";
 import GlobalQueueStatus from "@/components/GlobalQueueStatus";
+import XpStreakHud from "@/components/XpStreakHud";
 import { PanelLeftOpen, PanelLeftClose } from "lucide-react";
 
 export default function ClientLayout({
@@ -56,6 +57,9 @@ export default function ClientLayout({
             <main
                 className="flex-1 min-w-0 min-h-screen overflow-x-hidden bg-[#23252A] pb-[var(--mobile-nav-reserve)] md:pb-0 print:pb-0 transition-all duration-300 relative"
             >
+                <div className="flex justify-end px-3 sm:px-4 pt-2 sm:pt-3 no-print">
+                    <XpStreakHud />
+                </div>
                 {children}
             </main>
 
