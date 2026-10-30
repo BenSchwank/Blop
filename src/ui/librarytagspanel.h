@@ -45,6 +45,7 @@ private:
   void refreshTheme();
   void rebuildList(const QStringList &preserveSelection = {});
   void applyCollapsed();
+  void syncClearButton();
 
   QWidget *m_header{nullptr};
   QToolButton *m_btnToggle{nullptr};

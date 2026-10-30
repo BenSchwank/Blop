@@ -59,6 +59,17 @@ public:
     const int count = idx.data(Qt::UserRole).toInt();
     const QString countStr = QString::number(count);
 
+    static const QColor kDots[] = {
+        QColor(0x25, 0x63, 0xEB), QColor(0xF9, 0x73, 0x16),
+        QColor(0x16, 0xA3, 0x4A), QColor(0x7C, 0x3A, 0xED)};
+    const QColor dot = kDots[qHash(name.toLower()) % 4];
+    const int dotS = UiScale::dp(8);
+    const QRect dotR(r.left() + UiScale::dp(8),
+                     r.center().y() - dotS / 2, dotS, dotS);
+    p->setPen(Qt::NoPen);
+    p->setBrush(dot);
+    p->drawEllipse(dotR);
+
     QFont f = opt.font;
     f.setPixelSize(UiScale::sp(11));
     f.setWeight(QFont::DemiBold);
@@ -70,7 +81,8 @@ public:
     const QColor muted =
         dark ? BlopTheme::textTertiary() : BlopStyle::paperInkMuted();
 
-    QRect nameR = r.adjusted(UiScale::dp(8), 0, -countW - UiScale::dp(8), 0);
+    QRect nameR = r.adjusted(UiScale::dp(8) + dotS + UiScale::dp(8), 0,
+                             -countW - UiScale::dp(8), 0);
     p->setPen(ink);
     p->drawText(nameR, Qt::AlignVCenter | Qt::AlignLeft,
                 fm.elidedText(name, Qt::ElideRight, nameR.width()));
@@ -97,9 +109,11 @@ LibraryTagsPanel::LibraryTagsPanel(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_StyledBackground, true);
 
   auto *root = new QVBoxLayout(this);
-  root->setContentsMargins(UiScale::dp(6), UiScale::dp(4), UiScale::dp(6),
-                           UiScale::dp(6));
-  root->setSpacing(UiScale::dp(4));
+  root->setContentsMargins(UiScale::dp(BlopStyle::controlGapDp()),
+                           UiScale::dp(BlopStyle::controlGapDp()),
+                           UiScale::dp(BlopStyle::controlGapDp()),
+                           UiScale::dp(BlopStyle::controlGapDp()));
+  root->setSpacing(UiScale::dp(BlopStyle::controlGapDp()));
 
   m_header = new QWidget(this);
   auto *headerLay = new QHBoxLayout(m_header);
@@ -133,14 +147,14 @@ LibraryTagsPanel::LibraryTagsPanel(QWidget *parent) : QWidget(parent) {
   m_input->setPlaceholderText(QStringLiteral("Tag hinzufügen…"));
   m_input->setClearButtonEnabled(true);
   m_input->setMinimumWidth(0);
-  m_input->setFixedHeight(UiScale::dp(26));
+  m_input->setFixedHeight(UiScale::dp(30));
   m_input->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
   connect(m_input, &QLineEdit::returnPressed, this, &LibraryTagsPanel::onAddClicked);
   addRow->addWidget(m_input, 1);
 
   m_btnAdd = new QPushButton(QStringLiteral("+"), m_body);
   m_btnAdd->setObjectName(QStringLiteral("libraryTagsBtnAdd"));
-  m_btnAdd->setFixedSize(UiScale::dp(24), UiScale::dp(24));
+  m_btnAdd->setFixedSize(UiScale::dp(30), UiScale::dp(30));
   m_btnAdd->setCursor(Qt::PointingHandCursor);
   m_btnAdd->setToolTip(QStringLiteral("Tag anlegen"));
   connect(m_btnAdd, &QPushButton::clicked, this, &LibraryTagsPanel::onAddClicked);
@@ -187,6 +201,7 @@ LibraryTagsPanel::LibraryTagsPanel(QWidget *parent) : QWidget(parent) {
   m_btnManage->setObjectName(QStringLiteral("libraryTagsBtnGhost"));
   m_btnManage->setCursor(Qt::PointingHandCursor);
   m_btnManage->setFlat(true);
+  m_btnManage->setVisible(false);
   connect(m_btnManage, &QPushButton::clicked, this, [this]() {
     clearSelection();
     emit filterChanged(selectedTags());
@@ -207,19 +222,16 @@ void LibraryTagsPanel::setSidebarMode(bool on) {
   setSizePolicy(QSizePolicy::Expanding,
                 on ? QSizePolicy::Maximum : QSizePolicy::Expanding);
   if (auto *root = qobject_cast<QVBoxLayout *>(layout())) {
-    if (on)
-      root->setContentsMargins(UiScale::dp(4), UiScale::dp(2), UiScale::dp(4),
-                               UiScale::dp(4));
-    else
-      root->setContentsMargins(UiScale::dp(6), UiScale::dp(4), UiScale::dp(6),
-                               UiScale::dp(6));
+    const int inset = UiScale::dp(BlopStyle::controlGapDp());
+    root->setContentsMargins(inset, on ? UiScale::dp(BlopStyle::controlGapDp()) / 2
+                                       : inset,
+                             inset, inset);
   }
   if (m_btnAdd)
-    m_btnAdd->setFixedSize(on ? UiScale::dp(22) : UiScale::dp(24),
-                           on ? UiScale::dp(22) : UiScale::dp(24));
+    m_btnAdd->setFixedSize(UiScale::dp(30), UiScale::dp(30));
   if (m_input) {
     m_input->setMinimumWidth(0);
-    m_input->setFixedHeight(UiScale::dp(on ? 24 : 26));
+    m_input->setFixedHeight(UiScale::dp(30));
     m_input->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
   }
   if (m_list) {
@@ -337,7 +349,14 @@ void LibraryTagsPanel::onDeleteClicked() {
   emit filterChanged(selectedTags());
 }
 
+void LibraryTagsPanel::syncClearButton() {
+  if (!m_btnManage)
+    return;
+  m_btnManage->setVisible(!selectedTags().isEmpty());
+}
+
 void LibraryTagsPanel::onSelectionChanged() {
+  syncClearButton();
   emit filterChanged(selectedTags());
 }
 
@@ -363,6 +382,7 @@ void LibraryTagsPanel::rebuildList(const QStringList &preserveSelection) {
   }
   if (m_sidebarMode)
     BlopScroll::makeListFitContents(m_list);
+  syncClearButton();
 }
 
 void LibraryTagsPanel::refreshTheme() {
@@ -388,6 +408,8 @@ void LibraryTagsPanel::refreshTheme() {
       d->accent = m_accent;
   }
 
+  const QString addBorder =
+      dark ? border : QStringLiteral("#D1D5DB");
   const int rad = UiScale::dp(8);
   setStyleSheet(QStringLiteral(
                     "QWidget#LibraryTagsPanel {"
@@ -408,8 +430,9 @@ void LibraryTagsPanel::refreshTheme() {
                     "}"
                     "QLineEdit#libraryTagsInput:focus { border: 1px solid %5; }"
                     "QPushButton#libraryTagsBtnAdd {"
-                    "  background: rgba(%7,%8,%9,0.18); color: %3; border: 1px solid %5;"
-                    "  border-radius: %10px; font-size: 14px; font-weight: 700;"
+                    "  background: transparent; color: %3; border: 1px solid %11;"
+                    "  border-radius: 6px; font-size: 16px; font-weight: 600;"
+                    "  padding: 0;"
                     "}"
                     "QPushButton#libraryTagsBtnGhost {"
                     "  background: transparent; color: %4; border: none;"
@@ -419,8 +442,6 @@ void LibraryTagsPanel::refreshTheme() {
                     "  background: transparent; border: none; outline: none;"
                     "}")
                     .arg(bg, border, text, muted, accent, inputBg)
-                    .arg(m_accent.red())
-                    .arg(m_accent.green())
-                    .arg(m_accent.blue())
-                    .arg(rad));
+                    .arg(rad)
+                    .arg(addBorder));
 }

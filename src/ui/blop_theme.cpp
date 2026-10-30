@@ -1,6 +1,8 @@
 #include "blop_theme.h"
 
 #include "UIStyles.h"
+#include "blopstyle.h"
+#include "uiscale.h"
 
 #include <QApplication>
 #include <QRegularExpression>
@@ -53,6 +55,30 @@ BlopTheme &BlopTheme::instance() {
 
 BlopTheme::BlopTheme() = default;
 
+void applyTooltipStyle() {
+  if (!qApp)
+    return;
+  const bool dark = BlopTheme::instance().isDark();
+  const QString tip = dark
+      ? QStringLiteral(
+            "QToolTip { background-color: #1E293B; color: #F8FAFC;"
+            " border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;"
+            " padding: 4px 8px; font-size: 12px; }")
+      : QStringLiteral(
+            "QToolTip { background-color: #FFFFFF; color: #111827;"
+            " border: 1px solid #E5E7EB; border-radius: 6px;"
+            " padding: 4px 8px; font-size: 12px; }");
+  QString css = qApp->styleSheet();
+  const QRegularExpression re(QStringLiteral("QToolTip\\s*\\{[^}]*\\}"));
+  if (re.match(css).hasMatch())
+    css.replace(re, tip);
+  else if (css.isEmpty())
+    css = tip;
+  else
+    css += QLatin1Char('\n') + tip;
+  qApp->setStyleSheet(css);
+}
+
 void BlopTheme::install() {
   if (m_installed)
     return;
@@ -68,8 +94,11 @@ void BlopTheme::install() {
   // see the right colors before any widget construction. Re-pushed on every
   // themeChanged signal below.
   UIStyles::refresh();
-  QObject::connect(this, &BlopTheme::themeChanged, this,
-                   []() { UIStyles::refresh(); });
+  applyTooltipStyle();
+  QObject::connect(this, &BlopTheme::themeChanged, this, []() {
+    UIStyles::refresh();
+    applyTooltipStyle();
+  });
 }
 
 void BlopTheme::setMode(Mode m) {
@@ -275,13 +304,15 @@ QString BlopTheme::primaryButtonQss() {
              "  border-radius: %3px;"
              "  padding: 10px 18px;"
              "  font-weight: 600;"
+             "  min-height: %8px;"
              "}"
              "QPushButton:hover { background: %4; }"
              "QPushButton:pressed { background: %5; }"
              "QPushButton:disabled { background: %6; color: %7; }")
-      .arg(hex(accentPrimary()), hex(textOnAccent()), QString::number(r12),
+      .arg(hex(accentPrimary()), hex(textOnAccent()), QString::number(r8),
            hex(accentHover()), hex(accentPressed()), rgba(surfaceMuted()),
-           rgba(textTertiary()));
+           rgba(textTertiary()),
+           QString::number(UiScale::dp(BlopStyle::touchTargetMinDp())));
 }
 
 QString BlopTheme::secondaryButtonQss() {
@@ -293,11 +324,13 @@ QString BlopTheme::secondaryButtonQss() {
              "  border-radius: %3px;"
              "  padding: 10px 18px;"
              "  font-weight: 600;"
+             "  min-height: %6px;"
              "}"
              "QPushButton:hover { background: %4; }"
              "QPushButton:pressed { background: %5; }")
-      .arg(hex(textPrimary()), rgba(borderDefault()), QString::number(r12),
-           rgba(accentSubtle()), rgba(borderDefault()));
+      .arg(hex(textPrimary()), rgba(borderDefault()), QString::number(r8),
+           rgba(accentSubtle()), rgba(borderDefault()),
+           QString::number(UiScale::dp(BlopStyle::touchTargetMinDp())));
 }
 
 QString BlopTheme::tertiaryButtonQss() {
@@ -307,13 +340,15 @@ QString BlopTheme::tertiaryButtonQss() {
              "  color: %1;"
              "  border: none;"
              "  border-radius: %2px;"
-             "  padding: 8px 14px;"
+             "  padding: 10px 18px;"
              "  font-weight: 500;"
+             "  min-height: %5px;"
              "}"
              "QPushButton:hover { background: %3; }"
              "QPushButton:pressed { background: %4; }")
       .arg(hex(textPrimary()), QString::number(r8), rgba(accentSubtle()),
-           rgba(borderSubtle()));
+           rgba(borderSubtle()),
+           QString::number(UiScale::dp(BlopStyle::touchTargetMinDp())));
 }
 
 QString BlopTheme::menuFrameQss(const QString &selectorObjectName) {

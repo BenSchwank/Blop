@@ -3,6 +3,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -111,6 +112,8 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
   lay->addWidget(iconLbl);
 
   m_textLbl = new QLabel(this);
+  m_textLbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  m_textLbl->setCursor(Qt::IBeamCursor);
   m_textLbl->setStyleSheet(
       QStringLiteral("QLabel { color: #E8E8FF; font-size: 13px; font-weight: 600; }"));
   if (m_title.isEmpty() && !m_closable) {
@@ -421,6 +424,33 @@ void DocumentTab::mousePressEvent(QMouseEvent *event) {
     emit clicked();
 }
 
+void DocumentTab::mouseDoubleClickEvent(QMouseEvent *event) {
+  if (!m_closable || !m_textLbl || event->button() != Qt::LeftButton) {
+    QWidget::mouseDoubleClickEvent(event);
+    return;
+  }
+  auto *edit = new QLineEdit(this);
+  edit->setText(m_title);
+  edit->selectAll();
+  edit->setGeometry(m_textLbl->geometry());
+  edit->setStyleSheet(m_textLbl->styleSheet() +
+                      QStringLiteral("QLineEdit { background: rgba(255,255,255,0.08);"
+                                     " border: none; border-radius: 4px; padding: 0 4px; }"));
+  edit->show();
+  edit->setFocus();
+  connect(edit, &QLineEdit::editingFinished, this, [this, edit]() {
+    if (!edit || edit->property("blopDone").toBool())
+      return;
+    edit->setProperty("blopDone", true);
+    const QString next = edit->text().trimmed();
+    edit->deleteLater();
+    if (next.isEmpty() || next == m_title)
+      return;
+    setTitle(next);
+    emit titleCommitted(next);
+  });
+}
+
 void DocumentTab::syncCloseButtonVisibility() {
   auto *closeBtn = findChild<QPushButton *>(QStringLiteral("DocumentTabClose"));
   if (!closeBtn)
@@ -511,9 +541,12 @@ void DocumentTabBar::rebindTabSignals() {
   for (int i = 0; i < m_tabs.size(); ++i) {
     disconnect(m_tabs[i], &DocumentTab::clicked, nullptr, nullptr);
     disconnect(m_tabs[i], &DocumentTab::closeClicked, nullptr, nullptr);
+    disconnect(m_tabs[i], &DocumentTab::titleCommitted, nullptr, nullptr);
     connect(m_tabs[i], &DocumentTab::clicked, this, [this, i]() { setCurrentIndex(i); });
     connect(m_tabs[i], &DocumentTab::closeClicked, this,
             [this, i]() { emit tabCloseRequested(i); });
+    connect(m_tabs[i], &DocumentTab::titleCommitted, this,
+            [this, i](const QString &title) { emit tabTitleEdited(i, title); });
   }
 }
 
@@ -618,6 +651,12 @@ void DocumentTabBar::setHomeVisible(bool visible) {
   if (!visible)
     m_homeActive = false;
   updateIndicator(false);
+}
+
+void DocumentTabBar::setTabTitle(int index, const QString &title) {
+  if (index < 0 || index >= m_tabs.size() || !m_tabs[index])
+    return;
+  m_tabs[index]->setTitle(title);
 }
 
 void DocumentTabBar::setNoteChromeMode(bool on) {

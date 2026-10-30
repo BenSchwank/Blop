@@ -30,23 +30,30 @@ AllPagesOverlay::AllPagesOverlay(QWidget *parent) : QWidget(parent) {
   m_card = new QWidget(this);
   m_card->setObjectName(QStringLiteral("AllPagesCard"));
   auto *lay = new QVBoxLayout(m_card);
-  lay->setContentsMargins(UiScale::dp(16), UiScale::dp(14), UiScale::dp(16),
-                          UiScale::dp(14));
-  lay->setSpacing(UiScale::dp(10));
+  lay->setContentsMargins(UiScale::dp(20), UiScale::dp(20), UiScale::dp(20),
+                          UiScale::dp(20));
+  lay->setSpacing(UiScale::dp(16));
 
   auto *header = new QHBoxLayout;
+  header->setSpacing(UiScale::dp(8));
   m_title = new QLabel(QStringLiteral("Alle Seiten"), m_card);
   m_title->setStyleSheet(
-      QStringLiteral("font-size: 16px; font-weight: 800; background: transparent;"));
+      QStringLiteral("font-size: 16px; font-weight: 600; background: transparent;"));
   header->addWidget(m_title, 1);
 
+  m_btnAdd = new QPushButton(QStringLiteral("+ Seite"), m_card);
   m_btnDup = new QPushButton(QStringLiteral("Duplizieren"), m_card);
   m_btnDel = new QPushButton(QStringLiteral("Löschen"), m_card);
-  m_btnClose = new QPushButton(QStringLiteral("Schließen"), m_card);
-  for (auto *b : {m_btnDup, m_btnDel, m_btnClose}) {
+  m_btnClose = new QPushButton(QStringLiteral("✕"), m_card);
+  m_btnClose->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  for (auto *b : {m_btnAdd, m_btnDup, m_btnDel}) {
     b->setCursor(Qt::PointingHandCursor);
     b->setFixedHeight(UiScale::dp(32));
+    b->setFocusPolicy(Qt::NoFocus);
   }
+  m_btnClose->setCursor(Qt::PointingHandCursor);
+  m_btnClose->setFocusPolicy(Qt::NoFocus);
+  header->addWidget(m_btnAdd);
   header->addWidget(m_btnDup);
   header->addWidget(m_btnDel);
   header->addWidget(m_btnClose);
@@ -106,6 +113,13 @@ AllPagesOverlay::AllPagesOverlay(QWidget *parent) : QWidget(parent) {
   lay->addWidget(m_grid, 1);
 
   connect(m_btnClose, &QPushButton::clicked, this, &AllPagesOverlay::dismiss);
+  connect(m_btnAdd, &QPushButton::clicked, this, [this]() {
+    if (!m_view)
+      return;
+    m_view->addNewPage();
+    emit pagesChanged();
+    rebuild();
+  });
   connect(m_btnDup, &QPushButton::clicked, this,
           &AllPagesOverlay::applyBatchDuplicate);
   connect(m_btnDel, &QPushButton::clicked, this,
@@ -126,7 +140,9 @@ void AllPagesOverlay::present() {
   rebuild();
   if (m_card) {
     m_card->setProperty("blopOwnsBackground", true);
-    m_card->setProperty("blopNoteChrome", true);
+    m_card->setProperty("blopAllPagesSheet", true);
+    m_card->setProperty("blopSoftCardShadow", true);
+    m_card->setProperty("blopNoteChrome", false);
   }
   refreshChrome();
   // Prefer the top-level window so the scrim covers title bar + sidebar —
@@ -180,7 +196,7 @@ void AllPagesOverlay::rebuild() {
     return;
 
   const int count = m_view->pageCount();
-  m_title->setText(QStringLiteral("Alle Seiten  ·  %1").arg(count));
+  m_title->setText(QStringLiteral("Alle Seiten (%1)").arg(count));
   const QSize thumb(UiScale::dp(110), UiScale::dp(148));
   for (int i = 0; i < count; ++i) {
     auto *item = new QListWidgetItem(m_grid);
@@ -242,31 +258,61 @@ void AllPagesOverlay::applyBatchDelete() {
 }
 
 void AllPagesOverlay::refreshChrome() {
-  if (m_card) {
-    m_card->setProperty("blopOwnsBackground", true);
-    m_card->setProperty("blopNoteChrome", true);
+  if (!m_card)
+    return;
+  m_card->setProperty("blopOwnsBackground", true);
+  m_card->setProperty("blopAllPagesSheet", true);
+  m_card->setProperty("blopSoftCardShadow", true);
+  m_card->setProperty("blopNoteChrome", false);
+  const bool dark = BlopTheme::instance().isDark();
+  const QString ink = dark ? QStringLiteral("#F8FAFC") : QStringLiteral("#111827");
+  const QString quietBg =
+      dark ? QStringLiteral("rgba(255,255,255,0.08)") : QStringLiteral("#FFFFFF");
+  const QString quietHover =
+      dark ? QStringLiteral("rgba(255,255,255,0.14)") : QStringLiteral("#F9FAFB");
+  const QString quietBorder =
+      dark ? QStringLiteral("rgba(255,255,255,0.10)") : QStringLiteral("#E5E7EB");
+  const QString pill = QStringLiteral(
+      "QPushButton {"
+      "  background: %1; color: %2; border: 1px solid %3;"
+      "  border-radius: 6px; padding: 0 12px;"
+      "  font-size: 12px; font-weight: 600;"
+      "}"
+      "QPushButton:hover { background: %4; }");
+  if (m_btnAdd) {
+    m_btnAdd->setStyleSheet(pill.arg(QStringLiteral("#2563EB"),
+                                     QStringLiteral("#FFFFFF"),
+                                     QStringLiteral("#2563EB"),
+                                     QStringLiteral("#1D4ED8")));
   }
-  const QString accent =
-      (m_accent.isValid() ? m_accent : NoteChrome::accent()).name(QColor::HexRgb);
-  // Card fill comes from BlopModal (blopNoteChrome); keep inner chrome NoteChrome.
-  setStyleSheet(QStringLiteral(
-                    "QWidget#AllPagesCard {"
-                    "  background: transparent; border: none; border-radius: 0;"
-                    "}"
-                    "QLabel { color: %1; background: transparent; }"
-                    "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
-                    "QListWidget::item {"
-                    "  background: %2; border: 1px solid %3; border-radius: 10px; padding: 4px;"
-                    "}"
-                    "QListWidget::item:selected { border: 2px solid %4; }"
-                    "QPushButton {"
-                    "  background: %2; color: %1; border: 1px solid %3; border-radius: 10px;"
-                    "  padding: 0 12px; font-weight: 600;"
-                    "}"
-                    "QPushButton:hover { border-color: %4; }")
-                    .arg(NoteChrome::textPrimary().name(QColor::HexRgb),
-                         NoteChrome::panelBg().name(QColor::HexRgb),
-                         NoteChrome::border().name(QColor::HexRgb), accent));
+  if (m_btnDup)
+    m_btnDup->setStyleSheet(pill.arg(quietBg, ink, quietBorder, quietHover));
+  if (m_btnDel) {
+    m_btnDel->setStyleSheet(pill.arg(
+        quietBg, QStringLiteral("#EF4444"), quietBorder,
+        QStringLiteral("rgba(239,68,68,0.15)")));
+  }
+  if (m_btnClose) {
+    m_btnClose->setStyleSheet(pill.arg(QStringLiteral("transparent"), ink,
+                                       QStringLiteral("transparent"),
+                                       quietHover));
+  }
+  if (m_title) {
+    m_title->setStyleSheet(QStringLiteral(
+        "color: %1; font-size: 16px; font-weight: 600; background: transparent;")
+                               .arg(ink));
+  }
+  m_card->setStyleSheet(QStringLiteral(
+      "QWidget#AllPagesCard { background: transparent; border: none; }"
+      "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
+      "QListWidget::item {"
+      "  background: transparent; border: 1px solid transparent;"
+      "  border-radius: 8px; padding: 4px;"
+      "}"
+      "QListWidget::item:selected {"
+      "  border: 2px solid #3B82F6; border-radius: 8px;"
+      "}")
+                             .arg(ink));
 }
 
 void AllPagesOverlay::paintEvent(QPaintEvent *event) {

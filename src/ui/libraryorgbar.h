@@ -30,6 +30,8 @@ public:
   void placeSortInActionBar(QLayout *actionRow);
   /// Place raster/list toggles on this bar (right of chips, before sort).
   void placeViewModeButtons(QPushButton *grid, QPushButton *list);
+  /// Inspector toggle, to the right of the view segment.
+  void placeInspectorButton(QPushButton *btn);
 
 signals:
   void smartViewChanged(LibraryOrgBar::SmartView view);

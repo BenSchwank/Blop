@@ -727,6 +727,56 @@ QVector<DashboardWidgetSpec> DashboardLayoutStore::load() {
   // Short cover + denser stack (banner Title instead of tall empty L band).
   packToDefaults("dashboard/layout.packDenseV3");
 
+  // Empty cover (logo removed) sat above the greeting. Hide it once and
+  // pull the board up so the greeting starts under the title bar.
+  {
+    QSettings mig(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    constexpr const char *kHide = "dashboard/layout.hideEmptyCoverV1";
+    if (!mig.value(QLatin1String(kHide)).toBool()) {
+      mig.setValue(QLatin1String(kHide), true);
+      int coverBottom = 0;
+      bool any = false;
+      for (auto &s : out) {
+        if (!isBannerId(s.id) || !s.visible)
+          continue;
+        any = true;
+        coverBottom = qMax(coverBottom, s.row + rowSpanFor(s.sizeClass));
+        s.visible = false;
+      }
+      if (any && coverBottom > 0) {
+        for (auto &s : out) {
+          if (isBannerId(s.id))
+            continue;
+          if (s.row >= coverBottom)
+            s.row -= coverBottom;
+        }
+      }
+      if (any)
+        save(out);
+    }
+  }
+
+  {
+    QSettings mig(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    constexpr const char *kQuiet = "dashboard/layout.recentQuietBorderV1";
+    if (!mig.value(QLatin1String(kQuiet)).toBool()) {
+      mig.setValue(QLatin1String(kQuiet), true);
+      bool changed = false;
+      for (auto &s : out) {
+        if (s.id != QLatin1String("recent"))
+          continue;
+        const QString c = s.borderColor.trimmed().toLower();
+        if (c == QLatin1String("#3b82f6") || c == QLatin1String("#4c8bf5") ||
+            c == QLatin1String("#5b9dff")) {
+          s.borderColor.clear();
+          changed = true;
+        }
+      }
+      if (changed)
+        save(out);
+    }
+  }
+
   std::sort(out.begin(), out.end(),
             [](const DashboardWidgetSpec &a, const DashboardWidgetSpec &b) {
               if (a.row != b.row)

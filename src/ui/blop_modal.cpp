@@ -19,6 +19,9 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPaintEvent>
 #include <QPropertyAnimation>
 #include <QResizeEvent>
 #include <QScrollArea>
@@ -43,6 +46,12 @@ constexpr int kDragHandleHeightDp = 28;
 QColor ownedSheetFill(QWidget *content) {
   if (content && content->property("blopForcePaper").toBool())
     return BlopStyle::paperSurface();
+  if (content && content->property("blopAllPagesSheet").toBool())
+    return BlopTheme::instance().isDark() ? QColor(0x1E, 0x29, 0x3B)
+                                          : QColor(0xFF, 0xFF, 0xFF);
+  if (content && content->property("blopCalendarSheet").toBool())
+    return BlopTheme::instance().isDark() ? QColor(0x18, 0x1B, 0x22)
+                                          : QColor(0xFF, 0xFF, 0xFF);
   // Editor overlays (Alle Seiten, …): NoteChrome elevated panel, not Study purple.
   if (content && content->property("blopNoteChrome").toBool())
     return NoteChrome::panelElevated();
@@ -54,6 +63,12 @@ QColor ownedSheetFill(QWidget *content) {
 QColor ownedSheetBorder(QWidget *content) {
   if (content && content->property("blopForcePaper").toBool())
     return BlopStyle::paperBorder();
+  if (content && content->property("blopAllPagesSheet").toBool())
+    return BlopTheme::instance().isDark() ? QColor(255, 255, 255, 26)
+                                          : QColor(0xE5, 0xE7, 0xEB);
+  if (content && content->property("blopCalendarSheet").toBool())
+    return BlopTheme::instance().isDark() ? QColor(255, 255, 255, 26)
+                                          : QColor(0xE5, 0xE7, 0xEB);
   if (content && content->property("blopNoteChrome").toBool())
     return NoteChrome::border();
   if (BlopTheme::instance().isDark())
@@ -360,6 +375,11 @@ void BlopModal::animateCardToPreferred(int durationMs) {
   m_cardAnim->setStartValue(start);
   m_cardAnim->setEndValue(target);
   m_cardAnim->setEasingCurve(QEasingCurve::OutCubic);
+  connect(m_cardAnim, &QPropertyAnimation::valueChanged, this,
+          [this](const QVariant &) {
+            syncCardMask();
+            update();
+          });
   connect(m_cardAnim, &QPropertyAnimation::finished, this, [this]() {
     auto *anim = qobject_cast<QPropertyAnimation *>(sender());
     if (anim && m_cardAnim == anim)
@@ -378,6 +398,9 @@ void BlopModal::applyTheme() {
     // the solid theme scrim (avoids double-darkening).
     setStyleSheet(QStringLiteral(
         "QWidget#BlopModalBackdrop { background: transparent; border: none; }"));
+  } else if (m_content && m_content->property("blopCalendarSheet").toBool()) {
+    setStyleSheet(QStringLiteral(
+        "QWidget#BlopModalBackdrop { background: rgba(0,0,0,0.55); border: none; }"));
   } else {
     setStyleSheet(BlopTheme::scrimQss(QStringLiteral("BlopModalBackdrop")));
   }
@@ -446,16 +469,25 @@ void BlopModal::applyTheme() {
     if (forcePaper) {
       // Settings / paper dialogs: opaque floating sheet (same host as Deck).
       m_card->setAutoFillBackground(true);
-      const int rad = UiScale::dp(BlopStyle::radiusLgDp() + 4);
+      const bool softShadow =
+          m_content && m_content->property("blopSoftCardShadow").toBool();
+      const int rad = softShadow ? UiScale::dp(12)
+                                 : UiScale::dp(BlopStyle::radiusLgDp() + 4);
+      QColor fill = ownedSheetFill(m_content);
+      if (softShadow && !BlopTheme::instance().isDark())
+        fill = QColor(0xFF, 0xFF, 0xFF);
+      const QString edge = softShadow
+                               ? QStringLiteral("none")
+                               : QStringLiteral("1px solid %1")
+                                     .arg(ownedSheetBorder(m_content).name(
+                                         QColor::HexRgb));
       m_card->setStyleSheet(
           QStringLiteral("QFrame#BlopModalFloat {"
                          "  background: %1;"
-                         "  border: 1px solid %2;"
+                         "  border: %2;"
                          "  border-radius: %3px;"
                          "}")
-              .arg(ownedSheetFill(m_content).name(QColor::HexRgb),
-                   ownedSheetBorder(m_content).name(QColor::HexRgb),
-                   QString::number(rad)));
+              .arg(fill.name(QColor::HexRgb), edge, QString::number(rad)));
     } else {
       // Format-Deck: transparent chrome — cards paint themselves.
       m_card->setAutoFillBackground(false);
@@ -471,10 +503,19 @@ void BlopModal::applyTheme() {
     m_card->setAutoFillBackground(true);
     const bool ownsBg =
         m_content && m_content->property("blopOwnsBackground").toBool();
-    const int rad = UiScale::dp(m_mode == Mode::Stage
-                                    ? BlopStyle::radiusLgDp() + 2
-                                    : BlopStyle::radiusLgDp());
+    const bool allPages =
+        m_content && m_content->property("blopAllPagesSheet").toBool();
+    const bool calendar =
+        m_content && m_content->property("blopCalendarSheet").toBool();
+    const int rad = UiScale::dp((allPages || calendar) ? 12
+                                         : (m_mode == Mode::Stage
+                                                ? BlopStyle::radiusLgDp() + 2
+                                                : BlopStyle::radiusLgDp()));
     if (ownsBg) {
+      const QString borderCss =
+          (allPages || calendar) && BlopTheme::instance().isDark()
+              ? QStringLiteral("rgba(255,255,255,0.10)")
+              : ownedSheetBorder(m_content).name(QColor::HexRgb);
       m_card->setStyleSheet(
           QStringLiteral("QFrame#%1 {"
                          "  background: %2;"
@@ -482,8 +523,7 @@ void BlopModal::applyTheme() {
                          "  border-radius: %4px;"
                          "}")
               .arg(obj, ownedSheetFill(m_content).name(QColor::HexRgb),
-                   ownedSheetBorder(m_content).name(QColor::HexRgb),
-                   QString::number(rad)));
+                   borderCss, QString::number(rad)));
     } else {
       m_card->setStyleSheet(BlopStyle::surfaceStyle(obj));
     }
@@ -709,6 +749,42 @@ void BlopModal::layoutContent() {
 void BlopModal::resizeEvent(QResizeEvent *event) {
   QWidget::resizeEvent(event);
   layoutContent();
+  syncCardMask();
+}
+
+void BlopModal::syncCardMask() {
+  if (!m_card)
+    return;
+  const bool soft =
+      m_content && m_content->property("blopSoftCardShadow").toBool();
+  if (!soft) {
+    m_card->clearMask();
+    return;
+  }
+  const int rad = UiScale::dp(12);
+  QPainterPath path;
+  path.addRoundedRect(QRectF(m_card->rect()), rad, rad);
+  m_card->setMask(QRegion(path.toFillPolygon().toPolygon()));
+}
+
+void BlopModal::paintEvent(QPaintEvent *event) {
+  QWidget::paintEvent(event);
+  if (!m_card || !m_content ||
+      !m_content->property("blopSoftCardShadow").toBool())
+    return;
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing);
+  p.setPen(Qt::NoPen);
+  const QRect card = m_card->geometry();
+  const int rad = UiScale::dp(12);
+  // Approximate box-shadow: 0 20px 25px -5px rgba(0,0,0,0.15)
+  for (int i = 5; i >= 1; --i) {
+    const int spread = i * 5;
+    QColor c(0, 0, 0, 6 + (5 - i));
+    p.setBrush(c);
+    const QRectF blob = QRectF(card).adjusted(-spread + 4, 10, spread - 4, 18);
+    p.drawRoundedRect(blob, rad + 4, rad + 4);
+  }
 }
 
 void BlopModal::startOpenAnim() {
@@ -754,6 +830,11 @@ void BlopModal::startOpenAnim() {
     m_cardAnim->setStartValue(startGeom);
     m_cardAnim->setEndValue(endGeom);
     m_cardAnim->setEasingCurve(BlopMotion::kEaseStandard);
+    connect(m_cardAnim, &QPropertyAnimation::valueChanged, this,
+            [this](const QVariant &) {
+              syncCardMask();
+              update();
+            });
     connect(m_cardAnim, &QPropertyAnimation::finished, this, [this]() {
       auto *anim = qobject_cast<QPropertyAnimation *>(sender());
       if (anim && m_cardAnim == anim)

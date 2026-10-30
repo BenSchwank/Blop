@@ -30,6 +30,7 @@ public:
   void setHomeActive(bool active);
   /// Hide the built-in home squircle when the host already has a Home button.
   void setHomeVisible(bool visible);
+  void setTabTitle(int index, const QString &title);
   /// Charcoal NoteChrome look while the note editor is active.
   void setNoteChromeMode(bool on);
   bool noteChromeMode() const { return m_noteChromeMode; }
@@ -41,6 +42,7 @@ public:
 signals:
   void currentChanged(int index);
   void tabCloseRequested(int index);
+  void tabTitleEdited(int index, const QString &title);
   void homeClicked();
 
 public slots:
@@ -97,10 +99,12 @@ public:
 signals:
   void clicked();
   void closeClicked();
+  void titleCommitted(const QString &title);
 
 protected:
   void paintEvent(QPaintEvent *) override;
   void mousePressEvent(QMouseEvent *event) override;
+  void mouseDoubleClickEvent(QMouseEvent *event) override;
   void enterEvent(QEnterEvent *event) override;
   void leaveEvent(QEvent *event) override;
   bool eventFilter(QObject *watched, QEvent *event) override;

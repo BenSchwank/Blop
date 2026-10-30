@@ -403,7 +403,8 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(32, 34, 42, 34);
     return;
   }
-  if (name == QLatin1String("stickynote") || name == QLatin1String("note")) {
+  if (name == QLatin1String("stickynote") || name == QLatin1String("note") ||
+      name == QLatin1String("note_bnote") || name == QLatin1String("bnote")) {
     // Document / sticky note page.
     p->setPen(primaryPen);
     p->setBrush(Qt::NoBrush);
@@ -671,13 +672,52 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     return;
   }
   if (name == QLatin1String("trash") || name == QLatin1String("delete")) {
-    p->setPen(primaryPen);
+    // Heavier than the 3.4px body pen so the bin still reads at 16px.
+    const QPen bin(primary, 6.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    p->setPen(bin);
     p->drawRoundedRect(QRectF(20, 22, 24, 28), 3, 3);
-    p->drawLine(18, 22, 46, 22);
-    p->drawLine(26, 18, 38, 18);
-    p->drawLine(26, 28, 26, 42);
-    p->drawLine(32, 28, 32, 42);
-    p->drawLine(38, 28, 38, 42);
+    p->drawLine(16, 20, 48, 20);
+    p->drawLine(24, 14, 40, 14);
+    p->drawLine(26, 28, 26, 44);
+    p->drawLine(32, 28, 32, 44);
+    p->drawLine(38, 28, 38, 44);
+    return;
+  }
+  if (name == QLatin1String("sidebar_panel")) {
+    const QPen frame(primary, 5.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    p->setPen(frame);
+    p->setBrush(Qt::NoBrush);
+    p->drawRoundedRect(QRectF(12, 16, 40, 32), 4, 4);
+    p->drawLine(QPointF(26, 16), QPointF(26, 48));
+    return;
+  }
+  if (name == QLatin1String("inspector_panel")) {
+    const QPen frame(primary, 5.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    p->setPen(frame);
+    p->setBrush(Qt::NoBrush);
+    p->drawRoundedRect(QRectF(12, 16, 40, 32), 4, 4);
+    p->drawLine(QPointF(38, 16), QPointF(38, 48));
+    return;
+  }
+  if (name == QLatin1String("grid_tiles")) {
+    p->setPen(Qt::NoPen);
+    p->setBrush(primary);
+    const qreal s = 14;
+    const qreal g = 6;
+    const qreal x0 = 14;
+    const qreal y0 = 14;
+    p->drawRoundedRect(QRectF(x0, y0, s, s), 2, 2);
+    p->drawRoundedRect(QRectF(x0 + s + g, y0, s, s), 2, 2);
+    p->drawRoundedRect(QRectF(x0, y0 + s + g, s, s), 2, 2);
+    p->drawRoundedRect(QRectF(x0 + s + g, y0 + s + g, s, s), 2, 2);
+    return;
+  }
+  if (name == QLatin1String("list_lines")) {
+    const QPen line(primary, 5.0, Qt::SolidLine, Qt::RoundCap);
+    p->setPen(line);
+    p->drawLine(QPointF(16, 20), QPointF(48, 20));
+    p->drawLine(QPointF(16, 32), QPointF(48, 32));
+    p->drawLine(QPointF(16, 44), QPointF(48, 44));
     return;
   }
   if (name == QLatin1String("network") || name == QLatin1String("graph_links")) {

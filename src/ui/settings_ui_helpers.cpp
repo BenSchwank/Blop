@@ -428,19 +428,22 @@ QString propertyActionQss(bool destructive) {
     }
     return QStringLiteral(
                "QPushButton {"
-               "  background: transparent; color: %1; border: none;"
-               "  text-align: right; font-size: 11px; font-weight: 600;"
-               "  padding: 0px 4px; min-height: 22px; max-height: 22px;"
-               "  border-radius: 4px;"
+               "  background: %1; color: %2;"
+               "  border: 1px solid %3; border-radius: 6px;"
+               "  text-align: center; font-size: 12px; font-weight: 600;"
+               "  padding: 0 12px; min-height: 32px; max-height: 32px;"
                "}"
-               "QPushButton:hover { color: %2; background: rgba(%3,%4,%5,0.10); }"
-               "QPushButton:pressed { background: rgba(%3,%4,%5,0.16); }"
-               "QPushButton:checked { color: %2; background: rgba(%3,%4,%5,0.12); }")
-        .arg(settingsInkMuted(),
-             BlopTheme::accentPrimary().name(QColor::HexRgb))
-        .arg(BlopTheme::accentPrimary().red())
-        .arg(BlopTheme::accentPrimary().green())
-        .arg(BlopTheme::accentPrimary().blue());
+               "QPushButton:hover { background: %4; }"
+               "QPushButton:pressed { background: %4; }"
+               "QPushButton:checked { background: %4; color: %2; }")
+        .arg(BlopTheme::instance().isDark() ? QStringLiteral("#1C2028")
+                                            : QStringLiteral("#FFFFFF"),
+             settingsInk(),
+             BlopTheme::instance().isDark()
+                 ? QStringLiteral("rgba(255,255,255,0.12)")
+                 : QStringLiteral("#E5E7EB"),
+             BlopTheme::instance().isDark() ? QStringLiteral("#262B34")
+                                            : QStringLiteral("#F9FAFB"));
 }
 
 QWidget *makePropertyRow(QWidget *parent, const QString &label,
@@ -456,9 +459,9 @@ QWidget *makePropertyRow(QWidget *parent, const QString &label,
     const bool phoneStack = UiScale::isAndroidPhoneUi(parent);
     row->setMinimumHeight(phoneStack
                               ? UiScale::dp(BlopStyle::touchTargetMinDp())
-                              : UiScale::dp(30));
-    row->setMaximumHeight(phoneStack ? QWIDGETSIZE_MAX : UiScale::dp(36));
-    row->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+                              : UiScale::dp(48));
+    row->setMaximumHeight(QWIDGETSIZE_MAX);
+    row->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     row->setCursor(Qt::PointingHandCursor);
     row->setStyleSheet(propertyRowShellQss(last));
     auto *lbl = new QLabel(label, row);
@@ -485,20 +488,19 @@ QWidget *makePropertyRow(QWidget *parent, const QString &label,
         }
     } else {
         auto *lay = new QHBoxLayout(row);
-        lay->setContentsMargins(UiScale::dp(10), UiScale::dp(3), UiScale::dp(8),
-                                UiScale::dp(3));
+        lay->setContentsMargins(UiScale::dp(10), UiScale::dp(10), UiScale::dp(8),
+                                UiScale::dp(10));
         lay->setSpacing(UiScale::dp(8));
-        lbl->setMinimumWidth(UiScale::dp(88));
-        lbl->setMaximumWidth(UiScale::dp(110));
         lay->addWidget(lbl, 0, Qt::AlignVCenter);
+        lay->addStretch(1);
         if (action) {
             action->setParent(row);
             if (auto *btn = qobject_cast<QPushButton *>(action)) {
                 btn->setCursor(Qt::PointingHandCursor);
-                btn->setFlat(true);
+                btn->setFlat(false);
                 BlopRipple::attachPressFeedback(btn, 0.96);
             }
-            lay->addWidget(action, 1, Qt::AlignVCenter | Qt::AlignRight);
+            lay->addWidget(action, 0, Qt::AlignVCenter | Qt::AlignRight);
         }
     }
     return row;
@@ -518,9 +520,9 @@ QWidget *makeNamedPropertyRow(QWidget *parent, const QString &title,
     row->setAttribute(Qt::WA_StyledBackground, true);
     row->setAttribute(Qt::WA_Hover, true);
     const bool phoneStack = UiScale::isAndroidPhoneUi(parent);
-    row->setMinimumHeight(phoneStack ? UiScale::dp(44) : UiScale::dp(32));
-    row->setMaximumHeight(phoneStack ? QWIDGETSIZE_MAX : UiScale::dp(40));
-    row->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    row->setMinimumHeight(phoneStack ? UiScale::dp(44) : UiScale::dp(48));
+    row->setMaximumHeight(QWIDGETSIZE_MAX);
+    row->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     row->setStyleSheet(propertyRowShellQss(last));
 
     auto *textCol = new QVBoxLayout();
@@ -536,10 +538,10 @@ QWidget *makeNamedPropertyRow(QWidget *parent, const QString &title,
     if (!status.isEmpty()) {
         auto *st = new QLabel(status, row);
         st->setObjectName(QStringLiteral("PropStatus"));
-        st->setWordWrap(false);
+        st->setWordWrap(true);
         st->setStyleSheet(QStringLiteral(
-            "color: %1; font-size: 10px; font-weight: 400;"
-            "background: transparent;")
+            "color: %1; font-size: 12px; font-weight: 400;"
+            "background: transparent; padding-bottom: 1px;")
                               .arg(settingsInkMuted()));
         textCol->addWidget(st);
     }
@@ -557,8 +559,8 @@ QWidget *makeNamedPropertyRow(QWidget *parent, const QString &title,
         }
     } else {
         auto *lay = new QHBoxLayout(row);
-        lay->setContentsMargins(UiScale::dp(10), UiScale::dp(3), UiScale::dp(8),
-                                UiScale::dp(3));
+        lay->setContentsMargins(UiScale::dp(10), UiScale::dp(10), UiScale::dp(8),
+                                UiScale::dp(10));
         lay->setSpacing(UiScale::dp(6));
         lay->addLayout(textCol, 1);
         if (actions) {

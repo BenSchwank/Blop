@@ -28,6 +28,7 @@
 #include <QLabel>
 #include <QLocale>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QSettings>
@@ -62,12 +63,6 @@ QString accent() { return BlopTheme::accentPrimary().name(QColor::HexRgb); }
 QColor withAlpha(QColor c, int a) {
   c.setAlpha(a);
   return c;
-}
-
-QString hoverBorder() {
-  return withAlpha(BlopTheme::accentPrimary(),
-                   BlopTheme::instance().isDark() ? 90 : 110)
-      .name(QColor::HexArgb);
 }
 
 QString checkBoxQss() {
@@ -141,18 +136,53 @@ QString quietLinkQss() {
              "QPushButton:hover { color: %2; }")
       .arg(muted(), accent());
 }
+
+class DashCornerGrip : public QWidget {
+ public:
+  explicit DashCornerGrip(QWidget *parent = nullptr) : QWidget(parent) {
+    setAttribute(Qt::WA_Hover, true);
+    setCursor(Qt::SizeFDiagCursor);
+    setAttribute(Qt::WA_StyledBackground, false);
+  }
+
+ protected:
+  void enterEvent(QEnterEvent *event) override {
+    QWidget::enterEvent(event);
+    update();
+  }
+  void leaveEvent(QEvent *event) override {
+    QWidget::leaveEvent(event);
+    update();
+  }
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const bool hot =
+        underMouse() || (parentWidget() && parentWidget()->underMouse());
+    const bool dark = BlopTheme::instance().isDark();
+    const QColor c = hot ? QColor(QStringLiteral("#3B82F6"))
+                         : (dark ? QColor(255, 255, 255, 90)
+                                 : QColor(17, 24, 39, 70));
+    p.setPen(QPen(c, 1.35, Qt::SolidLine, Qt::RoundCap));
+    const qreal x = width() - 3.0;
+    const qreal y = height() - 3.0;
+    p.drawLine(QPointF(x - 9, y), QPointF(x, y - 9));
+    p.drawLine(QPointF(x - 5, y), QPointF(x, y - 5));
+  }
+};
 } // namespace
 
 DashWidget::DashWidget(const QString &id, QWidget *parent)
     : QFrame(parent), m_id(id) {
   setObjectName(QStringLiteral("DashWidget"));
+  setFrameShape(QFrame::NoFrame);
   setAttribute(Qt::WA_StyledBackground, true);
   setAttribute(Qt::WA_Hover, true);
   setProperty("dashBlockId", id);
 
   m_root = new QVBoxLayout(this);
-  m_root->setContentsMargins(UiScale::dp(16), UiScale::dp(14), UiScale::dp(16),
-                             UiScale::dp(12));
+  m_root->setContentsMargins(UiScale::dp(20), UiScale::dp(16), UiScale::dp(20),
+                             UiScale::dp(16));
   m_root->setSpacing(UiScale::dp(8));
 
   m_header = new QWidget(this);
@@ -202,23 +232,10 @@ DashWidget::DashWidget(const QString &id, QWidget *parent)
   m_bodyLay->setSpacing(0);
   m_root->addWidget(m_bodyHost, 1);
 
-  m_resizeHandle = new QWidget(this);
+  m_resizeHandle = new DashCornerGrip(this);
   m_resizeHandle->setObjectName(QStringLiteral("DashResizeHandle"));
-  m_resizeHandle->setCursor(Qt::SizeFDiagCursor);
   m_resizeHandle->setVisible(false);
   m_resizeHandle->installEventFilter(this);
-  m_resizeHandle->setStyleSheet(QStringLiteral(
-      "QWidget#DashResizeHandle {"
-      "  background: %1;"
-      "  border: 1px solid %2;"
-      "  border-radius: %3px;"
-      "}"
-      "QWidget#DashResizeHandle:hover { background: %4; }")
-                                    .arg(accent(),
-                                         QColor(255, 255, 255, 200).name(QColor::HexArgb),
-                                         QString::number(UiScale::dp(4)),
-                                         BlopTheme::accentHover().name(
-                                             QColor::HexRgb)));
 
   applyChrome();
   rebuildBody();
@@ -244,7 +261,12 @@ void DashWidget::applyChrome() {
   } else if (m_editMode && !banner) {
     border = withAlpha(BlopTheme::accentPrimary(), 70).name(QColor::HexArgb);
   } else if (!chromeless && m_borderEnabled) {
-    border = m_borderColor.isEmpty() ? cardBorder() : m_borderColor;
+    if (!m_borderColor.isEmpty())
+      border = m_borderColor;
+    else if (BlopTheme::instance().isDark())
+      border = QStringLiteral("rgba(255,255,255,0.08)");
+    else
+      border = QStringLiteral("#E5E7EB");
   }
 
   QString bg = QStringLiteral("transparent");
@@ -252,23 +274,12 @@ void DashWidget::applyChrome() {
     bg = BlopTheme::instance().isDark() ? QStringLiteral("#303440")
                                         : QStringLiteral("#FFFFFF");
   } else if (!chromeless && m_bgEnabled) {
-    if (!m_bgColor.isEmpty()) {
+    if (!m_bgColor.isEmpty())
       bg = m_bgColor;
-    } else {
-      // Soft per-block washes break the all-white plate monotony.
-      const bool dark = BlopTheme::instance().isDark();
-      if (m_id == QLatin1String("calendar"))
-        bg = dark ? QStringLiteral("rgba(91,157,255,0.10)")
-                  : QStringLiteral("rgba(91,157,255,0.07)");
-      else if (m_id == QLatin1String("todos"))
-        bg = dark ? QStringLiteral("rgba(52,211,153,0.09)")
-                  : QStringLiteral("rgba(16,185,129,0.07)");
-      else if (m_id == QLatin1String("recent"))
-        bg = dark ? QStringLiteral("rgba(255,255,255,0.04)")
-                  : QStringLiteral("#FFFFFF");
-      else
-        bg = cardBg();
-    }
+    else if (BlopTheme::instance().isDark())
+      bg = QStringLiteral("#1E222B");
+    else
+      bg = QStringLiteral("#FFFFFF");
   }
 
   setStyleSheet(QStringLiteral(
@@ -281,18 +292,21 @@ void DashWidget::applyChrome() {
                     "  border-color: %4;"
                     "}")
                     .arg(bg, border, QString::number(r),
-                         m_editMode ? accent()
-                                    : (chromeless || !m_borderEnabled
-                                           ? border
-                                           : hoverBorder())));
+                         m_editMode ? accent() : border));
   setGraphicsEffect(nullptr);
+  const QString editInk = QStringLiteral("#9CA3AF");
+  if (m_grip) {
+    m_grip->setStyleSheet(QStringLiteral(
+                              "color: %1; font-size: 14px; font-weight: 700;"
+                              "background: transparent; padding: 2px 4px;")
+                              .arg(m_editMode ? editInk : muted()));
+  }
   if (m_title) {
-    // Section labels — muted but readable, shared rhythm across board cards.
     const int titlePx = compact ? 12 : 13;
     m_title->setStyleSheet(
         QStringLiteral("color: %1; font-size: %2px; font-weight: 650;"
                        "letter-spacing: 0.15px; background: transparent;")
-            .arg(muted())
+            .arg(m_editMode ? editInk : muted())
             .arg(titlePx));
   }
   if (m_root) {
@@ -384,6 +398,14 @@ void DashWidget::updateEditAffordances() {
     m_grip->setVisible(false);
   if (auto *hero = findChild<DashDeskHero *>())
     hero->setEditMode(m_editMode);
+  const QStringList calNames{QStringLiteral("CalToday"),
+                             QStringLiteral("CalPrev"),
+                             QStringLiteral("CalNext"),
+                             QStringLiteral("CalAdd")};
+  for (const QString &name : calNames) {
+    if (auto *btn = findChild<QPushButton *>(name))
+      btn->setVisible(!m_editMode);
+  }
   adaptHeaderDensity();
 }
 
@@ -413,7 +435,7 @@ void DashWidget::setSizeClass(DashSizeClass sizeClass) {
   applyChrome();
 }
 
-int DashWidget::cardRadiusDp() { return BlopStyle::radiusMdDp(); }
+int DashWidget::cardRadiusDp() { return 12; }
 
 void DashWidget::layoutResizeHandle() {
   if (!m_resizeHandle)
@@ -499,7 +521,7 @@ void DashWidget::rebuildBody() {
 QWidget *DashWidget::buildIntro() {
   auto *body = new QWidget();
   auto *lay = new QVBoxLayout(body);
-  lay->setContentsMargins(0, UiScale::dp(4), 0, UiScale::dp(4));
+  lay->setContentsMargins(0, UiScale::dp(28), 0, UiScale::dp(4));
   lay->setSpacing(UiScale::dp(8));
 
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
@@ -721,6 +743,18 @@ bool DashWidget::eventFilter(QObject *watched, QEvent *event) {
     }
   }
   return QFrame::eventFilter(watched, event);
+}
+
+void DashWidget::enterEvent(QEnterEvent *event) {
+  QFrame::enterEvent(event);
+  if (m_resizeHandle)
+    m_resizeHandle->update();
+}
+
+void DashWidget::leaveEvent(QEvent *event) {
+  QFrame::leaveEvent(event);
+  if (m_resizeHandle)
+    m_resizeHandle->update();
 }
 
 void DashWidget::resizeEvent(QResizeEvent *event) {
@@ -1058,15 +1092,17 @@ QWidget *DashWidget::buildCalendar() {
   day->setDate(QDate::currentDate());
   day->refresh();
   lay->addWidget(day, 1);
-
-  if (cs > 3) {
-    auto *open = new QPushButton(QStringLiteral("Vollbild"), body);
-    open->setCursor(Qt::PointingHandCursor);
-    open->setFlat(true);
-    open->setStyleSheet(quietLinkQss());
-    connect(open, &QPushButton::clicked, this,
-            &DashWidget::maximizeCalendarRequested);
-    lay->addWidget(open, 0, Qt::AlignLeft);
+  if (auto *hdr = qobject_cast<QHBoxLayout *>(m_header->layout())) {
+    for (const char *name : {"CalToday", "CalPrev", "CalNext", "CalAdd"}) {
+      const auto stale =
+          m_header->findChildren<QPushButton *>(QLatin1String(name));
+      for (QPushButton *old : stale)
+        delete old;
+      if (auto *b = day->findChild<QPushButton *>(QLatin1String(name))) {
+        b->setParent(m_header);
+        hdr->addWidget(b, 0, Qt::AlignVCenter);
+      }
+    }
   }
   return body;
 }

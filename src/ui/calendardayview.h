@@ -44,6 +44,8 @@ private:
   void updateChrome();
   void refreshGoogleButton();
   void applyCompactChrome();
+  void buildOverlayHeader();
+  void applyOverlaySheet();
   void syncModeLabel();
   void showModeMenu();
   void requestCreate(const QDateTime &presetStart);
@@ -60,10 +62,19 @@ private:
   QLabel *m_dateLabel{nullptr};
   QWidget *m_navBar{nullptr};
   QWidget *m_modeBar{nullptr};
+  QWidget *m_overlayHeader{nullptr};
+  QLabel *m_overlayDate{nullptr};
+  QLabel *m_emptyBadge{nullptr};
   QLabel *m_modeLabel{nullptr};
   QPushButton *m_btnModeMore{nullptr};
   QPushButton *m_btnAdd{nullptr};
   QPushButton *m_btnGoogle{nullptr};
+  QPushButton *m_segDay{nullptr};
+  QPushButton *m_segWeek{nullptr};
+  QPushButton *m_segMonth{nullptr};
+  QPushButton *m_btnOverlayAdd{nullptr};
+  QPushButton *m_btnOverlayGoogle{nullptr};
+  QPushButton *m_btnClose{nullptr};
   QStackedWidget *m_stack{nullptr};
 
   QScrollArea *m_dayScroll{nullptr};

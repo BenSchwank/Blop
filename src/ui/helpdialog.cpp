@@ -64,9 +64,11 @@ HelpDialog::HelpDialog(const QString &versionText, QWidget *parent)
   setMinimumWidth(UiScale::dp(440));
 
   auto *root = new QVBoxLayout(this);
-  root->setContentsMargins(UiScale::dp(22), UiScale::dp(18), UiScale::dp(22),
-                           UiScale::dp(16));
-  root->setSpacing(UiScale::dp(12));
+  root->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(BlopStyle::edgeInsetDp()));
+  root->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
 
   auto *title = new QLabel(QStringLiteral("Hilfe & Erste Schritte"), this);
   title->setStyleSheet(

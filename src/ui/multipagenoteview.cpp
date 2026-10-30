@@ -1465,6 +1465,7 @@ static int a4hPx() {
 #endif
 }
 static int pageSpacingPx() { return UiScale::dp(60); }
+static int pageTopInsetPx() { return UiScale::dp(88); }
 static float kBottomRevealPull() { return UiScale::dp(100); }
 /// Abstand Seitenunterkante → Panel (Szenenkoordinaten)
 static qreal kSheetGapBelowPage() { return UiScale::dp(40); }
@@ -2120,8 +2121,9 @@ void MultiPageNoteView::hydrateVisibleRange() {
   // a tradeoff between memory pressure on very long notes and avoiding
   // visible "blank page" flashes during fast flicks.
   constexpr int kPad = 3;
-  int first = qMax(0, int(vp.top() / pageH) - kPad);
-  int last = qMin(note_->pages.size() - 1, int(vp.bottom() / pageH) + kPad);
+  int first = qMax(0, int((vp.top() - pageTopInsetPx()) / pageH) - kPad);
+  int last = qMin(note_->pages.size() - 1,
+                  int((vp.bottom() - pageTopInsetPx()) / pageH) + kPad);
   for (int i = first; i <= last; ++i)
     hydratePageContent(i);
 }
@@ -2287,7 +2289,7 @@ void MultiPageNoteView::layoutPages() {
     return;
   }
   int n = std::max(1, (int)note_->pages.size());
-  qreal y = 0;
+  qreal y = pageTopInsetPx();
 
   for (int i = 0; i < n; ++i) {
     auto pageItem = new PageItem(0, 0, a4wPx(), a4hPx());
@@ -2335,7 +2337,7 @@ void MultiPageNoteView::toggleRuler(bool active) {
 }
 
 QRectF MultiPageNoteView::pageRect(int idx) const {
-  qreal y = idx * (a4hPx() + pageSpacingPx());
+  qreal y = pageTopInsetPx() + idx * (a4hPx() + pageSpacingPx());
   return QRectF(0, y, a4wPx(), a4hPx());
 }
 

@@ -277,20 +277,9 @@ QPushButton *choiceButton(const QString &title, const QString &why,
   return b;
 }
 
-QString primaryButtonQss() {
-  return BlopTheme::themed(QStringLiteral(
-      "QPushButton { background: #7C5CFC; color: white; border: none;"
-      "  border-radius: 12px; padding: 12px 18px; font-weight: 700; }"
-      "QPushButton:hover { background: #957AFF; }"
-      "QPushButton:disabled { background: rgba(124,92,252,0.35); color: #E6DFFF; }"));
-}
+QString primaryButtonQss() { return BlopTheme::primaryButtonQss(); }
 
-QString ghostButtonQss() {
-  return QStringLiteral(
-      "QPushButton { background: transparent; color: #C4B6E0; border: none;"
-      "  border-radius: 10px; padding: 10px 12px; font-weight: 600; }"
-      "QPushButton:hover { color: #F4F1FF; background: rgba(255,255,255,0.04); }");
-}
+QString ghostButtonQss() { return BlopTheme::tertiaryButtonQss(); }
 
 } // namespace
 
