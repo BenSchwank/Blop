@@ -4,6 +4,8 @@
 #include "core/SettingsSync.h"
 #include "platform/SpeechInput.h"
 
+#include <atomic>
+
 #include <QApplication>
 #include <QCursor>
 #include <QEnterEvent>
@@ -15,6 +17,10 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPen>
+#include <QPaintEvent>
 #include <QPushButton>
 #include <QScreen>
 #include <QShowEvent>
@@ -34,6 +40,38 @@
 
 namespace {
 constexpr int kHotkeyId = 0xB107;
+
+#if defined(Q_OS_WIN)
+HHOOK g_holdHook = nullptr;
+std::atomic<unsigned> g_hotVk{0};
+std::atomic<unsigned> g_hotMods{0};
+std::atomic<unsigned> g_releasedVk{0};
+
+bool holdVkMatches(unsigned vk) {
+    const unsigned hotVk = g_hotVk.load();
+    const unsigned mods = g_hotMods.load();
+    if (hotVk != 0 && vk == hotVk)
+        return true;
+    if ((mods & MOD_CONTROL) && (vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL))
+        return true;
+    if ((mods & MOD_SHIFT) && (vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT))
+        return true;
+    if ((mods & MOD_ALT) && (vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU))
+        return true;
+    if ((mods & MOD_WIN) && (vk == VK_LWIN || vk == VK_RWIN))
+        return true;
+    return false;
+}
+
+LRESULT CALLBACK holdHookProc(int code, WPARAM wParam, LPARAM lParam) {
+    if (code == HC_ACTION && (wParam == WM_KEYUP || wParam == WM_SYSKEYUP)) {
+        const auto *info = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
+        if (info && holdVkMatches(info->vkCode))
+            g_releasedVk.store(info->vkCode);
+    }
+    return CallNextHookEx(g_holdHook, code, wParam, lParam);
+}
+#endif
 
 #if defined(Q_OS_WIN)
 UINT virtualKey(int key) {
@@ -99,6 +137,7 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint |
                    Qt::NoDropShadowWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
+    setAttribute(Qt::WA_StyledBackground, true);
     setAttribute(Qt::WA_Hover);
     setMouseTracking(true);
 
@@ -140,11 +179,7 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
     layout->addWidget(m_status);
 
     setStyleSheet(QStringLiteral(
-        "QWidget#notch { background: #24262B; border: none;"
-        " border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }"
-        "QWidget#notch[resting=\"true\"] { background: #2C3036;"
-        " border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }"
-        "QWidget#notch[resting=\"true\"][listening=\"true\"] { background: #5B9DFF; }"
+        "QWidget#notch { background: transparent; border: none; }"
         "QLabel#status { color: #D5D8DE; }"
         "QLineEdit { background: #16181C; color: #F4F6F8; border: 1px solid #3A3F48;"
         " border-radius: 10px; padding: 6px 10px; selection-background-color: #5B9DFF; }"
@@ -163,26 +198,39 @@ NotchWindow::NotchWindow(QWidget *parent) : QWidget(parent) {
         if (!m_expanded)
             expand();
         runCommand(text);
+        scheduleIdle();
     });
     connect(m_speech, &SpeechInput::failed, this, [this](const QString &reason) {
         if (!m_expanded)
             expand();
         m_status->setText(reason);
         applyChrome();
+        scheduleIdle();
     });
     connect(m_speech, &SpeechInput::listeningChanged, this, &NotchWindow::setListening);
 
     m_status->installEventFilter(this);
 
+    m_holdTimer = new QTimer(this);
+    m_holdTimer->setInterval(30);
+    connect(m_holdTimer, &QTimer::timeout, this, &NotchWindow::pollHold);
+
     applyChrome();
     qApp->installNativeEventFilter(this);
     registerHotkey();
+#if defined(Q_OS_WIN)
+    g_holdHook = SetWindowsHookExW(WH_KEYBOARD_LL, holdHookProc, GetModuleHandleW(nullptr), 0);
+#endif
 }
 
 NotchWindow::~NotchWindow() {
     if (qApp)
         qApp->removeNativeEventFilter(this);
 #if defined(Q_OS_WIN)
+    if (g_holdHook) {
+        UnhookWindowsHookEx(g_holdHook);
+        g_holdHook = nullptr;
+    }
     if (m_hotkey)
         UnregisterHotKey(nullptr, kHotkeyId);
 #endif
@@ -194,7 +242,7 @@ bool NotchWindow::nativeEventFilter(const QByteArray &eventType, void *message, 
         return false;
     const auto *msg = static_cast<MSG *>(message);
     if (msg->message == WM_HOTKEY && msg->wParam == kHotkeyId) {
-        QMetaObject::invokeMethod(this, [this]() { toggleSpeech(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, [this]() { beginHold(); }, Qt::QueuedConnection);
         return true;
     }
 #else
@@ -202,6 +250,28 @@ bool NotchWindow::nativeEventFilter(const QByteArray &eventType, void *message, 
     Q_UNUSED(message);
 #endif
     return false;
+}
+
+void NotchWindow::paintEvent(QPaintEvent *) {
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    if (!surfaceOpen()) {
+        const QColor fill = m_listening ? QColor(0x5B, 0x9D, 0xFF) : QColor(0x1B, 0x1E, 0x24);
+        const QColor edge = m_listening ? QColor(255, 255, 255) : QColor(0x5B, 0x9D, 0xFF);
+        const qreal radius = height() / 2.0;
+        painter.setClipRect(rect());
+        QPainterPath path;
+        path.addRoundedRect(QRectF(1.5, -radius, width() - 3.0, height() + radius - 2.0),
+                            radius, radius);
+        painter.fillPath(path, fill);
+        painter.setPen(QPen(edge, 2));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(path);
+        return;
+    }
+    painter.setPen(QPen(QColor(0x5B, 0x9D, 0xFF), 1));
+    painter.setBrush(QColor(0x24, 0x26, 0x2B));
+    painter.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 14, 14);
 }
 
 void NotchWindow::showEvent(QShowEvent *event) {
@@ -239,26 +309,44 @@ void NotchWindow::collapse() {
 }
 
 bool NotchWindow::surfaceOpen() const {
-    return m_hovered || m_expanded || m_listening;
+    return m_hovered || m_expanded;
 }
 
 void NotchWindow::applyChrome() {
     const bool open = surfaceOpen();
+    const bool pill = !open;
+    const int pillWidth = m_listening ? 188 : 156;
+    const int pillHeight = 36;
+    const int markSide = 22;
     m_edit->setVisible(open);
     m_gear->setVisible(open);
-    if (m_mark)
-        m_mark->setVisible(open);
+    if (m_mark) {
+        m_mark->setVisible(true);
+        m_mark->setPixmap(assistantLogoPixmap(markSide));
+        m_mark->setFixedSize(markSide, markSide);
+    }
     const bool showStatus = open && !m_status->text().isEmpty();
     m_status->setVisible(showStatus);
-    setProperty("resting", !open);
+    setProperty("resting", pill);
     setProperty("listening", m_listening);
     style()->unpolish(this);
     style()->polish(this);
-    if (!open) {
+    auto *row = qobject_cast<QHBoxLayout *>(layout()->itemAt(0)->layout());
+    if (pill) {
         layout()->setContentsMargins(0, 0, 0, 0);
-        setFixedSize(92, 8);
+        if (row) {
+            row->setStretch(1, 0);
+            const int side = qMax(0, (pillWidth - markSide) / 2);
+            const int top = qMax(0, (pillHeight - markSide) / 2);
+            row->setContentsMargins(side, top, 0, 0);
+        }
+        setFixedSize(pillWidth, pillHeight);
     } else {
         layout()->setContentsMargins(14, 2, 12, 12);
+        if (row) {
+            row->setStretch(1, 1);
+            row->setContentsMargins(12, 4, 8, 0);
+        }
         m_status->setFixedWidth(392);
         int height = 36 + m_edit->sizeHint().height();
         if (showStatus)
@@ -274,8 +362,9 @@ void NotchWindow::pinToTop() {
         screen = QGuiApplication::primaryScreen();
     if (!screen)
         return;
-    const QRect area = screen->geometry();
-    move(area.center().x() - width() / 2, area.top());
+    const QRect full = screen->geometry();
+    const int top = screen->availableGeometry().top();
+    move(full.center().x() - width() / 2, top);
 }
 
 void NotchWindow::runCommand(const QString &text) {
@@ -324,8 +413,16 @@ void NotchWindow::registerHotkey() {
     UINT mods = 0;
     UINT vk = 0;
     const QKeySequence sequence(SettingsSync::voiceHotkey(), QKeySequence::PortableText);
+    m_hotMods = 0;
+    m_hotVk = 0;
+    g_hotMods.store(0);
+    g_hotVk.store(0);
     if (!winHotkey(sequence, &mods, &vk))
         return;
+    m_hotMods = mods;
+    m_hotVk = vk;
+    g_hotMods.store(mods);
+    g_hotVk.store(vk);
     m_hotkey = RegisterHotKey(nullptr, kHotkeyId, mods, vk);
 #endif
 }
@@ -335,14 +432,87 @@ void NotchWindow::setListening(bool on) {
     applyChrome();
 }
 
-void NotchWindow::toggleSpeech() {
+void NotchWindow::scheduleIdle() {
+    QTimer::singleShot(7000, this, [this]() {
+        if (m_listening)
+            return;
+        if (rect().contains(mapFromGlobal(QCursor::pos())))
+            return;
+        m_edit->clearFocus();
+        m_hovered = false;
+        m_expanded = false;
+        applyChrome();
+    });
+}
+
+void NotchWindow::beginHold() {
     show();
-    if (!m_expanded)
-        expand();
+    m_sawHold = false;
+#if defined(Q_OS_WIN)
+    g_releasedVk.store(0);
+#endif
+    if (!m_speech->listening())
+        m_speech->start();
+    if (m_holdTimer && !m_holdTimer->isActive())
+        m_holdTimer->start();
+}
+
+void NotchWindow::finishHold() {
+    if (m_holdTimer)
+        m_holdTimer->stop();
     if (m_speech->listening())
         m_speech->stop();
-    else
-        m_speech->start();
+}
+
+void NotchWindow::releaseHoldKey(quint32 vk) {
+    if (!m_speech || !m_speech->listening())
+        return;
+#if defined(Q_OS_WIN)
+    const bool mainUp = m_hotVk != 0 && vk == m_hotVk;
+    bool modUp = false;
+    if (m_hotMods & MOD_CONTROL)
+        modUp = vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL;
+    if (m_hotMods & MOD_SHIFT)
+        modUp = modUp || vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT;
+    if (m_hotMods & MOD_ALT)
+        modUp = modUp || vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU;
+    if (m_hotMods & MOD_WIN)
+        modUp = modUp || vk == VK_LWIN || vk == VK_RWIN;
+    if (mainUp || modUp)
+        finishHold();
+#else
+    Q_UNUSED(vk);
+#endif
+}
+
+void NotchWindow::pollHold() {
+#if defined(Q_OS_WIN)
+    const unsigned released = g_releasedVk.exchange(0);
+    if (released != 0)
+        releaseHoldKey(static_cast<quint32>(released));
+    if (!m_speech->listening())
+        return;
+    const auto down = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
+    const bool keyDown = m_hotVk != 0 && down(static_cast<int>(m_hotVk));
+    bool modsDown = true;
+    if (m_hotMods & MOD_CONTROL)
+        modsDown = modsDown && (down(VK_CONTROL) || down(VK_LCONTROL) || down(VK_RCONTROL));
+    if (m_hotMods & MOD_SHIFT)
+        modsDown = modsDown && (down(VK_SHIFT) || down(VK_LSHIFT) || down(VK_RSHIFT));
+    if (m_hotMods & MOD_ALT)
+        modsDown = modsDown && (down(VK_MENU) || down(VK_LMENU) || down(VK_RMENU));
+    if (m_hotMods & MOD_WIN)
+        modsDown = modsDown && (down(VK_LWIN) || down(VK_RWIN));
+    if (keyDown && modsDown) {
+        m_sawHold = true;
+        return;
+    }
+    if (!m_sawHold)
+        return;
+#else
+    return;
+#endif
+    finishHold();
 }
 
 void NotchWindow::enterEvent(QEnterEvent *event) {
@@ -357,8 +527,10 @@ void NotchWindow::leaveEvent(QEvent *event) {
         if (rect().contains(mapFromGlobal(QCursor::pos())))
             return;
         m_hovered = false;
-        if (!m_edit->hasFocus() && !m_listening)
+        if (!m_listening) {
+            m_edit->clearFocus();
             m_expanded = false;
+        }
         applyChrome();
     });
 }
@@ -385,8 +557,10 @@ bool NotchWindow::eventFilter(QObject *watched, QEvent *event) {
             if (rect().contains(mapFromGlobal(QCursor::pos())))
                 return;
             m_hovered = false;
-            if (!m_edit->hasFocus() && !m_listening)
+            if (!m_listening) {
+                m_edit->clearFocus();
                 m_expanded = false;
+            }
             applyChrome();
         });
     }
