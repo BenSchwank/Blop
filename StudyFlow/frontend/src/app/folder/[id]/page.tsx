@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle, Mic, Video, Send, Link2, Inbox, Copy, ClipboardPaste, Trash2, Sparkles } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle, Mic, Video, Send, Link2, Inbox, Copy, ClipboardPaste, Trash2, Sparkles, RefreshCw } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -14,7 +14,7 @@ import QuizSession, { type QuizQuestion as QuizSessionQuestion } from "@/compone
 import FlashcardSession from "@/components/FlashcardSession";
 import DocumentMarkdown from "@/components/DocumentMarkdown";
 import DocumentToc from "@/components/DocumentToc";
-import { extractMarkdownHeadings } from "@/lib/markdownHeadings";
+import { extractMarkdownHeadings, isThinDocument, sanitizeDocumentMarkdown } from "@/lib/markdownHeadings";
 import { awardXp } from "@/lib/xpClient";
 import { registerAiJobAbort, unregisterAiJobAbort, abortAiJob, isAbortError } from "@/lib/aiJobAbortRegistry";
 import { getSessionId, sessionHeaders } from "@/lib/session";
@@ -3690,21 +3690,33 @@ export default function FolderPage() {
                 );
             }
 
+            const typeLabel = AI_JOB_LABELS[selectedFile.type] || selectedFile.type;
             return (
                 <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
-                        <div className="flex items-center gap-3">
-                            <button onClick={() => { setSelectedFile(null); setIsEditingFile(false); }} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
-                                <X size={20} />
+                    <div className="flex items-center justify-between h-14 px-4 border-b border-white/[0.08] bg-[#23252A] shrink-0 z-10 w-full gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <button onClick={() => { setSelectedFile(null); setIsEditingFile(false); }} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors shrink-0" aria-label="Schließen">
+                                <X size={18} />
                             </button>
-                            <div className="h-6 w-px bg-[#3A3D45] mx-2"></div>
-                            <div className={`p-2 rounded-lg bg-blue-500/10 text-blue-400`}>
-                                <FileText size={20} />
-                            </div>
-                            <h3 className="text-lg font-semibold text-white">{selectedFile.name}</h3>
+                            <p className="min-w-0 truncate text-[13px] text-gray-400">
+                                <span className="text-gray-300">{folderName || "Ordner"}</span>
+                                <span className="mx-1.5 text-gray-600">/</span>
+                                <span className="text-white">{typeLabel}: {selectedFile.name}</span>
+                            </p>
                         </div>
-                        <div className="flex items-center gap-2 no-print">
-                            <button onClick={() => setIsEditingFile(true)} className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors">
+                        <div className="flex items-center gap-2 no-print shrink-0">
+                            {selectedFile.type === 'elaboration' ? (
+                                <button
+                                    type="button"
+                                    onClick={() => handleGenerate('elaboration')}
+                                    disabled={isGenerating.includes('elaboration')}
+                                    className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg text-[13px] text-gray-300 hover:text-white hover:bg-white/5 disabled:opacity-50"
+                                >
+                                    <RefreshCw size={14} className={isGenerating.includes('elaboration') ? 'animate-spin' : ''} />
+                                    <span className="hidden sm:inline">Neu generieren</span>
+                                </button>
+                            ) : null}
+                            <button onClick={() => setIsEditingFile(true)} className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg text-[13px] text-white bg-[#27272A] border border-white/10 hover:bg-[#323232]">
                                 <Edit size={14} />
                                 <span className="hidden sm:inline">Bearbeiten</span>
                             </button>
@@ -3712,7 +3724,7 @@ export default function FolderPage() {
                                 <button
                                     type="button"
                                     onClick={() => openYoutubeVideoInNewTab(ytId)}
-                                    className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                    className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg text-[13px] text-white bg-[#27272A] border border-white/10"
                                     title="Video auf YouTube im Browser öffnen"
                                 >
                                     <ExternalLink size={14} />
@@ -3737,7 +3749,7 @@ export default function FolderPage() {
                                             alert("Keine Audio-Datei für diesen Eintrag gefunden.");
                                         }
                                     }}
-                                    className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                    className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg text-[13px] text-white bg-[#27272A] border border-white/10"
                                     title="Original-Audio (MP3) herunterladen"
                                 >
                                     <Download size={14} />
@@ -3746,7 +3758,7 @@ export default function FolderPage() {
                             )}
                             <button
                                 onClick={() => window.print()}
-                                className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg text-[13px] font-medium text-white bg-[#2563EB] hover:bg-[#1D4ED8]"
                                 title="Als PDF exportieren"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
@@ -3761,11 +3773,13 @@ export default function FolderPage() {
                         }`}
                     >
                         {(() => {
-                            const tocHeadings = extractMarkdownHeadings(contentStr);
+                            const sanitized = sanitizeDocumentMarkdown(contentStr);
+                            const tocHeadings = extractMarkdownHeadings(sanitized);
+                            const incomplete = selectedFile.type === 'elaboration' && isThinDocument(contentStr);
                             return (
-                                <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 items-start">
+                                <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-12 items-start">
                                     <DocumentToc headings={tocHeadings} scrollRootRef={docScrollRef} />
-                                    <div ref={readModeContentRef} className="flex-1 min-w-0 max-w-4xl prose prose-invert prose-blop prose-pre:bg-[#353840] prose-pre:border prose-pre:border-[#45484F] [&_.katex-display]:max-w-full">
+                                    <div ref={readModeContentRef} className="flex-1 min-w-0 max-w-[760px] prose prose-invert prose-blop prose-pre:bg-[#353840] prose-pre:border prose-pre:border-[#45484F] [&_.katex-display]:max-w-full">
                                         {ytId ? (
                                             <div className="not-prose mb-8 aspect-video w-full max-h-[min(50vh,420px)] rounded-xl overflow-hidden border border-[#45484F] bg-black shadow-lg">
                                                 <iframe
@@ -3777,7 +3791,21 @@ export default function FolderPage() {
                                                 />
                                             </div>
                                         ) : null}
-                                        <DocumentMarkdown>{contentStr}</DocumentMarkdown>
+                                        <DocumentMarkdown>{sanitized}</DocumentMarkdown>
+                                        {incomplete ? (
+                                            <div className="not-prose mt-10 rounded-xl border border-amber-500/25 bg-amber-500/[0.08] p-4 space-y-3">
+                                                <p className="text-sm text-amber-100">Diese Ausarbeitung scheint unvollständig zu sein.</p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleGenerate('elaboration')}
+                                                    disabled={isGenerating.includes('elaboration')}
+                                                    className="inline-flex items-center gap-2 h-[34px] px-3 rounded-lg text-[13px] font-medium text-white bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50"
+                                                >
+                                                    <RefreshCw size={14} className={isGenerating.includes('elaboration') ? 'animate-spin' : ''} />
+                                                    Ausarbeitung vollständig generieren
+                                                </button>
+                                            </div>
+                                        ) : null}
                                     </div>
                                 </div>
                             );
