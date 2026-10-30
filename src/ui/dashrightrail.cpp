@@ -112,6 +112,24 @@ QString linkBtnQss() {
       .arg(railMuted(), BlopTheme::accentPrimary().name(QColor::HexRgb));
 }
 
+QString actionBtnQss() {
+  const bool dark = BlopTheme::instance().isDark();
+  return QStringLiteral(
+             "QPushButton {"
+             "  color: %1; background: %2;"
+             "  border: 1px solid %3; border-radius: 6px;"
+             "  padding: 0 12px; font-size: 12px; font-weight: 600;"
+             "  min-height: %4px; max-height: %4px;"
+             "}"
+             "QPushButton:hover { background: %5; }")
+      .arg(railInk(),
+           dark ? QStringLiteral("#1C2028") : QStringLiteral("#FFFFFF"),
+           dark ? QStringLiteral("rgba(255,255,255,0.12)")
+                : QStringLiteral("#E5E7EB"),
+           QString::number(UiScale::dp(30)),
+           dark ? QStringLiteral("#262B34") : QStringLiteral("#F9FAFB"));
+}
+
 QString rowBtnQss() {
   const QString hover = BlopTheme::instance().isDark()
                             ? QStringLiteral("rgba(255,255,255,0.06)")
@@ -176,29 +194,33 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
 
   auto *root = new QVBoxLayout(this);
-  root->setContentsMargins(UiScale::dp(14), UiScale::dp(12), UiScale::dp(12),
-                           UiScale::dp(14));
-  root->setSpacing(UiScale::dp(4));
+  root->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(24),
+                           UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(BlopStyle::edgeInsetDp()));
+  root->setSpacing(UiScale::dp(BlopStyle::controlGapDp()));
 
   m_chrome = new QWidget(this);
   m_chrome->setObjectName(QStringLiteral("DashRailChrome"));
   m_chrome->setStyleSheet(QStringLiteral("background: transparent;"));
   auto *chromeLay = new QHBoxLayout(m_chrome);
   chromeLay->setContentsMargins(0, 0, 0, 0);
-  chromeLay->setSpacing(UiScale::dp(4));
+  chromeLay->setSpacing(UiScale::dp(8));
 
   m_btnCustomize = new QPushButton(QStringLiteral("Anpassen"), m_chrome);
   m_btnCustomize->setCursor(Qt::PointingHandCursor);
   m_btnCustomize->setFlat(true);
+  m_btnCustomize->setFixedHeight(UiScale::dp(32));
+  m_btnCustomize->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
   m_btnCustomize->setToolTip(QStringLiteral("Dashboard anpassen"));
   connect(m_btnCustomize, &QPushButton::clicked, this,
           &DashRightRail::customizeClicked);
-  chromeLay->addWidget(m_btnCustomize, 1);
+  chromeLay->addWidget(m_btnCustomize, 0);
 
-  m_btnUndo = new QPushButton(QStringLiteral("↶"), m_chrome);
+  m_btnUndo = new QPushButton(QStringLiteral("↺ Reset"), m_chrome);
   m_btnUndo->setCursor(Qt::PointingHandCursor);
   m_btnUndo->setFlat(true);
-  m_btnUndo->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  m_btnUndo->setFixedHeight(UiScale::dp(32));
   m_btnUndo->setVisible(false);
   m_btnUndo->setEnabled(false);
   m_btnUndo->setToolTip(QStringLiteral("Rückgängig"));
@@ -208,7 +230,7 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   m_btnMore = new QPushButton(QStringLiteral("⋯"), m_chrome);
   m_btnMore->setCursor(Qt::PointingHandCursor);
   m_btnMore->setFlat(true);
-  m_btnMore->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  m_btnMore->setFixedSize(UiScale::dp(32), UiScale::dp(32));
   m_btnMore->setVisible(false);
   m_btnMore->setToolTip(QStringLiteral("Blöcke & Layout"));
   connect(m_btnMore, &QPushButton::clicked, this, &DashRightRail::moreClicked);
@@ -408,83 +430,75 @@ void DashRightRail::applyChrome() {
       "QWidget#DashRightRail { background: %1; border: none; }")
                     .arg(railFill().name(QColor::HexRgb)));
 
-  const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
-  const int rad = UiScale::dp(BlopStyle::radiusMdDp());
-
   if (m_btnCustomize) {
     m_btnCustomize->setText(m_editMode ? QStringLiteral("Fertig")
                                        : QStringLiteral("Anpassen"));
-    m_btnCustomize->setMinimumHeight(UiScale::dp(34));
+    m_btnCustomize->setFlat(false);
+    m_btnCustomize->setFixedHeight(UiScale::dp(32));
     if (m_editMode) {
-      m_btnCustomize->setStyleSheet(
-          QStringLiteral("QPushButton {"
-                         "  color: %1; font-size: 14px; font-weight: 600;"
-                         "  background: rgba(%2,%3,%4,0.24); border: none;"
-                         "  border-radius: %5px; padding: 8px 12px;"
-                         "  text-align: left;"
-                         "}"
-                         "QPushButton:hover { background: rgba(%2,%3,%4,0.34); }")
-              .arg(acc)
-              .arg(BlopTheme::accentPrimary().red())
-              .arg(BlopTheme::accentPrimary().green())
-              .arg(BlopTheme::accentPrimary().blue())
-              .arg(rad));
+      m_btnCustomize->setStyleSheet(QStringLiteral(
+          "QPushButton {"
+          "  color: #FFFFFF; background: #2563EB; border: none;"
+          "  border-radius: 6px; padding: 0 14px;"
+          "  font-size: 12px; font-weight: 600;"
+          "  min-height: %1px; max-height: %1px;"
+          "}"
+          "QPushButton:hover { background: #1D4ED8; }")
+                                        .arg(UiScale::dp(32)));
     } else {
-      const QString idleBg =
-          BlopTheme::instance().isDark()
-              ? QStringLiteral("rgba(255,255,255,0.07)")
-              : QStringLiteral("rgba(55,53,47,0.06)");
-      const QString idleHover =
-          BlopTheme::instance().isDark()
-              ? QStringLiteral("rgba(255,255,255,0.12)")
-              : QStringLiteral("rgba(55,53,47,0.10)");
-      m_btnCustomize->setStyleSheet(
-          QStringLiteral("QPushButton {"
-                         "  color: %1; font-size: 14px; font-weight: 600;"
-                         "  background: %2; border: none;"
-                         "  border-radius: %3px; padding: 8px 12px;"
-                         "  text-align: left;"
-                         "}"
-                         "QPushButton:hover { background: %4; color: %5; }")
-              .arg(railInk(), idleBg, QString::number(rad), idleHover, acc));
+      const bool dark = BlopTheme::instance().isDark();
+      m_btnCustomize->setStyleSheet(QStringLiteral(
+          "QPushButton {"
+          "  color: %1; background: %2;"
+          "  border: 1px solid %3; border-radius: 6px;"
+          "  padding: 6px 12px; font-size: 12px; font-weight: 600;"
+          "}"
+          "QPushButton:hover { background: %4; }")
+                                        .arg(railInk(),
+                                             dark ? QStringLiteral("#1C2028")
+                                                  : QStringLiteral("#FFFFFF"),
+                                             dark ? QStringLiteral(
+                                                        "rgba(255,255,255,0.12)")
+                                                  : QStringLiteral("#E5E7EB"),
+                                             dark ? QStringLiteral("#262B34")
+                                                  : QStringLiteral("#F9FAFB")));
     }
   }
 
-  const QString ghostIcon =
-      QStringLiteral("QPushButton {"
-                     "  color: %1; font-size: 16px; font-weight: 500;"
-                     "  background: transparent; border: none;"
-                     "  border-radius: %2px; padding: 0;"
-                     "}"
-                     "QPushButton:hover { color: %3; background: %4; }"
-                     "QPushButton:disabled { color: %5; }")
-          .arg(railMuted(), QString::number(rad), acc,
-               BlopTheme::instance().isDark()
-                   ? QStringLiteral("rgba(255,255,255,0.06)")
-                   : QStringLiteral("rgba(15,23,42,0.05)"),
-               BlopTheme::instance().isDark()
-                   ? QStringLiteral("rgba(255,255,255,0.22)")
-                   : QStringLiteral("rgba(55,53,47,0.28)"));
   if (m_btnUndo) {
-    m_btnUndo->setStyleSheet(ghostIcon);
+    const bool dark = BlopTheme::instance().isDark();
+    m_btnUndo->setText(QStringLiteral("↺ Reset"));
+    m_btnUndo->setFixedHeight(UiScale::dp(32));
+    m_btnUndo->setStyleSheet(QStringLiteral(
+                                 "QPushButton {"
+                                 "  color: %1; background: transparent;"
+                                 "  border: 1px solid %2; border-radius: 6px;"
+                                 "  padding: 0 10px; font-size: 12px; font-weight: 600;"
+                                 "  min-height: %3px; max-height: %3px;"
+                                 "}"
+                                 "QPushButton:hover { background: %4; }"
+                                 "QPushButton:disabled { color: %5; }")
+                                 .arg(railInk(),
+                                      dark ? QStringLiteral("rgba(255,255,255,0.15)")
+                                           : QStringLiteral("#E5E7EB"),
+                                      QString::number(UiScale::dp(32)),
+                                      dark ? QStringLiteral("#262B34")
+                                           : QStringLiteral("#F9FAFB"),
+                                      dark ? QStringLiteral("#6B7280")
+                                           : QStringLiteral("#9CA3AF")));
     m_btnUndo->setVisible(m_editMode);
   }
   if (m_btnMore) {
-    m_btnMore->setStyleSheet(ghostIcon);
+    m_btnMore->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+    m_btnMore->setStyleSheet(
+        BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp(), 32));
     m_btnMore->setVisible(m_editMode);
   }
 
   m_btnAdd->setVisible(m_editMode);
   m_btnAdd->setEnabled(m_editMode);
   m_btnAdd->setText(QStringLiteral("+ Widget"));
-  m_btnAdd->setStyleSheet(
-      QStringLiteral("QPushButton {"
-                     "  color: %1; font-size: 13px; font-weight: 500;"
-                     "  background: transparent; border: none;"
-                     "  border-radius: %2px; padding: 10px 2px; text-align: left;"
-                     "}"
-                     "QPushButton:hover { color: %3; }")
-          .arg(railMuted(), QString::number(rad), acc));
+  m_btnAdd->setStyleSheet(BlopTheme::tertiaryButtonQss());
 }
 
 void DashRightRail::rebuildModules() {
@@ -1017,8 +1031,8 @@ QWidget *DashRightRail::buildFocusContent() {
   auto *toggle = new QPushButton(
       m_focusRunning ? QStringLiteral("Pause") : QStringLiteral("Start"), row);
   toggle->setCursor(Qt::PointingHandCursor);
-  toggle->setFlat(true);
-  toggle->setStyleSheet(linkBtnQss());
+  toggle->setFlat(false);
+  toggle->setStyleSheet(actionBtnQss());
   connect(toggle, &QPushButton::clicked, this, [this]() {
     m_focusRunning = !m_focusRunning;
     if (m_focusRunning) {
@@ -1110,8 +1124,8 @@ QWidget *DashRightRail::buildCaptureContent() {
 
   auto *go = new QPushButton(QStringLiteral("Hinzufügen"), box);
   go->setCursor(Qt::PointingHandCursor);
-  go->setFlat(true);
-  go->setStyleSheet(linkBtnQss());
+  go->setFlat(false);
+  go->setStyleSheet(actionBtnQss());
   connect(go, &QPushButton::clicked, this, addTask);
   lay->addWidget(go, 0, Qt::AlignLeft);
   return box;

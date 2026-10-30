@@ -315,7 +315,7 @@ private slots:
   void finishRename();
 
   void addNoteTab(const QString &title,
-                  const QString &iconName = QStringLiteral("note_bnote"));
+                  const QString &iconName = QStringLiteral("note"));
   void closeNoteTab(int index);
   void closeEditorTabAt(int index);
   void remapOrCloseEditorTabs(const QString &oldPath, const QString &newPath);
@@ -352,6 +352,8 @@ private slots:
   void onWinClose();
 
   void onModeChanged(int index);
+  void applyModeChange(int index);
+  void selectModeIndex(int index);
 
 private:
   void setupUi();
@@ -667,6 +669,8 @@ private:
   QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};
   QComboBox *m_modeSelector{nullptr};
+  int m_pendingModeIndex{0};
+  bool m_modeChangePosted{false};
   /// Desktop title bar: visible Notizen/Study control (logic in m_modeSelector).
   QPushButton *m_btnMode{nullptr};
   QPushButton *m_btnAddWebBookmark{nullptr};
@@ -814,6 +818,8 @@ private:
   QWidget *m_libraryModeSwitch{nullptr};
   class QButtonGroup *m_libraryModeGroup{nullptr};
   bool m_libraryExplorerMode{false};
+  /// One-shot folder for the next onNewPage() (explorer "Neue Notiz").
+  QString m_noteCreateDir;
   PhoneLibraryNav *m_phoneLibraryNav{nullptr};
   PhoneShell *m_phoneShell{nullptr};
   LibraryOrgBar *m_libraryOrgBar{nullptr};

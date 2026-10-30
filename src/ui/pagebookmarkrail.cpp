@@ -241,7 +241,7 @@ void PageBookmarkRail::placeIn(int x, int top, int bottom) {
     widest = qMax(widest, t.rect.width());
   const int avail = qMax(tabH(), bottom - top);
   const int h = qMin(avail, m_contentH);
-  setGeometry(x, top, widest + UiScale::dp(2), qMax(1, h));
+  setGeometry(x, top, widest + UiScale::dp(12), qMax(1, h));
   setScroll(m_scroll);
 }
 
@@ -317,6 +317,21 @@ void PageBookmarkRail::stepPage(int delta) {
 void PageBookmarkRail::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
+  if (!m_tabs.isEmpty()) {
+    QRect u;
+    for (const Tab &t : m_tabs) {
+      const QRect r = visualRect(t);
+      u = u.isNull() ? r : u.united(r);
+    }
+    u = u.adjusted(-UiScale::dp(4), -UiScale::dp(4), UiScale::dp(4),
+                   UiScale::dp(4));
+    p.setPen(QPen(NoteChrome::isDark() ? QColor(255, 255, 255, 28)
+                                       : QColor(0xE2, 0xE8, 0xF0),
+                  1));
+    p.setBrush(NoteChrome::isDark() ? QColor(0x1C, 0x20, 0x28)
+                                    : QColor(0xFF, 0xFF, 0xFF));
+    p.drawRoundedRect(u, UiScale::dp(8), UiScale::dp(8));
+  }
   const QColor accent = NoteChrome::accent();
   const QColor well = NoteChrome::canvasBg();
   const QColor idleBg = NoteChrome::isDark() ? QColor(255, 255, 255, 16)

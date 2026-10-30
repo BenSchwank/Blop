@@ -93,7 +93,7 @@ QIcon paintChevron(bool pointLeft, const QColor &color) {
 }
 
 QPixmap emptyPlaceholderPixmap(const QColor &border, const QColor &fill) {
-  const int s = UiScale::dp(64);
+  const int s = UiScale::dp(48);
   QPixmap pm(s, s);
   pm.fill(Qt::transparent);
   QPainter p(&pm);
@@ -128,8 +128,10 @@ LibraryDetailPanel::LibraryDetailPanel(QWidget *parent) : QWidget(parent) {
   m_chrome = new QWidget(this);
   m_chrome->setObjectName(QStringLiteral("LibraryDetailChrome"));
   auto *chromeLay = new QHBoxLayout(m_chrome);
-  chromeLay->setContentsMargins(UiScale::dp(14), UiScale::dp(14), UiScale::dp(8),
-                                UiScale::dp(6));
+  chromeLay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                                UiScale::dp(20),
+                                UiScale::dp(BlopStyle::controlGapDp()),
+                                UiScale::dp(BlopStyle::controlGapDp()));
   chromeLay->setSpacing(UiScale::dp(6));
 
   m_title = new QLabel(QStringLiteral("Details"), m_chrome);
@@ -141,7 +143,7 @@ LibraryDetailPanel::LibraryDetailPanel(QWidget *parent) : QWidget(parent) {
   m_btnCollapse->setObjectName(QStringLiteral("LibraryDetailCollapse"));
   m_btnCollapse->setCursor(Qt::PointingHandCursor);
   m_btnCollapse->setAutoRaise(true);
-  m_btnCollapse->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  m_btnCollapse->setFixedSize(UiScale::dp(32), UiScale::dp(32));
   m_btnCollapse->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
   m_btnCollapse->setToolTip(QStringLiteral("Detailspalte einklappen"));
   connect(m_btnCollapse, &QToolButton::clicked, this, [this]() {
@@ -170,11 +172,15 @@ LibraryDetailPanel::LibraryDetailPanel(QWidget *parent) : QWidget(parent) {
   m_emptyTitle->setObjectName(QStringLiteral("LibraryDetailEmptyTitle"));
   m_emptyTitle->setAlignment(Qt::AlignHCenter);
   emptyLay->addWidget(m_emptyTitle);
-  m_emptyHint =
-      new QLabel(QStringLiteral("Notiz oder Ordner anklicken"), m_emptyHost);
+  m_emptyHint = new QLabel(
+      QStringLiteral(
+          "Wähle eine Notiz oder einen Ordner aus, um Eigenschaften, "
+          "Tags und Statistiken einzusehen."),
+      m_emptyHost);
   m_emptyHint->setObjectName(QStringLiteral("LibraryDetailEmptyHint"));
   m_emptyHint->setWordWrap(true);
   m_emptyHint->setAlignment(Qt::AlignHCenter);
+  m_emptyHint->setMaximumWidth(UiScale::dp(200));
   emptyLay->addWidget(m_emptyHint);
   emptyLay->addStretch(3);
   contentLay->addWidget(m_emptyHost, 1);
@@ -227,7 +233,7 @@ LibraryDetailPanel::LibraryDetailPanel(QWidget *parent) : QWidget(parent) {
   m_btnOpen = new QPushButton(QStringLiteral("Öffnen"), m_body);
   m_btnOpen->setObjectName(QStringLiteral("LibraryDetailOpen"));
   m_btnOpen->setCursor(Qt::PointingHandCursor);
-  m_btnOpen->setMinimumHeight(UiScale::dp(36));
+  m_btnOpen->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
   connect(m_btnOpen, &QPushButton::clicked, this, [this]() {
     if (hasCloudItem())
       emit cloudOpenRequested();
@@ -288,7 +294,8 @@ LibraryDetailPanel::LibraryDetailPanel(QWidget *parent) : QWidget(parent) {
   m_tagInput->setMinimumHeight(UiScale::dp(32));
   m_btnAddTag = new QPushButton(QStringLiteral("+"), m_tagSection);
   m_btnAddTag->setObjectName(QStringLiteral("LibraryDetailAddTag"));
-  m_btnAddTag->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  m_btnAddTag->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp()),
+                             UiScale::dp(BlopStyle::touchTargetMinDp()));
   m_btnAddTag->setCursor(Qt::PointingHandCursor);
   m_btnAddTag->setAutoDefault(false);
   connect(m_tagInput, &QLineEdit::returnPressed, this,
@@ -347,7 +354,7 @@ void LibraryDetailPanel::applyCollapsed() {
   if (m_chrome) {
     auto *lay = qobject_cast<QHBoxLayout *>(m_chrome->layout());
     if (lay) {
-      lay->setContentsMargins(UiScale::dp(14), UiScale::dp(14), UiScale::dp(8),
+      lay->setContentsMargins(UiScale::dp(14), UiScale::dp(20), UiScale::dp(8),
                               UiScale::dp(6));
     }
   }
@@ -542,7 +549,6 @@ void LibraryDetailPanel::applyChrome() {
       dark ? QStringLiteral("#9AA3B2")
            : BlopStyle::paperInkMuted().name(QColor::HexRgb);
   const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
-  const QString accHover = BlopTheme::accentHover().name(QColor::HexRgb);
   const QString soft = QStringLiteral("rgba(%1,%2,%3,0.16)")
                            .arg(BlopTheme::accentPrimary().red())
                            .arg(BlopTheme::accentPrimary().green())
@@ -565,7 +571,7 @@ void LibraryDetailPanel::applyChrome() {
       "}"
       "QWidget#LibraryDetailChrome { background: transparent; border: none; }"
       "QLabel#LibraryDetailTitle {"
-      "  color: %3; font-size: 13px; font-weight: 700; letter-spacing: 0.2px;"
+      "  color: %3; font-size: 14px; font-weight: 650; letter-spacing: 0.1px;"
       "}"
       "QLabel { color: %3; background: transparent; }"
       "QLabel#LibraryDetailEmptyTitle {"
@@ -602,7 +608,8 @@ void LibraryDetailPanel::applyChrome() {
                     .arg(chipRad));
 
   if (m_btnCollapse)
-    m_btnCollapse->setStyleSheet(BlopStyle::quietIconButtonQss(6, 28));
+    m_btnCollapse->setStyleSheet(
+        BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   updateCollapseIcon();
 
   if (m_emptyIcon) {
@@ -613,24 +620,9 @@ void LibraryDetailPanel::applyChrome() {
     m_emptyIcon->setPixmap(emptyPlaceholderPixmap(bd, fill));
   }
 
-  if (m_btnOpen) {
-    m_btnOpen->setStyleSheet(QStringLiteral(
-        "QPushButton#LibraryDetailOpen {"
-        "  background: %1; color: white; border: none; border-radius: %3px;"
-        "  font-weight: 700; font-size: 13px; text-align: center;"
-        "}"
-        "QPushButton#LibraryDetailOpen:hover { background: %2; }")
-                                 .arg(acc, accHover)
-                                 .arg(ctrlRad));
-  }
-  if (m_btnAddTag) {
-    m_btnAddTag->setStyleSheet(QStringLiteral(
-        "QPushButton#LibraryDetailAddTag {"
-        "  background: %1; color: white; border: none; border-radius: %3px;"
-        "  font-weight: 700; font-size: 16px; text-align: center; padding: 0;"
-        "}"
-        "QPushButton#LibraryDetailAddTag:hover { background: %2; }")
-                                   .arg(acc, accHover)
-                                   .arg(ctrlRad));
-  }
+  if (m_btnOpen)
+    m_btnOpen->setStyleSheet(BlopTheme::primaryButtonQss());
+  if (m_btnAddTag)
+    m_btnAddTag->setStyleSheet(BlopStyle::framedChromeIconButtonQss(
+        dark, BlopStyle::radiusMdDp(), BlopStyle::touchTargetMinDp()));
 }

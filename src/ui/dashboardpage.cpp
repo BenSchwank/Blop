@@ -245,9 +245,11 @@ void DashboardPage::buildPhoneChrome() {
   m_phoneChrome->setAttribute(Qt::WA_StyledBackground, true);
   m_phoneChrome->setStyleSheet(QStringLiteral("background: transparent;"));
   auto *lay = new QHBoxLayout(m_phoneChrome);
-  lay->setContentsMargins(UiScale::dp(8), UiScale::dp(8), UiScale::dp(10),
-                          UiScale::dp(8));
-  lay->setSpacing(UiScale::dp(6));
+  lay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                          UiScale::dp(BlopStyle::edgeInsetDp()),
+                          UiScale::dp(BlopStyle::edgeInsetDp()),
+                          UiScale::dp(BlopStyle::edgeInsetDp()));
+  lay->setSpacing(UiScale::dp(BlopStyle::controlGapDp()));
 
   m_btnPhoneCustomize = new QPushButton(QStringLiteral("Anpassen"), m_phoneChrome);
   m_btnPhoneCustomize->setCursor(Qt::PointingHandCursor);
@@ -488,6 +490,8 @@ void DashboardPage::showCalendarMaximized() {
   }
 
   auto *day = new CalendarDayView();
+  day->setProperty("blopOwnsBackground", true);
+  day->setProperty("blopCalendarSheet", true);
   day->setCompact(false);
   day->setMinimal(false);
   day->setDate(QDate::currentDate());

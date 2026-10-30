@@ -25,7 +25,26 @@ QPushButton *chip(const QString &text, QWidget *parent) {
   auto *b = new QPushButton(text, parent);
   b->setFocusPolicy(Qt::NoFocus);
   b->setCursor(Qt::PointingHandCursor);
-  b->setStyleSheet(BlopStyle::noteSegmentQss());
+  b->setFixedHeight(UiScale::dp(30));
+  const bool dark = NoteChrome::isDark();
+  b->setStyleSheet(QStringLiteral(
+      "QPushButton {"
+      "  background: %1; color: %2;"
+      "  border: 1px solid %3; border-radius: 6px;"
+      "  padding: 0 12px; font-size: 12px; font-weight: 600;"
+      "  min-height: %4px; max-height: %4px;"
+      "}"
+      "QPushButton:hover { background: %5; }"
+      "QPushButton:checked { background: %6; color: white; border-color: %6; }")
+                       .arg(dark ? QStringLiteral("#1C2028")
+                                 : QStringLiteral("#FFFFFF"),
+                            NoteChrome::textPrimary().name(QColor::HexRgb),
+                            dark ? QStringLiteral("rgba(255,255,255,0.12)")
+                                 : QStringLiteral("#E5E7EB"),
+                            QString::number(UiScale::dp(30)),
+                            dark ? QStringLiteral("#262B34")
+                                 : QStringLiteral("#F9FAFB"),
+                            NoteChrome::accent().name(QColor::HexRgb)));
   return b;
 }
 
@@ -59,7 +78,7 @@ public:
       : QPushButton(parent), m_width(qBound(1, width, 48)) {
     setFocusPolicy(Qt::NoFocus);
     setCursor(Qt::PointingHandCursor);
-    setFixedSize(UiScale::dp(72), UiScale::dp(32));
+    setFixedSize(UiScale::dp(84), UiScale::dp(30));
     setToolTip(QStringLiteral("Strichstärke"));
     refreshStyle();
   }
@@ -165,26 +184,67 @@ void openStrokeWidthPopup(QWidget *anchor, int current,
   pop->show();
 }
 
+class ColorSwatch : public QPushButton {
+public:
+  ColorSwatch(const QColor &color, bool selected, QWidget *parent)
+      : QPushButton(parent), m_color(color), m_selected(selected) {
+    setFocusPolicy(Qt::NoFocus);
+    setFixedSize(UiScale::dp(24), UiScale::dp(24));
+    setCursor(Qt::PointingHandCursor);
+    setFlat(true);
+    setStyleSheet(QStringLiteral(
+        "QPushButton { background: transparent; border: none; }"));
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QRectF box = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+    const qreal stroke = UiScale::dp(2);
+    const qreal gap = UiScale::dp(2);
+    const bool light = m_color.lightness() > 240;
+    if (m_selected) {
+      p.setPen(QPen(QColor(0x3B, 0x82, 0xF6), stroke));
+      p.setBrush(Qt::NoBrush);
+      p.drawEllipse(box.adjusted(stroke * 0.5, stroke * 0.5, -stroke * 0.5,
+                                 -stroke * 0.5));
+      const qreal inset = stroke + gap;
+      p.setPen(light ? QPen(QColor(0xE5, 0xE7, 0xEB), 1) : Qt::NoPen);
+      p.setBrush(m_color);
+      p.drawEllipse(box.adjusted(inset, inset, -inset, -inset));
+    } else {
+      p.setPen(QPen(light ? QColor(0xE5, 0xE7, 0xEB) : QColor(0, 0, 0, 40), 1));
+      p.setBrush(m_color);
+      p.drawEllipse(box.adjusted(1, 1, -1, -1));
+    }
+  }
+
+private:
+  QColor m_color;
+  bool m_selected{false};
+};
+
 void addSwatches(QHBoxLayout *lay, QWidget *parent, const QColor &current,
                  const std::function<void(const QColor &)> &pick) {
-  const QList<QColor> colors = {
-      current.isValid() ? current : QColor(Qt::black),
-      QColor(Qt::black),
-      QColor(Qt::white),
-      QColor(0xE5, 0x3E, 0x3E),
-      QColor(0x5B, 0x9D, 0xFF),
-      QColor(0x3C, 0xB3, 0x71),
-      QColor(0xFF, 0xD5, 0x4A)};
+  QList<QColor> colors = {QColor(Qt::black),
+                          QColor(Qt::white),
+                          QColor(0xE5, 0x3E, 0x3E),
+                          QColor(0x5B, 0x9D, 0xFF),
+                          QColor(0x3C, 0xB3, 0x71),
+                          QColor(0xFF, 0xD5, 0x4A)};
+  const QColor active = current.isValid() ? current : QColor(Qt::black);
+  bool known = false;
   for (const QColor &c : colors) {
-    auto *b = new QPushButton(parent);
-    b->setFocusPolicy(Qt::NoFocus);
-    b->setFixedSize(UiScale::dp(22), UiScale::dp(22));
-    b->setCursor(Qt::PointingHandCursor);
-    b->setStyleSheet(QStringLiteral(
-                         "QPushButton { background: %1; border: 1px solid %2;"
-                         " border-radius: 11px; }")
-                         .arg(c.name(QColor::HexRgb),
-                              NoteChrome::border().name(QColor::HexRgb)));
+    if (c.rgb() == active.rgb()) {
+      known = true;
+      break;
+    }
+  }
+  if (!known)
+    colors.prepend(active);
+  for (const QColor &c : colors) {
+    auto *b = new ColorSwatch(c, c.rgb() == active.rgb(), parent);
     QObject::connect(b, &QPushButton::clicked, parent, [pick, c]() { pick(c); });
     lay->addWidget(b);
   }
@@ -194,9 +254,9 @@ void addSwatches(QHBoxLayout *lay, QWidget *parent, const QColor &current,
 
 ToolOptionsStrip::ToolOptionsStrip(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("ToolOptionsStrip"));
-  setFixedHeight(UiScale::dp(48));
+  setFixedHeight(UiScale::dp(40));
   auto *outer = new QHBoxLayout(this);
-  outer->setContentsMargins(UiScale::dp(10), UiScale::dp(4), UiScale::dp(10),
+  outer->setContentsMargins(UiScale::dp(16), UiScale::dp(4), UiScale::dp(16),
                             UiScale::dp(4));
   outer->setSpacing(0);
 
@@ -212,7 +272,7 @@ ToolOptionsStrip::ToolOptionsStrip(QWidget *parent) : QWidget(parent) {
   m_row = new QWidget(m_scroll);
   m_rowLay = new QHBoxLayout(m_row);
   m_rowLay->setContentsMargins(0, 0, 0, 0);
-  m_rowLay->setSpacing(UiScale::dp(6));
+  m_rowLay->setSpacing(UiScale::dp(8));
   m_scroll->setWidget(m_row);
 
   connect(&ToolManager::instance(), &ToolManager::toolChanged, this,
@@ -298,6 +358,7 @@ void ToolOptionsStrip::rebuild() {
   const bool nested = m_rebuilding;
   m_rebuilding = true;
   clearRow();
+  m_rowLay->addStretch(1);
   const ToolConfig cfg = ToolManager::instance().configFor(m_mode);
 
   auto addHint = [this](const QString &text) {
@@ -471,6 +532,11 @@ void ToolOptionsStrip::rebuild() {
       next.penColor = c;
       publish(next);
     });
+    auto *rule = new QFrame(m_row);
+    rule->setFixedSize(1, UiScale::dp(18));
+    rule->setStyleSheet(QStringLiteral(
+        "background: #E5E7EB; border: none; max-width: 1px;"));
+    m_rowLay->addWidget(rule, 0, Qt::AlignVCenter);
     addWidth(QStringLiteral("Dicke"));
     auto *pressure = chip(QStringLiteral("Druck"), m_row);
     pressure->setCheckable(true);

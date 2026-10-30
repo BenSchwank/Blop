@@ -88,6 +88,13 @@ int radiusMdDp(); // 8  — cards / menus / chips
 /// search fields). Satisfies finger + stylus without bloating mouse UI.
 int touchTargetMinDp();
 
+/// Content inset from a pane or dialog edge.
+int edgeInsetDp();
+/// Gap between stacked sections.
+int sectionGapDp();
+/// Gap between neighboring controls, and the horizontal inset of narrow rails.
+int controlGapDp();
+
 /// Notion/Obsidian segmented chip control (Format, Light/Dark, Layout, …).
 /// Soft accent fill + accent border when checked; works in Light and Dark.
 /// Uses BlopTheme (library / Settings / Neue Notiz).
@@ -132,13 +139,14 @@ void applyModalShadow(QWidget *card);
 
 /// Quiet icon/tool button: transparent idle, soft hover, press. For title-bar
 /// and sidebar icon strips (mouse hover + touch press).
-/// minDp defaults to touchTargetMinDp(); pass 32 for compact library header icons.
+/// minDp defaults to touchTargetMinDp(). Radius defaults to radiusMdDp().
 QString quietIconButtonQss(int radiusPx = 8, int minDp = -1);
 
 /// Framed charcoal chrome icon button (sidebar header + / collapse, explorer +).
 /// darkChrome: light borders on dark title strip; else dark borders on light.
+/// sizeDp defaults to touchTargetMinDp().
 QString framedChromeIconButtonQss(bool darkChrome, int radiusPx = 8,
-                                  int sizeDp = 28);
+                                  int sizeDp = 40);
 
 /// In-window menu row (Overflow ⋯): theme-aware (paper in Light, Obsidian in Dark).
 QString menuItemQss(bool destructive = false);

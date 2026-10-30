@@ -204,6 +204,12 @@ QString enc(const QString &s) {
   return QString::fromUtf8(QUrl::toPercentEncoding(s));
 }
 
+QByteArray replyBody(QNetworkReply *reply) {
+  if (!reply || reply->error() != QNetworkReply::NoError || !reply->isOpen())
+    return {};
+  return reply->readAll();
+}
+
 struct HttpResult {
   int status{0};
   QByteArray body;
@@ -225,7 +231,7 @@ HttpResult http(QNetworkAccessManager *nam, const QNetworkRequest &req,
     timer.stop();
     r.status =
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    r.body = reply->readAll();
+    r.body = replyBody(reply);
     if (reply->error() != QNetworkReply::NoError && r.status == 0)
       r.error = reply->errorString();
   } else {
@@ -717,7 +723,7 @@ void CloudLinkHub::beginNextcloud(QWidget *parent) {
   req.setTransferTimeout(20000);
   QNetworkReply *reply = m_nam->post(req, QByteArray());
   connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-    const QByteArray raw = reply->readAll();
+    const QByteArray raw = replyBody(reply);
     const int status =
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     reply->deleteLater();
@@ -761,7 +767,7 @@ void CloudLinkHub::pollNextcloud() {
   connect(reply, &QNetworkReply::finished, this, [this, reply]() {
     const int status =
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray raw = reply->readAll();
+    const QByteArray raw = replyBody(reply);
     reply->deleteLater();
     if (status == 404)
       return;
@@ -877,7 +883,7 @@ void CloudLinkHub::beginGoogle() {
       QNetworkReply *reply = m_nam->post(
           ex, QJsonDocument(payload).toJson(QJsonDocument::Compact));
       connect(reply, &QNetworkReply::finished, this, [this, reply, code]() {
-        const QByteArray body = reply->readAll();
+        const QByteArray body = replyBody(reply);
         const int status =
             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         reply->deleteLater();
@@ -952,7 +958,7 @@ void CloudLinkHub::beginGoogle() {
         QNetworkReply *tr = m_nam->post(
             treq, form.toString(QUrl::FullyEncoded).toUtf8());
         connect(tr, &QNetworkReply::finished, this, [this, tr, store]() {
-          const QByteArray raw = tr->readAll();
+          const QByteArray raw = replyBody(tr);
           const int st =
               tr->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
           tr->deleteLater();
@@ -1087,7 +1093,7 @@ void CloudLinkHub::beginOneDrive() {
       QNetworkReply *tr =
           m_nam->post(treq, form.toString(QUrl::FullyEncoded).toUtf8());
       connect(tr, &QNetworkReply::finished, this, [this, tr]() {
-        const QByteArray raw = tr->readAll();
+        const QByteArray raw = replyBody(tr);
         const int st =
             tr->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         tr->deleteLater();

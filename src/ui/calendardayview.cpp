@@ -1,5 +1,6 @@
 #include "calendardayview.h"
 
+#include "blop_modal.h"
 #include "blop_dialogs.h"
 #include "blop_inwindow_menu.h"
 #include "blop_theme.h"
@@ -8,6 +9,7 @@
 #include "calendareventeditor.h"
 #include "uiscale.h"
 
+#include <QButtonGroup>
 #include <QCalendarWidget>
 #include <QColor>
 #include <QCoreApplication>
@@ -51,6 +53,27 @@ QString hairline() {
   return BlopTheme::instance().isDark()
              ? QStringLiteral("rgba(255,255,255,0.10)")
              : QStringLiteral("rgba(55,53,47,0.09)");
+}
+
+QString sheetFill() {
+  return BlopTheme::instance().isDark() ? QStringLiteral("#181B22")
+                                        : QStringLiteral("#FFFFFF");
+}
+
+QString slimScrollQss() {
+  const QString handle = BlopTheme::instance().isDark()
+                             ? QStringLiteral("rgba(255,255,255,0.2)")
+                             : QStringLiteral("rgba(0,0,0,0.2)");
+  const QString hover = BlopTheme::instance().isDark()
+                            ? QStringLiteral("rgba(255,255,255,0.35)")
+                            : QStringLiteral("rgba(0,0,0,0.35)");
+  return QStringLiteral(
+             "QScrollBar:vertical { background: transparent; width: 6px; margin: 0px; }"
+             "QScrollBar::handle:vertical { background: %1; min-height: 30px; border-radius: 3px; }"
+             "QScrollBar::handle:vertical:hover { background: %2; }"
+             "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+             "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }")
+      .arg(handle, hover);
 }
 
 QString formatWhen(const CalendarEvent &e) {
@@ -130,6 +153,10 @@ CalendarDayView::CalendarDayView(QWidget *parent) : QWidget(parent) {
   auto *btnPrev = new QPushButton(QStringLiteral("‹"), m_navBar);
   auto *btnNext = new QPushButton(QStringLiteral("›"), m_navBar);
   auto *btnToday = new QPushButton(QStringLiteral("Heute"), m_navBar);
+  btnPrev->setObjectName(QStringLiteral("CalPrev"));
+  btnNext->setObjectName(QStringLiteral("CalNext"));
+  btnToday->setObjectName(QStringLiteral("CalToday"));
+  m_btnAdd->setObjectName(QStringLiteral("CalAdd"));
   for (QPushButton *b : {btnPrev, btnNext, btnToday}) {
     b->setFlat(true);
     b->setCursor(Qt::PointingHandCursor);
@@ -259,6 +286,8 @@ CalendarDayView::CalendarDayView(QWidget *parent) : QWidget(parent) {
 
   root->addWidget(m_stack, 1);
 
+  buildOverlayHeader();
+
   connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this,
           &CalendarDayView::refresh);
 
@@ -284,7 +313,12 @@ void CalendarDayView::syncModeLabel() {
     const QString base = modeLabel(m_mode);
     m_modeLabel->setText(m_compact ? base + QStringLiteral(" ▾") : base);
   }
-  applyCompactChrome();
+  if (m_segDay)
+    m_segDay->setChecked(m_mode == Mode::Day);
+  if (m_segWeek)
+    m_segWeek->setChecked(m_mode == Mode::Week);
+  if (m_segMonth)
+    m_segMonth->setChecked(m_mode == Mode::Month);
 }
 
 void CalendarDayView::showModeMenu() {
@@ -338,7 +372,252 @@ void CalendarDayView::setCompact(bool on) {
   rebuildAll();
 }
 
+void CalendarDayView::buildOverlayHeader() {
+  auto *root = qobject_cast<QVBoxLayout *>(layout());
+  if (!root)
+    return;
+  m_overlayHeader = new QWidget(this);
+  m_overlayHeader->setObjectName(QStringLiteral("CalOverlayHeader"));
+  auto *col = new QVBoxLayout(m_overlayHeader);
+  col->setContentsMargins(0, 0, 0, 0);
+  col->setSpacing(UiScale::dp(12));
+
+  auto *row1 = new QHBoxLayout();
+  row1->setContentsMargins(0, 0, 0, 0);
+  row1->setSpacing(UiScale::dp(8));
+  auto *title = new QLabel(QStringLiteral("Kalender"), m_overlayHeader);
+  title->setStyleSheet(QStringLiteral(
+      "color: %1; font-size: 18px; font-weight: 700; background: transparent;")
+                            .arg(ink()));
+  row1->addWidget(title, 0, Qt::AlignVCenter);
+
+  auto *seg = new QWidget(m_overlayHeader);
+  seg->setObjectName(QStringLiteral("CalViewSegment"));
+  auto *segLay = new QHBoxLayout(seg);
+  segLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3), UiScale::dp(3),
+                             UiScale::dp(3));
+  segLay->setSpacing(0);
+  auto *group = new QButtonGroup(seg);
+  group->setExclusive(true);
+  const struct {
+    const char *label;
+    Mode mode;
+    QPushButton **slot;
+  } segs[] = {{"Tag", Mode::Day, &m_segDay},
+              {"Woche", Mode::Week, &m_segWeek},
+              {"Monat", Mode::Month, &m_segMonth}};
+  for (const auto &s : segs) {
+    auto *b = new QPushButton(QString::fromUtf8(s.label), seg);
+    b->setCheckable(true);
+    b->setCursor(Qt::PointingHandCursor);
+    b->setFixedHeight(UiScale::dp(26));
+    group->addButton(b);
+    *s.slot = b;
+    const Mode mode = s.mode;
+    connect(b, &QPushButton::clicked, this, [this, mode]() { setMode(mode); });
+    segLay->addWidget(b);
+  }
+  if (m_segDay)
+    m_segDay->setChecked(true);
+  row1->addWidget(seg, 0, Qt::AlignVCenter);
+  row1->addStretch(1);
+
+  m_btnOverlayGoogle = new QPushButton(m_overlayHeader);
+  m_btnOverlayGoogle->setCursor(Qt::PointingHandCursor);
+  m_btnOverlayGoogle->setFixedHeight(UiScale::dp(32));
+  connect(m_btnOverlayGoogle, &QPushButton::clicked, this, [this]() {
+    if (CalendarService::instance().hasGoogleAccess())
+      CalendarService::instance().disconnectGoogle();
+    else
+      CalendarService::instance().connectGoogle();
+    refreshGoogleButton();
+  });
+  row1->addWidget(m_btnOverlayGoogle, 0, Qt::AlignVCenter);
+
+  m_btnOverlayAdd = new QPushButton(QStringLiteral("+ Termin"), m_overlayHeader);
+  m_btnOverlayAdd->setCursor(Qt::PointingHandCursor);
+  m_btnOverlayAdd->setFixedHeight(UiScale::dp(32));
+  connect(m_btnOverlayAdd, &QPushButton::clicked, this, [this]() {
+    requestCreate(QDateTime(m_date, QTime(9, 0)));
+  });
+  row1->addWidget(m_btnOverlayAdd, 0, Qt::AlignVCenter);
+
+  m_btnClose = new QPushButton(QStringLiteral("✕"), m_overlayHeader);
+  m_btnClose->setCursor(Qt::PointingHandCursor);
+  m_btnClose->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  connect(m_btnClose, &QPushButton::clicked, this, [this]() {
+    if (BlopModal *modal = BlopModal::hostOf(this))
+      modal->dismiss();
+  });
+  row1->addWidget(m_btnClose, 0, Qt::AlignVCenter);
+  col->addLayout(row1);
+
+  auto *row2 = new QHBoxLayout();
+  row2->setContentsMargins(0, 0, 0, 0);
+  row2->setSpacing(UiScale::dp(8));
+  m_overlayDate = new QLabel(m_overlayHeader);
+  row2->addWidget(m_overlayDate, 0, Qt::AlignVCenter);
+  m_emptyBadge = new QLabel(QStringLiteral("Keine Termine an diesem Tag"),
+                            m_overlayHeader);
+  m_emptyBadge->setStyleSheet(QStringLiteral(
+      "color: #9CA3AF; font-size: 12px; font-weight: 500; background: transparent;"));
+  row2->addWidget(m_emptyBadge, 0, Qt::AlignVCenter);
+  row2->addStretch(1);
+
+  auto *nav = new QWidget(m_overlayHeader);
+  auto *navLay = new QHBoxLayout(nav);
+  navLay->setContentsMargins(0, 0, 0, 0);
+  navLay->setSpacing(UiScale::dp(4));
+  auto *prev = new QPushButton(QStringLiteral("‹"), nav);
+  auto *today = new QPushButton(QStringLiteral("Heute"), nav);
+  auto *next = new QPushButton(QStringLiteral("›"), nav);
+  for (QPushButton *b : {prev, today, next}) {
+    b->setCursor(Qt::PointingHandCursor);
+    b->setFixedHeight(UiScale::dp(30));
+    navLay->addWidget(b);
+  }
+  connect(prev, &QPushButton::clicked, this, [this]() {
+    if (m_mode == Mode::Week)
+      setDate(m_date.addDays(-7));
+    else if (m_mode == Mode::Month)
+      setDate(m_date.addMonths(-1));
+    else
+      setDate(m_date.addDays(-1));
+  });
+  connect(next, &QPushButton::clicked, this, [this]() {
+    if (m_mode == Mode::Week)
+      setDate(m_date.addDays(7));
+    else if (m_mode == Mode::Month)
+      setDate(m_date.addMonths(1));
+    else
+      setDate(m_date.addDays(1));
+  });
+  connect(today, &QPushButton::clicked, this,
+          [this]() { setDate(QDate::currentDate()); });
+  row2->addWidget(nav, 0, Qt::AlignVCenter);
+  col->addLayout(row2);
+
+  m_overlayHeader->hide();
+  root->insertWidget(0, m_overlayHeader);
+}
+
+void CalendarDayView::applyOverlaySheet() {
+  const bool full = !m_compact && !m_minimal;
+  if (auto *root = qobject_cast<QVBoxLayout *>(layout())) {
+    if (full)
+      root->setContentsMargins(UiScale::dp(24), UiScale::dp(20), UiScale::dp(24),
+                               UiScale::dp(20));
+    else
+      root->setContentsMargins(0, 0, 0, 0);
+  }
+  if (m_overlayHeader)
+    m_overlayHeader->setVisible(full);
+  if (m_modeBar)
+    m_modeBar->setVisible(false);
+  if (m_btnGoogle)
+    m_btnGoogle->setVisible(false);
+  if (m_navBar)
+    m_navBar->setVisible(m_compact && !m_minimal);
+
+  const QString fill = sheetFill();
+  setAttribute(Qt::WA_StyledBackground, true);
+  setObjectName(QStringLiteral("CalendarDayView"));
+  if (full) {
+    setStyleSheet(QStringLiteral(
+                      "QWidget#CalendarDayView { background: %1; }"
+                      "QWidget#CalViewSegment {"
+                      "  background: %2; border: none; border-radius: 8px;"
+                      "}"
+                      "QWidget#CalViewSegment QPushButton {"
+                      "  color: #9CA3AF; background: transparent; border: none;"
+                      "  border-radius: 6px; padding: 0 10px;"
+                      "  font-size: 12px; font-weight: 600;"
+                      "}"
+                      "QWidget#CalViewSegment QPushButton:checked {"
+                      "  color: %3; background: %4;"
+                      "}")
+                      .arg(fill,
+                           BlopTheme::instance().isDark()
+                               ? QStringLiteral("#12141A")
+                               : QStringLiteral("#E5E7EB"),
+                           BlopTheme::instance().isDark()
+                               ? QStringLiteral("#F3F4F6")
+                               : QStringLiteral("#111827"),
+                           BlopTheme::instance().isDark()
+                               ? QStringLiteral("#2D3340")
+                               : QStringLiteral("#FFFFFF")));
+  } else {
+    setStyleSheet(QString());
+  }
+
+  const bool dark = BlopTheme::instance().isDark();
+  const QString quiet = QStringLiteral(
+                            "QPushButton {"
+                            "  color: %1; background: transparent;"
+                            "  border: 1px solid %2; border-radius: 6px;"
+                            "  padding: 0 10px; font-size: 12px; font-weight: 600;"
+                            "}"
+                            "QPushButton:hover { background: %3; }")
+                            .arg(ink(),
+                                 dark ? QStringLiteral("rgba(255,255,255,0.15)")
+                                      : QStringLiteral("#E5E7EB"),
+                                 dark ? QStringLiteral("#262B34")
+                                      : QStringLiteral("#F9FAFB"));
+  if (m_btnOverlayGoogle)
+    m_btnOverlayGoogle->setStyleSheet(quiet);
+  if (m_btnOverlayAdd) {
+    m_btnOverlayAdd->setStyleSheet(QStringLiteral(
+        "QPushButton {"
+        "  color: #FFFFFF; background: #2563EB; border: none;"
+        "  border-radius: 6px; padding: 0 14px;"
+        "  font-size: 12px; font-weight: 600;"
+        "}"
+        "QPushButton:hover { background: #1D4ED8; }"));
+  }
+  if (m_btnClose) {
+    m_btnClose->setStyleSheet(QStringLiteral(
+                                  "QPushButton {"
+                                  "  color: %1; background: transparent; border: none;"
+                                  "  border-radius: 6px; font-size: 14px;"
+                                  "}"
+                                  "QPushButton:hover { background: %2; }")
+                                  .arg(ink(),
+                                       dark ? QStringLiteral("rgba(255,255,255,0.08)")
+                                            : QStringLiteral("#F3F4F6")));
+  }
+  if (m_overlayDate) {
+    m_overlayDate->setStyleSheet(QStringLiteral(
+        "color: %1; font-size: 15px; font-weight: 600; background: transparent;")
+                                     .arg(ink()));
+  }
+
+  const QString scrollFill = full ? QStringLiteral("background: %1;").arg(fill)
+                                  : QStringLiteral("background: transparent;");
+  auto paintScroll = [&](QScrollArea *sa) {
+    if (!sa)
+      return;
+    sa->setStyleSheet(QStringLiteral(
+                          "QScrollArea { %1 border: none; }"
+                          "QScrollArea > QWidget > QWidget { %1 }")
+                          .arg(scrollFill));
+    if (sa->viewport())
+      sa->viewport()->setStyleSheet(scrollFill);
+    if (full) {
+      sa->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+      if (auto *bar = sa->verticalScrollBar()) {
+        bar->setStyleSheet(slimScrollQss());
+        bar->setEnabled(true);
+      }
+    }
+  };
+  paintScroll(m_dayScroll);
+  paintScroll(m_weekScroll);
+  paintScroll(m_monthListScroll);
+}
+
 void CalendarDayView::applyCompactChrome() {
+  if (m_modeBar)
+    m_modeBar->setVisible(!m_compact && !m_minimal);
   if (m_modeLabel) {
     m_modeLabel->setStyleSheet(
         QStringLiteral("color: %1; font-size: %2px; font-weight: 500;"
@@ -347,31 +626,61 @@ void CalendarDayView::applyCompactChrome() {
             .arg(m_compact ? 12 : 13));
   }
   if (m_btnAdd) {
-    m_btnAdd->setStyleSheet(
-        QStringLiteral("QPushButton {"
-                       "  color: %1; font-size: 12px; font-weight: 500;"
-                       "  background: transparent; border: none;"
-                       "  padding: 2px 4px;"
-                       "}"
-                       "QPushButton:hover { color: %2; }")
-            .arg(muted(), accent()));
+    const bool dark = BlopTheme::instance().isDark();
+    const QString pill = QStringLiteral(
+        "QPushButton {"
+        "  color: %1; font-size: 12px; font-weight: 600;"
+        "  background: %2; border: 1px solid %3;"
+        "  border-radius: 6px; padding: 0 12px;"
+        "  min-height: %4px; max-height: %4px;"
+        "}"
+        "QPushButton:hover { background: %5; }")
+                             .arg(ink(),
+                                  dark ? QStringLiteral("#1C2028")
+                                       : QStringLiteral("#FFFFFF"),
+                                  dark ? QStringLiteral("rgba(255,255,255,0.12)")
+                                       : QStringLiteral("#E5E7EB"),
+                                  QString::number(UiScale::dp(30)),
+                                  dark ? QStringLiteral("#262B34")
+                                       : QStringLiteral("#F9FAFB"));
+    if (m_compact) {
+      m_btnAdd->setFlat(false);
+      m_btnAdd->setFixedHeight(UiScale::dp(30));
+      m_btnAdd->setStyleSheet(pill);
+      for (const char *name : {"CalToday", "CalPrev", "CalNext"}) {
+        if (auto *b = findChild<QPushButton *>(QLatin1String(name))) {
+          b->setFlat(false);
+          b->setFixedHeight(UiScale::dp(30));
+          b->setStyleSheet(pill);
+        }
+      }
+    } else {
+      m_btnAdd->setStyleSheet(BlopTheme::tertiaryButtonQss());
+    }
   }
   if (m_btnModeMore) {
     // Board tiles: no second ⋯ — mode label opens the menu.
     m_btnModeMore->setVisible(!m_compact && !m_minimal);
-    const int s = UiScale::dp(m_compact ? 26 : 30);
-    m_btnModeMore->setFixedSize(s, s);
-    m_btnModeMore->setStyleSheet(
-        QStringLiteral("QPushButton {"
-                       "  color: %1; font-size: 16px; font-weight: 600;"
-                       "  background: transparent; border: none;"
-                       "  border-radius: %2px; padding: 0;"
-                       "}"
-                       "QPushButton:hover { color: %3; background: %4; }")
-            .arg(muted(), QString::number(UiScale::dp(6)), ink(),
-                 BlopTheme::instance().isDark()
-                     ? QStringLiteral("rgba(255,255,255,0.06)")
-                     : QStringLiteral("rgba(15,23,42,0.05)")));
+    if (m_compact) {
+      const int s = UiScale::dp(26);
+      m_btnModeMore->setFixedSize(s, s);
+      m_btnModeMore->setStyleSheet(
+          QStringLiteral("QPushButton {"
+                         "  color: %1; font-size: 16px; font-weight: 600;"
+                         "  background: transparent; border: none;"
+                         "  border-radius: %2px; padding: 0;"
+                         "}"
+                         "QPushButton:hover { color: %3; background: %4; }")
+              .arg(muted(), QString::number(BlopStyle::radiusMdDp()), ink(),
+                   BlopTheme::instance().isDark()
+                       ? QStringLiteral("rgba(255,255,255,0.06)")
+                       : QStringLiteral("rgba(15,23,42,0.05)")));
+    } else {
+      const int s = UiScale::dp(BlopStyle::touchTargetMinDp());
+      m_btnModeMore->setFixedSize(s, s);
+      m_btnModeMore->setStyleSheet(
+          BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
+    }
   }
   if (m_btnGoogle) {
     m_btnGoogle->setMinimumHeight(UiScale::dp(m_compact ? 22 : 28));
@@ -398,6 +707,7 @@ void CalendarDayView::applyCompactChrome() {
   tuneNested(m_dayScroll);
   tuneNested(m_weekScroll);
   tuneNested(m_monthListScroll);
+  applyOverlaySheet();
 }
 
 void CalendarDayView::setMinimal(bool on) {
@@ -406,12 +716,9 @@ void CalendarDayView::setMinimal(bool on) {
   m_minimal = on;
   if (m_minimal)
     setMode(Mode::Day);
-  if (m_modeBar)
-    m_modeBar->setVisible(!m_minimal);
-  if (m_navBar)
-    m_navBar->setVisible(!m_minimal);
   if (m_dayScroll)
     m_dayScroll->setVisible(!m_minimal); // tiny tiles: agenda only
+  applyOverlaySheet();
   rebuildAll();
 }
 
@@ -423,7 +730,7 @@ void CalendarDayView::setMode(Mode mode) {
   if (m_stack)
     m_stack->setCurrentIndex(static_cast<int>(mode));
   if (m_navBar)
-    m_navBar->setVisible(!m_minimal);
+    m_navBar->setVisible(m_compact && !m_minimal);
   rebuildAll();
 }
 
@@ -442,39 +749,52 @@ void CalendarDayView::setDate(const QDate &date) {
 void CalendarDayView::refresh() { rebuildAll(); }
 
 void CalendarDayView::updateChrome() {
-  if (!m_dateLabel)
-    return;
-  m_dateLabel->setStyleSheet(
-      QStringLiteral(
-          "color: %1; font-size: 15px; font-weight: 650; background: transparent;")
-          .arg(ink()));
+  if (m_dateLabel) {
+    m_dateLabel->setStyleSheet(
+        QStringLiteral(
+            "color: %1; font-size: 15px; font-weight: 650; background: transparent;")
+            .arg(ink()));
+  }
   refreshGoogleButton();
   auto &loc = BlopLocale::instance();
+  QString text;
   switch (m_mode) {
   case Mode::Week: {
     const QDate start = m_date.addDays(-(m_date.dayOfWeek() - 1));
     const QDate end = start.addDays(6);
-    m_dateLabel->setText(
-        QStringLiteral("%1 – %2")
-            .arg(loc.formatDate(start, QStringLiteral("d. MMM")),
-                 loc.formatDate(end, QStringLiteral("d. MMM yyyy"))));
+    text = QStringLiteral("%1 – %2")
+               .arg(loc.formatDate(start, QStringLiteral("d. MMM")),
+                    loc.formatDate(end, QStringLiteral("d. MMM yyyy")));
     break;
   }
   case Mode::Month:
-    m_dateLabel->setText(loc.formatDate(m_date, QStringLiteral("MMMM yyyy")));
+    text = loc.formatDate(m_date, QStringLiteral("MMMM yyyy"));
     break;
   case Mode::Day:
   default:
-    m_dateLabel->setText(
-        loc.formatDate(m_date, QStringLiteral("dddd, d. MMMM yyyy")));
+    text = loc.formatDate(m_date, QStringLiteral("dddd, d. MMMM yyyy"));
     break;
+  }
+  if (m_dateLabel)
+    m_dateLabel->setText(text);
+  if (m_overlayDate)
+    m_overlayDate->setText(text);
+  if (m_emptyBadge) {
+    const bool empty =
+        m_mode == Mode::Day &&
+        CalendarService::instance().eventsForDay(m_date).isEmpty();
+    m_emptyBadge->setVisible(!m_compact && !m_minimal && empty);
   }
 }
 
 void CalendarDayView::refreshGoogleButton() {
+  const bool linked = CalendarService::instance().hasGoogleAccess();
+  if (m_btnOverlayGoogle) {
+    m_btnOverlayGoogle->setText(linked ? QStringLiteral("Google trennen")
+                                       : QStringLiteral("Google Kalender verbinden"));
+  }
   if (!m_btnGoogle)
     return;
-  const bool linked = CalendarService::instance().hasGoogleAccess();
   m_btnGoogle->setText(linked ? QStringLiteral("Google trennen")
                               : QStringLiteral("Google verbinden"));
   m_btnGoogle->setStyleSheet(
@@ -484,12 +804,8 @@ void CalendarDayView::refreshGoogleButton() {
                      "}"
                      "QPushButton:hover { color: %2; }")
           .arg(accent(), accentHover()));
-  // Compact/minimal board tiles: Google lives in the quiet ⋯ menu — no admin row.
-  if (m_minimal || m_compact) {
-    m_btnGoogle->setVisible(false);
-  } else {
-    m_btnGoogle->setVisible(true);
-  }
+  // Board tiles keep Google in the ⋯ menu. The overlay has its own button.
+  m_btnGoogle->setVisible(false);
 }
 
 void CalendarDayView::resizeEvent(QResizeEvent *event) {
@@ -683,28 +999,14 @@ void CalendarDayView::rebuildDay() {
     }
     const auto dayEvents = CalendarService::instance().eventsForDay(m_date);
     if (dayEvents.isEmpty()) {
-      auto *empty = new QLabel(QStringLiteral("Keine Termine an diesem Tag."),
-                               m_dayAgendaLay->parentWidget());
-      empty->setWordWrap(true);
-      empty->setStyleSheet(
-          QStringLiteral("color: %1; font-size: 13px; background: transparent;")
-              .arg(muted()));
-      m_dayAgendaLay->addWidget(empty);
       if (m_compact || m_minimal) {
-        auto *add = new QPushButton(QStringLiteral("＋ Termin"),
-                                    m_dayAgendaLay->parentWidget());
-        add->setFlat(true);
-        add->setCursor(Qt::PointingHandCursor);
-        add->setStyleSheet(
-            QStringLiteral("QPushButton { color: %1; font-size: 12px;"
-                           "  background: transparent; border: none;"
-                           "  text-align: left; padding: 2px 0; }"
-                           "QPushButton:hover { color: %2; }")
-                .arg(muted(), accent()));
-        connect(add, &QPushButton::clicked, this, [this]() {
-          requestCreate(QDateTime(m_date, QTime(9, 0)));
-        });
-        m_dayAgendaLay->addWidget(add, 0, Qt::AlignLeft);
+        auto *empty = new QLabel(QStringLiteral("Keine Termine an diesem Tag."),
+                                 m_dayAgendaLay->parentWidget());
+        empty->setWordWrap(true);
+        empty->setStyleSheet(
+            QStringLiteral("color: %1; font-size: 13px; background: transparent;")
+                .arg(muted()));
+        m_dayAgendaLay->addWidget(empty);
       }
     } else {
       const int limit = m_minimal ? 4 : 8;
@@ -738,7 +1040,7 @@ void CalendarDayView::rebuildDay() {
 
   const int hourPx = UiScale::dp(m_compact ? kHourPxCompact : kHourPxFull);
   const int hours = kDayEndHour - kDayStartHour;
-  const int labelW = UiScale::dp(44);
+  const int labelW = m_compact ? UiScale::dp(44) : UiScale::dp(56);
   int timelineW = m_dayScroll->viewport()->width();
   if (timelineW < UiScale::dp(120))
     timelineW = qMax(UiScale::dp(200), this->width());
@@ -750,14 +1052,27 @@ void CalendarDayView::rebuildDay() {
     const int y = (h - kDayStartHour) * hourPx;
     auto *hourLbl = new QLabel(
         QStringLiteral("%1:00").arg(h, 2, 10, QLatin1Char('0')), m_timeline);
-    hourLbl->setGeometry(0, y, labelW - 4, UiScale::dp(18));
-    hourLbl->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 11px; background: transparent;")
-            .arg(muted()));
+    if (m_compact) {
+      hourLbl->setGeometry(0, y, labelW - 4, UiScale::dp(18));
+      hourLbl->setStyleSheet(
+          QStringLiteral("color: %1; font-size: 11px; background: transparent;")
+              .arg(muted()));
+    } else {
+      hourLbl->setAlignment(Qt::AlignRight | Qt::AlignTop);
+      hourLbl->setGeometry(0, y, labelW, UiScale::dp(18));
+      hourLbl->setStyleSheet(QStringLiteral(
+          "color: #6B7280; font-size: 12px; background: transparent;"
+          "padding-right: 12px;"));
+    }
     hourLbl->show();
     auto *rule = new QFrame(m_timeline);
     rule->setGeometry(labelW, y, qMax(1, timelineW - labelW), 1);
-    rule->setStyleSheet(QStringLiteral("background: %1;").arg(hairline()));
+    const QString ruleColor =
+        m_compact ? hairline()
+                  : (BlopTheme::instance().isDark()
+                         ? QStringLiteral("rgba(255,255,255,0.06)")
+                         : QStringLiteral("rgba(0,0,0,0.06)"));
+    rule->setStyleSheet(QStringLiteral("background: %1; border: none;").arg(ruleColor));
     rule->show();
   }
 

@@ -45,6 +45,7 @@ private:
   QWidget *m_card{nullptr};
   QListWidget *m_grid{nullptr};
   QLabel *m_title{nullptr};
+  QPushButton *m_btnAdd{nullptr};
   QPushButton *m_btnDup{nullptr};
   QPushButton *m_btnDel{nullptr};
   QPushButton *m_btnClose{nullptr};

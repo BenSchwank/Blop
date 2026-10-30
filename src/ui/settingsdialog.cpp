@@ -188,8 +188,8 @@ public:
 
         m_body = new QWidget(this);
         m_bodyLay = new QVBoxLayout(m_body);
-        m_bodyLay->setContentsMargins(0, 16, 0, 0);
-        m_bodyLay->setSpacing(12);
+        m_bodyLay->setContentsMargins(0, UiScale::dp(BlopStyle::sectionGapDp()), 0, 0);
+        m_bodyLay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
         root->addWidget(m_body);
 
         m_header->installEventFilter(new HeaderClickFilter(this));
@@ -405,8 +405,11 @@ static QString blopPromptText(QWidget *parent, const QString &title,
     QDialog dlg(parent);
     dlg.setWindowTitle(title);
     auto *lay = new QVBoxLayout(&dlg);
-    lay->setContentsMargins(20, 18, 20, 16);
-    lay->setSpacing(12);
+    lay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                            UiScale::dp(BlopStyle::edgeInsetDp()),
+                            UiScale::dp(BlopStyle::edgeInsetDp()),
+                            UiScale::dp(BlopStyle::edgeInsetDp()));
+    lay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
     auto *lbl = new QLabel(label, &dlg);
     lbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "color: %1; background: transparent;")
@@ -441,8 +444,11 @@ static bool blopConfirm(QWidget *parent, const QString &title,
     QDialog dlg(parent);
     dlg.setWindowTitle(title);
     auto *lay = new QVBoxLayout(&dlg);
-    lay->setContentsMargins(20, 18, 20, 16);
-    lay->setSpacing(12);
+    lay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                            UiScale::dp(BlopStyle::edgeInsetDp()),
+                            UiScale::dp(BlopStyle::edgeInsetDp()),
+                            UiScale::dp(BlopStyle::edgeInsetDp()));
+    lay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
     auto *lbl = new QLabel(message, &dlg);
     lbl->setWordWrap(true);
     lbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
@@ -501,8 +507,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     }
 #endif
     const bool phoneUi = UiScale::isAndroidPhoneUi(parent);
-    const int pagePad = phoneUi ? UiScale::dp(14) : 0;
-    const int cardGap = phoneUi ? UiScale::dp(12) : 0;
+    const int pagePad = phoneUi ? UiScale::dp(BlopStyle::edgeInsetDp()) : 0;
+    const int cardGap = phoneUi ? UiScale::dp(BlopStyle::sectionGapDp()) : 0;
     if (phoneUi)
         setMinimumSize(0, 0);
     else
@@ -557,9 +563,9 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     }
 #endif
     auto *heroLay = new QHBoxLayout(hero);
-    heroLay->setContentsMargins(pagePad, phoneUi ? UiScale::dp(14) : 22,
-                                pagePad, phoneUi ? UiScale::dp(14) : 22);
-    heroLay->setSpacing(phoneUi ? UiScale::dp(10) : 16);
+    heroLay->setContentsMargins(pagePad, UiScale::dp(BlopStyle::edgeInsetDp()),
+                                pagePad, UiScale::dp(BlopStyle::edgeInsetDp()));
+    heroLay->setSpacing(UiScale::dp(BlopStyle::controlGapDp()));
 
     auto *avatar = new QLabel(hero);
     avatar->setObjectName(QStringLiteral("SettingsHeroAvatar"));
@@ -674,8 +680,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     auto *searchRow = new QFrame(tabDesign);
     searchRow->setObjectName(QStringLiteral("SettingsSearchRow"));
     auto *searchLay = new QHBoxLayout(searchRow);
-    searchLay->setContentsMargins(pagePad, phoneUi ? UiScale::dp(10) : 18,
-                                  pagePad, phoneUi ? UiScale::dp(8) : 12);
+    searchLay->setContentsMargins(pagePad, UiScale::dp(BlopStyle::edgeInsetDp()),
+                                  pagePad, UiScale::dp(BlopStyle::sectionGapDp()));
     auto *search = new QLineEdit(searchRow);
     search->setObjectName(QStringLiteral("SettingsSearch"));
     search->setPlaceholderText(QStringLiteral("Einstellungen durchsuchen..."));
@@ -724,8 +730,9 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     contentWidget->setStyleSheet(QStringLiteral("background: transparent;"));
     contentWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     auto *contentLay = new QVBoxLayout(contentWidget);
-    contentLay->setContentsMargins(pagePad, phoneUi ? UiScale::dp(12) : 24,
-                                   pagePad, phoneUi ? UiScale::dp(28) : 48);
+    contentLay->setContentsMargins(pagePad, UiScale::dp(BlopStyle::edgeInsetDp()),
+                                   pagePad,
+                                   UiScale::dp(BlopStyle::edgeInsetDp() * 3));
     contentLay->setSpacing(cardGap);
 
     scroll->setWidget(contentWidget);
@@ -2262,8 +2269,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "}")
                                  .arg(navBg.name(QColor::HexRgb)));
         auto *navLay = new QVBoxLayout(navCol);
-        navLay->setContentsMargins(UiScale::dp(10), UiScale::dp(14),
-                                   UiScale::dp(10), UiScale::dp(12));
+        navLay->setContentsMargins(UiScale::dp(BlopStyle::controlGapDp()),
+                                   UiScale::dp(BlopStyle::edgeInsetDp()),
+                                   UiScale::dp(BlopStyle::controlGapDp()),
+                                   UiScale::dp(BlopStyle::sectionGapDp()));
         navLay->setSpacing(UiScale::dp(4));
 
         auto *navTitle = new QLabel(QStringLiteral("EINSTELLUNGEN"), navCol);
@@ -2360,18 +2369,22 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                                       .arg(settingsContentBg().name(
                                           QColor::HexRgb)));
         auto *contentColLay = new QVBoxLayout(contentCol);
-        contentColLay->setContentsMargins(0, 0, 0, 0);
-        contentColLay->setSpacing(0);
+        contentColLay->setContentsMargins(UiScale::dp(32), UiScale::dp(24),
+                                          UiScale::dp(32), UiScale::dp(24));
+        contentColLay->setSpacing(UiScale::dp(16));
 
         // Toolbar: quiet search + Fertig (Notion corner close).
         searchRow->setParent(contentCol);
+        searchRow->setMaximumWidth(UiScale::dp(780));
         searchRow->setAttribute(Qt::WA_StyledBackground, true);
         searchRow->setStyleSheet(QStringLiteral("background: %1;")
                                      .arg(settingsContentBg().name(
                                          QColor::HexRgb)));
-        searchLay->setContentsMargins(UiScale::dp(24), UiScale::dp(12),
-                                      UiScale::dp(16), UiScale::dp(6));
-        searchLay->setSpacing(UiScale::dp(10));
+        searchLay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                                      UiScale::dp(BlopStyle::sectionGapDp()),
+                                      UiScale::dp(BlopStyle::edgeInsetDp()),
+                                      UiScale::dp(BlopStyle::controlGapDp()));
+        searchLay->setSpacing(UiScale::dp(BlopStyle::controlGapDp()));
         if (search) {
             search->setPlaceholderText(QStringLiteral("Suchen…"));
             search->setMinimumWidth(0);
@@ -2405,27 +2418,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             if (QLayoutItem *extra = searchLay->takeAt(1))
                 delete extra;
         }
-        if (ui->btnClose) {
-            ui->btnClose->setText(QStringLiteral("Fertig"));
-            ui->btnClose->setCursor(Qt::PointingHandCursor);
-            ui->btnClose->setMinimumHeight(UiScale::dp(32));
-            ui->btnClose->setMinimumWidth(UiScale::dp(64));
-            ui->btnClose->setParent(searchRow);
-            const QString fertigHover = useSettingsPaper()
-                                            ? QStringLiteral("rgba(55,53,47,0.06)")
-                                            : QStringLiteral("rgba(255,255,255,0.08)");
-            ui->btnClose->setStyleSheet(QStringLiteral(
-                "QPushButton {"
-                "  background: transparent; color: %1; border: none;"
-                "  border-radius: 6px; padding: 6px 10px;"
-                "  font-weight: 600; font-size: 13px;"
-                "}"
-                "QPushButton:hover { background: %2; }")
-                                            .arg(BlopTheme::accentPrimary().name(
-                                                     QColor::HexRgb),
-                                                 fertigHover));
-            searchLay->addWidget(ui->btnClose, 0, Qt::AlignVCenter);
-        }
+        if (ui->btnClose)
+            ui->btnClose->hide();
         contentColLay->addWidget(searchRow);
 
         auto *stack = new QStackedWidget(contentCol);
@@ -2467,8 +2461,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             paintSettingsContentSurface(page,
                                         QStringLiteral("SettingsStackPage"));
             auto *pageLay = new QVBoxLayout(page);
-            pageLay->setContentsMargins(UiScale::dp(22), UiScale::dp(8),
-                                        UiScale::dp(28), UiScale::dp(48));
+            pageLay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                                        UiScale::dp(BlopStyle::sectionGapDp()),
+                                        UiScale::dp(BlopStyle::edgeInsetDp()),
+                                        UiScale::dp(BlopStyle::edgeInsetDp() * 3));
             pageLay->setSpacing(0);
             c->setParent(page);
             c->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
@@ -2480,6 +2476,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             nav->addItem(c->title());
             m_sectionTitles.append(c->title());
         }
+        stack->setMaximumWidth(UiScale::dp(780));
         contentColLay->addWidget(stack, 1);
 
         splitLay->addWidget(navCol, 0);

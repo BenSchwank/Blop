@@ -152,7 +152,7 @@ private:
     QButtonGroup *m_formatChipGroup{nullptr};
     QButtonGroup *m_tagGroup{nullptr};
     QWidget *m_tagChipHost{nullptr};
-    QGridLayout *m_tagChipLay{nullptr};
+    QHBoxLayout *m_tagChipLay{nullptr};
     QLineEdit *m_tagInput{nullptr};
     QPushButton *m_paperSwatch{nullptr};
 

@@ -59,6 +59,9 @@ int radiusLgDp() { return 10; }     // modals / large sheets
 int radiusMdDp() { return 8; }      // cards / menus / chips
 
 int touchTargetMinDp() { return 40; }
+int edgeInsetDp() { return 16; }
+int sectionGapDp() { return 12; }
+int controlGapDp() { return 8; }
 
 // Obsidian-like light neutrals (no cream, no purple wash).
 QColor paperBg() { return QColor(0xFF, 0xFF, 0xFF); }
@@ -284,7 +287,7 @@ QString paperPrimaryButtonQss() {
              "QPushButton:pressed { background: %5; }"
              "QPushButton:disabled { background: #E2E8F0; color: #94A3B8; }")
       .arg(acc.name(QColor::HexRgb), QString::number(rad),
-           QString::number(UiScale::dp(touchTargetMinDp() - 8)),
+           QString::number(UiScale::dp(touchTargetMinDp())),
            acc.lighter(108).name(QColor::HexRgb),
            acc.darker(108).name(QColor::HexRgb));
 }
@@ -295,7 +298,7 @@ QString paperSecondaryButtonQss() {
              "QPushButton {"
              "  background: %1; color: %2;"
              "  border: 1px solid %3; border-radius: %4px;"
-             "  padding: 10px 16px; font-weight: 600; text-align: left;"
+             "  padding: 10px 18px; font-weight: 600; text-align: left;"
              "  min-height: %5px;"
              "}"
              "QPushButton:hover { border-color: %6;"
@@ -303,7 +306,7 @@ QString paperSecondaryButtonQss() {
              "QPushButton:pressed { background: %7; }")
       .arg(paperSurface().name(QColor::HexRgb), paperInk().name(QColor::HexRgb),
            paperBorder().name(QColor::HexRgb), QString::number(rad),
-           QString::number(UiScale::dp(touchTargetMinDp() - 8)),
+           QString::number(UiScale::dp(touchTargetMinDp())),
            paperInkMuted().name(QColor::HexRgb),
            paperHover().name(QColor::HexRgb));
 }
@@ -314,13 +317,13 @@ QString paperDestructiveButtonQss() {
              "QPushButton {"
              "  background: #FEF2F2; color: #DC2626;"
              "  border: 1px solid rgba(220,38,38,0.28); border-radius: %1px;"
-             "  padding: 10px 16px; font-weight: 600; text-align: left;"
+             "  padding: 10px 18px; font-weight: 600; text-align: left;"
              "  min-height: %2px;"
              "}"
              "QPushButton:hover { background: #FEE2E2; border-color: rgba(220,38,38,0.45); }"
              "QPushButton:pressed { background: #FECACA; }")
       .arg(rad)
-      .arg(UiScale::dp(touchTargetMinDp() - 8));
+      .arg(UiScale::dp(touchTargetMinDp()));
 }
 
 QString paperInputQss() {
@@ -447,7 +450,7 @@ QString quietIconButtonQss(int radiusPx, int minDp) {
 }
 
 QString framedChromeIconButtonQss(bool darkChrome, int radiusPx, int sizeDp) {
-  const int sizePx = UiScale::dp(sizeDp);
+  const int sizePx = UiScale::dp(sizeDp > 0 ? sizeDp : touchTargetMinDp());
   const QString border = darkChrome ? QStringLiteral("rgba(255,255,255,0.18)")
                                     : QStringLiteral("rgba(0,0,0,0.14)");
   const QString borderHover = darkChrome

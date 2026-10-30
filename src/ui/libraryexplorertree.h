@@ -1,10 +1,12 @@
 #pragma once
 
 #include <QColor>
+#include <QModelIndex>
 #include <QWidget>
 
 class QFileSystemModel;
 class QLabel;
+class QSortFilterProxyModel;
 class QToolButton;
 class QTreeView;
 
@@ -16,6 +18,8 @@ public:
 
   void setRootPath(const QString &absolutePath);
   void setAccentColor(const QColor &color);
+  /// Case-insensitive name filter. Empty shows every visible row.
+  void setFilterText(const QString &text);
   QString rootPath() const;
   QString currentPath() const;
 
@@ -32,10 +36,13 @@ signals:
 
 private:
   void applyChrome();
+  QString pathFor(const QModelIndex &viewIndex) const;
 
   QTreeView *m_tree{nullptr};
   QFileSystemModel *m_model{nullptr};
+  QSortFilterProxyModel *m_proxy{nullptr};
   QLabel *m_sectionLabel{nullptr};
   QToolButton *m_btnNewFolder{nullptr};
+  QToolButton *m_btnNewNote{nullptr};
   QColor m_accent;
 };

@@ -25,44 +25,13 @@
 #include <QTimer>
 #include <QWheelEvent>
 
-namespace {
-QString rgba(const QColor &c) {
-  return QStringLiteral("rgba(%1,%2,%3,%4)")
-      .arg(c.red())
-      .arg(c.green())
-      .arg(c.blue())
-      .arg(QString::number(c.alphaF(), 'f', 3));
-}
-
-QString chipQss(bool dark, const QColor &acc, bool compact) {
-  const QString ink =
-      dark ? QStringLiteral("rgba(255,255,255,0.92)")
-           : BlopStyle::paperInk().name(QColor::HexRgb);
-  const QString bg =
-      dark ? QStringLiteral("rgba(0,0,0,0.40)")
-           : QStringLiteral("rgba(255,255,255,0.92)");
-  const QString hover =
-      dark ? QStringLiteral("rgba(0,0,0,0.55)")
-           : QStringLiteral("rgba(255,255,255,1.0)");
-  const QString pad =
-      compact ? QStringLiteral("4px 8px") : QStringLiteral("4px 10px");
-  return QStringLiteral("QPushButton {"
-                        "  background: %1; color: %2;"
-                        "  border: 1px solid %3; border-radius: %4px;"
-                        "  padding: %5; font-size: 12px; font-weight: 600;"
-                        "}"
-                        "QPushButton:hover { background: %6; }")
-      .arg(bg, ink, rgba(acc), QString::number(UiScale::dp(BlopStyle::radiusMdDp())),
-           pad, hover);
-}
-} // namespace
-
 DashDeskHero::DashDeskHero(const QString &bannerId, QWidget *parent)
     : QWidget(parent), m_bannerId(bannerId) {
   setObjectName(QStringLiteral("DashDeskHero"));
   setAttribute(Qt::WA_StyledBackground, true);
-  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-  setMinimumHeight(UiScale::dp(48));
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  setMinimumHeight(UiScale::dp(100));
+  setMaximumHeight(UiScale::dp(120));
   setCursor(Qt::ArrowCursor);
   setMouseTracking(true);
 
@@ -71,7 +40,7 @@ DashDeskHero::DashDeskHero(const QString &bannerId, QWidget *parent)
   m_btnPick = new QPushButton(QStringLiteral("Bild"), this);
   m_btnPick->setCursor(Qt::PointingHandCursor);
   m_btnPick->setVisible(false);
-  m_btnPick->setFixedHeight(UiScale::dp(28));
+  m_btnPick->setFixedHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
   m_btnPick->setToolTip(QStringLiteral("Wash oder eigenes Bild"));
   connect(m_btnPick, &QPushButton::clicked, this,
           &DashDeskHero::showLibraryMenu);
@@ -79,7 +48,8 @@ DashDeskHero::DashDeskHero(const QString &bannerId, QWidget *parent)
   m_btnMore = new QPushButton(QStringLiteral("⋯"), this);
   m_btnMore->setCursor(Qt::PointingHandCursor);
   m_btnMore->setVisible(false);
-  m_btnMore->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  m_btnMore->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp()),
+                           UiScale::dp(BlopStyle::touchTargetMinDp()));
   m_btnMore->setToolTip(QStringLiteral("Banner-Optionen"));
   connect(m_btnMore, &QPushButton::clicked, this,
           &DashDeskHero::showSecondaryMenu);
@@ -188,12 +158,11 @@ void DashDeskHero::reloadCover() {
 }
 
 void DashDeskHero::styleEditBtns() {
-  const bool dark = BlopTheme::instance().isDark();
-  const QColor acc = BlopTheme::accentPrimary();
   if (m_btnPick)
-    m_btnPick->setStyleSheet(chipQss(dark, acc, false));
+    m_btnPick->setStyleSheet(BlopTheme::secondaryButtonQss());
   if (m_btnMore)
-    m_btnMore->setStyleSheet(chipQss(dark, acc, true));
+    m_btnMore->setStyleSheet(
+        BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
 }
 
 void DashDeskHero::layoutEditBtns() {
@@ -515,29 +484,6 @@ void DashDeskHero::paintWash(QPainter &p, Wash wash, const QColor &acc,
   g2.setColorAt(0.0, c2);
   g2.setColorAt(1.0, Qt::transparent);
   p.fillRect(rect(), g2);
-
-  if (!m_logo.isNull()) {
-    const int mark = UiScale::dp(qBound(28, height() / 3, 48));
-    QPixmap logo = m_logo.scaled(mark, mark, Qt::KeepAspectRatio,
-                                 Qt::SmoothTransformation);
-    const int mx = UiScale::dp(20);
-    const int my = (height() - logo.height()) / 2;
-    QPainterPath round;
-    round.addEllipse(QRectF(mx, my, logo.width(), logo.height()));
-    p.save();
-    p.setClipPath(round, Qt::IntersectClip);
-    p.drawPixmap(mx, my, logo);
-    p.restore();
-
-    QPen ring(washA);
-    ring.setWidthF(1.2);
-    QColor ringC = washA;
-    ringC.setAlpha(dark ? 140 : 150);
-    ring.setColor(ringC);
-    p.setPen(ring);
-    p.setBrush(Qt::NoBrush);
-    p.drawEllipse(QRectF(mx, my, logo.width(), logo.height()));
-  }
 }
 
 void DashDeskHero::paintCover(QPainter &p, const QColor &acc, bool dark) {

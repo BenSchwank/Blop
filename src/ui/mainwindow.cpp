@@ -282,16 +282,18 @@ public:
   LibrarySidebarSplitterHandle(Qt::Orientation ori, QSplitter *parent)
       : QSplitterHandle(ori, parent) {
     setCursor(Qt::SizeVerCursor);
+    setAutoFillBackground(false);
+    setAttribute(Qt::WA_StyledBackground, true);
   }
 
 protected:
   void paintEvent(QPaintEvent *) override {
     QPainter p(this);
-    p.setCompositionMode(QPainter::CompositionMode_Source);
-    p.fillRect(rect(), Qt::transparent);
-    p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    p.fillRect(rect(), BlopStyle::librarySidebar());
     const bool dark = BlopTheme::instance().isDark();
-    p.setPen(QPen(dark ? QColor(255, 255, 255, 22) : QColor(0, 0, 0, 28), 1));
+    const QColor line = dark ? QColor(255, 255, 255, 28)
+                             : BlopStyle::paperBorder();
+    p.setPen(QPen(line, 1));
     const int y = height() / 2;
     p.drawLine(UiScale::dp(10), y, width() - UiScale::dp(10), y);
   }
@@ -305,6 +307,11 @@ public:
     setChildrenCollapsible(false);
     setHandleWidth(UiScale::dp(8));
     setOpaqueResize(true);
+    setAutoFillBackground(true);
+    QPalette pal = palette();
+    pal.setColor(QPalette::Window, BlopStyle::librarySidebar());
+    pal.setColor(QPalette::Base, BlopStyle::librarySidebar());
+    setPalette(pal);
   }
 
 protected:
@@ -793,9 +800,11 @@ void showCrashReportOverlay(QWidget *parent, const QString &report) {
   auto *form = new QWidget;
   form->setObjectName(QStringLiteral("BlopCrashReportForm"));
   auto *vlay = new QVBoxLayout(form);
-  vlay->setContentsMargins(UiScale::dp(16), UiScale::dp(14), UiScale::dp(16),
-                           UiScale::dp(14));
-  vlay->setSpacing(UiScale::dp(8));
+  vlay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(BlopStyle::edgeInsetDp()));
+  vlay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
 
   auto *title = new QLabel(QObject::tr("Letzter Lauf ist abgestürzt"), form);
   title->setStyleSheet(BlopTheme::themed(
@@ -891,17 +900,14 @@ QListWidget::item:selected { background: rgba(124,92,252,0.38); color: #FFFFFF; 
 QListWidget::item:hover { background: rgba(255,255,255,0.06); })")));
 }
 
-QString blopPrimaryButtonStyle() {
-  return BlopTheme::themed(QString::fromUtf8(
-      R"(QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #9B79FF, stop:1 #7C5CFC); color: #FFFFFF; border: none; border-radius: 10px; padding: 10px 22px; font-size: 13px; font-weight: 600; min-width: 104px; }
-QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #B198FF, stop:1 #7A6AFF); }
-QPushButton:pressed { background: #4E4ACC; })"));
-}
+QString blopPrimaryButtonStyle() { return BlopTheme::primaryButtonQss(); }
 
-QString blopGhostButtonStyle() {
-  return BlopTheme::themed(QString::fromUtf8(
-      R"(QPushButton { background: transparent; color: #C8C4E8; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; padding: 10px 22px; font-size: 13px; font-weight: 600; min-width: 92px; }
-QPushButton:hover { background: rgba(255,255,255,0.08); color: #F0EEFF; border-color: rgba(124,92,252,0.45); })"));
+QString blopGhostButtonStyle() { return BlopTheme::secondaryButtonQss(); }
+
+QByteArray replyBody(QNetworkReply *reply) {
+  if (!reply || reply->error() != QNetworkReply::NoError || !reply->isOpen())
+    return {};
+  return reply->readAll();
 }
 
 QByteArray postJsonSync(QNetworkAccessManager *nam, const QUrl &url,
@@ -933,7 +939,7 @@ QByteArray postJsonSync(QNetworkAccessManager *nam, const QUrl &url,
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
   if (errorOut)
     *errorOut = reply->error();
-  const QByteArray raw = reply->readAll();
+  const QByteArray raw = replyBody(reply);
   reply->deleteLater();
   return raw;
 }
@@ -965,7 +971,7 @@ QByteArray getSync(QNetworkAccessManager *nam, const QUrl &url,
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
   if (errorOut)
     *errorOut = reply->error();
-  const QByteArray raw = reply->readAll();
+  const QByteArray raw = replyBody(reply);
   reply->deleteLater();
   return raw;
 }
@@ -1335,8 +1341,13 @@ SidebarNavDelegate::SidebarNavDelegate(MainWindow *parent)
 QSize SidebarNavDelegate::sizeHint(const QStyleOptionViewItem &option,
                                    const QModelIndex &index) const {
   bool isHeader = index.data(Qt::UserRole + 1).toBool();
+#ifndef Q_OS_ANDROID
+  const int row = isHeader ? UiScale::dp(28) : UiScale::dp(34);
+  return QSize(option.rect.width(), row);
+#else
   return QSize(option.rect.width(),
                isHeader ? ROW_HEIGHT_HEADER : ROW_HEIGHT_ITEM);
+#endif
 }
 
 void SidebarNavDelegate::paint(QPainter *painter,
@@ -1491,9 +1502,10 @@ void SidebarNavDelegate::paint(QPainter *painter,
     }
 
     QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
-    int iconSize = 24;
 #ifdef Q_OS_ANDROID
-    iconSize = 24;
+    const int iconSize = 24;
+#else
+    const int iconSize = UiScale::dp(16);
 #endif
 
     QRect iconRect(rect.left() + iconOffset, rect.center().y() - iconSize / 2,
@@ -1691,10 +1703,12 @@ void ModernItemDelegate::paint(QPainter *painter,
   if (hovered && !selected)
     bgColor = darkLib ? BlopTheme::surfaceMuted() : QColor(247, 248, 251);
   const QColor idleBorder =
-      darkLib ? BlopTheme::borderSubtle() : QColor(0xE4, 0xE7, 0xEE);
+      darkLib ? BlopTheme::borderSubtle() : QColor(0xE2, 0xE8, 0xF0);
   const QColor hoverBorder =
-      darkLib ? QColor(244, 245, 247, 48) : QColor(0xD0, 0xD5, 0xDE);
-  const int radius = UiScale::dp(BlopStyle::surfaceRadiusDp());
+      darkLib ? QColor(244, 245, 247, 48) : QColor(0xCB, 0xD5, 0xE1);
+  const QColor selectBorder =
+      darkLib ? m_window->currentAccentColor() : QColor(0x25, 0x63, 0xEB);
+  const int radius = UiScale::dp(10);
   // Soft drop under dark cards — color-on-color without a hard seam.
   if (darkLib) {
     painter->setPen(Qt::NoPen);
@@ -1707,7 +1721,7 @@ void ModernItemDelegate::paint(QPainter *painter,
     }
   }
   painter->setBrush(bgColor);
-  painter->setPen(QPen(selected ? m_window->currentAccentColor()
+  painter->setPen(QPen(selected ? selectBorder
                                 : (hovered ? hoverBorder : idleBorder),
                        selected ? 2.0 : 1.0));
 #else
@@ -1916,13 +1930,10 @@ void ModernItemDelegate::paint(QPainter *painter,
       }
     }
   } else {
-    // Preview above, caption band below — quiet hairline + a little air so
-    // dark cards don't read as one flat plate.
-    const int textH = UiScale::dp(36);
-    const int pad = UiScale::dp(6);
-    QRect previewBand(rect.left() + pad, rect.top() + pad,
-                      rect.width() - 2 * pad,
-                      qMax(22, rect.height() - textH - pad));
+    // Preview (~65%) above a white footer (~35%).
+    const int textH = qMax(UiScale::dp(56), (rect.height() * 35) / 100);
+    QRect previewBand(rect.left() + 1, rect.top() + 1, rect.width() - 2,
+                      qMax(22, rect.height() - textH));
 #ifdef Q_OS_ANDROID
     int iconDim = qMin(previewBand.width(), previewBand.height());
     iconDim = qMax(22, int(iconDim * iconShrink));
@@ -1940,16 +1951,36 @@ void ModernItemDelegate::paint(QPainter *painter,
       painter->drawPixmap(iconRect, preview);
 #else
     Q_UNUSED(iconShrink);
-    if (cloudItem)
-      NotePreviewIcon::paintCloudHero(painter, previewBand, fileName, cloudMime,
-                                      isFolder);
-    else
-      NotePreviewIcon::paintHero(painter, previewBand,
-                                 NotePreviewIcon::specForPath(path, isFolder));
-
     const int captionTop = rect.bottom() - textH + 1;
     const bool darkCard = BlopTheme::instance().isDark();
-    // Soft caption plate (clips to bottom rounded corners via path).
+    {
+      QPainterPath cardPath;
+      cardPath.addRoundedRect(QRectF(rect), radius, radius);
+      painter->save();
+      painter->setClipPath(cardPath);
+      painter->setPen(Qt::NoPen);
+      painter->setBrush(darkCard ? BlopTheme::surfaceMuted()
+                                 : QColor(0xF8, 0xFA, 0xFB));
+      painter->drawRect(previewBand);
+      painter->restore();
+    }
+    const int heroPad = UiScale::dp(14);
+    QRect hero = previewBand.adjusted(heroPad, heroPad, -heroPad, -heroPad);
+    if (hero.width() < UiScale::dp(8) || hero.height() < UiScale::dp(8))
+      hero = previewBand;
+    painter->save();
+    {
+      QPainterPath heroClip;
+      heroClip.addRoundedRect(QRectF(rect), radius, radius);
+      painter->setClipPath(heroClip);
+    }
+    if (cloudItem)
+      NotePreviewIcon::paintCloudHero(painter, hero, fileName, cloudMime,
+                                      isFolder);
+    else
+      NotePreviewIcon::paintHero(painter, hero,
+                                 NotePreviewIcon::specForPath(path, isFolder));
+    painter->restore();
     {
       QPainterPath cardPath;
       cardPath.addRoundedRect(QRectF(rect), radius, radius);
@@ -1958,15 +1989,14 @@ void ModernItemDelegate::paint(QPainter *painter,
       painter->save();
       painter->setClipPath(cardPath);
       painter->setPen(Qt::NoPen);
-      painter->setBrush(darkCard ? QColor(0, 0, 0, 28)
-                                 : QColor(0, 0, 0, 10));
+      painter->setBrush(darkCard ? QColor(0x1C, 0x20, 0x28) : QColor(255, 255, 255));
       painter->drawRect(captionFill);
       painter->restore();
     }
-    painter->setPen(darkCard ? QColor(255, 255, 255, 22)
-                             : BlopStyle::paperBorder());
-    painter->drawLine(rect.left() + UiScale::dp(8), captionTop,
-                      rect.right() - UiScale::dp(8), captionTop);
+    painter->setPen(QPen(darkCard ? QColor(255, 255, 255, 22)
+                                  : QColor(0xF3, 0xF4, 0xF6),
+                         1));
+    painter->drawLine(rect.left() + 1, captionTop, rect.right() - 1, captionTop);
 #endif
 
     QRect textRect(rect.left() + UiScale::dp(8),
@@ -1988,28 +2018,30 @@ void ModernItemDelegate::paint(QPainter *painter,
           dateStr = QLocale().toString(d, QStringLiteral("d. MMM"));
       }
     }
-    const int titleH = dateStr.isEmpty() ? textH - UiScale::dp(6)
-                                         : UiScale::dp(16);
-    QRect titleRect(rect.left() + UiScale::dp(8),
-                    rect.bottom() - textH + UiScale::dp(4),
-                    rect.width() - UiScale::dp(16), titleH);
+    const int footPadX = UiScale::dp(12);
+    const int footPadY = UiScale::dp(10);
+    const int titleH = UiScale::dp(18);
+    QRect titleRect(rect.left() + footPadX, captionTop + footPadY,
+                    rect.width() - 2 * footPadX, titleH);
     QFont f = painter->font();
-    f.setPixelSize(UiScale::sp(11));
+    f.setPixelSize(UiScale::sp(13));
     f.setWeight(QFont::DemiBold);
     painter->setFont(f);
     painter->setPen(BlopTheme::instance().isDark() ? BlopTheme::textPrimary()
-                                                   : BlopStyle::paperInk());
+                                                   : QColor(0x11, 0x18, 0x27));
     painter->drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter,
                       painter->fontMetrics().elidedText(text, Qt::ElideRight,
                                                         titleRect.width()));
     if (!dateStr.isEmpty()) {
       QFont df = painter->font();
-      df.setPixelSize(UiScale::sp(10));
+      df.setPixelSize(UiScale::sp(11));
       df.setWeight(QFont::Normal);
       painter->setFont(df);
-      painter->setPen(BlopTheme::textTertiary());
-      QRect dateRect(titleRect.left(), titleRect.bottom(), titleRect.width(),
-                     UiScale::dp(14));
+      painter->setPen(BlopTheme::instance().isDark()
+                          ? BlopTheme::textTertiary()
+                          : QColor(0x6B, 0x72, 0x80));
+      QRect dateRect(titleRect.left(), titleRect.bottom() + UiScale::dp(2),
+                     titleRect.width(), UiScale::dp(16));
       painter->drawText(dateRect, Qt::AlignLeft | Qt::AlignVCenter, dateStr);
     }
 #else
@@ -2500,7 +2532,7 @@ MainWindow::MainWindow(QWidget *parent)
         QNetworkReply *reply = nam->post(req, postData);
         connect(reply, &QNetworkReply::finished, this, [this, reply, nam, attempt, attemptVerify, failOAuthFlow]() {
           const QString errorText = reply->errorString();
-          const QByteArray raw = reply->readAll();
+          const QByteArray raw = replyBody(reply);
           const QString rawText = QString::fromUtf8(raw);
           const int statusCode =
               reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -3098,16 +3130,15 @@ void MainWindow::openModeMenuAtButton() {
 #ifdef Q_OS_ANDROID
   QList<BlopInWindowMenu::Item> items;
   items.append({tr("Notizen"), QIcon(),
-                [this]() { if (m_modeSelector) m_modeSelector->setCurrentIndex(0); }});
+                [this]() { selectModeIndex(0); }});
   items.append({tr("Study"), QIcon(),
-                [this]() { if (m_modeSelector) m_modeSelector->setCurrentIndex(1); }});
+                [this]() { selectModeIndex(1); }});
   if (!m_webBookmarks.isEmpty())
     items.append({QString(), QIcon(), {}, false, true});
   for (int i = 0; i < m_webBookmarks.size(); ++i) {
     const int idx = 2 + i;
     items.append({m_webBookmarks[i].title, QIcon(), [this, idx]() {
-      if (m_modeSelector && idx < m_modeSelector->count())
-        m_modeSelector->setCurrentIndex(idx);
+      selectModeIndex(idx);
     }});
   }
   items.append({QString(), QIcon(), {}, false, true});
@@ -3147,8 +3178,9 @@ void MainWindow::openModeMenuAtButton() {
     showManageWebBookmarksDialog();
     return;
   }
-  if (tag >= 0 && tag < m_modeSelector->count())
-    m_modeSelector->setCurrentIndex(tag);
+  if (tag >= 0 && m_modeSelector && tag < m_modeSelector->count()) {
+    QTimer::singleShot(0, this, [this, tag]() { selectModeIndex(tag); });
+  }
 #endif
 }
 
@@ -3160,8 +3192,11 @@ void MainWindow::showAddWebBookmarkDialog() {
   applyBlopWebSheetStyle(&dlg);
 
   auto *rootLay = new QVBoxLayout(&dlg);
-  rootLay->setContentsMargins(24, 20, 24, 20);
-  rootLay->setSpacing(16);
+  rootLay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(BlopStyle::edgeInsetDp()),
+                           UiScale::dp(BlopStyle::edgeInsetDp()));
+  rootLay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
 
   auto *lblHead = new QLabel(tr("Neue Webseite"), &dlg);
   lblHead->setStyleSheet(BlopTheme::themed(
@@ -3225,14 +3260,7 @@ void MainWindow::showAddWebBookmarkDialog() {
   m_webBookmarks.push_back({title, url});
   saveWebBookmarksToSettings();
   rebuildModeSelectorItems();
-  const int newIdx = m_modeSelector->count() - 1;
-#ifdef Q_OS_ANDROID
-  QSignalBlocker b(m_modeSelector);
-  m_modeSelector->setCurrentIndex(newIdx);
-  onModeChanged(newIdx);
-#else
-  m_modeSelector->setCurrentIndex(newIdx);
-#endif
+  selectModeIndex(m_modeSelector->count() - 1);
 }
 
 void MainWindow::showManageWebBookmarksDialog() {
@@ -3246,8 +3274,11 @@ void MainWindow::showManageWebBookmarksDialog() {
   dlg.resize(440, 360);
   applyBlopWebSheetStyle(&dlg);
   auto *lay = new QVBoxLayout(&dlg);
-  lay->setContentsMargins(22, 18, 22, 18);
-  lay->setSpacing(14);
+  lay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()));
+  lay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
   auto *hdr = new QLabel(tr("Gespeicherte Seiten"), &dlg);
   hdr->setStyleSheet(BlopTheme::themed(
       QStringLiteral("color: #E0E0E0; font-size: 18px; font-weight: 700;")));
@@ -3335,13 +3366,7 @@ void MainWindow::openWebBookmarkOverflowMenuFromWidget(QWidget *anchor) {
     return;
   }
   if (tag >= 2 && tag < m_modeSelector->count()) {
-#ifdef Q_OS_ANDROID
-    QSignalBlocker b(m_modeSelector);
-    m_modeSelector->setCurrentIndex(tag);
-    onModeChanged(tag);
-#else
-    m_modeSelector->setCurrentIndex(tag);
-#endif
+    QTimer::singleShot(0, this, [this, tag]() { selectModeIndex(tag); });
   }
 }
 
@@ -3482,9 +3507,11 @@ void MainWindow::ensureAndroidNativeLoginGate() {
                           .arg(paperHex));
 
   auto *lay = new QVBoxLayout(card);
-  lay->setContentsMargins(UiScale::dp(24), UiScale::dp(28), UiScale::dp(24),
-                          UiScale::dp(24));
-  lay->setSpacing(UiScale::dp(10));
+  lay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()));
+  lay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
 
   auto *brand = new QLabel(QStringLiteral("Blop"), card);
   brand->setAlignment(Qt::AlignCenter);
@@ -3736,7 +3763,7 @@ void MainWindow::requestPasswordAuth() {
   QNetworkReply *reply =
       nam->post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
   connect(reply, &QNetworkReply::finished, this, [this, reply, nam]() {
-    const QByteArray raw = reply->readAll();
+    const QByteArray raw = replyBody(reply);
     const int status =
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const auto netErr = reply->error();
@@ -3857,9 +3884,11 @@ void MainWindow::ensureAndroidStudyBootOverlay() {
           .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
 
   auto *lay = new QVBoxLayout(overlay);
-  lay->setContentsMargins(UiScale::dp(24), UiScale::dp(24), UiScale::dp(24),
-                          UiScale::dp(24));
-  lay->setSpacing(UiScale::dp(16));
+  lay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()));
+  lay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
   lay->setAlignment(Qt::AlignCenter);
 
   auto *lbl = new QLabel(tr("Lade Anmeldung..."), overlay);
@@ -4145,8 +4174,8 @@ void MainWindow::setupTitleBar() {
 
   QHBoxLayout *mainLayout = new QHBoxLayout(m_titleBarWidget);
   // Clear the frameless resize border so the hamburger is not a window edge.
-  mainLayout->setContentsMargins(UiScale::dp(16), 0, 0, 0);
-  mainLayout->setSpacing(6);
+  mainLayout->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()), 0, 0, 0);
+  mainLayout->setSpacing(UiScale::dp(BlopStyle::controlGapDp()));
 
   // Layout placeholder — the real toggle is a MainWindow overlay (see below).
   // Title bar lives inside centralWidget; the sidebar is a MainWindow sibling
@@ -4167,13 +4196,14 @@ void MainWindow::setupTitleBar() {
   btnEditorMenu->setHoverScaleEnabled(false);
   btnEditorMenu->setAttribute(Qt::WA_Hover, true);
   btnEditorMenu->setMouseTracking(true);
-  btnEditorMenu->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  btnEditorMenu->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp()),
+                               UiScale::dp(BlopStyle::touchTargetMinDp()));
   btnEditorMenu->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
   btnEditorMenu->setToolTip(QStringLiteral("Seitenleiste aufklappen"));
   btnEditorMenu->setCursor(Qt::PointingHandCursor);
   btnEditorMenu->setFocusPolicy(Qt::StrongFocus);
-  btnEditorMenu->setStyleSheet(QStringLiteral(
-      "QToolButton#TitleBarSidebarToggle { background: transparent; border: none; }"));
+  btnEditorMenu->setStyleSheet(
+      BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   connect(btnEditorMenu, &QAbstractButton::clicked, this,
           &MainWindow::onToggleSidebar);
   btnEditorMenu->installEventFilter(this);
@@ -4275,6 +4305,15 @@ void MainWindow::setupTitleBar() {
   m_btnAddWebBookmark->hide();
   navLayout->addSpacing(8);
 
+  auto *editorBack = new QPushButton(QStringLiteral("← Zurück"), m_topNavControls);
+  editorBack->setObjectName(QStringLiteral("TitleBarEditorBack"));
+  editorBack->setCursor(Qt::PointingHandCursor);
+  editorBack->setFocusPolicy(Qt::NoFocus);
+  editorBack->setFixedHeight(UiScale::dp(28));
+  editorBack->hide();
+  connect(editorBack, &QPushButton::clicked, this, &MainWindow::onBackToOverview);
+  navLayout->addWidget(editorBack, 0, Qt::AlignVCenter);
+
   // ── TABS ──────────────────────────────────────────────────────────────────
   // Floating squircle document tabs, Drawboard-inspired.
   m_documentTabBar = new DocumentTabBar(m_topNavControls);
@@ -4304,6 +4343,38 @@ void MainWindow::setupTitleBar() {
           [this](int index) { closeEditorTabAt(index); });
   connect(m_documentTabBar, &DocumentTabBar::homeClicked, this,
           &MainWindow::onBackToOverview);
+  connect(m_documentTabBar, &DocumentTabBar::tabTitleEdited, this,
+          [this](int index, const QString &title) {
+            if (!m_editorTabs || index < 0 || index >= m_editorTabs->count())
+              return;
+            QWidget *w = m_editorTabs->widget(index);
+            if (!w)
+              return;
+            const QString path = w->property("filePath").toString();
+            if (path.isEmpty())
+              return;
+            const QFileInfo fi(path);
+            QString safe;
+            for (QChar c : title.trimmed()) {
+              if (QStringLiteral("\\/:*?\"<>|").contains(c))
+                continue;
+              safe += c;
+            }
+            safe = safe.trimmed();
+            if (safe.isEmpty() || safe == fi.completeBaseName()) {
+              m_documentTabBar->setTabTitle(index, fi.completeBaseName());
+              return;
+            }
+            const QString next =
+                fi.dir().filePath(safe + QLatin1Char('.') + fi.suffix());
+            if (QFileInfo::exists(next) ||
+                !QFile::rename(fi.absoluteFilePath(), next)) {
+              m_documentTabBar->setTabTitle(index, fi.completeBaseName());
+              return;
+            }
+            w->setProperty("filePath", QFileInfo(next).absoluteFilePath());
+            m_documentTabBar->setTabTitle(index, safe);
+          });
 
   // "+ Tab" Button
   m_btnNewTab = new QPushButton(m_topNavControls);
@@ -4340,7 +4411,7 @@ void MainWindow::setupTitleBar() {
 
   // Tags & Seiten-Optionen nur noch über Notiz-Menü (⋯) → „Optionen & Tags…“
   // Höhe = ROW_HEIGHT_ITEM (wie Sidebar-Nav-Zeilen „Alle / Blop Notizen / …“).
-  const int kTitleBarNavH = ROW_HEIGHT_ITEM;
+  const int kTitleBarNavH = UiScale::dp(BlopStyle::touchTargetMinDp());
 
 #ifndef Q_OS_ANDROID
   m_btnTitleBarBell = new ModernButton(m_topNavControls);
@@ -4352,9 +4423,8 @@ void MainWindow::setupTitleBar() {
   m_btnTitleBarBell->setIconSize(QSize(kTitleBarNavH - 6, kTitleBarNavH - 6));
   m_btnTitleBarBell->setToolTip(QStringLiteral("Benachrichtigungen"));
   m_btnTitleBarBell->setCursor(Qt::PointingHandCursor);
-  m_btnTitleBarBell->setStyleSheet(QStringLiteral(
-      "QToolButton { background: transparent; border: none; border-radius: 8px; }"
-      "QToolButton:hover { background: rgba(127,127,127,0.14); }"));
+  m_btnTitleBarBell->setStyleSheet(
+      BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   connect(m_btnTitleBarBell, &QAbstractButton::clicked, this, [this]() {
     BlopDialogs::notify(this, QStringLiteral("Benachrichtigungen"),
                         QStringLiteral(
@@ -4374,7 +4444,8 @@ void MainWindow::setupTitleBar() {
       QSize(kTitleBarNavH - 4, kTitleBarNavH - 4));
   m_btnEditorThemeToggle->setToolTip(QStringLiteral("Hell / Dunkel"));
   m_btnEditorThemeToggle->setCursor(Qt::PointingHandCursor);
-  m_btnEditorThemeToggle->setStyleSheet(BlopStyle::quietIconButtonQss(8));
+  m_btnEditorThemeToggle->setStyleSheet(
+      BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   connect(m_btnEditorThemeToggle, &QAbstractButton::clicked, this, [this]() {
     NoteChrome::toggleMode();
     applyThemeRefresh();
@@ -4393,7 +4464,8 @@ void MainWindow::setupTitleBar() {
       QSize(kTitleBarNavH - 4, kTitleBarNavH - 4));
   m_btnEditorNoteOverflow->setToolTip(QStringLiteral("Notiz-Menü"));
   m_btnEditorNoteOverflow->setCursor(Qt::PointingHandCursor);
-  m_btnEditorNoteOverflow->setStyleSheet(BlopStyle::quietIconButtonQss(8));
+  m_btnEditorNoteOverflow->setStyleSheet(
+      BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   connect(m_btnEditorNoteOverflow, &QAbstractButton::clicked, this,
           &MainWindow::onEditorNoteOverflowMenu);
   m_btnEditorNoteOverflow->hide();
@@ -4412,7 +4484,8 @@ void MainWindow::setupTitleBar() {
     m_btnTitleBarPageManager->setIconSize(QSize(pmW - 8, kTitleBarNavH - 4));
   }
   m_btnTitleBarPageManager->setHoverScaleEnabled(false);
-  m_btnTitleBarPageManager->setStyleSheet(BlopStyle::quietIconButtonQss(8));
+  m_btnTitleBarPageManager->setStyleSheet(
+      BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   connect(m_btnTitleBarPageManager, &QAbstractButton::clicked, this,
           &MainWindow::onTogglePageManager);
   m_btnTitleBarPageManager->hide();
@@ -5883,7 +5956,9 @@ void MainWindow::refreshSidebarSearchHint() {
 #ifndef Q_OS_ANDROID
   if (!m_sidebarSearch)
     return;
-  m_sidebarSearch->setPlaceholderText(QStringLiteral("Bibliothek filtern…"));
+  m_sidebarSearch->setPlaceholderText(
+      m_libraryExplorerMode ? QStringLiteral("Dateien & Ordner filtern...")
+                            : QStringLiteral("Bibliothek filtern…"));
   m_sidebarSearch->setToolTip(
       QStringLiteral("Nav-Einträge filtern (Notizen suchen: Ctrl+K)"));
   const bool darkNav = BlopTheme::instance().isDark();
@@ -6111,7 +6186,7 @@ void MainWindow::applyTheme() {
         "QLineEdit#SidebarSearch {"
         "  background: transparent; color: %5;"
         "  border: 1px solid %6; border-radius: 8px;"
-        "  padding: 0 8px 0 32px; font-size: 12px;"
+        "  padding: 0 12px 0 8px; font-size: 13px;"
         "  selection-background-color: rgba(%1,%2,%3,0.35);"
         "}"
         "QLineEdit#SidebarSearch:focus {"
@@ -6196,11 +6271,7 @@ void MainWindow::applyTheme() {
   if (m_overviewContainer) {
     const bool phoneLibrary = UiScale::isAndroidPhoneUi(this);
     const QString titleSize = phoneLibrary ? QStringLiteral("22")
-#ifdef Q_OS_ANDROID
                                            : QStringLiteral("24");
-#else
-                                           : QStringLiteral("26");
-#endif
     const QString searchH =
         QString::number(UiScale::dp(BlopStyle::touchTargetMinDp()));
     const QString btnH =
@@ -6210,7 +6281,7 @@ void MainWindow::applyTheme() {
     const bool darkLib = BlopTheme::instance().isDark();
     const QString text =
         darkLib ? BlopTheme::textPrimary().name(QColor::HexRgb)
-                : BlopStyle::paperInk().name(QColor::HexRgb);
+                : QStringLiteral("#111827");
     const QString muted =
         darkLib ? QStringLiteral("rgba(255,255,255,0.08)")
                 : BlopStyle::paperHover().name(QColor::HexRgb);
@@ -6287,22 +6358,44 @@ void MainWindow::applyTheme() {
         "}");
     overviewQss =
         overviewQss.arg(text, titleSize, sub, c, border, radMd);
+    const bool darkSearch = BlopTheme::instance().isDark();
+    const QString searchBg =
+        phoneLibrary ? muted
+                     : (darkSearch ? QStringLiteral("#2A2E38")
+                                   : QStringLiteral("#F3F4F6"));
+    const QString searchPx =
+        phoneLibrary ? searchH : QString::number(UiScale::dp(36));
+    const QString searchRad =
+        phoneLibrary ? radLg : QString::number(UiScale::dp(8));
     overviewQss += QStringLiteral(
-                       "QLineEdit#overviewSearchBar {"
-                       "  background-color: %1; color: %2;"
-                       "  border: 1px solid %3; border-radius: %4px;"
-                       "  min-height: 32px; max-height: 32px;"
-                       "  padding: 0 10px 0 32px; font-size: 12px;"
+                       "QWidget#overviewSearchFrame {"
+                       "  background-color: %1; border: 1px solid transparent;"
+                       "  border-radius: %2px;"
                        "}"
-                       "QLineEdit#overviewSearchBar:focus { border: 1px solid %5; }"
-                       "QPushButton#overviewBtnNewNote {"
-                       "  background-color: %5; color: #FFFFFF; border-radius: %4px;"
-                       "  padding: 0 14px; font-weight: 700; font-size: 13px;"
-                       "  border: none; min-height: %6px; max-height: %6px;"
+                       "QWidget#overviewSearchFrame:focus-within {"
+                       "  border: 1px solid %3;"
+                       "}"
+                       "QLineEdit#overviewSearchBar {"
+                       "  background: transparent; color: %4; border: none;"
+                       "  padding: 0; font-size: 13px;"
+                       "  min-height: %5px; max-height: %5px;"
                        "}")
-                       .arg(muted, text, border, radLg, c, btnH);
+                       .arg(searchBg, searchRad, c, text, searchPx);
+#ifndef Q_OS_ANDROID
+    const QString ctaBg = darkSearch ? c : QStringLiteral("#2563EB");
+    const QString ctaHover =
+        darkSearch ? c : QStringLiteral("#1D4ED8");
     overviewQss += QStringLiteral(
-                       "QPushButton#overviewBtnNewNote:hover { background-color: %1; }"
+                       "QPushButton#overviewBtnNewNote {"
+                       "  background: %1; color: #FFFFFF; border: none;"
+                       "  border-radius: %3px; padding: 0 14px;"
+                       "  font-size: 13px; font-weight: 500;"
+                       "  min-height: %2px; max-height: %2px;"
+                       "}"
+                       "QPushButton#overviewBtnNewNote:hover { background: %4; }")
+                       .arg(ctaBg, searchPx, searchRad, ctaHover);
+#endif
+    overviewQss += QStringLiteral(
                        "QPushButton#overviewEmptyCta:hover {"
                        "  background: rgba(%2,%3,%4,0.12); border-color: %1; }")
                        .arg(c_light)
@@ -6340,8 +6433,11 @@ void MainWindow::applyTheme() {
       noteBtn->setStyleSheet(QString());
 #ifndef Q_OS_ANDROID
     if (m_libraryOrgBar) {
-      if (QPushButton *sortBtn = m_libraryOrgBar->sortButton())
-        sortBtn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+      if (QPushButton *sortBtn = m_libraryOrgBar->sortButton()) {
+        sortBtn->setMinimumWidth(0);
+        sortBtn->setMaximumWidth(QWIDGETSIZE_MAX);
+        sortBtn->setFixedHeight(UiScale::dp(32));
+      }
       m_libraryOrgBar->setAccentColor(m_currentAccentColor);
     }
 #endif
@@ -6371,15 +6467,32 @@ void MainWindow::applyTheme() {
   }
 #ifndef Q_OS_ANDROID
   if (m_btnLibraryGrid && m_btnLibraryList) {
-    const QColor on = m_currentAccentColor;
-    const QColor off = BlopTheme::instance().isDark()
-                           ? QColor(0x9A, 0xA3, 0xB2)
-                           : BlopStyle::paperInkMuted();
+    const bool dark = BlopTheme::instance().isDark();
+    const QColor on = dark ? QColor(QStringLiteral("#60A5FA"))
+                           : (m_currentAccentColor.isValid()
+                                  ? m_currentAccentColor
+                                  : BlopTheme::accentPrimary());
+    const QColor off = dark ? QColor(0x9A, 0xA3, 0xB2)
+                            : BlopStyle::paperInkMuted();
     const bool listMode = m_libraryListMode;
+    const QString viewQss = dark
+        ? QStringLiteral(
+              "QPushButton { background: transparent; border: none; border-radius: 6px; }"
+              "QPushButton:checked {"
+              "  background: rgba(59,130,246,0.2);"
+              "  border: 1px solid rgba(59,130,246,0.4);"
+              "}"
+              "QPushButton:hover:!checked { background: rgba(255,255,255,0.06); }")
+        : QStringLiteral(
+              "QPushButton { background: transparent; border: none; border-radius: 6px; }"
+              "QPushButton:checked { background: #EFF6FF; }"
+              "QPushButton:hover:!checked { background: #F3F4F6; }");
+    m_btnLibraryGrid->setStyleSheet(viewQss);
+    m_btnLibraryList->setStyleSheet(viewQss);
     m_btnLibraryGrid->setIcon(
-        createModernIcon(QStringLiteral("layout_rows"), listMode ? off : on));
+        createModernIcon(QStringLiteral("grid_tiles"), listMode ? off : on));
     m_btnLibraryList->setIcon(
-        createModernIcon(QStringLiteral("layout_single"), listMode ? on : off));
+        createModernIcon(QStringLiteral("list_lines"), listMode ? on : off));
   }
 #endif
 #ifdef Q_OS_ANDROID
@@ -6574,25 +6687,15 @@ void MainWindow::updateGrid() {
       return;
     }
 
-    // K mockup: compact paper cards. Density (right-click / long-press) scales them.
-    const qreal tileScale =
-        m_libraryDensity <= 0 ? 0.86 : m_libraryDensity >= 2 ? 1.22 : 1.0;
-    const int colMin = m_libraryDensity >= 2 ? 4 : 6;
-    const int colMax = m_libraryDensity <= 0 ? 10 : 8;
-    const int minTile = qRound(UiScale::dp(92) * tileScale);
-    const int maxTile = qRound(UiScale::dp(118) * tileScale);
-    int columns = (screenWidth - spacing) / (minTile + spacing);
-    columns = qBound(colMin, columns, colMax);
-    int totalSpacing = (columns + 1) * spacing;
+    // Fixed paper cards: 160×200, 16dp gutter, as many columns as fit.
+    spacing = UiScale::dp(16);
+    const int tileW = UiScale::dp(160);
+    const int tilePitch = tileW + spacing;
+    const int columns = qMax(1, screenWidth / qMax(1, tilePitch));
+    const int totalSpacing = (columns + 1) * spacing;
     int itemWidth = (screenWidth - totalSpacing) / columns;
-    while (itemWidth < qRound(UiScale::dp(88) * tileScale) && columns > colMin) {
-      columns--;
-      totalSpacing = (columns + 1) * spacing;
-      itemWidth = (screenWidth - totalSpacing) / columns;
-    }
-    itemWidth = qBound(qRound(UiScale::dp(80) * tileScale), itemWidth, maxTile);
-    const int titleBand = UiScale::dp(36);
-    const int itemHeight = int(itemWidth * 1.08) + titleBand;
+    itemWidth = qMax(tileW, itemWidth);
+    const int itemHeight = UiScale::dp(200);
 
     m_fileListView->setSpacing(spacing);
     m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
@@ -6943,7 +7046,10 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
              name == "chevron_right" || name == "chevron_rail" ||
              name == "zoom_in" || name == "zoom_out" || name == "fit_width" ||
              name == "fit_page" || name == "library" ||
-             name == "layout_rows" || name == "layout_single") {
+             name == "layout_rows" || name == "layout_single" ||
+             name == "grid_tiles" || name == "list_lines" ||
+             name == "sidebar_panel" || name == "inspector_panel" ||
+             name == "trash" || name == "delete") {
     blopDrawToolbarGlyph64(&p, name, color);
   }
   return QIcon(pixmap);
@@ -7388,6 +7494,12 @@ void MainWindow::setupUi() {
       return find(canvas->scene());
     return nullptr;
   });
+  if (auto *stripLay = m_toolOptionsStrip->layout()) {
+    // Icon rail is created later and overlays this full-width row.
+    const int lead = UiScale::dp(48) + UiScale::dp(16);
+    stripLay->setContentsMargins(lead, UiScale::dp(4), UiScale::dp(16),
+                                 UiScale::dp(4));
+  }
   mainLayout->addWidget(m_toolOptionsStrip);
 
   // ── Single ModernToolbar instance replaces the docked bar ────────────────
@@ -7518,18 +7630,7 @@ void MainWindow::setupUi() {
   if (phoneHeader)
     btnNewNote->hide();
   btnNewNote->setCursor(Qt::PointingHandCursor);
-  btnNewNote->setStyleSheet(BlopTheme::themed(
-      "QPushButton {"
-      "  background-color: #7C5CFC;"
-      "  color: #FFFFFF;"
-      "  border-radius: 10px;"
-      "  padding: 0 14px;"
-      "  font-weight: 700;"
-      "  font-size: 13px;"
-      "  border: none;"
-      "}"
-      "QPushButton:pressed { background-color: #6A4DE6; }"
-  ));
+  btnNewNote->setStyleSheet(BlopTheme::primaryButtonQss());
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
   BlopRipple::attachPressFeedback(btnNewNote, 0.94);
   titleRow->addWidget(btnNewNote, 0);
@@ -7598,7 +7699,7 @@ void MainWindow::setupUi() {
 #else
   // Desktop K Hauptmenü: title · stretch · view toggles · ⋯
   // Horizontal inset comes from overviewLayout only — avoid double padding.
-  headerLayout->setContentsMargins(0, UiScale::dp(8), 0, UiScale::dp(10));
+  headerLayout->setContentsMargins(0, 0, 0, UiScale::dp(10));
   headerLayout->setSpacing(UiScale::dp(8));
 
   m_libraryOrgBar = new LibraryOrgBar(m_overviewContainer);
@@ -7623,13 +7724,12 @@ void MainWindow::setupUi() {
   m_lblLibraryTitle = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
   m_lblLibraryTitle->setObjectName(QStringLiteral("overviewLibraryTitle"));
   m_lblLibraryTitle->setStyleSheet(QStringLiteral(
-      "color: %1; font-size: 26px; font-weight: 750;"
+      "color: %1; font-size: 24px; font-weight: 700;"
       " letter-spacing: -0.3px; background: transparent;")
                                        .arg(BlopTheme::instance().isDark()
                                                 ? BlopTheme::textPrimary().name(
                                                       QColor::HexRgb)
-                                                : BlopStyle::paperInk().name(
-                                                      QColor::HexRgb)));
+                                                : QStringLiteral("#111827")));
   topBar->addWidget(m_lblLibraryTitle, 0, Qt::AlignVCenter);
 
   m_lblLibrarySubtitle = new QLabel(m_overviewContainer);
@@ -7639,79 +7739,109 @@ void MainWindow::setupUi() {
   // Library-scoped search (current folder / smart view) — not the title bar.
   m_overviewSearchBar = new QLineEdit(m_overviewContainer);
   m_overviewSearchBar->setObjectName(QStringLiteral("overviewSearchBar"));
-  m_overviewSearchBar->setPlaceholderText(QStringLiteral("Notizen suchen (Name & Inhalt)…"));
-  m_overviewSearchBar->setToolTip(QStringLiteral("Notizen suchen (Ctrl+K)"));
+  m_overviewSearchBar->setPlaceholderText(
+      QStringLiteral("Notizen durchsuchen... (Strg+F)"));
+  m_overviewSearchBar->setToolTip(QStringLiteral("Notizen durchsuchen (Strg+F)"));
   m_overviewSearchBar->setClearButtonEnabled(false);
-  m_overviewSearchBar->setFixedHeight(UiScale::dp(32));
-  m_overviewSearchBar->setMinimumWidth(UiScale::dp(140));
-  m_overviewSearchBar->setMaximumWidth(UiScale::dp(280));
-  m_overviewSearchBar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+  m_overviewSearchBar->setFixedHeight(UiScale::dp(36));
+  m_overviewSearchBar->setMinimumWidth(0);
+  m_overviewSearchBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  m_overviewSearchBar->setStyleSheet(QStringLiteral(
+      "QLineEdit#overviewSearchBar {"
+      "  background: transparent; border: none; padding: 0; font-size: 13px;"
+      "}"));
   {
-    const bool darkLib = BlopTheme::instance().isDark();
     QPalette pal = m_overviewSearchBar->palette();
     pal.setColor(QPalette::PlaceholderText, BlopStyle::paperInkMuted());
     m_overviewSearchBar->setPalette(pal);
-    const QString bg =
-        darkLib ? QStringLiteral("#2A2E38")
-                : BlopStyle::libraryMain().name(QColor::HexRgb);
-    const QString ink = darkLib ? BlopTheme::textPrimary().name(QColor::HexRgb)
-                                : BlopStyle::paperInk().name(QColor::HexRgb);
-    const QString bd =
-        darkLib ? QStringLiteral("rgba(255,255,255,0.10)")
-                : BlopStyle::paperBorder().name(QColor::HexRgb);
-    const QString acc = m_currentAccentColor.name(QColor::HexRgb);
-    m_overviewSearchBar->setStyleSheet(QStringLiteral(
-        "QLineEdit#overviewSearchBar {"
-        "  background: %1; color: %2; border: 1px solid %3;"
-        "  border-radius: %5px; padding: 0 10px 0 8px; font-size: 12px;"
+    const bool darkLib = BlopTheme::instance().isDark();
+    auto *frame = new QWidget(m_overviewContainer);
+    frame->setObjectName(QStringLiteral("overviewSearchFrame"));
+    frame->setFixedHeight(UiScale::dp(36));
+    frame->setMinimumWidth(UiScale::dp(240));
+    frame->setMaximumWidth(UiScale::dp(280));
+    frame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    frame->setStyleSheet(QStringLiteral(
+        "QWidget#overviewSearchFrame {"
+        "  background: %1; border: 1px solid transparent; border-radius: %2px;"
         "}"
-        "QLineEdit#overviewSearchBar:focus { border: 1px solid %4; }")
-                                           .arg(bg, ink, bd, acc)
-                                           .arg(UiScale::dp(BlopStyle::radiusLgDp())));
-    auto *searchIcon = new QLabel(m_overviewSearchBar);
+        "QWidget#overviewSearchFrame:focus-within { border: 1px solid %3; }")
+                             .arg(darkLib ? QStringLiteral("#2A2E38")
+                                          : QStringLiteral("#F3F4F6"))
+                             .arg(UiScale::dp(8))
+                             .arg(m_currentAccentColor.name(QColor::HexRgb)));
+    auto *frameLay = new QHBoxLayout(frame);
+    frameLay->setContentsMargins(UiScale::dp(12), 0, UiScale::dp(12), 0);
+    frameLay->setSpacing(UiScale::dp(8));
+    auto *searchIcon = new QLabel(frame);
     searchIcon->setPixmap(
         createModernIcon(QStringLiteral("search"), BlopStyle::paperInkMuted())
-            .pixmap(UiScale::dp(14), UiScale::dp(14)));
-    searchIcon->setAttribute(Qt::WA_TransparentForMouseEvents);
-    auto *searchAct = new QWidgetAction(m_overviewSearchBar);
-    searchAct->setDefaultWidget(searchIcon);
-    m_overviewSearchBar->addAction(searchAct, QLineEdit::LeadingPosition);
+            .pixmap(UiScale::dp(16), UiScale::dp(16)));
+    searchIcon->setFixedSize(UiScale::dp(16), UiScale::dp(16));
+    frameLay->addWidget(searchIcon, 0, Qt::AlignVCenter);
+    frameLay->addWidget(m_overviewSearchBar, 1);
+    topBar->addStretch(1);
+    topBar->addWidget(frame, 0, Qt::AlignVCenter);
   }
-  topBar->addStretch(1);
-  topBar->addWidget(m_overviewSearchBar, 0, Qt::AlignVCenter);
 
   // Reopen control when the detail pane is fully hidden (no collapsed strip).
   m_btnLibraryDetailShow = new QPushButton(m_overviewContainer);
   m_btnLibraryDetailShow->setObjectName(QStringLiteral("LibraryDetailShow"));
-  m_btnLibraryDetailShow->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  m_btnLibraryDetailShow->setFixedSize(UiScale::dp(32), UiScale::dp(32));
   m_btnLibraryDetailShow->setCursor(Qt::PointingHandCursor);
-  m_btnLibraryDetailShow->setToolTip(QStringLiteral("Detailspalte einblenden"));
-  m_btnLibraryDetailShow->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
-  m_btnLibraryDetailShow->setStyleSheet(BlopStyle::quietIconButtonQss(6, 28));
-  m_btnLibraryDetailShow->setIcon(
-      createModernIcon(QStringLiteral("chevron_left"), BlopStyle::paperInkMuted()));
-  m_btnLibraryDetailShow->hide();
+  m_btnLibraryDetailShow->setToolTip(QStringLiteral("Details"));
+  m_btnLibraryDetailShow->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
+  const bool detailDark = BlopTheme::instance().isDark();
+  m_btnLibraryDetailShow->setStyleSheet(QStringLiteral(
+      "QPushButton#LibraryDetailShow {"
+      "  background: %1; color: #4B5563;"
+      "  border: 1px solid %2; border-radius: 6px;"
+      "}"
+      "QPushButton#LibraryDetailShow:hover { background: %3; }")
+                                            .arg(detailDark ? QStringLiteral("#1C2028")
+                                                            : QStringLiteral("#FFFFFF"),
+                                                 detailDark ? QStringLiteral("rgba(255,255,255,0.10)")
+                                                            : QStringLiteral("#E5E7EB"),
+                                                 detailDark ? QStringLiteral("rgba(255,255,255,0.08)")
+                                                            : QStringLiteral("#F3F4F6")));
+  m_btnLibraryDetailShow->setIcon(createModernIcon(
+      QStringLiteral("inspector_panel"),
+      detailDark ? QColor(0xC8, 0xCD, 0xD8) : QColor(0x4B, 0x55, 0x63)));
   connect(m_btnLibraryDetailShow, &QPushButton::clicked, this, [this]() {
     if (m_libraryDetail)
-      m_libraryDetail->setCollapsed(false);
+      m_libraryDetail->setCollapsed(!m_libraryDetail->isCollapsed());
   });
-  topBar->addWidget(m_btnLibraryDetailShow, 0, Qt::AlignVCenter);
 
   // View toggles live on the OrgBar row above the notes (not the title row).
-  const int viewBtn = UiScale::dp(28);
+  const int viewBtn = UiScale::dp(32);
   const auto applyViewIcons = [this](bool listMode) {
     if (!m_btnLibraryGrid || !m_btnLibraryList)
       return;
-    const QColor on = m_currentAccentColor.isValid()
-                          ? m_currentAccentColor
-                          : BlopTheme::accentPrimary();
-    const QColor off = BlopTheme::instance().isDark()
-                           ? QColor(0x9A, 0xA3, 0xB2)
-                           : BlopStyle::paperInkMuted();
+    const bool dark = BlopTheme::instance().isDark();
+    const QColor on = dark ? QColor(QStringLiteral("#60A5FA"))
+                           : (m_currentAccentColor.isValid()
+                                  ? m_currentAccentColor
+                                  : BlopTheme::accentPrimary());
+    const QColor off = dark ? QColor(0x9A, 0xA3, 0xB2)
+                            : BlopStyle::paperInkMuted();
+    const QString viewQss = dark
+        ? QStringLiteral(
+              "QPushButton { background: transparent; border: none; border-radius: 6px; }"
+              "QPushButton:checked {"
+              "  background: rgba(59,130,246,0.2);"
+              "  border: 1px solid rgba(59,130,246,0.4);"
+              "}"
+              "QPushButton:hover:!checked { background: rgba(255,255,255,0.06); }")
+        : QStringLiteral(
+              "QPushButton { background: transparent; border: none; border-radius: 6px; }"
+              "QPushButton:checked { background: #EFF6FF; }"
+              "QPushButton:hover:!checked { background: #F3F4F6; }");
+    m_btnLibraryGrid->setStyleSheet(viewQss);
+    m_btnLibraryList->setStyleSheet(viewQss);
     m_btnLibraryGrid->setIcon(
-        createModernIcon(QStringLiteral("layout_rows"), listMode ? off : on));
+        createModernIcon(QStringLiteral("grid_tiles"), listMode ? off : on));
     m_btnLibraryList->setIcon(
-        createModernIcon(QStringLiteral("layout_single"), listMode ? on : off));
+        createModernIcon(QStringLiteral("list_lines"), listMode ? on : off));
   };
 
   m_btnLibraryGrid = new QPushButton(m_libraryOrgBar);
@@ -7720,25 +7850,25 @@ void MainWindow::setupUi() {
   m_btnLibraryGrid->setCheckable(true);
   m_btnLibraryGrid->setChecked(true);
   m_btnLibraryGrid->setToolTip(QStringLiteral("Rasteransicht"));
-  m_btnLibraryGrid->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
-  m_btnLibraryGrid->setStyleSheet(BlopStyle::quietIconButtonQss(6, 28));
+  m_btnLibraryGrid->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
 
   m_btnLibraryList = new QPushButton(m_libraryOrgBar);
   m_btnLibraryList->setFixedSize(viewBtn, viewBtn);
   m_btnLibraryList->setCursor(Qt::PointingHandCursor);
   m_btnLibraryList->setCheckable(true);
   m_btnLibraryList->setToolTip(QStringLiteral("Listenansicht"));
-  m_btnLibraryList->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
-  m_btnLibraryList->setStyleSheet(BlopStyle::quietIconButtonQss(6, 28));
+  m_btnLibraryList->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
   applyViewIcons(false);
   m_libraryOrgBar->placeViewModeButtons(m_btnLibraryGrid, m_btnLibraryList);
+  m_libraryOrgBar->placeInspectorButton(m_btnLibraryDetailShow);
 
   m_btnEmptyTrash = new QPushButton(m_overviewContainer);
   m_btnEmptyTrash->setFixedSize(viewBtn, viewBtn);
   m_btnEmptyTrash->setCursor(Qt::PointingHandCursor);
   m_btnEmptyTrash->setToolTip(QStringLiteral("Papierkorb leeren"));
   m_btnEmptyTrash->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
-  m_btnEmptyTrash->setStyleSheet(BlopStyle::quietIconButtonQss(6, 28));
+  m_btnEmptyTrash->setStyleSheet(
+      BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   m_btnEmptyTrash->setIcon(
       createModernIcon(QStringLiteral("trash"), BlopStyle::paperInkMuted()));
   m_btnEmptyTrash->hide();
@@ -7766,27 +7896,27 @@ void MainWindow::setupUi() {
   });
 
   // Quiet create in the library header (also Ctrl+N).
-  QPushButton *btnNewNote = new QPushButton(QStringLiteral("+"), m_overviewContainer);
+  QPushButton *btnNewNote =
+      new QPushButton(QStringLiteral("+ Neue Notiz"), m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
-  btnNewNote->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+  btnNewNote->setFixedHeight(UiScale::dp(36));
   btnNewNote->setCursor(Qt::PointingHandCursor);
-  btnNewNote->setToolTip(QStringLiteral("Neue Notiz (Ctrl+N)"));
+  btnNewNote->setToolTip(QStringLiteral("Neue Notiz (Strg+N)"));
   {
     const bool darkLib = BlopTheme::instance().isDark();
-    const QString bg = darkLib ? BlopTheme::surfaceElevated().name(QColor::HexRgb)
-                               : QStringLiteral("#FFFFFF");
-    const QString fg = darkLib ? BlopTheme::textPrimary().name(QColor::HexRgb)
-                               : QStringLiteral("#3A3F4A");
-    const QString bd = darkLib ? QStringLiteral("rgba(255,255,255,0.11)")
-                               : QStringLiteral("#E4E7EE");
-    const QString acc = m_currentAccentColor.name(QColor::HexRgb);
+    const QString bg = darkLib ? m_currentAccentColor.name(QColor::HexRgb)
+                               : QStringLiteral("#2563EB");
+    const QString hover = darkLib ? m_currentAccentColor.name(QColor::HexRgb)
+                                  : QStringLiteral("#1D4ED8");
     btnNewNote->setStyleSheet(QStringLiteral(
-        "QPushButton {"
-        "  background-color: %1; color: %2; border: 1px solid %3;"
-        "  border-radius: 10px; font-weight: 700; font-size: 18px;"
+        "QPushButton#overviewBtnNewNote {"
+        "  background: %1; color: #FFFFFF; border: none;"
+        "  border-radius: %3px; padding: 0 14px;"
+        "  font-size: 13px; font-weight: 500;"
         "}"
-        "QPushButton:hover { border-color: %4; color: %4; }")
-                                  .arg(bg, fg, bd, acc));
+        "QPushButton#overviewBtnNewNote:hover { background: %2; }")
+                                  .arg(bg, hover)
+                                  .arg(UiScale::dp(8)));
   }
   connect(btnNewNote, &QPushButton::clicked, this, [this]() {
     if (m_libraryCloudNotesMode)
@@ -7830,8 +7960,10 @@ void MainWindow::setupUi() {
   libraryMain->setAttribute(Qt::WA_StyledBackground, true);
   auto *libraryMainLay = new QVBoxLayout(libraryMain);
 #ifndef Q_OS_ANDROID
-  libraryMainLay->setContentsMargins(UiScale::dp(24), UiScale::dp(16),
-                                     UiScale::dp(20), UiScale::dp(16));
+  libraryMainLay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                                     UiScale::dp(20),
+                                     UiScale::dp(BlopStyle::edgeInsetDp()),
+                                     UiScale::dp(BlopStyle::edgeInsetDp()));
 #else
   libraryMainLay->setContentsMargins(0, 0, 0, 0);
 #endif
@@ -8236,7 +8368,11 @@ void MainWindow::setupUi() {
     auto syncDetailShowBtn = [this]() {
       if (!m_btnLibraryDetailShow || !m_libraryDetail)
         return;
-      m_btnLibraryDetailShow->setVisible(m_libraryDetail->isCollapsed());
+      m_btnLibraryDetailShow->setVisible(true);
+      m_btnLibraryDetailShow->setToolTip(
+          m_libraryDetail->isCollapsed()
+              ? QStringLiteral("Details einblenden")
+              : QStringLiteral("Details ausblenden"));
       syncLibraryShellCorners();
     };
     connect(m_libraryDetail, &LibraryDetailPanel::collapsedChanged, this,
@@ -9184,8 +9320,7 @@ void MainWindow::setupUi() {
             switchToApp(true);
           });
   connect(m_dashboardPage, &DashboardPage::studyRequested, this, [this]() {
-    if (m_modeSelector)
-      m_modeSelector->setCurrentIndex(1);
+    selectModeIndex(1);
   });
   m_shellStack->addWidget(m_dashboardPage);
   m_shellStack->addWidget(m_rightStack);
@@ -9611,7 +9746,7 @@ void MainWindow::setupWebBrowser() {
     QNetworkRequest req(QUrl(QStringLiteral("https://www.blop-study.com/api/health/db")));
     QNetworkReply *reply = nam->get(req);
     QObject::connect(reply, &QNetworkReply::finished, view, [view, reply, nam]() {
-      const QByteArray raw = reply->readAll();
+      const QByteArray raw = replyBody(reply);
       reply->deleteLater();
       nam->deleteLater();
       const QJsonDocument doc = QJsonDocument::fromJson(raw);
@@ -9858,15 +9993,51 @@ void crossfadeStackTo(QStackedWidget *stack, int newIndex) {
     return;
   }
   QPixmap snapshot;
-  if (QWidget *out = stack->currentWidget())
-    snapshot = out->grab();
+  if (QWidget *out = stack->currentWidget()) {
+    if (out->isVisible())
+      snapshot = out->grab();
+  }
   stack->setCurrentIndex(newIndex);
   if (!snapshot.isNull())
     new StackFadeOverlay(stack, snapshot);
 }
 } // namespace
 
+void MainWindow::selectModeIndex(int index) {
+  if (!m_modeSelector || index < 0 || index >= m_modeSelector->count())
+    return;
+  {
+    QSignalBlocker blocker(m_modeSelector);
+    m_modeSelector->setCurrentIndex(index);
+  }
+  if (m_btnMode) {
+    m_btnMode->setText(m_modeSelector->itemText(index) +
+                       QStringLiteral("  \u25be"));
+  }
+  onModeChanged(index);
+}
+
 void MainWindow::onModeChanged(int index) {
+#ifdef Q_OS_ANDROID
+  applyModeChange(index);
+#else
+  m_pendingModeIndex = index;
+  if (m_modeChangePosted)
+    return;
+  m_modeChangePosted = true;
+  QTimer::singleShot(0, this, [this]() {
+    m_modeChangePosted = false;
+    applyModeChange(m_pendingModeIndex);
+  });
+#endif
+}
+
+void MainWindow::applyModeChange(int index) {
+  if (m_btnMode && m_modeSelector && index >= 0 &&
+      index < m_modeSelector->count()) {
+    m_btnMode->setText(m_modeSelector->itemText(index) +
+                       QStringLiteral("  \u25be"));
+  }
   BlopDiag::recordUiAction(
       QStringLiteral("onModeChanged:%1").arg(index));
   qInfo() << "MainWindow: onModeChanged index=" << index
@@ -9881,8 +10052,17 @@ void MainWindow::onModeChanged(int index) {
       ;
   const int mainStackIdx = (index <= 0) ? 0 : 1;
 
+  // Leaving Notes: drop library selection callbacks before the inspector
+  // and file view are hidden or rebuilt.
+  if (index > 0) {
+    if (m_fileListView && m_fileListView->selectionModel())
+      disconnect(m_fileListView->selectionModel(), nullptr, this, nullptr);
+  } else {
+    wireLibrarySelectionModel();
+  }
+
   // Linke Notizen-Sidebar schließen, wenn wir zu Study/Web wechseln — sonst zwei „Sidebars“.
-  if (mainStackIdx != 0 && m_isSidebarOpen)
+  if (mainStackIdx != 0 && m_isSidebarOpen && m_sidebarContainer)
     animateSidebar(false);
 
 #ifdef Q_OS_ANDROID
@@ -9975,7 +10155,10 @@ void MainWindow::onModeChanged(int index) {
     if (QWidget *cur = m_mainContentStack->currentWidget()) {
       cur->raise();
       cur->setEnabled(true);
-      cur->setFocus(Qt::OtherFocusReason);
+      // Study hosts a native web view. Focusing it inside the mode switch
+      // re-enters the widget that the combo is still leaving.
+      if (mainStackIdx == 0)
+        cur->setFocus(Qt::OtherFocusReason);
     }
 #endif
 #ifdef Q_OS_ANDROID
@@ -10344,14 +10527,7 @@ bool MainWindow::addWebBookmarkFromQml(const QString &urlInput,
   m_webBookmarks.push_back({title, url});
   saveWebBookmarksToSettings();
   rebuildModeSelectorItems();
-  const int newIdx = m_modeSelector->count() - 1;
-#ifdef Q_OS_ANDROID
-  QSignalBlocker b(m_modeSelector);
-  m_modeSelector->setCurrentIndex(newIdx);
-  onModeChanged(newIdx);
-#else
-  m_modeSelector->setCurrentIndex(newIdx);
-#endif
+  selectModeIndex(m_modeSelector->count() - 1);
   return true;
 }
 
@@ -10372,15 +10548,7 @@ void MainWindow::openWebBookmarkFromQml(int index) {
   if (index < 0 || index >= m_webBookmarks.size())
     return;
   const int modeIdx = index + 2;
-  if (modeIdx >= m_modeSelector->count())
-    return;
-#ifdef Q_OS_ANDROID
-  QSignalBlocker b(m_modeSelector);
-  m_modeSelector->setCurrentIndex(modeIdx);
-  onModeChanged(modeIdx);
-#else
-  m_modeSelector->setCurrentIndex(modeIdx);
-#endif
+  selectModeIndex(modeIdx);
 }
 
 void MainWindow::onSessionCheck(const QString &sessionData) {
@@ -10426,16 +10594,11 @@ void MainWindow::updateSidebarUser(const QString &username) {
     // Logged in: Switch to Blop Notes mode
     if (m_topNavControls) m_topNavControls->show();
     
-    if (m_modeSelector) {
-#ifdef Q_OS_ANDROID
-      QSignalBlocker b(m_modeSelector);
-#endif
-      m_modeSelector->setCurrentIndex(0); // Switch to Notes mode
-    }
+    if (m_modeSelector)
+      selectModeIndex(0);
 #ifdef Q_OS_ANDROID
     if (m_androidHeader)
       m_androidHeader->setVisible(true);
-    onModeChanged(0);
     if (m_btnAndroidNotes) {
       m_btnAndroidNotes->setVisible(true);
       m_btnAndroidNotes->setEnabled(true);
@@ -10468,14 +10631,15 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (m_topNavControls) m_topNavControls->hide();
 
     if (m_modeSelector) {
-#ifdef Q_OS_ANDROID
       QSignalBlocker b(m_modeSelector);
-#endif
       m_modeSelector->setCurrentIndex(1); // Force back to web login
 #ifndef Q_OS_ANDROID
-      m_modeSelector->hide(); // Desktop: hide selector on auth screen
+      m_modeSelector->hide();
 #endif
     }
+#ifndef Q_OS_ANDROID
+    onModeChanged(1);
+#endif
 #ifdef Q_OS_ANDROID
     if (m_androidHeader) {
       m_androidHeader->setVisible(false);
@@ -10535,7 +10699,7 @@ int MainWindow::effectiveSidebarWidthPx() const {
       m_shellStack && m_shellStack->currentIndex() == 1;
   if (!notesApp && m_libraryIconRail)
     return m_libraryIconRail->preferredWidth();
-  return SIDEBAR_WIDTH;
+  return UiScale::dp(250);
 #endif
 }
 
@@ -10696,34 +10860,30 @@ void MainWindow::refreshSidebarToggleButton() {
   const bool darkBar = BlopStyle::libraryTitleBar().lightness() < 148;
   const QColor ink =
       darkBar ? QColor(0xB8, 0xBE, 0xC9) : BlopStyle::paperInkMuted();
-  // Match Icon-Rail / SidebarCollapseBtn: quiet fill + light-gray frame.
-  const QColor border =
-      darkBar ? QColor(255, 255, 255, 40) : QColor(0, 0, 0, 28);
-  const QColor fill =
-      darkBar ? QColor(255, 255, 255, 0) : QColor(0, 0, 0, 0);
   const QColor hover =
       darkBar ? QColor(255, 255, 255, 26) : QColor(0, 0, 0, 20);
   const QColor press =
       darkBar ? QColor(255, 255, 255, 40) : QColor(0, 0, 0, 30);
-  if (m_isSidebarOpen) {
-    btnEditorMenu->setIcon(createModernIcon(QStringLiteral("menu"), ink));
-    btnEditorMenu->setToolTip(QStringLiteral("Seitenleiste"));
-  } else {
-    btnEditorMenu->setIcon(
-        createModernIcon(QStringLiteral("chevron_right"), ink));
-    btnEditorMenu->setToolTip(QStringLiteral("Seitenleiste aufklappen"));
-  }
+  btnEditorMenu->setIcon(createModernIcon(QStringLiteral("sidebar_panel"), ink));
+  btnEditorMenu->setToolTip(m_isSidebarOpen
+                                ? QStringLiteral("Seitenleiste einklappen")
+                                : QStringLiteral("Seitenleiste aufklappen"));
   btnEditorMenu->setProperty("blopChromeButton", true);
-  btnEditorMenu->setProperty("blopChromeBorder", border);
-  btnEditorMenu->setProperty("blopChromeFill", fill);
+  btnEditorMenu->setProperty("blopChromeBorder", QColor(0, 0, 0, 0));
+  btnEditorMenu->setProperty("blopChromeFill", QColor(0, 0, 0, 0));
   btnEditorMenu->setProperty("blopChromeHover", hover);
   btnEditorMenu->setProperty("blopChromePress", press);
-  btnEditorMenu->setProperty("blopChromeRadius", 8.0);
+  btnEditorMenu->setProperty("blopChromeRadius", 6.0);
   btnEditorMenu->setHoverScaleEnabled(false);
   btnEditorMenu->setFixedSize(UiScale::dp(28), UiScale::dp(28));
   btnEditorMenu->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
   btnEditorMenu->setStyleSheet(QStringLiteral(
-      "QToolButton#TitleBarSidebarToggle { background: transparent; border: none; }"));
+      "QAbstractButton#TitleBarSidebarToggle {"
+      "  background: transparent; border: none; border-radius: 6px;"
+      "}"
+      "QAbstractButton#TitleBarSidebarToggle:hover {"
+      "  background: rgba(255,255,255,0.08); border: none;"
+      "}"));
   btnEditorMenu->update();
 #endif
 }
@@ -10907,8 +11067,9 @@ void MainWindow::setupSidebar() {
                             .arg(BlopStyle::libraryTitleBar().name(
                                 QColor::HexRgb)));
   QHBoxLayout *headerLay = new QHBoxLayout(header);
-  headerLay->setContentsMargins(UiScale::dp(12), 0, UiScale::dp(8), 0);
-  headerLay->setSpacing(UiScale::dp(4));
+  headerLay->setContentsMargins(UiScale::dp(BlopStyle::controlGapDp()), 0,
+                                UiScale::dp(BlopStyle::controlGapDp()), 0);
+  headerLay->setSpacing(UiScale::dp(BlopStyle::controlGapDp()));
   headerLay->setAlignment(Qt::AlignVCenter);
   m_sidebarModeBtn = new QPushButton(
       m_modeSelector
@@ -10935,17 +11096,6 @@ void MainWindow::setupSidebar() {
   connect(m_sidebarModeBtn, &QPushButton::clicked, this,
           &MainWindow::openModeMenuAtButton);
   headerLay->addWidget(m_sidebarModeBtn, 1, Qt::AlignVCenter);
-  m_btnSidebarNewNote = new QPushButton(header);
-  m_btnSidebarNewNote->setObjectName(QStringLiteral("SidebarNewNoteBtn"));
-  m_btnSidebarNewNote->setFixedSize(UiScale::dp(28), UiScale::dp(28));
-  m_btnSidebarNewNote->setCursor(Qt::PointingHandCursor);
-  m_btnSidebarNewNote->setFocusPolicy(Qt::NoFocus);
-  m_btnSidebarNewNote->setAttribute(Qt::WA_TransparentForMouseEvents, false);
-  m_btnSidebarNewNote->setToolTip(QStringLiteral("Neue Notiz"));
-  m_btnSidebarNewNote->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
-  connect(m_btnSidebarNewNote, &QPushButton::clicked, this,
-          &MainWindow::onNewPage);
-  headerLay->addWidget(m_btnSidebarNewNote, 0, Qt::AlignVCenter);
   m_closeSidebarBtn = new QPushButton(header);
   m_closeSidebarBtn->setObjectName(QStringLiteral("SidebarCollapseBtn"));
   m_closeSidebarBtn->setFixedSize(UiScale::dp(28), UiScale::dp(28));
@@ -10955,7 +11105,7 @@ void MainWindow::setupSidebar() {
   m_closeSidebarBtn->setFocusPolicy(Qt::NoFocus);
   connect(m_closeSidebarBtn, &QPushButton::clicked, this,
           &MainWindow::onToggleSidebar);
-  headerLay->addWidget(m_closeSidebarBtn, 0, Qt::AlignVCenter);
+  headerLay->insertWidget(0, m_closeSidebarBtn, 0, Qt::AlignVCenter);
   refreshSidebarHeaderChrome();
   layout->addWidget(header);
 #else
@@ -11000,7 +11150,7 @@ void MainWindow::setupSidebar() {
   m_sidebarSearch = new QLineEdit(m_sidebarNavPanel);
   m_sidebarSearch->setObjectName(QStringLiteral("SidebarSearch"));
   m_sidebarSearch->setClearButtonEnabled(false);
-  m_sidebarSearch->setFixedHeight(UiScale::dp(34));
+  m_sidebarSearch->setFixedHeight(UiScale::dp(36));
   {
     const bool darkNav = BlopTheme::instance().isDark();
     QPalette pal = m_sidebarSearch->palette();
@@ -11021,7 +11171,7 @@ void MainWindow::setupSidebar() {
         "QLineEdit#SidebarSearch {"
         "  background: transparent; color: %5;"
         "  border: 1px solid %6; border-radius: 8px;"
-        "  padding: 0 8px 0 32px; font-size: 12px;"
+        "  padding: 0 12px 0 8px; font-size: 13px;"
         "  selection-background-color: rgba(%1,%2,%3,0.35);"
         "}"
         "QLineEdit#SidebarSearch:focus {"
@@ -11034,11 +11184,9 @@ void MainWindow::setupSidebar() {
                                        .arg(acc, ink, bd, focusBg));
   }
   {
-    auto *searchIcon = new QLabel(m_sidebarSearch);
-    searchIcon->setAttribute(Qt::WA_TransparentForMouseEvents);
-    auto *searchAct = new QWidgetAction(m_sidebarSearch);
-    searchAct->setDefaultWidget(searchIcon);
-    m_sidebarSearch->addAction(searchAct, QLineEdit::LeadingPosition);
+    m_sidebarSearch->addAction(
+        createModernIcon(QStringLiteral("search"), BlopStyle::paperInkMuted()),
+        QLineEdit::LeadingPosition);
     refreshSidebarSearchHint();
     auto *searchWrap = new QWidget(m_sidebarNavPanel);
     searchWrap->setObjectName(QStringLiteral("SidebarSearchWrap"));
@@ -11048,8 +11196,8 @@ void MainWindow::setupSidebar() {
     m_sidebarSearchWrap = searchWrap;
     auto *sLay = new QHBoxLayout(searchWrap);
     // Shared 8dp inset rhythm with mode switch / nav / explorer.
-    sLay->setContentsMargins(UiScale::dp(8), UiScale::dp(8), UiScale::dp(8),
-                             UiScale::dp(6));
+    sLay->setContentsMargins(UiScale::dp(8), UiScale::dp(20), UiScale::dp(8),
+                             0);
     sLay->addWidget(m_sidebarSearch);
     layout->addWidget(searchWrap);
   }
@@ -11098,6 +11246,8 @@ void MainWindow::setupSidebar() {
               }
               return;
             }
+            if (m_libraryExplorer)
+              m_libraryExplorer->setFilterText(t);
             // Library mode: filter sidebar nav rows only — not the note grid.
             if (m_navSidebar) {
               const QString needle = t.trimmed().toLower();
@@ -11165,11 +11315,11 @@ void MainWindow::setupSidebar() {
     m_libraryModeSwitch = new QWidget(m_sidebarNavPanel ? m_sidebarNavPanel
                                                        : m_sidebarContainer);
     m_libraryModeSwitch->setObjectName(QStringLiteral("LibraryModeSwitch"));
-    m_libraryModeSwitch->setFixedHeight(UiScale::dp(40));
+    m_libraryModeSwitch->setFixedHeight(UiScale::dp(34));
     auto *swLay = new QHBoxLayout(m_libraryModeSwitch);
-    swLay->setContentsMargins(UiScale::dp(8), UiScale::dp(6), UiScale::dp(8),
-                              UiScale::dp(8));
-    swLay->setSpacing(UiScale::dp(4));
+    swLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3), UiScale::dp(3),
+                              UiScale::dp(3));
+    swLay->setSpacing(0);
     auto *btnLib = new QPushButton(QStringLiteral("Bibliothek"),
                                    m_libraryModeSwitch);
     auto *btnExp =
@@ -11259,6 +11409,7 @@ void MainWindow::setupSidebar() {
       // whole sidebar.
       item->setData(Qt::UserRole + 11, icon);
       if (name == QStringLiteral("Alle") ||
+          name == QStringLiteral("Alle Notizen") ||
           name == QStringLiteral("Bibliothek") ||
           name == QStringLiteral("Blop Notizen")) {
         item->setData(Qt::UserRole + 2, rootCountStr);
@@ -11280,12 +11431,12 @@ void MainWindow::setupSidebar() {
 
 #ifndef Q_OS_ANDROID
   // Smart rows: Alle / Gerät / Wolke / Papierkorb (Favoriten → OrgBar chips).
-  addItem(QStringLiteral("Alle"), QStringLiteral("home"));
+  addItem(QStringLiteral("Alle Notizen"), QStringLiteral("home"));
   if (auto *alle = m_navSidebar->item(m_navSidebar->count() - 1))
     alle->setToolTip(QStringLiteral("Speicherort: gesamte Bibliothek"));
   {
     auto *device = new QListWidgetItem(m_navSidebar);
-    device->setText(QStringLiteral("Gerät"));
+    device->setText(QStringLiteral("Lokal (Gerät)"));
     device->setToolTip(QStringLiteral("Speicherort: lokal auf diesem Gerät"));
     device->setIcon(createModernIcon(QStringLiteral("device"),
                                      libraryNavTint(QStringLiteral("device"))));
@@ -11298,7 +11449,7 @@ void MainWindow::setupSidebar() {
   }
   if (StoragePrefs::hasCloudTarget()) {
     auto *cloud = new QListWidgetItem(m_navSidebar);
-    cloud->setText(QStringLiteral("Wolke"));
+    cloud->setText(QStringLiteral("Cloud (Wolke)"));
     cloud->setToolTip(QStringLiteral("Speicherort: verknüpfte Cloud"));
     cloud->setIcon(createModernIcon(QStringLiteral("cloud"),
                                     libraryNavTint(QStringLiteral("cloud"))));
@@ -11412,27 +11563,48 @@ void MainWindow::setupSidebar() {
               return;
             const QString role = item->data(Qt::UserRole + 5).toString();
             if (role == QLatin1String("clouds_add")) {
-              const QString label = BlopDialogs::promptText(
-                  this, QStringLiteral("Eigene Cloud"),
-                  QStringLiteral("Anzeigename:"), QStringLiteral("Meine Cloud"));
-              if (label.isEmpty())
-                return;
-              const QString url = BlopDialogs::promptText(
-                  this, QStringLiteral("Eigene Cloud"),
-                  QStringLiteral("Web-Adresse (https://cloud.example.com):"),
-                  QStringLiteral("https://"));
-              if (url.trimmed().isEmpty())
-                return;
-              QVector<CloudStorageEntry> entries = CloudStorageStore::load();
-              CloudStorageEntry e;
-              e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-              e.name = label;
-              e.type = QStringLiteral("custom");
-              e.webUrl = QUrl::fromUserInput(url.trimmed()).toString();
-              entries.append(e);
-              CloudStorageStore::save(entries);
-              refreshSidebarCloudList();
-              openCloudIntegration(e);
+              QDialog dlg(this);
+              dlg.setWindowTitle(QStringLiteral("Cloud-Speicher verbinden"));
+              dlg.setMinimumWidth(UiScale::dp(280));
+              auto *lay = new QVBoxLayout(&dlg);
+              lay->setContentsMargins(UiScale::dp(16), UiScale::dp(16),
+                                     UiScale::dp(16), UiScale::dp(16));
+              lay->setSpacing(UiScale::dp(8));
+              const QString types[] = {
+                  QStringLiteral("googledrive"), QStringLiteral("nextcloud"),
+                  QStringLiteral("onedrive"), QStringLiteral("dropbox"),
+                  QStringLiteral("icloud")};
+              for (const QString &type : types) {
+                auto *btn = new QPushButton(
+                    CloudStorageStore::displayNameForType(type), &dlg);
+                btn->setCursor(Qt::PointingHandCursor);
+                btn->setStyleSheet(BlopTheme::secondaryButtonQss());
+                lay->addWidget(btn);
+                connect(btn, &QPushButton::clicked, &dlg, [this, type, &dlg]() {
+                  QVector<CloudStorageEntry> entries =
+                      CloudStorageStore::load();
+                  CloudStorageEntry chosen;
+                  bool found = false;
+                  for (const CloudStorageEntry &e : entries) {
+                    if (e.type == type || e.id == type) {
+                      chosen = e;
+                      found = true;
+                      break;
+                    }
+                  }
+                  if (!found) {
+                    chosen.id = type;
+                    chosen.type = type;
+                    chosen.name = CloudStorageStore::displayNameForType(type);
+                    chosen.webUrl = CloudStorageStore::defaultWebUrl(type);
+                    CloudStorageStore::upsert(chosen);
+                  }
+                  dlg.accept();
+                  openCloudIntegration(chosen);
+                  refreshSidebarCloudList();
+                });
+              }
+              dlg.exec();
               return;
             }
             if (role != QLatin1String("clouds_item"))
@@ -11457,7 +11629,7 @@ void MainWindow::setupSidebar() {
   m_libraryTagsPanel = new LibraryTagsPanel(mid);
   m_libraryTagsPanel->setSidebarMode(true);
   m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
-  m_libraryTagsPanel->setCollapsed(true);
+  m_libraryTagsPanel->setCollapsed(false);
   connect(m_libraryTagsPanel, &LibraryTagsPanel::filterChanged, this,
           [this](const QStringList &) { applyLibraryFilters(); });
   connect(m_libraryTagsPanel, &LibraryTagsPanel::catalogChanged, this,
@@ -11466,9 +11638,6 @@ void MainWindow::setupSidebar() {
             rebuildPageSettingsTags();
           });
   m_libraryTagsPanel->reload();
-  // In the splitter Tags must expand with its pane (sidebar mode alone uses Maximum).
-  m_libraryTagsPanel->setSizePolicy(QSizePolicy::Expanding,
-                                    QSizePolicy::Expanding);
 
   m_sidebarSegNav = makeSidebarSplitterPane(
       QStringLiteral("ORTE"), QStringLiteral("SidebarNavHeaderLabel"),
@@ -11484,24 +11653,21 @@ void MainWindow::setupSidebar() {
                        "Andere Clouds: Web-Adresse im System-Browser."));
   }
   m_sidebarSegTags = m_libraryTagsPanel;
-  m_sidebarSegNav->setMinimumHeight(UiScale::dp(72));
-  m_sidebarSegCloud->setMinimumHeight(UiScale::dp(72));
-  m_sidebarSegTags->setMinimumHeight(UiScale::dp(56));
+  m_sidebarSegNav->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+  m_sidebarSegCloud->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+  m_sidebarSegTags->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 
-  auto *splitter = new LibrarySidebarSplitter(mid);
-  m_sidebarMidSplitter = splitter;
-  splitter->addWidget(m_sidebarSegNav);
-  splitter->addWidget(m_sidebarSegCloud);
-  splitter->addWidget(m_sidebarSegTags);
-  splitter->setStretchFactor(0, 0);
-  splitter->setStretchFactor(1, 0);
-  splitter->setStretchFactor(2, 1);
-  // Sensible defaults before restore — tags takes remaining height.
-  splitter->setSizes({UiScale::dp(140), UiScale::dp(200), UiScale::dp(220)});
-  midLay->addWidget(splitter, 1);
-  restoreLibrarySidebarSplitter();
-  connect(splitter, &QSplitter::splitterMoved, this,
-          [this](int, int) { persistLibrarySidebarSplitter(); });
+  auto *column = new QWidget(mid);
+  column->setObjectName(QStringLiteral("LibrarySidebarColumn"));
+  auto *colLay = new QVBoxLayout(column);
+  colLay->setContentsMargins(0, 0, 0, 0);
+  colLay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
+  colLay->addWidget(m_sidebarSegNav, 0);
+  colLay->addWidget(m_sidebarSegTags, 0);
+  colLay->addWidget(m_sidebarSegCloud, 0);
+  colLay->addStretch(1);
+  midLay->addWidget(column, 1);
+  m_sidebarMidSplitter = nullptr;
   refreshSidebarCloudSectionChrome();
 #else
   midLay->addWidget(m_navSidebar);
@@ -11570,6 +11736,11 @@ void MainWindow::setupSidebar() {
           });
   connect(m_libraryExplorer, &LibraryExplorerTree::newFolderRequested, this,
           &MainWindow::onCreateFolder);
+  connect(m_libraryExplorer, &LibraryExplorerTree::newNoteInFolderRequested,
+          this, [this](const QString &folder) {
+            m_noteCreateDir = folder;
+            onNewPage();
+          });
   connect(m_libraryExplorer, &LibraryExplorerTree::contextMenuRequested, this,
           [this](const QString &path, const QPoint &globalPos) {
             if (path.isEmpty() || !m_fileModel)
@@ -12059,8 +12230,10 @@ void MainWindow::wireLibrarySelectionModel() {
   if (!m_fileListView || !m_fileListView->selectionModel())
     return;
   // setModel() replaces the selection model — reconnect every time.
-  connect(m_fileListView->selectionModel(),
-          &QItemSelectionModel::currentChanged, this,
+  // UniqueConnection cannot be used with lambdas.
+  QItemSelectionModel *selection = m_fileListView->selectionModel();
+  disconnect(selection, nullptr, this, nullptr);
+  connect(selection, &QItemSelectionModel::currentChanged, this,
           [this](const QModelIndex &current, const QModelIndex &) {
             if (!m_libraryDetail || !m_fileListView)
               return;
@@ -12088,14 +12261,13 @@ void MainWindow::wireLibrarySelectionModel() {
               m_libraryDetail->setPath(path);
             else
               m_libraryDetail->clearSelection();
-          },
-          Qt::UniqueConnection);
-  connect(m_fileListView->selectionModel(),
-          &QItemSelectionModel::selectionChanged, this,
+          });
+  connect(selection, &QItemSelectionModel::selectionChanged, this,
           [this](const QItemSelection &, const QItemSelection &) {
+            if (!m_fileListView || !m_libraryDetail)
+              return;
             updateLibraryBulkBar();
-          },
-          Qt::UniqueConnection);
+          });
 #endif
 }
 
@@ -12623,11 +12795,14 @@ void MainWindow::syncLibraryShellCorners() {
   // Desk matches the pane behind each crescent so radii never read as a lift:
   // detail open → white desk under gray Detail; detail closed → sidebar desk
   // under white Main.
+  const bool detailInRow = m_libraryDetail != nullptr;
   const bool detailOpen =
-      m_libraryDetail && m_libraryDetail->isVisible() &&
+      detailInRow && m_libraryDetail->isVisible() &&
       !m_libraryDetail->isCollapsed();
   const QString desk = detailOpen ? mainBg : sidebar;
-  const int mainRight = detailOpen ? 0 : outer;
+  // The detail pane owns the window's outer corner. A radius on the main
+  // column left a dark crescent against the title bar.
+  const int mainRight = detailInRow ? 0 : outer;
   QString shell = QStringLiteral(
       "QWidget#OverviewContainer { background-color: %1; }"
       "QWidget#LibraryBody { background-color: %1; }"
@@ -13113,6 +13288,11 @@ void MainWindow::refreshSidebarCloudList() {
   m_sidebarCloudList->clear();
   const QVector<CloudStorageEntry> clouds = CloudStorageStore::load();
   for (const CloudStorageEntry &e : clouds) {
+    const bool linked =
+        e.webConnected || e.apiConnected ||
+        (!e.path.isEmpty() && StoragePrefs::isUsableFilesystemDir(e.path));
+    if (!linked)
+      continue;
     auto *item = new QListWidgetItem(m_sidebarCloudList);
     item->setText(e.name.isEmpty() ? CloudStorageStore::displayNameForType(e.type)
                                    : e.name);
@@ -13140,7 +13320,7 @@ void MainWindow::refreshSidebarCloudList() {
     item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
   }
   auto *addCloud = new QListWidgetItem(m_sidebarCloudList);
-  addCloud->setText(QStringLiteral("Eigene Cloud hinzufügen…"));
+  addCloud->setText(QStringLiteral("+ Cloud verbinden"));
   addCloud->setIcon(
       createModernIcon(QStringLiteral("cloud"),
                        libraryNavTint(QStringLiteral("cloud"))));
@@ -13166,11 +13346,14 @@ void MainWindow::updateSidebarBadges() {
   for (int i = 0; i < m_navSidebar->count(); ++i) {
     QListWidgetItem *item = m_navSidebar->item(i);
     if (item->text() == QStringLiteral("Alle") ||
+        item->text() == QStringLiteral("Alle Notizen") ||
         item->text() == QStringLiteral("Bibliothek") ||
+        item->text() == QStringLiteral("Lokal (Gerät)") ||
         item->text() == QStringLiteral("Gerät") ||
         item->text() == QStringLiteral("Blop Notizen")) {
       item->setData(Qt::UserRole + 2, rootCountStr);
-    } else if (item->text() == QStringLiteral("Wolke")) {
+    } else if (item->text() == QStringLiteral("Wolke") ||
+               item->text() == QStringLiteral("Cloud (Wolke)")) {
       const QString cloudPath = StoragePrefs::primaryLinkedCloudPath();
       if (!cloudPath.isEmpty()) {
         const int n = folderEntryCount(cloudPath);
@@ -13323,6 +13506,7 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
     return;
   }
   if (item->text() == QStringLiteral("Alle") ||
+      item->text() == QStringLiteral("Alle Notizen") ||
       item->text() == QStringLiteral("Bibliothek")) {
     if (m_libraryOrgBar)
       m_libraryOrgBar->setSmartView(LibraryOrgBar::SmartView::All);
@@ -14035,6 +14219,8 @@ void MainWindow::mirrorNoteNow(const QString &notePath) {
 }
 
 void MainWindow::onNewPage() {
+  const QString createDir = m_noteCreateDir;
+  m_noteCreateDir.clear();
   if (StoragePrefs::mode() == StoragePrefs::Mode::CloudOnly &&
       !StoragePrefs::hasCloudTarget()) {
     BlopDialogs::notify(
@@ -14045,9 +14231,13 @@ void MainWindow::onNewPage() {
             "Google Drive, Nextcloud oder einen anderen Ordner."));
     return;
   }
-  auto createNote = [this](const QString &name, int format,
-                           const A4LayoutDialogResult &layoutResult,
-                           const QStringList &tags = QStringList()) {
+  auto createNote = [this, createDir](const QString &name, int format,
+                                     const A4LayoutDialogResult &layoutResult,
+                                     const QStringList &tags = QStringList()) {
+    const QString writeRoot =
+        (!createDir.isEmpty() && QFileInfo(createDir).isDir())
+            ? QFileInfo(createDir).absoluteFilePath()
+            : noteWriteDirectory();
     auto defaultPaper = []() -> QColor {
       QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
       if (st.value(QStringLiteral("ui/defaultPageColor"),
@@ -14062,10 +14252,10 @@ void MainWindow::onNewPage() {
     const bool isStruktur = (format == 2);
 
     if (isStruktur) {
-      QString path = noteWriteDirectory() + "/" + safeName + ".struct";
+      QString path = writeRoot + "/" + safeName + ".struct";
       int n = 1;
       while (QFileInfo::exists(path)) {
-        path = noteWriteDirectory() + "/" + safeName + " (" +
+        path = writeRoot + "/" + safeName + " (" +
                QString::number(n++) + ").struct";
       }
       StrukturDocument doc = StrukturDocument::createEmpty(name);
@@ -14085,11 +14275,11 @@ void MainWindow::onNewPage() {
 
     if (isInfinite) {
       // Legacy unendliche Leinwand (.blop -> CanvasView)
-      QString path = noteWriteDirectory() + "/" + safeName + ".blop";
+      QString path = writeRoot + "/" + safeName + ".blop";
       {
         int n = 1;
         while (QFileInfo::exists(path))
-          path = noteWriteDirectory() + "/" + safeName + " (" +
+          path = writeRoot + "/" + safeName + " (" +
                  QString::number(n++) + ").blop";
       }
       QFile file(path);
@@ -14140,12 +14330,12 @@ void MainWindow::onNewPage() {
     }
 
     // Modernes A4-Notizheft (.bnote -> MultiPageNoteView)
-    QString path = noteWriteDirectory() + "/" + safeName + ".bnote";
+    QString path = writeRoot + "/" + safeName + ".bnote";
     {
       // Never overwrite an existing note with the same name.
       int n = 1;
       while (QFileInfo::exists(path))
-        path = noteWriteDirectory() + "/" + safeName + " (" +
+        path = writeRoot + "/" + safeName + " (" +
                QString::number(n++) + ").bnote";
     }
     Note note;
@@ -14172,7 +14362,7 @@ void MainWindow::onNewPage() {
   NewNoteDialog dlg(this);
   // Pick startet kompakt; Dialog wächst intern nach Formatwahl.
   BlopModal::Mode mode = BlopModal::Mode::Float;
-  int preferredW = UiScale::dp(440);
+  int preferredW = UiScale::dp(520);
   if (UiScale::isAndroidPhoneUi(this)) {
     mode = BlopModal::Mode::BottomSheet;
     preferredW = UiScale::androidScreenWidthPx(this);
@@ -14241,8 +14431,11 @@ void MainWindow::onCreateFolder() {
   card->raise();
 
   auto *layout = new QVBoxLayout(card);
-  layout->setContentsMargins(20, 20, 20, 20);
-  layout->setSpacing(12);
+  layout->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                          UiScale::dp(BlopStyle::edgeInsetDp()),
+                          UiScale::dp(BlopStyle::edgeInsetDp()),
+                          UiScale::dp(BlopStyle::edgeInsetDp()));
+  layout->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
   auto *title = new QLabel(QStringLiteral("Neuer Ordner"), card);
   title->setStyleSheet(BlopTheme::themed(
       "font-size: 16px; font-weight: bold; color: #E0E0E0;"));
@@ -14523,7 +14716,8 @@ void MainWindow::setupRightSidebar() {
   headerWidget->setAttribute(Qt::WA_StyledBackground, true);
   headerWidget->setFixedHeight(UiScale::dp(52));
   QHBoxLayout *header = new QHBoxLayout(headerWidget);
-  header->setContentsMargins(UiScale::dp(20), 0, UiScale::dp(8), 0);
+  header->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()), 0,
+                              UiScale::dp(BlopStyle::controlGapDp()), 0);
   QLabel *sidebarTitle = new QLabel(QStringLiteral("Seite & Notiz"), headerWidget);
   sidebarTitle->setObjectName(QStringLiteral("PageSettingsTitle"));
   sidebarTitle->setStyleSheet(
@@ -14537,7 +14731,8 @@ void MainWindow::setupRightSidebar() {
   closeBtn->setIcon(createModernIcon("close", BlopStyle::paperInkMuted()));
   closeBtn->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp()),
                          UiScale::dp(BlopStyle::touchTargetMinDp()));
-  closeBtn->setStyleSheet(BlopStyle::quietIconButtonQss(8));
+  closeBtn->setStyleSheet(
+      BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   connect(closeBtn, &QAbstractButton::clicked, this, [this]() {
     setPageSettingsOverlayVisible(false);
   });
@@ -14625,9 +14820,11 @@ void MainWindow::setupRightSidebar() {
   QWidget *optContent = new QWidget();
   optContent->setStyleSheet("background: transparent;");
   QVBoxLayout *optLayout = new QVBoxLayout(optContent);
-  optLayout->setContentsMargins(UiScale::dp(20), UiScale::dp(12),
-                                UiScale::dp(24), UiScale::dp(24));
-  optLayout->setSpacing(UiScale::dp(14));
+  optLayout->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                                UiScale::dp(BlopStyle::sectionGapDp()),
+                                UiScale::dp(BlopStyle::edgeInsetDp()),
+                                UiScale::dp(BlopStyle::edgeInsetDp()));
+  optLayout->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
 
   auto sectionLabel = [&](const QString &text, QWidget *sectionParent) -> QLabel * {
     QLabel *lbl = new QLabel(text, sectionParent);
@@ -15021,9 +15218,11 @@ void MainWindow::setupRightSidebar() {
   QWidget *tabTags = new QWidget();
   m_pageSettingsTabTags = tabTags;
   QVBoxLayout *tagsLayoutMain = new QVBoxLayout(tabTags);
-  tagsLayoutMain->setContentsMargins(UiScale::dp(20), UiScale::dp(16),
-                                     UiScale::dp(24), UiScale::dp(24));
-  tagsLayoutMain->setSpacing(UiScale::dp(14));
+  tagsLayoutMain->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                                     UiScale::dp(BlopStyle::edgeInsetDp()),
+                                     UiScale::dp(BlopStyle::edgeInsetDp()),
+                                     UiScale::dp(BlopStyle::edgeInsetDp()));
+  tagsLayoutMain->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
 
   // Tags Section — wired to LibraryTagStore (same catalog as library shelf).
   tagsLayoutMain->addWidget(sectionLabel(QStringLiteral("TAGS"), tabTags));
@@ -15796,6 +15995,8 @@ void MainWindow::updateSidebarState() {
   if (m_floatingTools) {
     m_floatingTools->setVisible(isEditor && !m_noteToolbars);
   }
+  if (m_toolOptionsStrip)
+    m_toolOptionsStrip->setVisible(isEditor);
   if (m_noteToolbars) {
     const bool strukturTab =
         m_editorTabs &&
@@ -15832,13 +16033,15 @@ void MainWindow::updateSidebarState() {
   }
   if (m_topNavControls)
     m_topNavControls->setVisible(true);
-  const bool tabsInLibraryChrome =
-      hasOpenNotes && inNotesMode && !isEditor && !m_authNavigationLocked;
-  if (m_titleBarSep)
-    m_titleBarSep->setVisible(!dashboardHome && !inEditorWithTabs &&
-                              !tabsInLibraryChrome);
+  // Note tabs live only in the editor. Library and Settings stay clear of them.
+  const bool tabsInLibraryChrome = false;
+  if (m_titleBarSep) {
+    const bool libraryChrome = inNotesMode && !isEditor;
+    m_titleBarSep->setVisible(!dashboardHome && !libraryChrome &&
+                              !inEditorWithTabs);
+  }
   if (m_btnMode)
-    m_btnMode->setVisible(inNotesMode && !dashboardHome && !m_isSidebarOpen &&
+    m_btnMode->setVisible(inNotesMode && !m_isSidebarOpen &&
                           !inEditorWithTabs && !tabsInLibraryChrome &&
                           !m_authNavigationLocked);
   // Library: create notes only via sidebar header +. Web-bookmark + lives in Study.
@@ -15851,22 +16054,23 @@ void MainWindow::updateSidebarState() {
     m_btnSidebarNewNote->setVisible(inNotesMode && !m_settingsShellActive);
   }
   if (m_documentTabBar) {
-    // Keep open-note tabs visible in the library Hauptmenü (Drawboard-style).
     const bool showTabs =
-        hasOpenNotes && inNotesMode && !m_authNavigationLocked;
+        isEditor && hasOpenNotes && !m_authNavigationLocked;
     m_documentTabBar->setVisible(showTabs);
-    m_documentTabBar->setHomeVisible(showTabs && !isEditor);
+    m_documentTabBar->setHomeVisible(false);
     if (showTabs)
-      m_documentTabBar->setHomeActive(!isEditor);
+      m_documentTabBar->setHomeActive(false);
   }
   // Login/auth: keep B + "Blop" as a quiet left brand; hide orphan-B-only.
   // Library + Settings shell: brand when sidebar is closed (same as Übersicht).
-  const bool showTabsInLibrary =
-      hasOpenNotes && inNotesMode && !isEditor && !m_authNavigationLocked;
+  const bool showTabsInLibrary = false;
+  const bool railVisible =
+      m_libraryIconRail && m_libraryIconRail->isVisible();
   const bool showBrand =
-      m_authNavigationLocked ||
-      (inNotesMode && !m_isSidebarOpen && !inEditorWithTabs &&
-       !showTabsInLibrary);
+      !railVisible &&
+      (m_authNavigationLocked ||
+       (inNotesMode && !m_isSidebarOpen && !inEditorWithTabs &&
+        !showTabsInLibrary));
   if (m_lblBrand)
     m_lblBrand->setVisible(showBrand && !m_brandIsBanner);
   if (m_titleBrandMark)
@@ -16113,8 +16317,13 @@ void MainWindow::updateSidebarState() {
     const bool notesLibrary =
         inNotesMode && m_shellStack && m_shellStack->currentIndex() == 1;
     const bool showMenu =
-        notesLibrary && !m_isSidebarOpen && !m_authNavigationLocked;
+        (notesLibrary || isEditor) && !m_isSidebarOpen && !m_authNavigationLocked;
     btnEditorMenu->setVisible(showMenu);
+    if (auto *pad = m_titleBarWidget
+                        ? m_titleBarWidget->findChild<QWidget *>(
+                              QStringLiteral("TitleBarSidebarTogglePad"))
+                        : nullptr)
+      pad->setVisible(showMenu);
     if (showMenu) {
       refreshSidebarToggleButton();
       syncSidebarToggleOverlayGeometry();
@@ -16595,9 +16804,10 @@ void MainWindow::onTogglePageManager() {
       // v3.16.1: scrollToPage now takes a `bool animate=true` default arg, so
       // the bare member-function pointer no longer matches the int-only signal
       // signature. Wrap in a lambda that explicitly passes animate=true.
+      QObject::disconnect(m_pageManager, &PageManager::pageSelected, nullptr,
+                          nullptr);
       connect(m_pageManager, &PageManager::pageSelected, mpv,
-              [mpv](int idx) { mpv->scrollToPage(idx, true); },
-              Qt::UniqueConnection);
+              [mpv](int idx) { mpv->scrollToPage(idx, true); });
       QObject::disconnect(m_pageManager, &PageManager::pageOrderChanged, nullptr,
                           nullptr);
       connect(m_pageManager, &PageManager::pageOrderChanged, [mpv, this]() {
@@ -16683,8 +16893,11 @@ void MainWindow::openNotePath(const QString &absolutePath) {
     return;
   }
   // Ensure Notes mode + overview root can resolve the index.
-  if (m_modeSelector && m_modeSelector->currentIndex() != 0)
+  if (m_modeSelector && m_modeSelector->currentIndex() != 0) {
+    QSignalBlocker blocker(m_modeSelector);
     m_modeSelector->setCurrentIndex(0);
+    applyModeChange(0);
+  }
   // Do not setRootPath here: that would retarget the library at .blop-embeds.
   QModelIndex parentIdx =
       m_fileModel->index(QFileInfo(abs).absolutePath());
@@ -17340,7 +17553,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
               loop.exec();
               const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-              const QByteArray raw = reply->readAll();
+              const QByteArray raw = replyBody(reply);
               if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
                   BlopDialogs::notify(this, QStringLiteral("Teilen fehlgeschlagen"),
                                       QStringLiteral("Serverantwort (%1):\n%2")
@@ -17394,7 +17607,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
               loop.exec();
               const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-              const QByteArray raw = reply->readAll();
+              const QByteArray raw = replyBody(reply);
               if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
                   BlopDialogs::notify(this, QStringLiteral("Link fehlgeschlagen"),
                                       QStringLiteral("Serverantwort (%1):\n%2")
@@ -17445,7 +17658,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
               loop.exec();
               const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-              const QByteArray raw = reply->readAll();
+              const QByteArray raw = replyBody(reply);
               if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
                   BlopDialogs::notify(this, QStringLiteral("Import fehlgeschlagen"),
                                       QStringLiteral("Serverantwort (%1):\n%2")
@@ -17771,7 +17984,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray raw = reply->readAll();
+    const QByteArray raw = replyBody(reply);
     if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
       BlopDialogs::notify(this, QStringLiteral("Teilen fehlgeschlagen"),
                           QStringLiteral("Serverantwort (%1):\n%2")
@@ -17830,7 +18043,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray raw = reply->readAll();
+    const QByteArray raw = replyBody(reply);
     if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
       BlopDialogs::notify(this, QStringLiteral("Link fehlgeschlagen"),
                           QStringLiteral("Serverantwort (%1):\n%2")
@@ -17887,7 +18100,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray raw = reply->readAll();
+    const QByteArray raw = replyBody(reply);
     if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
       BlopDialogs::notify(this, QStringLiteral("Import fehlgeschlagen"),
                           QStringLiteral("Serverantwort (%1):\n%2")
@@ -18274,8 +18487,11 @@ void MainWindow::showRenameOverlay(const QString &currentName) {
   auto *form = new QWidget();
   form->setObjectName(QStringLiteral("RenameForm"));
   auto *lay = new QVBoxLayout(form);
-  lay->setContentsMargins(20, 18, 20, 16);
-  lay->setSpacing(12);
+  lay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()),
+                       UiScale::dp(BlopStyle::edgeInsetDp()));
+  lay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
 
   auto *title = new QLabel(QStringLiteral("Umbenennen"), form);
   title->setStyleSheet(BlopTheme::themed(QStringLiteral(
@@ -18563,10 +18779,8 @@ void MainWindow::openStudyAuthPage(const QString &path) {
   }
   onModeChanged(1);
 #else
-  if (m_modeSelector)
-    m_modeSelector->setCurrentIndex(1);
-  onModeChanged(1);
-#if defined(BLOP_HAS_WEBENGINE)
+  selectModeIndex(1);
+#if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
   QTimer::singleShot(120, this, [this, url]() {
     if (m_studyWebView)
       m_studyWebView->setUrl(QUrl(url));
@@ -18952,13 +19166,7 @@ bool MainWindow::handleAndroidBack() {
     return true;
   }
   if (!inNotesMode) {
-#ifdef Q_OS_ANDROID
-    if (m_modeSelector) {
-      QSignalBlocker b(m_modeSelector);
-      m_modeSelector->setCurrentIndex(0);
-    }
-#endif
-    onModeChanged(0);
+    selectModeIndex(0);
     return true;
   }
   return true;
@@ -18970,27 +19178,12 @@ void MainWindow::onPhoneNavAction(const QString &id) {
     return;
   }
   if (id == QLatin1String("notes")) {
-#ifdef Q_OS_ANDROID
-    if (m_modeSelector) {
-      QSignalBlocker b(m_modeSelector);
-      m_modeSelector->setCurrentIndex(0);
-    }
-#endif
-    onModeChanged(0);
+    selectModeIndex(0);
     switchToApp(true);
     return;
   }
   if (id == QLatin1String("study")) {
-#ifdef Q_OS_ANDROID
-    if (m_modeSelector) {
-      QSignalBlocker b(m_modeSelector);
-      m_modeSelector->setCurrentIndex(1);
-    }
-    onModeChanged(1);
-#else
-    if (m_modeSelector)
-      m_modeSelector->setCurrentIndex(1);
-#endif
+    selectModeIndex(1);
     return;
   }
   if (id == QLatin1String("device")) {
@@ -19991,9 +20184,17 @@ void MainWindow::applyLibrarySidebarMode() {
     m_libraryExplorer->setVisible(explorer);
     if (explorer && !m_rootPath.isEmpty())
       m_libraryExplorer->setRootPath(m_rootPath);
+    m_libraryExplorer->setFilterText(m_sidebarSearch ? m_sidebarSearch->text()
+                                                    : QString());
   }
+  // Keep the search row mounted in both modes so the segment does not jump.
   if (m_sidebarSearchWrap)
-    m_sidebarSearchWrap->setVisible(!explorer);
+    m_sidebarSearchWrap->setVisible(!m_settingsShellActive);
+  if (m_sidebarSearch) {
+    m_sidebarSearch->setPlaceholderText(
+        explorer ? QStringLiteral("Dateien & Ordner filtern...")
+                 : QStringLiteral("Bibliothek filtern…"));
+  }
   if (m_libraryModeSwitch)
     m_libraryModeSwitch->show();
 #else
@@ -20007,17 +20208,57 @@ void MainWindow::refreshLibraryModeSwitchChrome() {
     return;
   const bool dark = BlopTheme::instance().isDark();
   const int minH = UiScale::dp(28);
-  const QString seg =
-      dark ? BlopStyle::segmentQss() : BlopStyle::paperSegmentQss();
-  m_libraryModeSwitch->setStyleSheet(
-      QStringLiteral(
-          "QWidget#LibraryModeSwitch { background: transparent; }"
-          "%1"
-          "QPushButton#LibraryModeLib, QPushButton#LibraryModeExp {"
-          "  padding: 2px 8px; font-size: 11px; font-weight: 650;"
-          "  min-height: %2px; max-height: %2px;"
-          "}")
-          .arg(seg, QString::number(minH)));
+  const QString seg = dark
+      ? QStringLiteral(
+            "QWidget#LibraryModeSwitch {"
+            "  background: #181B22; border: none; border-radius: 8px;"
+            "  margin-top: 12px; margin-left: 8px; margin-right: 8px;"
+            "}"
+            "QPushButton#LibraryModeLib, QPushButton#LibraryModeExp {"
+            "  background: transparent; color: #9CA3AF; border: none;"
+            "  border-radius: 6px; padding: 2px 8px;"
+            "  font-size: 12px; font-weight: 600;"
+            "  min-height: %1px; max-height: %1px;"
+            "}"
+            "QPushButton#LibraryModeLib:checked,"
+            "QPushButton#LibraryModeExp:checked {"
+            "  background: #2D3340; color: #F3F4F6; border: none;"
+            "}")
+            .arg(minH)
+      : QStringLiteral(
+            "QWidget#LibraryModeSwitch {"
+            "  background: #E5E7EB; border: none; border-radius: 8px;"
+            "  margin-top: 12px; margin-left: 8px; margin-right: 8px;"
+            "}"
+            "QPushButton#LibraryModeLib, QPushButton#LibraryModeExp {"
+            "  background: transparent; color: #4B5563; border: none;"
+            "  border-radius: 6px; padding: 2px 8px;"
+            "  font-size: 12px; font-weight: 600;"
+            "  min-height: %1px; max-height: %1px;"
+            "}"
+            "QPushButton#LibraryModeLib:checked,"
+            "QPushButton#LibraryModeExp:checked {"
+            "  background: #FFFFFF; color: #111827; font-weight: 600;"
+            "}")
+            .arg(minH);
+  m_libraryModeSwitch->setStyleSheet(seg);
+  if (m_libraryModeGroup) {
+    const auto buttons = m_libraryModeGroup->buttons();
+    for (QAbstractButton *b : buttons) {
+      if (!dark && b->isChecked()) {
+        auto *sh = qobject_cast<QGraphicsDropShadowEffect *>(b->graphicsEffect());
+        if (!sh) {
+          sh = new QGraphicsDropShadowEffect(b);
+          b->setGraphicsEffect(sh);
+        }
+        sh->setBlurRadius(2);
+        sh->setOffset(0, 1);
+        sh->setColor(QColor(0, 0, 0, 20));
+      } else if (b->graphicsEffect()) {
+        b->setGraphicsEffect(nullptr);
+      }
+    }
+  }
 #else
   ;
 #endif
@@ -20028,7 +20269,8 @@ void MainWindow::refreshSidebarHeaderChrome() {
   const bool darkHeader =
       BlopStyle::libraryTitleBar().lightness() < 148;
   const QString qss =
-      BlopStyle::framedChromeIconButtonQss(darkHeader, 8, 28);
+      BlopStyle::framedChromeIconButtonQss(darkHeader, BlopStyle::radiusMdDp(),
+                                         BlopStyle::touchTargetMinDp());
   const QColor iconFg =
       darkHeader ? QColor(0xC8, 0xCD, 0xD8) : BlopStyle::paperInkMuted();
   if (m_btnSidebarNewNote) {
@@ -20039,9 +20281,15 @@ void MainWindow::refreshSidebarHeaderChrome() {
   }
   if (m_closeSidebarBtn) {
     m_closeSidebarBtn->setIcon(
-        createModernIcon(QStringLiteral("chevron_left"), iconFg));
+        createModernIcon(QStringLiteral("sidebar_panel"), iconFg));
     m_closeSidebarBtn->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
-    m_closeSidebarBtn->setStyleSheet(qss);
+    m_closeSidebarBtn->setStyleSheet(QStringLiteral(
+        "QPushButton#SidebarCollapseBtn {"
+        "  background: transparent; border: none; border-radius: 6px;"
+        "}"
+        "QPushButton#SidebarCollapseBtn:hover {"
+        "  background: rgba(255,255,255,0.08); border: none;"
+        "}"));
   }
 #endif
 }
@@ -20065,8 +20313,13 @@ void MainWindow::refreshSidebarCloudSectionChrome() {
           findChild<QLabel *>(QStringLiteral("SidebarNavHeaderLabel"))) {
     navHeader->setStyleSheet(titleCss);
   }
-  if (m_sidebarMidSplitter)
+  if (m_sidebarMidSplitter) {
+    QPalette pal = m_sidebarMidSplitter->palette();
+    pal.setColor(QPalette::Window, BlopStyle::librarySidebar());
+    pal.setColor(QPalette::Base, BlopStyle::librarySidebar());
+    m_sidebarMidSplitter->setPalette(pal);
     m_sidebarMidSplitter->update();
+  }
   if (m_sidebarCloudList) {
     const QColor a = m_currentAccentColor.isValid() ? m_currentAccentColor
                                                     : BlopTheme::accentPrimary();
@@ -20100,10 +20353,10 @@ QWidget *MainWindow::makeSidebarSplitterPane(const QString &title,
                                    : (body ? body->parentWidget() : nullptr));
   pane->setObjectName(QStringLiteral("SidebarSplitterPane"));
   pane->setAttribute(Qt::WA_StyledBackground, true);
-  pane->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  pane->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
   auto *lay = new QVBoxLayout(pane);
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(UiScale::dp(2));
+  lay->setSpacing(UiScale::dp(BlopStyle::controlGapDp()));
   if (!title.isEmpty()) {
     auto *lbl = new QLabel(title, pane);
     lbl->setObjectName(titleObjectName);
@@ -20111,7 +20364,7 @@ QWidget *MainWindow::makeSidebarSplitterPane(const QString &title,
   }
   if (body) {
     body->setParent(pane);
-    lay->addWidget(body, 1);
+    lay->addWidget(body, 0);
   }
   return pane;
 }
@@ -20120,7 +20373,7 @@ void MainWindow::persistLibrarySidebarSplitter() {
   if (!m_sidebarMidSplitter)
     return;
   QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
-      .setValue(QStringLiteral("ui/librarySidebarSplitter"),
+      .setValue(QStringLiteral("ui/librarySidebarSplitterV2"),
                 m_sidebarMidSplitter->saveState());
 }
 
@@ -20129,7 +20382,7 @@ void MainWindow::restoreLibrarySidebarSplitter() {
     return;
   const QByteArray state =
       QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
-          .value(QStringLiteral("ui/librarySidebarSplitter"))
+          .value(QStringLiteral("ui/librarySidebarSplitterV2"))
           .toByteArray();
   if (!state.isEmpty())
     m_sidebarMidSplitter->restoreState(state);
@@ -20325,7 +20578,8 @@ void MainWindow::refreshEditorThemeToggle() {
   m_btnEditorThemeToggle->setToolTip(
       NoteChrome::isDark() ? QStringLiteral("Hell")
                            : QStringLiteral("Dunkel"));
-  m_btnEditorThemeToggle->setStyleSheet(BlopStyle::quietIconButtonQss(8));
+  m_btnEditorThemeToggle->setStyleSheet(
+      BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
 }
 
 void MainWindow::refreshTopNavChrome() {
@@ -20499,41 +20753,32 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 
   const QColor titleBg =
       authChrome ? BlopStyle::obsidianNav()
-                 : (libraryShellChrome
+                 : (libraryShellChrome || noteChrome)
                         ? libraryBarBg
-                        : (noteChrome
-                               ? (darkShell ? BlopStyle::obsidianNav()
-                                            : NoteChrome::toolbarFill())
-                               : BlopTheme::surfaceBackground()));
+                        : BlopTheme::surfaceBackground();
   // Icon contrast follows the painted title-bar luminance.
   const bool iconsOnDarkBar =
       authChrome || titleBg.lightness() < 148;
   const QColor brandFg =
       authChrome ? QColor(QStringLiteral("#F3F4F6"))
-                 : (libraryShellChrome
-                        ? libraryInk
-                        : (noteChrome ? NoteChrome::textPrimary()
-                                      : BlopTheme::textPrimary()));
+                 : (libraryShellChrome || noteChrome) ? libraryInk
+                                                      : BlopTheme::textPrimary();
   const QColor chromeFg =
       authChrome ? QColor(QStringLiteral("#E8E4FF"))
-                 : noteChrome ? NoteChrome::textPrimary()
-                              : libraryShellChrome ? libraryInk
-                                                   : (notesMode
-                                                          ? BlopTheme::textPrimary()
-                                                          : (iconsOnDarkBar
-                                                                 ? QColor(QStringLiteral(
-                                                                       "#E8E4FF"))
-                                                                 : BlopTheme::textPrimary()));
+                 : (noteChrome || libraryShellChrome)
+                       ? libraryInk
+                       : (notesMode ? BlopTheme::textPrimary()
+                                    : (iconsOnDarkBar
+                                           ? QColor(QStringLiteral("#E8E4FF"))
+                                           : BlopTheme::textPrimary()));
   const QColor chromeMuted =
       authChrome ? QColor(QStringLiteral("#C8CDDC"))
-                 : noteChrome ? NoteChrome::textSecondary()
-                              : libraryShellChrome ? libraryMuted
-                                                   : (notesMode
-                                                          ? BlopTheme::textSecondary()
-                                                          : (iconsOnDarkBar
-                                                                 ? QColor(QStringLiteral(
-                                                                       "#C8CDDC"))
-                                                                 : BlopTheme::textSecondary()));
+                 : (noteChrome || libraryShellChrome)
+                       ? libraryMuted
+                       : (notesMode ? BlopTheme::textSecondary()
+                                    : (iconsOnDarkBar
+                                           ? QColor(QStringLiteral("#C8CDDC"))
+                                           : BlopTheme::textSecondary()));
   const QColor winFg = chromeFg;
 
     if (m_titleBarWidget) {
@@ -20559,33 +20804,15 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
     if (authChrome) {
       btnEditorMenu->hide();
     } else if (noteChrome) {
-      btnEditorMenu->setIcon(
-          createModernIcon(m_isSidebarOpen ? QStringLiteral("menu")
-                                           : QStringLiteral("chevron_right"),
-                           NoteChrome::textSecondary()));
-      btnEditorMenu->setToolTip(m_isSidebarOpen
-                                    ? QStringLiteral("Seitenleiste")
-                                    : QStringLiteral("Seitenleiste aufklappen"));
-      btnEditorMenu->setStyleSheet(QStringLiteral(
-          "QToolButton { background: transparent; border: none; border-radius: 8px; }"
-          "QToolButton:hover { %1 }")
-                                       .arg(hoverGray));
+      // Same sidebar_panel glyph in light and dark — never a chevron.
+      refreshSidebarToggleButton();
     } else if (!m_isSidebarOpen) {
       refreshSidebarToggleButton();
     } else {
       btnEditorMenu->setIcon(
           createModernIcon(QStringLiteral("menu"), chromeFg));
-      btnEditorMenu->setStyleSheet(QStringLiteral(
-          "QToolButton { background: transparent; border: none; border-radius: 8px; }"
-          "QToolButton:hover { background: %1; }")
-                                       .arg(libraryShellChrome
-                                                ? (iconsOnDarkBar
-                                                       ? QStringLiteral(
-                                                             "rgba(255,255,255,0.08)")
-                                                       : QStringLiteral(
-                                                             "rgba(55,53,47,0.06)"))
-                                                : BlopTheme::surfaceMuted().name(
-                                                      QColor::HexArgb)));
+      btnEditorMenu->setStyleSheet(
+          BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
     }
   }
 
@@ -20597,6 +20824,22 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
             .arg(brandFg.name(QColor::HexRgb)));
   }
   applyBrandMark();
+
+  if (auto *editorBack =
+          findChild<QPushButton *>(QStringLiteral("TitleBarEditorBack"))) {
+    const bool showBack = noteChrome && !authChrome;
+    editorBack->setVisible(showBack);
+    editorBack->setStyleSheet(QStringLiteral(
+        "QPushButton#TitleBarEditorBack {"
+        "  color: %1; background: transparent; border: none;"
+        "  border-radius: 6px; padding: 0 10px;"
+        "  font-size: 13px; font-weight: 600;"
+        "}"
+        "QPushButton#TitleBarEditorBack:hover {"
+        "  background: rgba(255,255,255,0.08);"
+        "}")
+                                   .arg(chromeFg.name(QColor::HexRgb)));
+  }
 
   if (authChrome) {
     // Login gate: quiet brand left + drag stretch + window controls only.
@@ -20630,7 +20873,8 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 
   if (m_titleBarSep) {
     if (!authChrome)
-      m_titleBarSep->setVisible(!noteChrome && !onDashboard);
+      m_titleBarSep->setVisible(!noteChrome && !onDashboard &&
+                                !libraryShellChrome);
     m_titleBarSep->setStyleSheet(
         noteChrome
             ? QStringLiteral("background: %1; border: none;")
@@ -20867,7 +21111,8 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                                  : chromeMuted;
     m_btnEditorNoteOverflow->setIcon(
         createModernIcon(QStringLiteral("more_pill"), ic));
-    m_btnEditorNoteOverflow->setStyleSheet(BlopStyle::quietIconButtonQss(8));
+    m_btnEditorNoteOverflow->setStyleSheet(
+      BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   }
 
 #ifndef Q_OS_ANDROID
@@ -20877,16 +21122,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                                               : chromeMuted);
     m_btnTitleBarBell->setIcon(createModernIcon(QStringLiteral("bell"), ic));
     m_btnTitleBarBell->setStyleSheet(
-        iconsOnDarkBar
-            ? QStringLiteral(
-                  "QToolButton { background: transparent; border: none; "
-                  "border-radius: 8px; }"
-                  "QToolButton:hover { %1 }")
-                  .arg(hoverGray)
-            : QStringLiteral(
-                  "QToolButton { background: transparent; border: none; "
-                  "border-radius: 8px; }"
-                  "QToolButton:hover { background: rgba(0,0,0,0.06); }"));
+        BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   }
 #endif
 
@@ -20896,20 +21132,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
     m_btnTitleBarPageManager->setIcon(
         createModernIcon(QStringLiteral("pages_pill"), ic));
     m_btnTitleBarPageManager->setStyleSheet(
-        noteChrome
-            ? QStringLiteral(
-                  "QToolButton { background: transparent; border: none; "
-                  "border-radius: 8px; padding: 0; }"
-                  "QToolButton:hover { %1 }"
-                  "QToolButton:pressed { background: rgba(127,127,127,0.28); }")
-                  .arg(hoverGray)
-            : QStringLiteral(
-                  "QToolButton { background: transparent; border: none; "
-                  "border-radius: 8px; padding: 0; }"
-                  "QToolButton:hover { background: %1; }"
-                  "QToolButton:pressed { background: %2; }")
-                  .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb),
-                       BlopTheme::accentSubtle().name(QColor::HexArgb)));
+        BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
   }
 
   applyWindowControlsChrome(winFg, !iconsOnDarkBar);
@@ -21691,8 +21914,11 @@ bool MainWindow::showAuthOverlay(const QUrl &url) {
     QDialog dlg(this);
     dlg.setWindowTitle(tr("Anmeldung fehlgeschlagen"));
     auto *lay = new QVBoxLayout(&dlg);
-    lay->setContentsMargins(20, 18, 20, 16);
-    lay->setSpacing(12);
+    lay->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
+                         UiScale::dp(BlopStyle::edgeInsetDp()),
+                         UiScale::dp(BlopStyle::edgeInsetDp()),
+                         UiScale::dp(BlopStyle::edgeInsetDp()));
+    lay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
     auto *lbl = new QLabel(
         tr("Es konnte kein Browser geöffnet werden. Stelle sicher, dass"
            " Chrome oder ein anderer Browser installiert ist und versuche"

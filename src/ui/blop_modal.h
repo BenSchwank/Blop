@@ -95,6 +95,7 @@ protected:
   bool eventFilter(QObject *watched, QEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
+  void paintEvent(QPaintEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
   void mouseReleaseEvent(QMouseEvent *event) override;
@@ -114,6 +115,7 @@ private:
   Mode resolveMode(Mode requested) const;
   void installBlurBackdrop();
   void layoutBlurLayers();
+  void syncCardMask();
 
   QWidget *m_content{nullptr};
   QFrame *m_card{nullptr};
