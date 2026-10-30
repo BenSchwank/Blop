@@ -42,9 +42,14 @@ public:
     const QString next = text.trimmed();
     if (next == m_needle)
       return;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
     beginFilterChange();
     m_needle = next;
     endFilterChange();
+#else
+    m_needle = next;
+    invalidateFilter();
+#endif
   }
 
   void setIcons(const QIcon &folder, const QIcon &file) {
