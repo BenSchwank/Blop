@@ -225,16 +225,32 @@ NUMERISCHE GENAUIGKEIT UND PLAUSIBILITÄT (verbindlich, sobald Zahlen, Funktione
 """ + MATH_POWER_INSTRUCTIONS
 
 
+_INLINE_TOC_RE = re.compile(
+    r"(?im)^#{1,3}\s+inhaltsverzeichnis\s*\n(?:[ \t]*(?:[-*+]|\d+[.)])[ \t]+.*\n?)+",
+)
+_TRAILING_EMPTY_BULLET_RE = re.compile(r"\n\s*[-*+]\s*$")
+
+
+def _strip_inline_toc_and_empty_bullets(text: str) -> str:
+    """Drop LLM-written markdown TOCs and dangling list markers at EOF."""
+    t = text or ""
+    t = _INLINE_TOC_RE.sub("\n", t)
+    t = _TRAILING_EMPTY_BULLET_RE.sub("", t)
+    return t.strip()
+
+
 def _finalize_study_markdown(text: str) -> str:
     """Normalize powers so TipTap/KaTeX never show exponents as juxtaposition."""
-    return normalize_math_powers((text or "").strip())
+    cleaned = _strip_inline_toc_and_empty_bullets((text or "").strip())
+    return normalize_math_powers(cleaned)
 
 
 TOC_HEADING_INSTRUCTIONS = """
-STRUKTUR FÜR DAS INHALTSVERZEICHNIS (verbindlich):
+STRUKTUR (verbindlich):
 - Verwende echte Markdown-Überschriften: ein # für den Dokumenttitel, ## für Hauptabschnitte, ### für Unterabschnitte.
+- Erstelle KEIN eigenes Inhaltsverzeichnis, keine Markdown-Liste „Inhaltsverzeichnis“ und KEINE Anker-Links der Form [Kapitel](#slug). Die App baut das klickbare TOC selbst aus den ##/###-Überschriften.
 - Kein HTML, kein JavaScript, keine Anker-Links und keine <div>-Container.
-- Optional direkt nach dem Titel eine Markdown-Liste „Inhaltsverzeichnis“ mit den Abschnittstiteln — die App baut das klickbare TOC selbst aus den ##/###-Überschriften.
+- Beginne nach dem Titel direkt mit dem ersten Fachkapitel (z. B. ## 1. Einleitung) und schreibe den vollständigen, detaillierten fachlichen Inhalt aller Kapitel aus — inklusive Herleitungen, LaTeX-Formeln, Erklärungen und durchgerechneter Aufgaben. Nicht nur eine Gliederung.
 """
 
 
@@ -262,10 +278,11 @@ Wenn Hauptteil und Aufgaben komplett sind, aber die Struktur noch fehlt: ergänz
     _ELABORATION_CONTINUATION_PROMPT = """Die Ausarbeitung wurde wegen Ausgabe-Tokenlimit abgeschnitten.
 
 Setze NAHTLOS fort:
-- keine neue Einleitung, keine Wiederholung bereits fertiger Abschnitte
+- keine neue Einleitung, keine Wiederholung bereits fertiger Abschnitte, KEIN Inhaltsverzeichnis
 - zuerst fehlende Themen/Teilaufgaben/Projektphasen am Dokumentende ergänzen
 - danach ggf. noch fehlende Abschnitte (Praxisbeispiele, Transfer, Fazit) ergänzen
-- bleibe in derselben Struktur und im gleichen Stil"""
+- bleibe in derselben Struktur und im gleichen Stil
+- schreibe den fachlichen Inhalt vollständig aus (Herleitungen, LaTeX, durchgerechnete Aufgaben)"""
 
     @staticmethod
     def _generate_repetition_with_continuation(model, input_parts: List[Any], max_followups: int = 6) -> str:
@@ -1920,7 +1937,7 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
         compact = level_key in {"Kurz", "Normal"}
         max_followups = 1 if compact else (6 if level_key == "Sehr detailliert" else 4)
         # Reserve fewer tokens up front so low OpenRouter balances do not 402 before generation.
-        initial_cap = 3072 if compact else (6144 if level_key != "Sehr detailliert" else 8192)
+        initial_cap = 4096 if compact else 8192
         detail_hint = {
             "Kurz": "Kompakt, aber immer noch substanziell. Nicht künstlich in die Länge ziehen.",
             "Normal": "Vollständig und klar, ohne Wiederholungen. Nicht künstlich in die Länge ziehen.",
@@ -1966,8 +1983,8 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
 
 {MATH_ACCURACY_INSTRUCTIONS}
 
-Erforderliche Struktur (Markdown):
-## Einleitung
+Erforderliche Struktur (Markdown) — direkt nach dem Titel, OHNE Inhaltsverzeichnis:
+## 1. Einleitung
 - Kontext, Problemstellung, Ziel der Ausarbeitung.
 
 ## Systematische Durcharbeitung

@@ -6,7 +6,13 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { extractMarkdownHeadings, slugifyHeading, type TocHeading } from "@/lib/markdownHeadings";
+import {
+    extractMarkdownHeadings,
+    sanitizeDocumentMarkdown,
+    scrollToHeadingId,
+    slugifyHeading,
+    type TocHeading,
+} from "@/lib/markdownHeadings";
 
 type Props = {
     children: string;
@@ -24,8 +30,14 @@ function plainChildren(node: React.ReactNode): string {
     return "";
 }
 
+const headingClass: Record<"h1" | "h2" | "h3", string> = {
+    h1: "scroll-mt-20 text-3xl font-semibold text-white tracking-tight",
+    h2: "scroll-mt-20 mt-[2.2em] mb-[0.8em] pb-[0.3em] border-b border-white/[0.08] text-xl font-semibold text-white",
+    h3: "scroll-mt-20 mt-8 mb-3 text-lg font-medium text-slate-100",
+};
+
 export default function DocumentMarkdown({ children, className = "" }: Props) {
-    const text = typeof children === "string" ? children : String(children ?? "");
+    const text = sanitizeDocumentMarkdown(typeof children === "string" ? children : String(children ?? ""));
     const headings = useMemo(() => extractMarkdownHeadings(text), [text]);
     const cursor = { i: 0 };
 
@@ -35,7 +47,7 @@ export default function DocumentMarkdown({ children, className = "" }: Props) {
             const id = headings[cursor.i]?.id || fallback;
             cursor.i += 1;
             return (
-                <Tag id={id} className="scroll-mt-24">
+                <Tag id={id} className={headingClass[Tag]}>
                     {kids}
                 </Tag>
             );
@@ -50,6 +62,26 @@ export default function DocumentMarkdown({ children, className = "" }: Props) {
                     h1: heading("h1"),
                     h2: heading("h2"),
                     h3: heading("h3"),
+                    a: ({ href, children: kids, ...rest }) => {
+                        const isHash = typeof href === "string" && href.startsWith("#");
+                        return (
+                            <a
+                                href={href}
+                                className="text-[#60A5FA] no-underline hover:underline"
+                                onClick={
+                                    isHash
+                                        ? (e) => {
+                                              e.preventDefault();
+                                              scrollToHeadingId(href || "");
+                                          }
+                                        : undefined
+                                }
+                                {...rest}
+                            >
+                                {kids}
+                            </a>
+                        );
+                    },
                 }}
             >
                 {text}
@@ -59,5 +91,5 @@ export default function DocumentMarkdown({ children, className = "" }: Props) {
 }
 
 export function headingsFromMarkdown(markdown: string): TocHeading[] {
-    return extractMarkdownHeadings(markdown);
+    return extractMarkdownHeadings(sanitizeDocumentMarkdown(markdown));
 }
