@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
+import MermaidBlock from "@/components/MermaidBlock";
 import {
     extractMarkdownHeadings,
     sanitizeDocumentMarkdown,
@@ -62,6 +63,20 @@ export default function DocumentMarkdown({ children, className = "" }: Props) {
                     h1: heading("h1"),
                     h2: heading("h2"),
                     h3: heading("h3"),
+                    pre: ({ children: kids }) => <>{kids}</>,
+                    code: ({ className, children: kids }) => {
+                        const lang = /language-(\w+)/.exec(className || "")?.[1];
+                        const text = String(kids ?? "").replace(/\n$/, "");
+                        if (lang === "mermaid") return <MermaidBlock code={text} />;
+                        if (lang) {
+                            return (
+                                <pre className="overflow-x-auto">
+                                    <code className={className}>{kids}</code>
+                                </pre>
+                            );
+                        }
+                        return <code className={className}>{kids}</code>;
+                    },
                     a: ({ href, children: kids, ...rest }) => {
                         const isHash = typeof href === "string" && href.startsWith("#");
                         return (

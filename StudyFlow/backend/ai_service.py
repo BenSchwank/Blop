@@ -213,6 +213,14 @@ def _learning_video_storyboard_error_hint(exc: BaseException) -> str:
 
 
 # In alle mathematisch/naturwissenschaftlich relevanten Prompts einfügen (Rechenfehler in Musterlösungen vermeiden).
+MATH_LAYOUT_INSTRUCTIONS = """
+MARKDOWN- UND LATEX-LAYOUT (verbindlich):
+- Display-Mathe IMMER auf eigenen Zeilen: Leerzeile, dann $$, Formel, $$, Leerzeile. Niemals $$ mitten in einem Fließtext-Satz und niemals #### oder --- INNEN in einer $$...$$-Umgebung.
+- Überschriften (##, ###, ####) und Trennlinien (---) stehen allein am Zeilenanfang.
+- Doppelbrüche, \\sum, \\oint, \\int IMMER als Blockformel $$...$$, nie inline $...$.
+- KEINE ASCII-Schaltpläne oder ASCII-Kunst (z. B. +---[ Ri ]---+ oder senkrechte ||| -Leiter). Stattdessen eine Markdown-Tabelle oder ein mermaid-Codeblock (```mermaid ... ```) mit flowchart/graph.
+"""
+
 MATH_ACCURACY_INSTRUCTIONS = """
 NUMERISCHE GENAUIGKEIT UND PLAUSIBILITÄT (verbindlich, sobald Zahlen, Funktionen, Ableitungen, Integrale oder Modelle vorkommen):
 - Leite jede behauptete Zahl und jedes Näherungsergebnis Schritt für Schritt aus den gegebenen Formeln ab. Zeige explizite Zwischenergebnisse (z. B. Potenzen von $e$, Produkte, Summen im Nenner), bevor du dividierst oder rundest. Keine Endwerte raten oder „aus dem Gedächtnis“ erfinden.
@@ -222,7 +230,7 @@ NUMERISCHE GENAUIGKEIT UND PLAUSIBILITÄT (verbindlich, sobald Zahlen, Funktione
 - Rundung transparent machen (Zwischenergebnisse mit ausreichend Stellen); wo sinnvoll, exakte Brüche oder algebraische Ausdrücke angeben.
 - Wenn du dir bei einer komplexen Zahl nicht sicher bist: den exakten Ausdruck angeben und ausdrücklich zur Nachrechnung mit dem Taschenrechner auffordern — lieber ehrlich als falsch.
 - Vor dem Abschluss: kurze Plausibilitätsprüfung (Größenordnung, Monotonie, Randwerte, ob das Ergebnis zum Modell passt).
-""" + MATH_POWER_INSTRUCTIONS
+""" + MATH_POWER_INSTRUCTIONS + MATH_LAYOUT_INSTRUCTIONS
 
 
 _INLINE_TOC_RE = re.compile(
@@ -239,9 +247,37 @@ def _strip_inline_toc_and_empty_bullets(text: str) -> str:
     return t.strip()
 
 
+def _normalize_markdown_math_layout(text: str) -> str:
+    """Force $$ and headings onto their own lines so KaTeX does not swallow a whole chapter."""
+    t = (text or "").replace("\r\n", "\n")
+    fences: list[str] = []
+
+    def _stash_fence(m: re.Match) -> str:
+        fences.append(m.group(0))
+        return f"\ue000{len(fences) - 1}\ue001"
+
+    t = re.sub(r"```[\s\S]*?```", _stash_fence, t)
+    t = re.sub(r"\$\$([\s\S]*?)\$\$", lambda m: "\n$$\n" + m.group(1).strip() + "\n$$\n", t)
+    t = re.sub(r"([^\n])\$\$", r"\1\n$$", t)
+    t = re.sub(r"\$\$([^\n])", r"$$\n\1", t)
+    fixed_lines: list[str] = []
+    for line in t.split("\n"):
+        if re.match(r"^\s*\|", line) or re.match(r"^\s*-{3,}\s*$", line):
+            fixed_lines.append(line)
+            continue
+        line = re.sub(r"([^\n#])(#{2,4}\s)", r"\1\n\n\2", line)
+        line = re.sub(r"(\S)(---)", r"\1\n\n\2", line)
+        fixed_lines.append(line)
+    t = "\n".join(fixed_lines)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    t = re.sub(r"\ue000(\d+)\ue001", lambda m: fences[int(m.group(1))], t)
+    return t
+
+
 def _finalize_study_markdown(text: str) -> str:
     """Normalize powers so TipTap/KaTeX never show exponents as juxtaposition."""
     cleaned = _strip_inline_toc_and_empty_bullets((text or "").strip())
+    cleaned = _normalize_markdown_math_layout(cleaned)
     return normalize_math_powers(cleaned)
 
 
@@ -824,7 +860,7 @@ ANCORDERUNGEN AN DEN LERNPLAN:
 3. Gib GENAUE Zeitangaben für jede Aufgabe (Summe = {hours_per_day}h pro Tag)
 4. Berücksichtige Lernpsychologie: Wiederholungen einbauen, Pausen vorschlagen
 5. Erstelle für jeden Tag eine kurze INHALTLICHE ZUSAMMENFASSUNG (3-5 Sätze) des Tagesstoffs, sodass aus dem Lernplan direkt gelernt werden kann. (Mache dies nicht für Ruhetage).
-6. Die Aufgaben sollen als ein JSON-Array von Objekten mit einem `description`-Feld und einem `completed`-Feld (immer auf false setzen) zurückgegeben werden.
+6. Die Aufgaben sollen als ein JSON-Array von Objekten mit einem `description`-Feld und einem `completed`-Feld (immer auf false setzen) zurückgegeben werden. KEINE Häkchen-Emojis (✅ ☑️ ✔️) am Aufgabenanfang — die App hat eigene Checkboxen.
 
 FÜR JEDE AUFGABE ANGEBEN:
 - Was genau zu tun ist (spezifisch, nicht vage)
@@ -839,8 +875,8 @@ Ausgabe: JSON Array mit genau {duration_days} Einträgen:
         "goal": "Was soll der Lernende am Ende dieses Tages können/wissen?",
         "summary": "Die wichtigste Zusammenfassung / der zu lernende Inhalt für diesen Tag in 3-5 kompletten Sätzen (z.B. Definitionen, Kernkonzepte).",
         "tasks": [
-            {{"description": "✅ [Aufgabe 1] – Methode: [Methode] (ca. XX Min)", "completed": false}},
-            {{"description": "✅ [Aufgabe 2] – Methode: [Methode] (ca. XX Min)", "completed": false}}
+            {{"description": "[Aufgabe 1] – Methode: [Methode] (ca. XX Min)", "completed": false}},
+            {{"description": "[Aufgabe 2] – Methode: [Methode] (ca. XX Min)", "completed": false}}
         ],
         "focus": "⭐ Besonders wichtig: [Was ist der Kern dieses Tages?]",
         "tip": "💡 Lerntipp: [Spezifischer Tipp für diesen Tag]"

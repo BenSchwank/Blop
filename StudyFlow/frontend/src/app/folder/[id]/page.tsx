@@ -14,7 +14,9 @@ import QuizSession, { type QuizQuestion as QuizSessionQuestion } from "@/compone
 import FlashcardSession from "@/components/FlashcardSession";
 import DocumentMarkdown from "@/components/DocumentMarkdown";
 import DocumentToc from "@/components/DocumentToc";
-import { extractMarkdownHeadings, isThinDocument, sanitizeDocumentMarkdown } from "@/lib/markdownHeadings";
+import MathMarkdown from "@/components/MathMarkdown";
+import MarkdownPrintPortal from "@/components/MarkdownPrintPortal";
+import { extractMarkdownHeadings, isThinDocument, sanitizeDocumentMarkdown, splitTaskTime, stripLeadingTaskEmoji } from "@/lib/markdownHeadings";
 import { awardXp } from "@/lib/xpClient";
 import { registerAiJobAbort, unregisterAiJobAbort, abortAiJob, isAbortError } from "@/lib/aiJobAbortRegistry";
 import { getSessionId, sessionHeaders } from "@/lib/session";
@@ -965,6 +967,9 @@ export default function FolderPage() {
 
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
+    const [chatDockOpen, setChatDockOpen] = useState(false);
+    const [chatDockExpanded, setChatDockExpanded] = useState(false);
+    const [printMarkdownJob, setPrintMarkdownJob] = useState<{ md: string; title: string } | null>(null);
     const [documentUndoStack, setDocumentUndoStack] = useState<Record<string, string[]>>({});
     const [expandedDay, setExpandedDay] = useState<number | null>(0);
     const [signedMediaUrl, setSignedMediaUrl] = useState<string | null>(null);
@@ -3543,6 +3548,10 @@ export default function FolderPage() {
         }
     };
 
+    const chatShiftClass = chatDockOpen
+        ? `max-md:mr-0 transition-[margin] duration-200 ease ${chatDockExpanded ? "md:mr-[min(100vw-1.25rem,40rem)]" : "md:mr-[min(100vw-1.25rem,26rem)]"}`
+        : "transition-[margin] duration-200 ease";
+
     // --- VIEWER COMPONENTS ---
     const renderViewer = () => {
         if (!selectedFile) return null;
@@ -3656,8 +3665,9 @@ export default function FolderPage() {
                         jumpToText={chatPatchJumpText}
                         username={typeof window !== 'undefined' ? localStorage.getItem("username") || "" : ""}
                         modelPreference={effectiveModelPreference}
+                        contentShiftClass={chatShiftClass}
                         onClose={() => { setSelectedFile(null); setIsEditingFile(false); }}
-                        onSave={async (newContent) => {
+                        onSave={async (newContent, opts) => {
                             try {
                                 const username = localStorage.getItem("username");
                                 const sid = localStorage.getItem("session_id") || "";
@@ -3677,7 +3687,7 @@ export default function FolderPage() {
                                     const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: newContent } : f);
                                     setFiles(updatedFiles);
                                     setSelectedFile({ ...selectedFile, content: newContent });
-                                    setIsEditingFile(false);
+                                    if (opts?.close) setIsEditingFile(false);
                                 } else {
                                     const err = await res.json();
                                     showToast(`Fehler beim Speichern: ${err.detail || 'Unbekannt'}`);
@@ -3691,9 +3701,12 @@ export default function FolderPage() {
             }
 
             const typeLabel = AI_JOB_LABELS[selectedFile.type] || selectedFile.type;
+            const crumbLabel = selectedFile.name && selectedFile.name !== typeLabel
+                ? `${typeLabel}: ${selectedFile.name}`
+                : typeLabel;
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between h-14 px-4 border-b border-white/[0.08] bg-[#23252A] shrink-0 z-10 w-full gap-3">
+                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 ${chatShiftClass}`}>
+                    <div className="flex items-center justify-between h-14 px-4 border-b border-white/[0.08] bg-[#23252A] shrink-0 z-10 w-full gap-3 no-print">
                         <div className="flex items-center gap-2 min-w-0">
                             <button onClick={() => { setSelectedFile(null); setIsEditingFile(false); }} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors shrink-0" aria-label="Schließen">
                                 <X size={18} />
@@ -3701,7 +3714,7 @@ export default function FolderPage() {
                             <p className="min-w-0 truncate text-[13px] text-gray-400">
                                 <span className="text-gray-300">{folderName || "Ordner"}</span>
                                 <span className="mx-1.5 text-gray-600">/</span>
-                                <span className="text-white">{typeLabel}: {selectedFile.name}</span>
+                                <span className="text-white">{crumbLabel}</span>
                             </p>
                         </div>
                         <div className="flex items-center gap-2 no-print shrink-0">
@@ -3757,7 +3770,7 @@ export default function FolderPage() {
                                 </button>
                             )}
                             <button
-                                onClick={() => window.print()}
+                                onClick={() => setPrintMarkdownJob({ md: contentStr, title: selectedFile.name || typeLabel })}
                                 className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg text-[13px] font-medium text-white bg-[#2563EB] hover:bg-[#1D4ED8]"
                                 title="Als PDF exportieren"
                             >
@@ -3835,8 +3848,8 @@ export default function FolderPage() {
             const sessionId = typeof window !== 'undefined' ? localStorage.getItem("session_id") || "" : "";
             const busyPractice = isGenerating.includes('quiz') || isGenerating.includes('flashcards');
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
+                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 ${chatShiftClass}`}>
+                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full no-print">
                         <div className="flex items-center gap-3">
                             <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
                                 <X size={20} />
@@ -3903,9 +3916,19 @@ export default function FolderPage() {
                 );
             }
 
+            const allTasks = plan.flatMap((d) => d.tasks || []);
+            const doneCount = allTasks.filter((t) => typeof t === "object" && t !== null && Boolean((t as { completed?: boolean }).completed)).length;
+            const totalCount = allTasks.length;
+            const pct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+            const studyTarget = files.find((f) => f.type === "elaboration") || files.find((f) => f.type === "flashcards");
+            const openStudyTarget = () => {
+                if (studyTarget) setSelectedFile(studyTarget);
+                else handleGenerate("elaboration");
+            };
+
             return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
+                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 ${chatShiftClass}`}>
+                    <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full no-print">
                         <div className="flex items-center gap-3">
                             <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
                                 <X size={20} />
@@ -3918,7 +3941,10 @@ export default function FolderPage() {
                         </div>
                         <div className="flex items-center gap-2 no-print">
                             <button
-                                onClick={() => window.print()}
+                                onClick={() => setPrintMarkdownJob({
+                                    md: plan.map((d) => `## Tag ${d.day}: ${d.topic}\n\n${d.goal || ""}\n\n${d.summary || ""}\n\n${(d.tasks || []).map((t) => `- ${typeof t === "object" ? t.description : t}`).join("\n")}`).join("\n\n"),
+                                    title: selectedFile.name || "Lernplan",
+                                })}
                                 className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                                 title="Lernplan als PDF drucken"
                             >
@@ -3930,6 +3956,23 @@ export default function FolderPage() {
 
                     <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-6">
                         <div className="max-w-4xl mx-auto space-y-4">
+                            <div className="bg-[#353840] rounded-2xl border border-[#45484F] p-5">
+                                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                                    <p className="text-sm text-gray-200">
+                                        {doneCount} von {totalCount} Aufgaben ({pct}%)
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleGenerate("plan")}
+                                        className="text-xs font-medium text-[#93C5FD] hover:text-white px-3 py-1.5 rounded-lg border border-[#45484F] hover:bg-[#3A3D45]"
+                                    >
+                                        Lernplan anpassen / Neu generieren
+                                    </button>
+                                </div>
+                                <div className="h-2 rounded-full bg-[#23252A] overflow-hidden">
+                                    <div className="h-full rounded-full bg-[#2563EB] transition-all" style={{ width: `${pct}%` }} />
+                                </div>
+                            </div>
                             {plan.map((day: PlanDayRow, i: number) => {
                                 const isExpanded = expandedDay === i;
 
@@ -3939,59 +3982,60 @@ export default function FolderPage() {
                                             onClick={() => setExpandedDay(isExpanded ? null : i)}
                                             className="w-full text-left p-5 flex items-center justify-between focus:outline-none group"
                                         >
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-colors ${isExpanded ? 'bg-blue-500 text-white' : 'bg-[#3A3D45] text-gray-400 group-hover:bg-[#4A4E58]'}`}>
+                                            <div className="flex items-center gap-4 min-w-0">
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-colors shrink-0 ${isExpanded ? 'bg-blue-500 text-white' : 'bg-[#3A3D45] text-gray-400 group-hover:bg-[#4A4E58]'}`}>
                                                     {day.day}
                                                 </div>
-                                                <div>
+                                                <div className="min-w-0">
                                                     <h3 className={`text-lg transition-colors font-semibold ${isExpanded ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{day.topic}</h3>
-                                                    {!isExpanded && <p className="text-sm text-gray-500 truncate max-w-md">{day.goal}</p>}
+                                                    {!isExpanded && <p className="text-sm text-gray-500 truncate max-w-md">{stripLeadingTaskEmoji(day.goal || "")}</p>}
                                                 </div>
                                             </div>
-                                            <div className={`p-2 rounded-full transition-transform duration-200 ${isExpanded ? 'rotate-180 bg-blue-500/10 text-blue-400' : 'bg-[#23252A] text-gray-500 group-hover:text-white'}`}>
+                                            <div className={`p-2 rounded-full transition-transform duration-200 shrink-0 ${isExpanded ? 'rotate-180 bg-blue-500/10 text-blue-400' : 'bg-[#23252A] text-gray-500 group-hover:text-white'}`}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                             </div>
                                         </button>
 
-                                        <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                                        <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
                                             <div className="p-5 pt-0 ml-14 space-y-4">
                                                 <div className="text-sm text-gray-300 bg-[#23252A] p-4 rounded-xl border border-[#45484F] shadow-inner">
                                                     <div className="flex items-center gap-2 mb-2">
-                                                        <span className="text-blue-400 font-semibold text-xs uppercase tracking-wider">🎯 Tagesziel</span>
+                                                        <span className="text-blue-400 font-semibold text-xs uppercase tracking-wider">Tagesziel</span>
                                                     </div>
-                                                    <p>{day.goal}</p>
+                                                    <MathMarkdown>{stripLeadingTaskEmoji(day.goal || "")}</MathMarkdown>
                                                     {day.summary && (
                                                         <div className="mt-3 pt-3 border-t border-[#45484F]">
-                                                            <span className="text-blue-400 font-semibold text-xs uppercase tracking-wider mb-2 block">📚 Zusammenfassung (Lernstoff)</span>
-                                                            <p className="text-gray-300 leading-relaxed">{day.summary}</p>
+                                                            <span className="text-blue-400 font-semibold text-xs uppercase tracking-wider mb-2 block">Zusammenfassung (Lernstoff)</span>
+                                                            <MathMarkdown>{day.summary}</MathMarkdown>
                                                         </div>
                                                     )}
                                                 </div>
 
                                                 <div className="bg-[#23252A] p-4 rounded-xl border border-[#45484F]">
-                                                    <div className="flex items-center gap-2 mb-3">
-                                                        <span className="text-gray-400 font-semibold text-xs uppercase tracking-wider">📝 Aufgaben</span>
+                                                    <div className="flex items-center justify-between gap-2 mb-3">
+                                                        <span className="text-gray-400 font-semibold text-xs uppercase tracking-wider">Aufgaben</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={openStudyTarget}
+                                                            className="text-[11px] text-[#93C5FD] hover:text-white"
+                                                        >
+                                                            {studyTarget ? "Zur Ausarbeitung / Karten" : "Material generieren"}
+                                                        </button>
                                                     </div>
                                                     <ul className="space-y-3">
                                                         {day.tasks?.map((task: PlanTask, idx: number) => {
                                                             const isCompleted = typeof task === 'object' && task !== null ? Boolean((task as { completed?: boolean }).completed) : false;
                                                             const description = typeof task === 'object' && task !== null ? String((task as { description?: string }).description ?? '') : String(task);
+                                                            const { body, minutes } = splitTaskTime(description);
                                                             return (
                                                                 <li key={idx} className="flex items-start gap-3 group/task">
                                                                     <button
                                                                         onClick={async (e) => {
                                                                             e.stopPropagation();
-                                                                            // Only allow if it's the new object format
                                                                             if (typeof task !== 'object') return;
-
-                                                                            // Deep clone the plan to avoid mutating state directly in a bad way
                                                                             const newPlan = JSON.parse(JSON.stringify(plan));
                                                                             newPlan[i].tasks[idx].completed = !isCompleted;
-
-                                                                            // Optimistically update UI
                                                                             setSelectedFile({ ...selectedFile, content: newPlan });
-
-                                                                            // Update Backend
                                                                             try {
                                                                                 const username = localStorage.getItem("username");
                                                                                 const sid = localStorage.getItem("session_id") || "";
@@ -4005,7 +4049,6 @@ export default function FolderPage() {
                                                                                         content: newPlan
                                                                                     })
                                                                                 });
-                                                                                // Update main files state quietly
                                                                                 setFiles(files.map(f => f.id === selectedFile.id ? { ...f, content: newPlan } : f));
                                                                             } catch (e) {
                                                                                 console.error("Failed to save checkbox state", e);
@@ -4017,14 +4060,20 @@ export default function FolderPage() {
                                                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                                                                     </button>
 
-                                                                    <button
-                                                                        onClick={() => handleTaskHelp(description)}
-                                                                        className={`flex-1 text-left text-sm transition-colors focus:outline-none focus:text-white rounded px-2 -ml-2 py-0.5 hover:bg-[#3A3D45] ${isCompleted ? 'text-gray-500 line-through' : 'text-gray-300 group-hover/task:text-white'
-                                                                            }`}
-                                                                        title="Klicke für KI-Erklärung dieser Aufgabe"
-                                                                    >
-                                                                        {description}
-                                                                    </button>
+                                                                    <div className={`flex-1 min-w-0 flex items-start gap-2 ${isCompleted ? 'opacity-60' : ''}`}>
+                                                                        <button
+                                                                            onClick={() => handleTaskHelp(description)}
+                                                                            className={`flex-1 text-left text-sm transition-colors focus:outline-none rounded px-2 -ml-2 py-0.5 hover:bg-[#3A3D45] ${isCompleted ? 'text-gray-500 line-through' : 'text-gray-300 group-hover/task:text-white'}`}
+                                                                            title="Klicke für KI-Erklärung dieser Aufgabe"
+                                                                        >
+                                                                            <MathMarkdown compact>{body}</MathMarkdown>
+                                                                        </button>
+                                                                        {minutes != null ? (
+                                                                            <span className="shrink-0 mt-0.5 rounded-full bg-[#1E3A5F] text-[#93C5FD] text-[11px] font-medium px-2 py-0.5">
+                                                                                {minutes} Min
+                                                                            </span>
+                                                                        ) : null}
+                                                                    </div>
                                                                 </li>
                                                             );
                                                         })}
@@ -4034,8 +4083,8 @@ export default function FolderPage() {
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                                                     {day.focus && (
                                                         <div className="text-sm bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl">
-                                                            <div className="text-amber-500 font-semibold text-xs uppercase tracking-wider mb-2">⚡ Fokus</div>
-                                                            <div className="text-amber-200/90">{day.focus}</div>
+                                                            <div className="text-amber-500 font-semibold text-xs uppercase tracking-wider mb-2">Fokus</div>
+                                                            <MathMarkdown className="text-amber-200/90">{day.focus}</MathMarkdown>
                                                         </div>
                                                     )}
                                                 </div>
@@ -4045,12 +4094,10 @@ export default function FolderPage() {
                                 );
                             })}
                         </div>
-                        {/* Generate Quiz Shortcut */}
                         <div className="max-w-4xl mx-auto mt-8 flex justify-center pb-12">
                             <button
                                 disabled={isGenerating.includes('quiz')}
                                 onClick={() => {
-                                    // Make sure we close the selected file so they can see the generation
                                     setSelectedFile(null);
                                     handleGenerate('quiz');
                                 }}
@@ -4157,8 +4204,8 @@ export default function FolderPage() {
         const ytIdGeneric = youtubeVideoIdFromTranscriptFile(selectedFile);
 
         return (
-                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
+                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 ${chatShiftClass}`}>
+                <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full no-print">
                     <div className="flex items-center gap-3">
                         <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
                             <X size={20} />
@@ -4211,7 +4258,7 @@ export default function FolderPage() {
                             </button>
                         )}
                         <button
-                            onClick={() => window.print()}
+                            onClick={() => setPrintMarkdownJob({ md: contentStrGeneric, title: selectedFile.name || "Dokument" })}
                             className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                             title="Als PDF exportieren"
                         >
@@ -6496,11 +6543,24 @@ export default function FolderPage() {
                     )}
                 </AnimatePresence>
 
+                {printMarkdownJob ? (
+                    <MarkdownPrintPortal
+                        markdown={printMarkdownJob.md}
+                        title={printMarkdownJob.title}
+                        folderName={folderName || undefined}
+                        onDone={() => setPrintMarkdownJob(null)}
+                    />
+                ) : null}
+
                 <FloatingChat
                     folderId={folderId}
                     username={typeof window !== 'undefined' ? localStorage.getItem('username') || 'Gast' : 'Gast'}
                     modelPreference={effectiveModelPreference}
                     activeFile={selectedFile}
+                    onOpenChange={(open, expanded) => {
+                        setChatDockOpen(open);
+                        setChatDockExpanded(expanded);
+                    }}
                     onUpdateActiveFile={async (newContent) => {
                         if (!selectedFile) return;
 

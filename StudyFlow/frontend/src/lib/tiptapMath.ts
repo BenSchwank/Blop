@@ -13,6 +13,12 @@ function renderLatex(latex: string, display: boolean): string {
     }
 }
 
+const latexAttr = {
+    default: "",
+    parseHTML: (el: HTMLElement) => el.getAttribute("data-latex") || "",
+    renderHTML: (attrs: { latex?: string }) => (attrs.latex ? { "data-latex": attrs.latex } : {}),
+};
+
 export const MathInline = Node.create({
     name: "mathInline",
     group: "inline",
@@ -20,9 +26,7 @@ export const MathInline = Node.create({
     atom: true,
     selectable: true,
     addAttributes() {
-        return {
-            latex: { default: "" },
-        };
+        return { latex: latexAttr };
     },
     parseHTML() {
         return [{ tag: 'span[data-math="inline"][data-latex]' }];
@@ -57,9 +61,7 @@ export const MathDisplay = Node.create({
     atom: true,
     selectable: true,
     addAttributes() {
-        return {
-            latex: { default: "" },
-        };
+        return { latex: latexAttr };
     },
     parseHTML() {
         return [{ tag: 'span[data-math="display"][data-latex]' }, { tag: 'div[data-math="display"][data-latex]' }];
@@ -87,3 +89,14 @@ export const MathDisplay = Node.create({
         };
     },
 });
+
+export function editorMathNodesIntact(editor: { state: { doc: { descendants: (fn: (node: { type: { name: string }; attrs: { latex?: string } }) => void) => void } } }): boolean {
+    let ok = true;
+    let sawMath = false;
+    editor.state.doc.descendants((node) => {
+        if (node.type.name !== "mathInline" && node.type.name !== "mathDisplay") return;
+        sawMath = true;
+        if (!String(node.attrs.latex || "").trim()) ok = false;
+    });
+    return !sawMath || ok;
+}
