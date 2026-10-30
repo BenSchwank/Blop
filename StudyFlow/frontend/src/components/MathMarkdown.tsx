@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
+import { sanitizeDocumentMarkdown } from "@/lib/markdownHeadings";
 
 type Props = {
     children: string;
@@ -19,7 +20,7 @@ type Props = {
  * Same stack as folder read mode / FloatingChat so $...$ powers render correctly.
  */
 export default function MathMarkdown({ children, className = "", compact = false }: Props) {
-    const text = typeof children === "string" ? children : String(children ?? "");
+    const text = sanitizeDocumentMarkdown(typeof children === "string" ? children : String(children ?? ""));
     if (!text.trim()) return null;
 
     const prose = compact

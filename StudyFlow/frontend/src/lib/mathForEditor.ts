@@ -1,4 +1,5 @@
 import katex from "katex";
+import { sanitizeDocumentMarkdown } from "@/lib/markdownHeadings";
 
 function escapeAttr(s: string): string {
     return s
@@ -95,7 +96,7 @@ function restoreSpans(html: string, slots: Array<{ latex: string; display: boole
 
 /** Markdown (with $math$) → HTML for TipTap, preserving powers as KaTeX spans. */
 export function markdownToEditorHtml(md: string, markedParse: (src: string) => string): string {
-    const { text, slots } = mathToSpans(md);
+    const { text, slots } = mathToSpans(sanitizeDocumentMarkdown(md || ""));
     const html = markedParse(text) || "";
     return restoreSpans(html, slots);
 }
@@ -134,5 +135,13 @@ export function serializeEditorMathSpans(html: string): string {
         .replace(
             /<span[^>]*data-latex="([^"]*)"[^>]*data-math="inline"[^>]*>[\s\S]*?<\/span>/gi,
             (_m, latex: string) => `$${unescapeAttr(latex)}$`
+        )
+        .replace(
+            /<div[^>]*data-math="display"[^>]*data-latex="([^"]*)"[^>]*>[\s\S]*?<\/div>/gi,
+            (_m, latex: string) => `$$${unescapeAttr(latex)}$$`
+        )
+        .replace(
+            /<div[^>]*data-latex="([^"]*)"[^>]*data-math="display"[^>]*>[\s\S]*?<\/div>/gi,
+            (_m, latex: string) => `$$${unescapeAttr(latex)}$$`
         );
 }

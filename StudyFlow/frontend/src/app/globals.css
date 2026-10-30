@@ -339,9 +339,13 @@ input:focus-visible {
 
   #blop-markdown-print-mount .blop-markdown-export-prose .katex,
   #blop-markdown-print-mount .blop-markdown-export-prose .katex * {
-    color: #000000 !important;
-    fill: #000000 !important;
-    stroke: #000000 !important;
+    color: #111827 !important;
+    fill: #111827 !important;
+    stroke: #111827 !important;
+  }
+
+  #blop-markdown-print-mount .blop-mermaid svg {
+    background: #ffffff !important;
   }
 
   #blop-markdown-print-mount .blop-markdown-export-prose {
@@ -364,13 +368,20 @@ input:focus-visible {
 }
 
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 20mm 18mm;
+  }
+
   /* Reset Backgrounds & Text Colors */
-  body, html {
+  html, body {
     background: #ffffff !important;
-    color: #000000 !important;
+    color: #111827 !important;
     height: auto !important;
     max-height: none !important;
     overflow: visible !important;
+    display: block !important;
+    position: static !important;
   }
 
   /* Fullscreen file viewer: must not use position:fixed (prints blank / one page) */
@@ -387,15 +398,19 @@ input:focus-visible {
     min-height: 0 !important;
     overflow: visible !important;
     background: #ffffff !important;
-    color: #111111 !important;
+    color: #111827 !important;
     z-index: auto !important;
     box-shadow: none !important;
+    display: block !important;
   }
 
   .print-friendly-viewer .flex-1.overflow-y-auto,
   .print-friendly-viewer .overflow-y-auto {
+    display: block !important;
     overflow: visible !important;
+    height: auto !important;
     max-height: none !important;
+    position: static !important;
   }
 
   /* TipTap editor body when printing from Vollbild-Editor */
@@ -458,14 +473,22 @@ input:focus-visible {
   /* KaTeX in PDF / print */
   .katex,
   .katex * {
-    color: #000000 !important;
-    fill: #000000 !important;
-    stroke: #000000 !important;
+    color: #111827 !important;
+    fill: #111827 !important;
+    stroke: #111827 !important;
   }
 
-  .katex-display {
+  .katex-display,
+  pre,
+  table,
+  blockquote {
     overflow: visible !important;
+    break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .blop-mermaid svg {
+    background: #ffffff !important;
   }
 
   .prose-blop a {
@@ -541,11 +564,7 @@ input:focus-visible {
 
   /* Never break right after a heading */
   h1, h2, h3, h4, h5 {
+    break-after: avoid;
     page-break-after: avoid;
-  }
-
-  @page {
-    /* Extra bottom margin so the last line is not tight against the sheet edge */
-    margin: 1.6cm 2cm 2.4cm;
   }
 }

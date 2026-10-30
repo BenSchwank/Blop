@@ -22,6 +22,7 @@ interface FloatingChatProps {
     onApplyPatch?: (patch: DocumentPatch) => Promise<void>;
     onUndoLastPatch?: () => Promise<void>;
     canUndo?: boolean;
+    onOpenChange?: (open: boolean, expanded: boolean) => void;
 }
 
 interface DocumentPatch {
@@ -53,7 +54,7 @@ function fixMojibake(text: string): string {
     }
 }
 
-export default function FloatingChat({ folderId, username, modelPreference, activeFile, onUpdateActiveFile, onApplyPatch, onUndoLastPatch, canUndo = false }: FloatingChatProps) {
+export default function FloatingChat({ folderId, username, modelPreference, activeFile, onUpdateActiveFile, onApplyPatch, onUndoLastPatch, canUndo = false, onOpenChange }: FloatingChatProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [editDocument, setEditDocument] = useState(false);
@@ -75,6 +76,12 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
     useEffect(() => {
         if (isOpen) scrollToBottom();
     }, [messages, isOpen]);
+
+    const onOpenChangeRef = useRef(onOpenChange);
+    onOpenChangeRef.current = onOpenChange;
+    useEffect(() => {
+        onOpenChangeRef.current?.(isOpen, isExpanded);
+    }, [isOpen, isExpanded]);
 
     // Keep the mobile chat sheet inside the visual viewport (keyboard-safe).
     useEffect(() => {

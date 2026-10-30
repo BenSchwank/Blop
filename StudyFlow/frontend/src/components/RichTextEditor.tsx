@@ -1,9 +1,4 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -14,16 +9,17 @@ import { Bold, Italic, List, ListOrdered, Heading1, Heading2, Heading3, Quote, C
 import { marked } from 'marked';
 import { htmlToMarkdownForPdfExport } from '@/lib/htmlToMarkdownExport';
 import { ensureMathSpansInHtml, markdownToEditorHtml, serializeEditorMathSpans } from '@/lib/mathForEditor';
-import { MathDisplay, MathInline } from '@/lib/tiptapMath';
+import { editorMathNodesIntact, MathDisplay, MathInline } from '@/lib/tiptapMath';
 import SelectionAiPanel from '@/components/SelectionAiPanel';
+import MarkdownPrintPortal from '@/components/MarkdownPrintPortal';
 import { slugifyHeading, type TocHeading } from '@/lib/markdownHeadings';
-import 'katex/dist/katex.min.css';
 
 interface RichTextEditorProps {
     initialContent: string;
     title: string;
-    onSave: (content: string) => Promise<void>;
+    onSave: (content: string, opts?: { close?: boolean }) => Promise<void>;
     onClose: () => void;
+    contentShiftClass?: string;
     /** When set (e.g. YouTube import), show embedded player above the editor. */
     youtubeVideoId?: string | null;
     /** Increment when parent updated content externally (e.g. chat patch). */
@@ -34,7 +30,7 @@ interface RichTextEditorProps {
     modelPreference?: string;
 }
 
-const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveStatus }: { editor: any, onSave: () => void, onClose: () => void, onExportPdf: () => void, isSaving: boolean, title: string, saveStatus: 'idle' | 'saving' | 'saved' }) => {
+const MenuBar = ({ editor, onSave, onClose, onCancel, onExportPdf, isSaving, saveStatus }: { editor: any, onSave: () => void, onClose: () => void, onCancel: () => void, onExportPdf: () => void, isSaving: boolean, saveStatus: 'idle' | 'saving' | 'saved' }) => {
     if (!editor) {
         return null;
     }
@@ -135,11 +131,7 @@ const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveSt
                 </div>
             </div>
 
-            <div className="flex items-center gap-4 shrink-0 pl-4 no-print">
-                <div className="hidden md:block text-gray-400 text-sm max-w-[200px] truncate" title={title}>
-                    {title}
-                </div>
-
+            <div className="flex items-center gap-3 shrink-0 pl-4 no-print">
                 <button
                     type="button"
                     onClick={onExportPdf}
@@ -151,9 +143,17 @@ const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveSt
                 </button>
 
                 <button
+                    type="button"
+                    onClick={onCancel}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-300 hover:text-white hover:bg-[#333] border border-[#444] transition-colors"
+                >
+                    Abbrechen
+                </button>
+
+                <button
                     onClick={onSave}
                     disabled={isSaving}
-                    className="flex items-center gap-2 bg-[#5B9DFF] hover:bg-[#7EB2FF] text-white px-5 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                    className="flex items-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-5 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
                 >
                     {isSaving || saveStatus === 'saving' ? (
                         <>
@@ -195,7 +195,7 @@ function headingsFromEditor(editor: { state: { doc: { descendants: (fn: (node: {
     return out;
 }
 
-export default function RichTextEditor({ initialContent, title, onSave, onClose, youtubeVideoId, externalUpdateToken, jumpToText, username, modelPreference }: RichTextEditorProps) {
+export default function RichTextEditor({ initialContent, title, onSave, onClose, youtubeVideoId, externalUpdateToken, jumpToText, username, modelPreference, contentShiftClass = '' }: RichTextEditorProps) {
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [printMarkdown, setPrintMarkdown] = useState<string | null>(null);
@@ -205,7 +205,9 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
     const [selectionInstruction, setSelectionInstruction] = useState('');
     const [selectionBusy, setSelectionBusy] = useState(false);
     const [selectionError, setSelectionError] = useState('');
+    const [isDirty, setIsDirty] = useState(false);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const isDirtyRef = useRef(false);
     const selectionPanelRef = useRef<HTMLDivElement | null>(null);
     const selectionRangeRef = useRef<{ from: number; to: number } | null>(null);
     const selectionRafRef = useRef<number | null>(null);
@@ -259,17 +261,30 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
         },
         onUpdate: ({ editor }) => {
             setEditorHeadings(headingsFromEditor(editor));
+            isDirtyRef.current = true;
+            setIsDirty(true);
+            if (!editorMathNodesIntact(editor)) {
+                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+                return;
+            }
             const currentHtml = serializeEditorMathSpans(editor.getHTML());
+            if (!currentHtml || /\$\s*\$/.test(currentHtml)) {
+                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+                return;
+            }
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
             }
-            
+
             setSaveStatus('idle');
-            
+
             saveTimeoutRef.current = setTimeout(async () => {
                 setSaveStatus('saving');
                 try {
-                    await onSave(currentHtml);
+                    const md = htmlToMarkdownForPdfExport(currentHtml);
+                    await onSave(md, { close: false });
+                    isDirtyRef.current = false;
+                    setIsDirty(false);
                     setSaveStatus('saved');
                     setTimeout(() => { if (setSaveStatus) setSaveStatus('idle'); }, 2000);
                 } catch (e) {
@@ -426,18 +441,38 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
         }
     }, [closeSelectionPanel, editor, modelPreference, selectionBusy, selectionInstruction, selectionText, username]);
 
+    const editorToMarkdown = useCallback(() => {
+        if (!editor) return '';
+        if (!editorMathNodesIntact(editor)) return '';
+        return htmlToMarkdownForPdfExport(serializeEditorMathSpans(editor.getHTML()));
+    }, [editor]);
+
+    const requestClose = useCallback(() => {
+        if ((isDirty || isDirtyRef.current) && !window.confirm('Ungespeicherte Änderungen verwerfen?')) return;
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        onClose();
+    }, [isDirty, onClose]);
+
     const handleSave = async () => {
         if (!editor) return;
+        if (!editorMathNodesIntact(editor)) return;
         setIsSaving(true);
         setSaveStatus('saving');
-        
+
         if (saveTimeoutRef.current) {
             clearTimeout(saveTimeoutRef.current);
         }
-        
-        const htmlContent = serializeEditorMathSpans(editor.getHTML());
-        await onSave(htmlContent);
-        
+
+        const md = editorToMarkdown();
+        if (!md) {
+            setIsSaving(false);
+            setSaveStatus('idle');
+            return;
+        }
+        await onSave(md, { close: true });
+        isDirtyRef.current = false;
+        setIsDirty(false);
+
         setIsSaving(false);
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
@@ -449,46 +484,6 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
         setPrintMarkdown(md);
     }, [editor]);
 
-    /* Same pipeline as read-only viewer: Markdown → KaTeX → system print / „Als PDF speichern“. */
-    useEffect(() => {
-        if (printMarkdown === null) return;
-
-        document.body.classList.add('blop-printing-markdown');
-
-        let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
-        let printDelay: ReturnType<typeof setTimeout> | undefined;
-        let raf1 = 0;
-        let raf2 = 0;
-
-        const finish = () => {
-            if (fallbackTimer !== undefined) clearTimeout(fallbackTimer);
-            fallbackTimer = undefined;
-            window.removeEventListener('afterprint', finish);
-            document.body.classList.remove('blop-printing-markdown');
-            setPrintMarkdown(null);
-        };
-
-        raf1 = requestAnimationFrame(() => {
-            raf2 = requestAnimationFrame(() => {
-                printDelay = setTimeout(() => {
-                    window.addEventListener('afterprint', finish, { once: true });
-                    fallbackTimer = setTimeout(finish, 120000);
-                    window.print();
-                }, 750);
-            });
-        });
-
-        return () => {
-            cancelAnimationFrame(raf1);
-            cancelAnimationFrame(raf2);
-            if (printDelay !== undefined) clearTimeout(printDelay);
-            if (fallbackTimer !== undefined) clearTimeout(fallbackTimer);
-            window.removeEventListener('afterprint', finish);
-            document.body.classList.remove('blop-printing-markdown');
-            setPrintMarkdown(null);
-        };
-    }, [printMarkdown]);
-
     // Cleanup timeout on unmount
     useEffect(() => {
         return () => {
@@ -499,36 +494,9 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
         };
     }, []);
 
-    const printPortal =
-        printMarkdown !== null &&
-        typeof document !== 'undefined' &&
-        createPortal(
-            <div
-                id="blop-markdown-print-mount"
-                className="fixed inset-0 z-[200000] overflow-auto bg-white text-gray-900 print:static print:overflow-visible"
-            >
-                <div className="no-print sticky top-0 z-10 border-b border-gray-200 bg-white/95 px-4 py-3 text-sm text-gray-600 backdrop-blur">
-                    Druckdialog öffnet sich gleich. Wähle <strong>Als PDF speichern</strong> als Ziel – gleiche Darstellung wie in der Leseansicht (inkl. Formeln).
-                    <span className="mt-2 block text-xs text-gray-500">
-                        In Chrome: unter <strong>Weitere Einstellungen</strong> die Option <strong>Kopf- und Fußzeilen</strong> deaktivieren, damit Datum, Titel und URL nicht im PDF erscheinen.
-                    </span>
-                </div>
-                <div className="blop-markdown-export-prose mx-auto max-w-3xl px-6 py-8 prose prose-slate max-w-none [&_.katex-display]:max-w-full">
-                    <h1 className="not-prose text-2xl font-bold text-gray-900 mb-6 print:mb-4">{title}</h1>
-                    <ReactMarkdown
-                        remarkPlugins={[remarkGfm, remarkMath]}
-                        rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
-                    >
-                        {printMarkdown}
-                    </ReactMarkdown>
-                </div>
-            </div>,
-            document.body
-        );
-
     return (
-        <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#1A1916] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <MenuBar editor={editor} onSave={handleSave} onClose={onClose} onExportPdf={runPdfExport} isSaving={isSaving} title={title} saveStatus={saveStatus} />
+        <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#1A1916] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 ${contentShiftClass}`}>
+            <MenuBar editor={editor} onSave={handleSave} onClose={requestClose} onCancel={requestClose} onExportPdf={runPdfExport} isSaving={isSaving} saveStatus={saveStatus} />
             {youtubeVideoId ? (
                 <div className="shrink-0 border-b border-[#333] bg-[#14141f] px-4 py-4">
                     <div className="max-w-4xl mx-auto aspect-video max-h-[min(40vh,360px)] rounded-xl overflow-hidden border border-[#45484F] bg-black shadow-lg">
@@ -613,7 +581,13 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
                 onApply={() => void applySelectionAiEdit()}
                 panelRef={selectionPanelRef}
             />
-            {printPortal}
+            {printMarkdown !== null ? (
+                <MarkdownPrintPortal
+                    markdown={printMarkdown}
+                    title={title}
+                    onDone={() => setPrintMarkdown(null)}
+                />
+            ) : null}
 
             <style jsx global>{`
                 .ProseMirror p.is-editor-empty:first-child::before {

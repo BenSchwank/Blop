@@ -10,6 +10,7 @@ const marketingHubUrl = (
 ).replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["mermaid"],
   env: {
     NEXT_PUBLIC_BACKEND_ORIGIN: backendUrl,
   },
