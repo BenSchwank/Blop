@@ -15525,9 +15525,12 @@ void MainWindow::animateSidebar(bool show) {
     // fixed-width lock before expanding.
     m_sidebarContainer->setMinimumSize(0, 0);
     m_sidebarContainer->setMaximumWidth(qMax(fullW, endW));
+#ifndef Q_OS_ANDROID
+    // collapsedW exists only on desktop (icon rail); Android animates 0 → fullW.
     if (show)
       m_sidebarContainer->setFixedWidth(
           qMax(collapsedW, m_sidebarContainer->width()));
+#endif
     if (QLayout *lay = m_sidebarContainer->layout())
       lay->setSizeConstraint(QLayout::SetNoConstraint);
     m_sidebarContainer->setAttribute(Qt::WA_LayoutUsesWidgetRect, true);
