@@ -38,6 +38,7 @@ CREATE TABLE public.files (
     type TEXT NOT NULL,
     content TEXT, -- For text-based things like flashcards, markdown
     file_url TEXT, -- URL or path referencing the Supabase Storage bucket for binary files
+    archived BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE
 );

@@ -314,7 +314,7 @@ class DataManager:
 
     @staticmethod
     def get_ai_context_file_ids(username: str, folder_id: str) -> Optional[List[str]]:
-        """Returns None or empty to mean source materials only. Non-empty list is an explicit selection."""
+        """None = default pdf/transcript. [] = explicitly empty. Non-empty = explicit selection."""
         db = DataManager._init_supabase()
         if not db:
             return None
@@ -338,20 +338,20 @@ class DataManager:
                     return None
             if not isinstance(val, list):
                 return None
-            out = [str(x) for x in val if x is not None and str(x).strip()]
-            return out if len(out) > 0 else None
+            return [str(x) for x in val if x is not None and str(x).strip()]
         except Exception as e:
             print(f"get_ai_context_file_ids: {e}")
             return None
 
     @staticmethod
     def set_ai_context_file_ids(username: str, folder_id: str, file_ids: Optional[List[str]]) -> bool:
-        """Pass None or [] to clear the explicit selection (source materials only)."""
+        """None = default sources. [] = no sources. Non-empty list = explicit selection."""
         db = DataManager._init_supabase()
         if not db:
             return False
-        payload = None
-        if file_ids is not None and len(file_ids) > 0:
+        if file_ids is None:
+            payload = None
+        else:
             payload = [str(x) for x in file_ids]
         try:
             res = (
@@ -505,22 +505,129 @@ class DataManager:
         return None
 
     @staticmethod
+    def get_folder_ancestors(username, folder_id) -> List[dict]:
+        """Root → parent chain excluding the current folder. Oldest ancestor first."""
+        db = DataManager._init_supabase()
+        if not db:
+            return []
+        try:
+            res = (
+                db.table("folders")
+                .select("id, name, parent_id")
+                .eq("username", username)
+                .execute()
+            )
+        except Exception:
+            return []
+        by_id = {str(r["id"]): r for r in (res.data or []) if r.get("id")}
+        chain: List[dict] = []
+        seen = set()
+        cur = by_id.get(str(folder_id))
+        if not cur:
+            return []
+        parent_id = cur.get("parent_id")
+        while parent_id and str(parent_id) not in seen:
+            seen.add(str(parent_id))
+            parent = by_id.get(str(parent_id))
+            if not parent:
+                break
+            chain.append({"id": str(parent["id"]), "name": parent.get("name") or "Ordner"})
+            parent_id = parent.get("parent_id")
+        chain.reverse()
+        return chain
+
+    @staticmethod
+    def list_folder_tree(username) -> List[dict]:
+        """Nested folder tree with direct file_count per node."""
+        db = DataManager._init_supabase()
+        if not db:
+            return []
+        try:
+            folders_res = (
+                db.table("folders")
+                .select("id, name, parent_id, created_at")
+                .eq("username", username)
+                .order("name")
+                .execute()
+            )
+            files_res = (
+                db.table("files")
+                .select("folder_id")
+                .eq("username", username)
+                .execute()
+            )
+        except Exception as e:
+            print(f"list_folder_tree: {e}")
+            return []
+
+        counts: dict = {}
+        for f in (files_res.data or []):
+            fid = str(f.get("folder_id") or "")
+            if not fid:
+                continue
+            counts[fid] = counts.get(fid, 0) + 1
+
+        nodes = {}
+        for row in (folders_res.data or []):
+            fid = str(row["id"])
+            nodes[fid] = {
+                "id": fid,
+                "name": row.get("name") or "Ordner",
+                "parent_id": row.get("parent_id"),
+                "file_count": counts.get(fid, 0),
+                "children": [],
+            }
+
+        roots: List[dict] = []
+        for node in nodes.values():
+            pid = node.get("parent_id")
+            if pid and str(pid) in nodes:
+                nodes[str(pid)]["children"].append(node)
+            else:
+                roots.append(node)
+
+        def sort_rec(items: List[dict]):
+            items.sort(key=lambda n: (n.get("name") or "").lower())
+            for n in items:
+                sort_rec(n["children"])
+
+        sort_rec(roots)
+        for node in nodes.values():
+            node.pop("parent_id", None)
+        return roots
+
+    @staticmethod
     def list_files(username, folder_id, include_content: bool = False):
         db = DataManager._init_supabase()
         if not db: return []
 
-        columns = "id, name, type, created_at, updated_at, file_url, folder_id, username"
+        columns = "id, name, type, created_at, updated_at, file_url, folder_id, username, archived"
         if include_content:
             columns = f"{columns}, content"
-        res = (
-            db.table("files")
-            .select(columns)
-            .eq("folder_id", str(folder_id))
-            .eq("username", username)
-            .execute()
-        )
+        try:
+            res = (
+                db.table("files")
+                .select(columns)
+                .eq("folder_id", str(folder_id))
+                .eq("username", username)
+                .execute()
+            )
+        except Exception:
+            # Column may not exist yet before migration — fall back without archived.
+            columns_fallback = columns.replace(", archived", "")
+            res = (
+                db.table("files")
+                .select(columns_fallback)
+                .eq("folder_id", str(folder_id))
+                .eq("username", username)
+                .execute()
+            )
         files = []
         for f in (res.data or []):
+            if "archived" not in f:
+                f["archived"] = False
+            else:
+                f["archived"] = bool(f.get("archived"))
             if include_content:
                 content = f.get("content")
                 if content and isinstance(content, str) and (content.startswith("[") or content.startswith("{")):
@@ -538,17 +645,28 @@ class DataManager:
         db = DataManager._init_supabase()
         if not db:
             return None
-        res = (
-            db.table("files")
-            .select("id, name, type, created_at, updated_at, file_url, folder_id, username, content")
-            .eq("id", str(file_id))
-            .eq("username", username)
-            .limit(1)
-            .execute()
-        )
+        try:
+            res = (
+                db.table("files")
+                .select("id, name, type, created_at, updated_at, file_url, folder_id, username, content, archived")
+                .eq("id", str(file_id))
+                .eq("username", username)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            res = (
+                db.table("files")
+                .select("id, name, type, created_at, updated_at, file_url, folder_id, username, content")
+                .eq("id", str(file_id))
+                .eq("username", username)
+                .limit(1)
+                .execute()
+            )
         if not res.data:
             return None
         f = res.data[0]
+        f["archived"] = bool(f.get("archived")) if "archived" in f else False
         content = f.get("content")
         if content and isinstance(content, str) and (content.startswith("[") or content.startswith("{")):
             try:
@@ -557,6 +675,25 @@ class DataManager:
                 pass
         f["content"] = content
         return f
+
+    @staticmethod
+    def set_file_archived(username, folder_id, file_id, archived: bool) -> bool:
+        db = DataManager._init_supabase()
+        if not db:
+            return False
+        try:
+            res = (
+                db.table("files")
+                .update({"archived": bool(archived), "updated_at": datetime.now().isoformat()})
+                .eq("id", str(file_id))
+                .eq("username", username)
+                .eq("folder_id", str(folder_id))
+                .execute()
+            )
+            return len(res.data or []) > 0
+        except Exception as e:
+            print(f"set_file_archived: {e}")
+            return False
 
     @staticmethod
     def list_file_ids(username, folder_id):

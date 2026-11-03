@@ -16,6 +16,17 @@ import DocumentMarkdown from "@/components/DocumentMarkdown";
 import DocumentToc from "@/components/DocumentToc";
 import MathMarkdown from "@/components/MathMarkdown";
 import MarkdownPrintPortal from "@/components/MarkdownPrintPortal";
+import FolderPageHeader from "@/components/folder/FolderPageHeader";
+import FolderAiStudioBar, { type AiToolKey } from "@/components/folder/FolderAiStudioBar";
+import SubfolderChipGrid from "@/components/folder/SubfolderChipGrid";
+import FolderFileManager from "@/components/folder/FolderFileManager";
+import {
+    activeAiContextIds,
+    defaultAiContextIds,
+    isAiContextEligible,
+    materialCount as countActiveMaterials,
+    thisWeekEligibleIds,
+} from "@/lib/folderFileUtils";
 import { extractMarkdownHeadings, isThinDocument, sanitizeDocumentMarkdown, splitTaskTime, stripLeadingTaskEmoji } from "@/lib/markdownHeadings";
 import { awardXp } from "@/lib/xpClient";
 import { registerAiJobAbort, unregisterAiJobAbort, abortAiJob, isAbortError } from "@/lib/aiJobAbortRegistry";
@@ -27,7 +38,7 @@ import SelectionAiPanel from "@/components/SelectionAiPanel";
 import { AiModelOptions } from "@/lib/aiModelOptions";
 import { motion, AnimatePresence } from 'framer-motion';
 import { marked } from 'marked';
-import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
+import { DndContext, DragOverlay, closestCenter, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
 
 interface FileData {
     id: string;
@@ -36,7 +47,10 @@ interface FileData {
     created_at: string;
     content?: unknown;
     file_url?: string;
+    archived?: boolean;
 }
+
+type FolderAncestor = { id: string; name: string };
 
 function openYoutubeVideoInNewTab(videoId: string) {
     window.open(
@@ -125,7 +139,9 @@ function partitionFolderFiles<T extends { type: string; name?: string }>(all: T[
 interface SubfolderRow {
     id: string;
     name: string;
-    created_at: string;
+    created_at?: string;
+    file_count?: number;
+    parent_id?: string | null;
 }
 
 interface IncomingShareRequest {
@@ -261,27 +277,8 @@ function normalizePodcastVoice(value: string, fallback: string) {
 }
 const OPENAI_TTS_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"] as const;
 
-/** File types the user can opt into AI context. Default selection is pdf + transcript only. */
-const AI_CONTEXT_FILE_TYPES = new Set([
-    'transcript',
-    'summary',
-    'repetition',
-    'elaboration',
-    'plan',
-    'quiz',
-    'flashcards',
-    'pdf',
-    'smart_learning',
-]);
-
-const AI_CONTEXT_SOURCE_TYPES = new Set(['pdf', 'transcript']);
-
-function isAiContextSourceFile(f: Pick<FileData, 'type'>): boolean {
-    return AI_CONTEXT_FILE_TYPES.has(f.type);
-}
-
-function isDefaultAiContextFile(f: Pick<FileData, 'type'>): boolean {
-    return AI_CONTEXT_SOURCE_TYPES.has(f.type);
+function isAiContextSourceFile(f: Pick<FileData, "type" | "archived">): boolean {
+    return isAiContextEligible(f);
 }
 
 function fileTypeSupportsPromptRefine(t: string): boolean {
@@ -322,241 +319,15 @@ function getRefineModalCopy(type: string): { title: string; placeholder: string 
     return map[type] || { title: 'Inhalt mit Prompt anpassen', placeholder: 'Beschreibe, was geändert werden soll …' };
 }
 
-type DraggableFileProps = {
-    file: FileData;
-    icon: React.ReactNode;
-    openMenuFileId: string | null;
-    setOpenMenuFileId: React.Dispatch<React.SetStateAction<string | null>>;
-    setSelectedFile: (file: FileData) => void;
-    setFileToRename: React.Dispatch<React.SetStateAction<FileData | null>>;
-    setRenameFileValue: React.Dispatch<React.SetStateAction<string>>;
-    setIsRenameFileOpen: React.Dispatch<React.SetStateAction<boolean>>;
-    handleDelete: (file: FileData) => void;
-    onRefineFile: (file: FileData) => void;
-    onOpenShareOverlay: (file: FileData) => void;
-    onCopyFile: (file: FileData) => void;
-};
-
-// Sub-component for interactive Quiz viewing — replaced by QuizSession
 const QuizViewer = ({ questions }: { questions: QuizQuestion[] }) => (
     <QuizSession
         questions={questions as QuizSessionQuestion[]}
-        onComplete={(correct, total) => {
+        onComplete={(correct) => {
             const xp = 10 + Math.max(0, correct) * 2;
             void awardXp(xp, "quiz");
         }}
     />
 );
-
-// Subfolder Droppable Wrapper
-const DroppableSubfolder = ({ subfolder, onClick, onRename, onDelete }: { subfolder: SubfolderRow, onClick: () => void, onRename: (sf: SubfolderRow) => void, onDelete: (sf: SubfolderRow) => void }) => {
-    const { isOver, setNodeRef } = useDroppable({
-        id: `drop-${subfolder.id}`,
-        data: { type: 'subfolder', subfolder }
-    });
-
-    return (
-        <motion.div
-            ref={setNodeRef}
-            layout
-            initial={{ opacity: 0, scale: 0.95, y: -5 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -5 }}
-            transition={{ duration: 0.2 }}
-            className={`flex items-center gap-2 border p-3 rounded-xl text-left transition-all group
-                ${isOver ? 'bg-[#3A3D45] border-[#5B9DFF] shadow-lg shadow-[#5B9DFF]/20 scale-105' : 'bg-[#353840] hover:bg-[#3A3D45] border-[#45484F] hover:border-[#5B9DFF]/40'}
-            `}
-        >
-            <button type="button" onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2 text-left min-h-10">
-            <div className="p-1.5 rounded-lg bg-[#5B9DFF]/10 text-[#5B9DFF] shrink-0">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
-            </div>
-            <span className="text-sm text-gray-300 group-hover:text-white truncate font-medium min-w-0">{subfolder.name}</span>
-            </button>
-            <div className="ml-auto flex items-center gap-1 shrink-0" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-                <button
-                    type="button"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onRename(subfolder);
-                    }}
-                    className="min-h-10 min-w-10 flex items-center justify-center rounded-md text-gray-400 hover:text-white hover:bg-[#23233b]"
-                    aria-label="Unterordner umbenennen"
-                >
-                    <Edit size={16} />
-                </button>
-                <button
-                    type="button"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete(subfolder);
-                    }}
-                    className="min-h-10 min-w-10 flex items-center justify-center rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                    aria-label="Unterordner löschen"
-                >
-                    <Trash2 size={16} />
-                </button>
-            </div>
-        </motion.div>
-    );
-};
-
-// Draggable File Wrapper
-const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete, onRefineFile, onOpenShareOverlay, onCopyFile }: DraggableFileProps) => {
-    const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-        id: `drag-${file.id}`,
-        data: { type: 'file', file }
-    });
-
-    return (
-        <motion.div
-            ref={setNodeRef}
-            layout
-            initial={{ opacity: 0, scale: 0.95, x: -10 }}
-            animate={{ opacity: isDragging ? 0.4 : 1, scale: 1, x: 0 }}
-            exit={{ opacity: 0, scale: 0.95, x: -10 }}
-            transition={{ duration: 0.2 }}
-            {...attributes}
-            {...listeners}
-            onClick={() => { if (!openMenuFileId) setSelectedFile(file); }}
-            onContextMenu={(e) => {
-                e.preventDefault();
-                setOpenMenuFileId(openMenuFileId === file.id ? null : file.id);
-            }}
-            className={`bg-[#353840] hover:bg-[#3A3D45] border border-[#45484F] p-4 rounded-xl flex items-center justify-between gap-3 group transition-colors cursor-pointer relative min-w-0 ${isDragging ? 'z-50 shadow-2xl border-[#5B9DFF]' : ''}`}
-        >
-            <div className="flex items-center gap-4 min-w-0 flex-1">
-                <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-blue-500/10 text-blue-400' :
-                    file.type === 'smart_learning' ? 'bg-indigo-500/10 text-indigo-300' :
-                    file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
-                        file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
-                            file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
-                                file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
-                                    file.type === 'audio' ? 'bg-blue-500/10 text-blue-300' :
-                                        file.type === 'video' ? 'bg-cyan-500/10 text-cyan-300' :
-                                            'bg-[#3A3D45] text-[#5B9DFF]'
-                    }`}>
-                    {icon}
-                </div>
-                <div className="min-w-0">
-                    <h4 className="text-sm font-medium text-white select-none truncate">{file.name}</h4>
-                    <p className="text-xs text-gray-500 capitalize select-none truncate">{formatDateTime(file.created_at)} • {file.type}</p>
-                </div>
-            </div>
-
-            {/* 3-dot button + dropdown */}
-            <div className="relative shrink-0" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-                <button
-                    onClick={() => setOpenMenuFileId(openMenuFileId === file.id ? null : file.id)}
-                    aria-label="Dateiaktionen"
-                    className="text-gray-300 hover:text-white min-h-10 min-w-10 flex items-center justify-center rounded-lg hover:bg-[#3A3D45]"
-                >
-                    <MoreVertical size={18} />
-                </button>
-
-                {openMenuFileId === file.id && (
-                    <div className="absolute right-0 top-full mt-1 w-40 bg-[#23252A] border border-[#45484F] rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                        <button
-                            onClick={() => { setSelectedFile(file); setOpenMenuFileId(null); }}
-                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
-                            Öffnen
-                        </button>
-
-                        {youtubeVideoIdFromTranscriptFile(file) && (
-                            <>
-                                <div className="h-px bg-[#3A3D45]" />
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        const vid = youtubeVideoIdFromTranscriptFile(file);
-                                        setOpenMenuFileId(null);
-                                        if (vid) openYoutubeVideoInNewTab(vid);
-                                    }}
-                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
-                                >
-                                    <ExternalLink size={15} />
-                                    Video auf YouTube öffnen
-                                </button>
-                            </>
-                        )}
-
-                        {file.type !== 'pdf' && (
-                            <>
-                                <div className="h-px bg-[#3A3D45]" />
-                                <button
-                                    onClick={() => {
-                                        setFileToRename(file);
-                                        setRenameFileValue(file.name);
-                                        setIsRenameFileOpen(true);
-                                        setOpenMenuFileId(null);
-                                    }}
-                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
-                                >
-                                    <Edit size={15} />
-                                    Umbenennen
-                                </button>
-                            </>
-                        )}
-
-                        {fileTypeSupportsPromptRefine(file.type) && (
-                            <>
-                                <div className="h-px bg-[#3A3D45]" />
-                                <button
-                                    onClick={() => {
-                                        onRefineFile(file);
-                                        setOpenMenuFileId(null);
-                                    }}
-                                    className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
-                                >
-                                    <Edit size={15} />
-                                    Mit Prompt anpassen
-                                </button>
-                            </>
-                        )}
-
-                        <div className="h-px bg-[#3A3D45]" />
-                        <button
-                            onClick={() => {
-                                setOpenMenuFileId(null);
-                                onOpenShareOverlay(file);
-                            }}
-                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
-                        >
-                            <Send size={15} />
-                            Teilen
-                        </button>
-
-                        <div className="h-px bg-[#3A3D45]" />
-                        <button
-                            onClick={() => {
-                                setOpenMenuFileId(null);
-                                onCopyFile(file);
-                            }}
-                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
-                        >
-                            <Copy size={15} />
-                            Kopieren
-                        </button>
-
-                        <div className="h-px bg-[#3A3D45]" />
-                        <button
-                            onClick={async () => {
-                                setOpenMenuFileId(null);
-                                handleDelete(file);
-                            }}
-                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
-                            Löschen
-                        </button>
-                    </div>
-                )}
-            </div>
-        </motion.div>
-    );
-};
 
 async function pollCoreAiJob(jobId: string, username: string, signal: AbortSignal): Promise<any> {
     const pollMs = 2000;
@@ -608,6 +379,8 @@ export default function FolderPage() {
     const folderId = params?.id as string;
     const [files, setFiles] = useState<FileData[]>([]);
     const [folderName, setFolderName] = useState("");
+    const [folderAncestors, setFolderAncestors] = useState<FolderAncestor[]>([]);
+    const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     const [filesLoadError, setFilesLoadError] = useState<string | null>(null);
 
@@ -1239,12 +1012,14 @@ export default function FolderPage() {
                 headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
-                    included_file_ids: next === null || next.length === 0 ? null : next,
+                    included_file_ids: next,
                 }),
             });
             if (res.ok) {
                 const data = await res.json();
-                setAiContextIncludedIds(data.included_file_ids ?? null);
+                setAiContextIncludedIds(
+                    data.included_file_ids === undefined ? null : data.included_file_ids
+                );
             } else {
                 try {
                     const err = await res.json();
@@ -1262,7 +1037,7 @@ export default function FolderPage() {
 
     const toggleAiContextFile = (fileId: string, wantChecked: boolean) => {
         const contextFiles = files.filter(isAiContextSourceFile);
-        const sourceIds = contextFiles.filter(isDefaultAiContextFile).map((f) => f.id);
+        const sourceIds = defaultAiContextIds(files);
         if (contextFiles.length === 0) return;
 
         const current = aiContextIncludedIds === null ? sourceIds : aiContextIncludedIds;
@@ -1277,9 +1052,14 @@ export default function FolderPage() {
         void persistAiContext(isDefault ? null : next);
     };
 
-    const isFileInAiContext = (file: Pick<FileData, 'id' | 'type'>) => {
-        if (aiContextIncludedIds === null) return isDefaultAiContextFile(file);
-        return aiContextIncludedIds.includes(file.id);
+    const isFileInAiContext = (file: Pick<FileData, "id" | "type" | "archived">) => {
+        return activeAiContextIds(files, aiContextIncludedIds).includes(file.id);
+    };
+
+    const notifyFoldersChanged = () => {
+        if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("blop_folders_changed"));
+        }
     };
 
     const announceUsage = (data: any) => {
@@ -1341,7 +1121,11 @@ export default function FolderPage() {
             if (folderRes.ok) {
                 const data = await folderRes.json();
                 setFolderName(typeof data.name === "string" ? data.name : "");
+                setFolderAncestors(Array.isArray(data.ancestors) ? data.ancestors : []);
+            } else {
+                setFolderAncestors([]);
             }
+            setSelectedFileIds(new Set());
         } catch (error) {
             console.error("Failed to fetch files:", error);
             setFilesLoadError(error instanceof Error ? error.message : "Netzwerkfehler beim Laden.");
@@ -1817,7 +1601,16 @@ export default function FolderPage() {
         }
     };
 
+    const ensureAiSourcesOrToast = (): boolean => {
+        const n = activeAiContextIds(files, aiContextIncludedIds).length;
+        if (n > 0) return true;
+        showToast("Bitte wähle unten mindestens eine Datei als KI-Quelle aus.", "info");
+        return false;
+    };
+
     const handleGenerate = async (type: 'plan' | 'quiz' | 'flashcards' | 'summary' | 'elaboration' | 'repetition') => {
+        if (!ensureAiSourcesOrToast()) return;
+
         if (type === 'plan') {
             setIsPlanConfigOpen(true);
             return;
@@ -1851,6 +1644,111 @@ export default function FolderPage() {
         }
 
         await handleAIAction(type, setIsGenerating);
+    };
+
+    const handleAiStudioTool = (key: AiToolKey) => {
+        if (key === "smart-learning") {
+            if (!ensureAiSourcesOrToast()) return;
+            const existing = files.find((f) => f.type === "smart_learning");
+            if (existing) {
+                void selectFileWithContent(existing);
+                return;
+            }
+            setIsSmartLearningConfigOpen(true);
+            return;
+        }
+        if (key === "podcast") {
+            if (!ensureAiSourcesOrToast()) return;
+            setIsPodcastConfigOpen(true);
+            return;
+        }
+        if (key === "learning-video") {
+            if (!ensureAiSourcesOrToast()) return;
+            setIsLearningVideoConfigOpen(true);
+            return;
+        }
+        void handleGenerate(key);
+    };
+
+    const handleAiPreset = (preset: "all" | "sources" | "week" | "clear") => {
+        if (preset === "sources") {
+            void persistAiContext(null);
+            return;
+        }
+        if (preset === "clear") {
+            void persistAiContext([]);
+            return;
+        }
+        if (preset === "week") {
+            void persistAiContext(thisWeekEligibleIds(files));
+            return;
+        }
+        void persistAiContext(files.filter(isAiContextEligible).map((f) => f.id));
+    };
+
+    const moveFileToFolder = async (fileId: string, targetFolderId: string) => {
+        try {
+            const username = localStorage.getItem("username");
+            const sid = localStorage.getItem("session_id") || "";
+            const res = await fetch(`${API_BASE}/files/${folderId}/${fileId}/move?session_id=${encodeURIComponent(sid)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
+                body: JSON.stringify({ target_folder_id: targetFolderId, username }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(`Fehler beim Verschieben: ${err.detail || "Unbekannt"}`);
+                return false;
+            }
+            return true;
+        } catch {
+            showToast("Netzwerkfehler beim Verschieben der Datei.");
+            return false;
+        }
+    };
+
+    const archiveFile = async (file: FileData, archived: boolean) => {
+        try {
+            const username = localStorage.getItem("username");
+            const sid = localStorage.getItem("session_id") || "";
+            const res = await fetch(`${API_BASE}/files/${folderId}/${file.id}/archive?session_id=${encodeURIComponent(sid)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
+                body: JSON.stringify({ username, archived }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(`Archivieren fehlgeschlagen: ${err.detail || "Unbekannt"}`);
+                return;
+            }
+            setFiles((prev) => prev.map((f) => (f.id === file.id ? { ...f, archived } : f)));
+            if (archived && aiContextIncludedIds) {
+                setAiContextIncludedIds(aiContextIncludedIds.filter((id) => id !== file.id));
+            }
+            showToast(archived ? "Datei archiviert." : "Datei wiederhergestellt.", "success");
+        } catch {
+            showToast("Netzwerkfehler beim Archivieren.");
+        }
+    };
+
+    const renameFileInline = async (file: FileData, newName: string) => {
+        try {
+            const username = localStorage.getItem("username");
+            const sid = localStorage.getItem("session_id") || "";
+            const res = await fetch(`${API_BASE}/files/${folderId}/${file.id}/rename?session_id=${encodeURIComponent(sid)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
+                body: JSON.stringify({ username, name: newName }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(`Umbenennen fehlgeschlagen: ${err.detail || "Unbekannt"}`);
+                return;
+            }
+            setFiles((prev) => prev.map((f) => (f.id === file.id ? { ...f, name: newName } : f)));
+        } catch {
+            showToast("Netzwerkfehler beim Umbenennen.");
+        }
     };
 
     const handleQuizGenerate = async () => {
@@ -3189,33 +3087,18 @@ export default function FolderPage() {
     const handleDragEnd = async (event: DragEndEvent) => {
         setActiveDragFile(null);
         const { active, over } = event;
-
         if (!over) return;
 
-        const sourceFile = active.data.current?.file as FileData;
-        const targetSubfolder = over.data.current?.subfolder;
+        const sourceFile = active.data.current?.file as FileData | undefined;
+        const targetSubfolder = over.data.current?.subfolder as { id: string } | undefined;
+        const treeFolderId = over.data.current?.folderId as string | undefined;
+        const targetId = targetSubfolder?.id || treeFolderId;
+        if (!sourceFile || !targetId) return;
 
-        if (!sourceFile || !targetSubfolder) return;
-
-        // Call backend to move file
-        try {
-            const username = localStorage.getItem("username");
-            const sid = localStorage.getItem("session_id") || "";
-            const res = await fetch(`${API_BASE}/files/${folderId}/${sourceFile.id}/move?session_id=${encodeURIComponent(sid)}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
-                body: JSON.stringify({ target_folder_id: targetSubfolder.id, username }),
-            });
-
-            if (res.ok) {
-                fetchFiles(); // Refresh file / subfolder lists
-            } else {
-                const err = await res.json();
-                showToast(`Fehler beim Verschieben: ${err.detail || 'Unbekannt'}`);
-            }
-        } catch (error) {
-            console.error("Error moving file:", error);
-            showToast("Netzwerkfehler beim Verschieben der Datei.");
+        const ok = await moveFileToFolder(sourceFile.id, targetId);
+        if (ok) {
+            notifyFoldersChanged();
+            void fetchFiles();
         }
     };
 
@@ -4357,119 +4240,38 @@ export default function FolderPage() {
 
             <div className="max-w-6xl mx-auto px-4 py-6 md:px-6 md:py-10 min-w-0">
 
-                {/* Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 min-w-0">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <button onClick={() => router.back()} aria-label="Zurück" className="min-h-10 min-w-10 flex items-center justify-center hover:bg-[#3A3D45] rounded-xl text-gray-400 hover:text-white transition-colors shrink-0"><ArrowLeft size={22} /></button>
-                        <div className="min-w-0">
-                            <h1 className="text-2xl font-bold text-white break-words">{folderName || "Ordner"}</h1>
-                            <p className="text-sm text-gray-400">
-                                {files.length} {files.length === 1 ? "Datei" : "Dateien"}
-                            </p>
-                        </div>
-                    </div>
+                <FolderPageHeader
+                    folderName={folderName}
+                    ancestors={folderAncestors}
+                    subfolderCount={subfolders.length}
+                    materialCount={countActiveMaterials(files)}
+                    isHeaderMenuOpen={isHeaderMenuOpen}
+                    setIsHeaderMenuOpen={setIsHeaderMenuOpen}
+                    onBack={() => router.back()}
+                    onUpload={() => setIsUploadOpen(true)}
+                    onCreateSubfolder={() => setIsCreateSubfolderOpen(true)}
+                    onNewDocument={() => {
+                        setSelectedFile({
+                            id: `draft_${Date.now()}`,
+                            name: "Neues Dokument",
+                            type: "summary",
+                            created_at: new Date().toISOString(),
+                            content: ""
+                        });
+                        setIsEditingFile(true);
+                    }}
+                    onLoadShareRequests={() => void loadIncomingShareRequests()}
+                    onImportByLink={openImportByLinkOverlay}
+                />
 
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full min-w-0 md:w-auto">
-                        {/* AI Actions */}
-                        <div className="flex gap-2 overflow-x-auto max-w-full pb-1 [scrollbar-width:thin] sm:flex-wrap sm:overflow-visible sm:border-r sm:border-[#45484F] sm:pr-4 sm:mr-2 [&>button]:shrink-0">
-                            <button onClick={() => handleGenerate('plan')} disabled={isGenerating.includes('plan')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Lernplan erstellen">
-                                {isGenerating.includes('plan') ? <Loader2 size={16} className="animate-spin" /> : <BrainCircuit size={16} />}
-                                Lernplan
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    const existing = files.find((f) => f.type === 'smart_learning');
-                                    if (existing) {
-                                        void selectFileWithContent(existing);
-                                        return;
-                                    }
-                                    setIsSmartLearningConfigOpen(true);
-                                }}
-                                disabled={isGenerating.includes('smart-learning')}
-                                className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium"
-                                title="Smart Learning"
-                            >
-                                {isGenerating.includes('smart-learning') ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                                Lernen
-                            </button>
-                            <button onClick={() => handleGenerate('quiz')} disabled={isGenerating.includes('quiz')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Quiz erstellen">
-                                {isGenerating.includes('quiz') ? <Loader2 size={16} className="animate-spin" /> : <HelpCircle size={16} />}
-                                Quiz
-                            </button>
-                            <button onClick={() => handleGenerate('flashcards')} disabled={isGenerating.includes('flashcards')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Karteikarten erstellen">
-                                {isGenerating.includes('flashcards') ? <Loader2 size={16} className="animate-spin" /> : <Layers size={16} />}
-                                Karten
-                            </button>
-                            <button onClick={() => handleGenerate('summary')} disabled={isGenerating.includes('summary')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Zusammenfassung erstellen">
-                                {isGenerating.includes('summary') ? <Loader2 size={16} className="animate-spin" /> : <FileOutput size={16} />}
-                                Zusammenfassung
-                            </button>
-                            <button onClick={() => handleGenerate('elaboration')} disabled={isGenerating.includes('elaboration')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Ausarbeitung erstellen">
-                                {isGenerating.includes('elaboration') ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
-                                Ausarbeitung
-                            </button>
-                            <button onClick={() => handleGenerate('repetition')} disabled={isGenerating.includes('repetition')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Wiederholung erstellen">
-                                {isGenerating.includes('repetition') ? <Loader2 size={16} className="animate-spin" /> : <Repeat size={16} />}
-                                Wiederholung
-                            </button>
-                            <button type="button" onClick={() => setIsPodcastConfigOpen(true)} disabled={isGenerating.includes('podcast')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Podcast (Einstellungen & TTS)">
-                                {isGenerating.includes('podcast') ? <Loader2 size={16} className="animate-spin" /> : <Mic size={16} />}
-                                Podcast
-                            </button>
-                            <button type="button" onClick={() => setIsLearningVideoConfigOpen(true)} disabled={isGenerating.includes('learning-video')} className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 min-h-10 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-xl transition-all disabled:opacity-50 text-xs font-medium" title="Lernvideo (Einstellungen & KI)">
-                                {isGenerating.includes('learning-video') ? <Loader2 size={16} className="animate-spin" /> : <Video size={16} />}
-                                Video
-                            </button>
-                        </div>
-
-                        <div className="flex gap-2 items-center shrink-0">
-                            <button
-                                onClick={() => {
-                                    setSelectedFile({
-                                        id: `draft_${Date.now()}`,
-                                        name: "Neues Dokument",
-                                        type: "summary",
-                                        created_at: new Date().toISOString(),
-                                        content: ""
-                                    });
-                                }}
-                                className="flex items-center gap-2 bg-[#252526] hover:bg-[#333] border border-[#45484F] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
-                            >
-                                <Edit size={18} />
-                                <span className="hidden sm:inline">Neues Dokument</span>
-                            </button>
-                            <div className="relative">
-                                <button
-                                    onClick={() => setIsHeaderMenuOpen((v) => !v)}
-                                    className="min-h-10 min-w-10 flex items-center justify-center bg-[#353840] text-white px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#45484F] hover:bg-[#3A3D45] transition-all"
-                                    title="Mehr Aktionen"
-                                >
-                                    <MoreVertical size={18} />
-                                </button>
-                                {isHeaderMenuOpen && (
-                                    <div className="absolute right-0 top-full mt-1 w-44 bg-[#23252A] border border-[#45484F] rounded-xl shadow-2xl z-50 overflow-hidden">
-                                        <button
-                                            onClick={() => void loadIncomingShareRequests()}
-                                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
-                                        >
-                                            <Inbox size={15} />
-                                            Requests
-                                        </button>
-                                        <div className="h-px bg-[#3A3D45]" />
-                                        <button
-                                            onClick={openImportByLinkOverlay}
-                                            className="w-full min-h-10 flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#3A3D45] hover:text-white transition-colors"
-                                        >
-                                            <Link2 size={15} />
-                                            Link eingeben
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <FolderAiStudioBar
+                    activeCount={activeAiContextIds(files, aiContextIncludedIds).length}
+                    eligibleCount={files.filter(isAiContextEligible).length}
+                    isGenerating={isGenerating}
+                    savingAiContext={savingAiContext}
+                    onPreset={handleAiPreset}
+                    onTool={handleAiStudioTool}
+                />
 
                 {/* Content */}
                 {loading ? (
@@ -4483,7 +4285,7 @@ export default function FolderPage() {
                         onDragEnd={handleDragEnd}
                         collisionDetection={closestCenter}
                     >
-                        <div className="space-y-6">
+                        <div className="space-y-5">
                             {filesLoadError && (
                                 <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                     <p className="text-sm text-amber-100/90">{filesLoadError}</p>
@@ -4499,101 +4301,24 @@ export default function FolderPage() {
                                     </button>
                                 </div>
                             )}
-                            {!loading && files.some(isAiContextSourceFile) && (
-                                <div className="rounded-2xl border border-[#45484F] bg-[#12121f] p-4 space-y-3">
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <div>
-                                            <h3 className="text-sm font-semibold text-white">Material für KI</h3>
-                                            <p className="text-xs text-gray-500 mt-0.5">
-                                                Standard: PDFs und Transkripte. Erstellungen nur, wenn du sie anhakst.
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            {savingAiContext && <Loader2 size={16} className="animate-spin text-gray-400" />}
-                                            <button
-                                                type="button"
-                                                onClick={() => void persistAiContext(null)}
-                                                className="text-xs px-3 py-1.5 rounded-lg bg-[#3A3D45] border border-[#45484F] text-gray-300 hover:text-white"
-                                            >
-                                                Nur Quellen
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <ul className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-                                        {files.filter(isAiContextSourceFile).map((f) => (
-                                            <li key={f.id} className="flex items-start gap-3 text-sm">
-                                                <input
-                                                    type="checkbox"
-                                                    className="mt-1 rounded border-[#45484F] bg-[#23252A]"
-                                                    checked={isFileInAiContext(f)}
-                                                    onChange={(e) => toggleAiContextFile(f.id, e.target.checked)}
-                                                />
-                                                <span className="text-gray-300 truncate flex-1" title={f.name}>
-                                                    {f.name}
-                                                </span>
-                                                <span className="text-[10px] uppercase text-gray-600 shrink-0">{f.type}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-                            {/* Subfolders section */}
-                            {(subfolders.length > 0 || true) && (
-                                <div>
-                                    <div className="flex items-center justify-between mb-3">
-                                        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
-                                            Unterordner
-                                        </h3>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={() => void handlePasteCopiedFile()}
-                                                disabled={!copiedFile}
-                                                className="flex items-center gap-1 text-xs text-gray-300 hover:text-white bg-[#353840] hover:bg-[#3A3D45] px-3 py-1.5 rounded-lg border border-[#45484F] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                title={copiedFile ? `"${copiedFile.name}" hier einfügen` : "Erst eine Datei kopieren"}
-                                            >
-                                                <ClipboardPaste size={13} /> Einfügen
-                                            </button>
-                                            <button
-                                                onClick={() => setIsUploadOpen(true)}
-                                                className="flex items-center gap-1 text-xs text-white bg-[#5B9DFF] hover:bg-[#4A8AE6] px-3 py-1.5 rounded-lg border border-[#5B9DFF] transition-colors"
-                                            >
-                                                <Plus size={13} /> Material hinzufügen
-                                            </button>
-                                            <button
-                                                onClick={() => setIsCreateSubfolderOpen(true)}
-                                                className="flex items-center gap-1 text-xs text-gray-400 hover:text-white bg-[#353840] hover:bg-[#3A3D45] px-3 py-1.5 rounded-lg border border-[#45484F] transition-colors"
-                                            >
-                                                <Plus size={13} /> Erstellen
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {subfolders.length === 0 ? (
-                                        <p className="text-xs text-gray-600 italic">Noch keine Unterordner</p>
-                                    ) : (
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                            <AnimatePresence mode="popLayout">
-                                                {subfolders.map((sf) => (
-                                                    <DroppableSubfolder
-                                                        key={sf.id}
-                                                        subfolder={sf}
-                                                        onClick={() => router.push(`/folder/${sf.id}`)}
-                                                        onRename={openRenameSubfolder}
-                                                        onDelete={openDeleteSubfolder}
-                                                    />
-                                                ))}
-                                            </AnimatePresence>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
 
-                            {/* Separator if both exist */}
-                            {subfolders.length > 0 && files.length > 0 && (
-                                <div className="h-px bg-[#3A3D45]" />
-                            )}
+                            <SubfolderChipGrid
+                                subfolders={subfolders.map((sf) => ({ ...sf, file_count: undefined }))}
+                                onOpen={(sf) => router.push(`/folder/${sf.id}`)}
+                                onRename={openRenameSubfolder}
+                                onDelete={openDeleteSubfolder}
+                            />
+                            <div className="flex flex-wrap items-center gap-2 -mt-2 mb-1">
+                                <button
+                                    onClick={() => void handlePasteCopiedFile()}
+                                    disabled={!copiedFile}
+                                    className="flex items-center gap-1 text-xs text-gray-300 hover:text-white bg-[#353840] hover:bg-[#3A3D45] px-3 py-1.5 rounded-lg border border-[#45484F] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title={copiedFile ? `"${copiedFile.name}" hier einfügen` : "Erst eine Datei kopieren"}
+                                >
+                                    <ClipboardPaste size={13} /> Einfügen
+                                </button>
+                            </div>
 
-                            {/* Files: Materialien vs Erstellungen */}
                             {files.length === 0 && !filesLoadError ? (
                                 <div className="bg-[#353840] border border-[#45484F] rounded-2xl p-16 text-center border-dashed">
                                     <div className="flex justify-center mb-6">
@@ -4608,66 +4333,77 @@ export default function FolderPage() {
                                     <button onClick={() => setIsUploadOpen(true)} className="inline-flex items-center gap-2 bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all"><Plus size={18} /><span>Material hinzufügen</span></button>
                                 </div>
                             ) : (
-                                <div className="space-y-8">
-                                    {(() => {
-                                        const { materials, creations } = partitionFolderFiles(files);
-                                        const renderSection = (title: string, list: typeof files, emptyHint: string) => (
-                                            <div className="space-y-3">
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <h3 className="text-sm font-semibold text-gray-300 tracking-wide">{title}</h3>
-                                                    <span className="text-xs text-gray-500">{list.length}</span>
-                                                </div>
-                                                {list.length === 0 ? (
-                                                    <p className="text-xs text-gray-600 italic px-1">{emptyHint}</p>
-                                                ) : (
-                                                    <div className="grid grid-cols-1 gap-3">
-                                                        <AnimatePresence mode="popLayout">
-                                                            {list.map((file) => (
-                                                                <DraggableFile
-                                                                    key={file.id}
-                                                                    file={file}
-                                                                    icon={getFileIcon(file.type)}
-                                                                    openMenuFileId={openMenuFileId}
-                                                                    setOpenMenuFileId={setOpenMenuFileId}
-                                                                    setSelectedFile={selectFileWithContent}
-                                                                    setFileToRename={setFileToRename}
-                                                                    setRenameFileValue={setRenameFileValue}
-                                                                    setIsRenameFileOpen={setIsRenameFileOpen}
-                                                                    handleDelete={handleDeleteFile}
-                                                                    onRefineFile={handleRefineFile}
-                                                                    onOpenShareOverlay={openShareOverlay}
-                                                                    onCopyFile={handleCopyFile}
-                                                                />
-                                                            ))}
-                                                        </AnimatePresence>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                        return (
-                                            <>
-                                                {renderSection('Materialien', materials, 'Noch kein Material — PDFs, Transkripte oder Audio hochladen.')}
-                                                {renderSection('Erstellungen', creations, 'Noch keine Erstellungen — Quiz, Zusammenfassung oder Smart Learning erzeugen.')}
-                                            </>
-                                        );
-                                    })()}
-                                </div>
+                                <FolderFileManager
+                                    files={files}
+                                    subfolders={subfolders}
+                                    aiContextIncludedIds={aiContextIncludedIds}
+                                    selectedIds={selectedFileIds}
+                                    openMenuFileId={openMenuFileId}
+                                    setOpenMenuFileId={setOpenMenuFileId}
+                                    getFileIcon={getFileIcon}
+                                    youtubeIdFor={(f) => youtubeVideoIdFromTranscriptFile(f)}
+                                    onOpenYoutube={(id) => openYoutubeVideoInNewTab(id)}
+                                    onToggleSelect={(id, checked) => {
+                                        setSelectedFileIds((prev) => {
+                                            const next = new Set(prev);
+                                            if (checked) next.add(id);
+                                            else next.delete(id);
+                                            return next;
+                                        });
+                                    }}
+                                    onClearSelection={() => setSelectedFileIds(new Set())}
+                                    onToggleAi={(id, checked) => toggleAiContextFile(id, checked)}
+                                    onSetGroupAsAiSources={(ids) => void persistAiContext(ids)}
+                                    onOpen={(f) => void selectFileWithContent(f as FileData)}
+                                    onRename={(f, name) => renameFileInline(f as FileData, name)}
+                                    onArchive={(f, archived) => void archiveFile(f as FileData, archived)}
+                                    onDelete={(f) => handleDeleteFile(f as FileData)}
+                                    onBulkArchive={async () => {
+                                        const ids = [...selectedFileIds];
+                                        for (const id of ids) {
+                                            const f = files.find((x) => x.id === id);
+                                            if (f) await archiveFile(f, true);
+                                        }
+                                        setSelectedFileIds(new Set());
+                                    }}
+                                    onBulkDelete={async () => {
+                                        if (!window.confirm(`${selectedFileIds.size} Dateien wirklich löschen?`)) return;
+                                        for (const id of [...selectedFileIds]) {
+                                            const f = files.find((x) => x.id === id);
+                                            if (f) await handleDeleteFile(f);
+                                        }
+                                        setSelectedFileIds(new Set());
+                                    }}
+                                    onBulkUseAsAi={() => {
+                                        void persistAiContext([...selectedFileIds]);
+                                        showToast("KI-Quellen aktualisiert.", "success");
+                                    }}
+                                    onBulkMove={async (targetFolderId) => {
+                                        let ok = 0;
+                                        for (const id of [...selectedFileIds]) {
+                                            if (await moveFileToFolder(id, targetFolderId)) ok += 1;
+                                        }
+                                        setSelectedFileIds(new Set());
+                                        notifyFoldersChanged();
+                                        void fetchFiles();
+                                        if (ok) showToast(`${ok} Datei(en) verschoben.`, "success");
+                                    }}
+                                    onMoveFile={async (fileId, targetFolderId) => {
+                                        if (await moveFileToFolder(fileId, targetFolderId)) {
+                                            notifyFoldersChanged();
+                                            void fetchFiles();
+                                            showToast("Datei verschoben.", "success");
+                                        }
+                                    }}
+                                    onCreateSubfolder={() => setIsCreateSubfolderOpen(true)}
+                                />
                             )}
                         </div>
 
                         <DragOverlay dropAnimation={{ duration: 250, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
                             {activeDragFile ? (
                                 <div className="bg-[#3A3D45] border border-[#5B9DFF] p-4 rounded-xl shadow-2xl flex items-center gap-4 opacity-90 scale-105 pointer-events-none">
-                                    <div className={`p-3 rounded-lg ${activeDragFile.type === 'plan' ? 'bg-blue-500/10 text-blue-400' :
-                                        activeDragFile.type === 'smart_learning' ? 'bg-indigo-500/10 text-indigo-300' :
-                                        activeDragFile.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
-                                            activeDragFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
-                                                activeDragFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
-                                                    activeDragFile.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
-                                                        activeDragFile.type === 'audio' ? 'bg-blue-500/10 text-blue-300' :
-                                                            activeDragFile.type === 'video' ? 'bg-cyan-500/10 text-cyan-300' :
-                                                                'bg-[#3A3D45] text-[#5B9DFF]'
-                                        }`}>
+                                    <div className="p-3 rounded-lg bg-[#3A3D45] text-[#5B9DFF]">
                                         {getFileIcon(activeDragFile.type)}
                                     </div>
                                     <div>
@@ -4677,7 +4413,6 @@ export default function FolderPage() {
                                 </div>
                             ) : null}
                         </DragOverlay>
-
                     </DndContext>
                 )}
 
@@ -6333,6 +6068,7 @@ export default function FolderPage() {
                                         if (res.ok) {
                                             setNewSubfolderName('');
                                             setIsCreateSubfolderOpen(false);
+                                            notifyFoldersChanged();
                                             fetchFiles(); // refreshes subfolders too
                                         } else {
                                             showToast('Fehler beim Erstellen des Unterordners.');
