@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, Settings, Shield, CreditCard } from 'lucide-react';
+import FolderTreeNav from '@/components/folder/FolderTreeNav';
 
 const navItems = [
     { href: '/', label: 'Dashboard', icon: Home },
@@ -124,6 +125,8 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                         </Link>
                     );
                 })}
+
+                <FolderTreeNav isCollapsedSidebar={isCollapsed} />
 
                 <Link
                     href="/pricing"

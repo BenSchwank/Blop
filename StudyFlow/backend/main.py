@@ -1669,14 +1669,23 @@ def get_folders(http_request: Request, username: str = "", session_id: str = "")
     user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     return DataManager.list_root_folders(user)
 
+
+@app.get("/api/folders/tree")
+def get_folders_tree(http_request: Request, username: str = "", session_id: str = ""):
+    """Nested folder tree for the sidebar file navigator."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    return DataManager.list_folder_tree(user)
+
+
 @app.get("/api/folders/{folder_id}")
 def get_folder_meta(http_request: Request, folder_id: str, username: str = "", session_id: str = ""):
-    """Folder display name for the header."""
+    """Folder display name + ancestors for breadcrumb."""
     user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     name = DataManager.get_folder_name(user, folder_id)
     if not name:
         raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
-    return {"id": folder_id, "name": name}
+    ancestors = DataManager.get_folder_ancestors(user, folder_id)
+    return {"id": folder_id, "name": name, "ancestors": ancestors}
 
 @app.delete("/api/folders/{folder_id}")
 def delete_folder(http_request: Request, folder_id: str, username: str = "", session_id: str = ""):
@@ -1722,13 +1731,17 @@ def get_folder_ai_context(http_request: Request, folder_id: str, username: str =
 
 @app.put("/api/folders/{folder_id}/ai-context")
 def put_folder_ai_context(http_request: Request, folder_id: str, body: FolderAiContextRequest, session_id: str = ""):
-    """Sets included file IDs for AI context; null, omitted, or [] clears to 'all materials'."""
+    """Sets AI context IDs. null = default pdf/transcript; [] = none; list = explicit."""
     user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
     valid_ids = DataManager.list_file_ids(user, folder_id)
-    if body.included_file_ids is None or len(body.included_file_ids) == 0:
+    if body.included_file_ids is None:
         if not DataManager.set_ai_context_file_ids(user, folder_id, None):
             raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
         return {"status": "success", "included_file_ids": None}
+    if len(body.included_file_ids) == 0:
+        if not DataManager.set_ai_context_file_ids(user, folder_id, []):
+            raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
+        return {"status": "success", "included_file_ids": []}
     for fid in body.included_file_ids:
         if fid not in valid_ids:
             raise HTTPException(status_code=400, detail=f"Unbekannte Datei-ID: {fid}")
@@ -1828,6 +1841,26 @@ def move_file(http_request: Request, folder_id: str, file_id: str, body: MoveFil
     if DataManager.move_file(user, folder_id, file_id, body.target_folder_id):
         return {"status": "success", "message": "Datei verschoben"}
     raise HTTPException(status_code=404, detail="Fehler beim Verschieben der Datei")
+
+
+class ArchiveFileRequest(BaseModel):
+    username: str
+    archived: bool = True
+
+
+@app.put("/api/files/{folder_id}/{file_id}/archive")
+def archive_file(http_request: Request, folder_id: str, file_id: str, body: ArchiveFileRequest, session_id: str = ""):
+    """Soft-archive or restore a file (hidden from default KI sources / active tabs)."""
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
+    if not DataManager.set_file_archived(user, folder_id, file_id, bool(body.archived)):
+        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
+    # Drop archived files from explicit AI context selection.
+    if body.archived:
+        ids = DataManager.get_ai_context_file_ids(user, folder_id)
+        if ids is not None and file_id in ids:
+            next_ids = [x for x in ids if x != file_id]
+            DataManager.set_ai_context_file_ids(user, folder_id, next_ids)
+    return {"status": "success", "archived": bool(body.archived)}
 
 @app.post("/api/files/{file_id}/copy")
 def copy_file(http_request: Request, file_id: str, body: CopyFileRequest, session_id: str = ""):
@@ -3385,16 +3418,26 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
         debug_log.append(f"ListFiles Error: {str(e)}")
         return [], debug_log
 
+    # Soft-archived files never feed AI, even if still listed in ai_context_file_ids.
+    before_arch = len(files)
+    files = [f for f in files if not bool(f.get("archived"))]
+    if before_arch != len(files):
+        debug_log.append(f"Excluded {before_arch - len(files)} archived files")
+
     # Default (no saved selection): source materials only. Creations are included
-    # only when the user explicitly checks them in "Material für KI".
+    # only when the user explicitly checks them. [] = explicitly no sources.
     SOURCE_TYPES = ("pdf", "transcript")
     ids_filter = included_file_ids
     if ids_filter is None:
         ids_filter = DataManager.get_ai_context_file_ids(username, folder_id)
-    if ids_filter is not None and len(ids_filter) > 0:
-        idset = set(ids_filter)
-        files = [f for f in files if f.get("id") in idset]
-        debug_log.append(f"Filtered to {len(files)} files by ai_context_file_ids")
+    if ids_filter is not None:
+        if len(ids_filter) == 0:
+            files = []
+            debug_log.append("Explicit empty AI context — no source files")
+        else:
+            idset = set(ids_filter)
+            files = [f for f in files if f.get("id") in idset]
+            debug_log.append(f"Filtered to {len(files)} files by ai_context_file_ids")
     else:
         files = [f for f in files if f.get("type") in SOURCE_TYPES]
         debug_log.append("Using source materials only (pdf, transcript)")
