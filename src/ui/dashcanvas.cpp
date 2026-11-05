@@ -84,23 +84,20 @@ void DashCanvas::paintEvent(QPaintEvent *event) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing, true);
   const bool dark = BlopTheme::instance().isDark();
-  // Desk matches shell content plate — cards (obsidianSheet) float above.
+  // Light: flat slate surface so white cards read clearly. Dark keeps a soft
+  // vignette over the content plate.
   const QColor desk =
-      dark ? BlopStyle::obsidianContent() : BlopStyle::paperBg();
+      dark ? BlopStyle::obsidianContent() : QColor(0xF8, 0xFA, 0xFC);
   p.fillRect(rect(), desk);
 
-  QRadialGradient vig(rect().center(),
-                      qMax(rect().width(), rect().height()) * 0.72);
   if (dark) {
+    QRadialGradient vig(rect().center(),
+                        qMax(rect().width(), rect().height()) * 0.72);
     vig.setColorAt(0.0, QColor(255, 255, 255, 10));
     vig.setColorAt(0.55, QColor(255, 255, 255, 0));
     vig.setColorAt(1.0, QColor(0, 0, 0, 55));
-  } else {
-    vig.setColorAt(0.0, QColor(255, 255, 255, 110));
-    vig.setColorAt(0.55, QColor(255, 255, 255, 0));
-    vig.setColorAt(1.0, QColor(15, 23, 42, 10));
+    p.fillRect(rect(), vig);
   }
-  p.fillRect(rect(), vig);
 }
 
 void DashCanvas::pinScrollNow() {

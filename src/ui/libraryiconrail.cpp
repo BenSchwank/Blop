@@ -296,8 +296,9 @@ void LibraryIconRail::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);
   p.fillRect(rect(), BlopStyle::libraryIconRail());
-  if (m_innerEdge) {
-    // Start under the title/header band so the L-leg reads as one piece.
+  // Inner-edge hairline only in dark note chrome — in Light it reads as a
+  // bright white seam along the rail bottom/right.
+  if (m_innerEdge && BlopTheme::instance().isDark()) {
     const int y = UiScale::dp(44);
     p.setPen(QPen(QColor(0x4A, 0x4E, 0x58), 1));
     p.drawLine(width() - 1, y, width() - 1, height() - 1);

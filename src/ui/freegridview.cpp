@@ -45,6 +45,27 @@ void FreeGridView::setItemSize(const QSize &size) {
   viewport()->update();
 }
 
+void FreeGridView::setListRows(bool on) {
+  m_listRows = on;
+  if (on) {
+    setViewMode(QListView::ListMode);
+    setFlow(QListView::TopToBottom);
+    setWrapping(false);
+    setMovement(QListView::Static);
+    setResizeMode(QListView::Fixed);
+    setUniformItemSizes(true);
+  } else {
+    setViewMode(QListView::IconMode);
+    setFlow(QListView::LeftToRight);
+    setWrapping(true);
+    setMovement(QListView::Snap);
+    setResizeMode(QListView::Adjust);
+  }
+  scheduleDelayedItemsLayout();
+  doItemsLayout();
+  viewport()->update();
+}
+
 QPoint FreeGridView::calculateSnapPosition(const QPoint &pos) {
   QSize grid = gridSize();
   if (grid.isEmpty())

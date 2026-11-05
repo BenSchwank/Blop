@@ -166,7 +166,7 @@ void DocumentTab::setReadingMarkMode(bool on) {
     return;
   m_readingMarkMode = on;
   // Reading-mark tabs sit flush on the bar bottom so concave ears morph in.
-  const int tabH = UiScale::dp(on ? 34 : 36);
+  const int tabH = UiScale::dp(on ? 32 : 36);
   setFixedHeight(tabH);
   if (auto *iconLbl = findChild<QLabel *>(QStringLiteral("DocumentTabIcon"))) {
     if (on) {
@@ -310,7 +310,7 @@ QSize DocumentTab::sizeHint() const {
     int w = layout() ? layout()->sizeHint().width() : UiScale::dp(120);
     if (m_title.isEmpty() && !m_closable)
       w = UiScale::dp(28);
-    return QSize(qMin(w, tabMaxWidthPx()), UiScale::dp(34));
+    return QSize(qMin(w, tabMaxWidthPx()), UiScale::dp(32));
   }
   QFontMetrics fm(font());
   const QString shown = m_textLbl ? m_textLbl->text() : m_title;
@@ -329,6 +329,22 @@ QSize DocumentTab::minimumSizeHint() const { return sizeHint(); }
 void DocumentTab::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
+
+  if (m_readingMarkMode && m_noteChromeMode) {
+    const QRectF r = QRectF(rect()).adjusted(1, 1, -1, -1);
+    QPainterPath path;
+    path.addRoundedRect(r, 6, 6);
+    const bool darkBar = readingMarkUsesDarkBar();
+    p.setPen(Qt::NoPen);
+    if (m_active)
+      p.setBrush(darkBar ? QColor(255, 255, 255, 28) : QColor(255, 255, 255));
+    else if (m_hovered)
+      p.setBrush(darkBar ? QColor(255, 255, 255, 16) : QColor(0xF3, 0xF4, 0xF6));
+    else
+      p.setBrush(darkBar ? QColor(255, 255, 255, 15) : QColor(0xF3, 0xF4, 0xF6));
+    p.drawPath(path);
+    return;
+  }
 
   if (m_readingMarkMode) {
     // Chrome-style morph tab: active fill matches the strip below; concave
@@ -455,7 +471,8 @@ void DocumentTab::syncCloseButtonVisibility() {
   auto *closeBtn = findChild<QPushButton *>(QStringLiteral("DocumentTabClose"));
   if (!closeBtn)
     return;
-  const bool show = m_hovered || closeBtn->underMouse();
+  const bool show =
+      m_hovered || closeBtn->underMouse() || (m_noteChromeMode && m_active);
   if (closeBtn->isVisible() == show)
     return;
   closeBtn->setVisible(show);
@@ -472,6 +489,7 @@ void DocumentTab::enterEvent(QEnterEvent *event) {
 void DocumentTab::leaveEvent(QEvent *event) {
   Q_UNUSED(event)
   m_hovered = false;
+  refreshChromeStyle();
   syncCloseButtonVisibility();
   update();
 }
@@ -489,7 +507,10 @@ bool DocumentTab::eventFilter(QObject *watched, QEvent *event) {
 // -----------------------------------------------------------------------------
 DocumentTabBar::DocumentTabBar(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_TranslucentBackground, true);
-  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  // Preferred (not Expanding): title-bar stretch lives after "+" so the
+  // new-tab button stays beside the tabs instead of sliding into the
+  // right chrome cluster.
+  setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
   setFixedHeight(UiScale::dp(40));
 
   m_outerLayout = new QHBoxLayout(this);
@@ -511,7 +532,7 @@ DocumentTabBar::DocumentTabBar(QWidget *parent) : QWidget(parent) {
   m_scroll->setStyleSheet(QStringLiteral(
       "QScrollArea { background: transparent; border: none; }"
       "QScrollArea > QWidget > QWidget { background: transparent; }"));
-  m_scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  m_scroll->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
   m_scroll->setFixedHeight(UiScale::dp(40));
 
   m_scrollContent = new QWidget(m_scroll);
@@ -525,7 +546,9 @@ DocumentTabBar::DocumentTabBar(QWidget *parent) : QWidget(parent) {
 
   BlopScroll::enableFingerScroll(m_scroll);
 
-  m_outerLayout->addWidget(m_scroll, 1);
+  // Stretch 0: keep tabs + title-bar "+" packed; parent layout stretch pushes
+  // theme/overflow to the right.
+  m_outerLayout->addWidget(m_scroll, 0);
 
   m_indicator = new QWidget(m_scrollContent);
   m_indicator->setAttribute(Qt::WA_TransparentForMouseEvents, true);
@@ -561,12 +584,7 @@ int DocumentTabBar::addTab(const QString &title, const QString &iconName) {
   m_tabsLayout->insertWidget(m_tabsLayout->count() - 1, tab);
   rebindTabSignals();
 
-  // Grow scroll content to natural tab row width.
-  int contentW = 0;
-  for (DocumentTab *t : m_tabs)
-    contentW += t->width() + UiScale::dp(6);
-  contentW = qMax(contentW, m_scroll->viewport()->width());
-  m_scrollContent->setFixedWidth(contentW);
+  syncScrollToContent();
 
   if (m_currentIndex < 0)
     setCurrentIndex(idx);
@@ -585,11 +603,7 @@ void DocumentTabBar::removeTab(int index) {
   tab->deleteLater();
   rebindTabSignals();
 
-  int contentW = 0;
-  for (DocumentTab *t : m_tabs)
-    contentW += t->width() + UiScale::dp(6);
-  contentW = qMax(contentW, m_scroll->viewport()->width());
-  m_scrollContent->setFixedWidth(qMax(UiScale::dp(40), contentW));
+  syncScrollToContent();
 
   if (m_currentIndex == index) {
     m_currentIndex = m_tabs.isEmpty() ? -1 : qMin(index, m_tabs.size() - 1);
@@ -606,11 +620,20 @@ void DocumentTabBar::setTabText(int index, const QString &title) {
   if (index < 0 || index >= m_tabs.size())
     return;
   m_tabs[index]->setTitle(title);
+  syncScrollToContent();
+  updateIndicator(false);
+}
+
+void DocumentTabBar::syncScrollToContent() {
+  if (!m_scroll || !m_scrollContent)
+    return;
   int contentW = 0;
   for (DocumentTab *t : m_tabs)
-    contentW += t->width() + UiScale::dp(6);
-  m_scrollContent->setFixedWidth(qMax(m_scroll->viewport()->width(), contentW));
-  updateIndicator(false);
+    contentW += t->sizeHint().width() + UiScale::dp(6);
+  contentW = qMax(UiScale::dp(40), contentW);
+  m_scrollContent->setFixedWidth(contentW);
+  // Cap the viewport to content so Preferred layout packs against "+".
+  m_scroll->setFixedWidth(contentW);
 }
 
 int DocumentTabBar::currentIndex() const { return m_currentIndex; }
@@ -736,13 +759,7 @@ void DocumentTabBar::ensureTabVisible(int index) {
 
 void DocumentTabBar::resizeEvent(QResizeEvent *event) {
   QWidget::resizeEvent(event);
-  if (m_scrollContent) {
-    int contentW = 0;
-    for (DocumentTab *t : m_tabs)
-      contentW += t->width() + UiScale::dp(6);
-    m_scrollContent->setFixedWidth(
-        qMax(m_scroll->viewport()->width(), qMax(UiScale::dp(40), contentW)));
-  }
+  syncScrollToContent();
   updateIndicator(false);
 }
 

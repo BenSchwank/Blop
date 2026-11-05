@@ -8,12 +8,16 @@
 #include "uiscale.h"
 
 #include <QDateTime>
+#include <QEnterEvent>
 #include <QFileInfo>
+#include <QFont>
+#include <QFontMetrics>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPen>
 #include <QPixmap>
@@ -46,6 +50,102 @@ QString kindLabel(const QFileInfo &info) {
   if (ext.isEmpty())
     return QStringLiteral("Datei");
   return ext.toUpper();
+}
+
+QString displayName(const QFileInfo &info) {
+  const QString ext = info.suffix().toLower();
+  if (ext == QLatin1String("bnote") || ext == QLatin1String("blop") ||
+      ext == QLatin1String("struct"))
+    return info.completeBaseName();
+  return info.fileName();
+}
+
+QColor tagDotColor(const QString &name) {
+  return LibraryTagStore::tagColor(name);
+}
+
+class TagChipButton : public QPushButton {
+public:
+  TagChipButton(const QString &tag, QWidget *parent)
+      : QPushButton(parent), m_tag(tag), m_dot(tagDotColor(tag)) {
+    setCursor(Qt::PointingHandCursor);
+    setFocusPolicy(Qt::NoFocus);
+    setFixedHeight(28);
+    setMouseTracking(true);
+  }
+
+  bool overRemove() const { return m_overX; }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const bool dark = BlopTheme::instance().isDark();
+    p.setPen(QPen(dark ? QColor(255, 255, 255, 28) : QColor(0xE5, 0xE7, 0xEB), 1));
+    p.setBrush(dark ? QColor(255, 255, 255, 16) : QColor(0xF3, 0xF4, 0xF6));
+    p.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 14, 14);
+    p.setPen(Qt::NoPen);
+    p.setBrush(m_dot);
+    p.drawEllipse(QRect(8, (height() - 8) / 2, 8, 8));
+    p.setPen(dark ? QColor(0xF4, 0xF6, 0xFA) : QColor(0x11, 0x18, 0x27));
+    QFont f = font();
+    f.setPixelSize(12);
+    f.setWeight(QFont::DemiBold);
+    p.setFont(f);
+    const QString shown =
+        QFontMetrics(f).elidedText(m_tag, Qt::ElideRight, qMax(8, width() - 40));
+    p.drawText(QRect(22, 0, width() - 40, height()), Qt::AlignVCenter | Qt::AlignLeft,
+               shown);
+    if (m_hover) {
+      p.setPen(QColor(0x9C, 0xA3, 0xAF));
+      p.drawText(QRect(width() - 18, 0, 14, height()), Qt::AlignCenter,
+                 QStringLiteral("✕"));
+    }
+  }
+  void enterEvent(QEnterEvent *event) override {
+    m_hover = true;
+    m_overX = event->position().x() > width() - 20;
+    update();
+    QPushButton::enterEvent(event);
+  }
+  void leaveEvent(QEvent *event) override {
+    m_hover = false;
+    m_overX = false;
+    update();
+    QPushButton::leaveEvent(event);
+  }
+  void mouseMoveEvent(QMouseEvent *event) override {
+    const bool over = event->position().x() > width() - 20;
+    if (over != m_overX) {
+      m_overX = over;
+      update();
+    }
+    QPushButton::mouseMoveEvent(event);
+  }
+
+private:
+  QString m_tag;
+  QColor m_dot;
+  bool m_hover{false};
+  bool m_overX{false};
+};
+
+QIcon actionIcon(const QString &kind, const QColor &color) {
+  QPixmap pm(16, 16);
+  pm.fill(Qt::transparent);
+  QPainter p(&pm);
+  p.setRenderHint(QPainter::Antialiasing);
+  p.setPen(QPen(color, 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  if (kind == QLatin1String("pen")) {
+    p.drawLine(3, 13, 12, 4);
+    p.drawLine(10, 3, 13, 6);
+  } else {
+    p.drawRoundedRect(QRectF(4, 5, 8, 8), 1, 1);
+    p.drawLine(3, 5, 13, 5);
+    p.drawLine(6, 5, 6, 3);
+    p.drawLine(10, 5, 10, 3);
+  }
+  return QIcon(pm);
 }
 
 QString cloudKindLabel(const QString &name, const QString &mime, bool isFolder) {
@@ -233,7 +333,7 @@ LibraryDetailPanel::LibraryDetailPanel(QWidget *parent) : QWidget(parent) {
   m_btnOpen = new QPushButton(QStringLiteral("Öffnen"), m_body);
   m_btnOpen->setObjectName(QStringLiteral("LibraryDetailOpen"));
   m_btnOpen->setCursor(Qt::PointingHandCursor);
-  m_btnOpen->setMinimumHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+  m_btnOpen->setFixedHeight(36);
   connect(m_btnOpen, &QPushButton::clicked, this, [this]() {
     if (hasCloudItem())
       emit cloudOpenRequested();
@@ -255,7 +355,10 @@ LibraryDetailPanel::LibraryDetailPanel(QWidget *parent) : QWidget(parent) {
     else if (!m_path.isEmpty())
       emit renameRequested(m_path);
   });
-  actionRow->addWidget(m_btnRename, 0, Qt::AlignLeft);
+  m_btnRename->setFixedHeight(32);
+  m_btnRename->setIcon(actionIcon(QStringLiteral("pen"), QColor(0xE5, 0xE7, 0xEB)));
+  m_btnRename->setIconSize(QSize(14, 14));
+  actionRow->addWidget(m_btnRename, 1);
 
   m_btnDelete = new QPushButton(QStringLiteral("Löschen"), m_body);
   m_btnDelete->setObjectName(QStringLiteral("LibraryDetailQuietAction"));
@@ -267,8 +370,10 @@ LibraryDetailPanel::LibraryDetailPanel(QWidget *parent) : QWidget(parent) {
     else if (!m_path.isEmpty())
       emit deleteRequested(m_path);
   });
-  actionRow->addWidget(m_btnDelete, 0, Qt::AlignLeft);
-  actionRow->addStretch(1);
+  m_btnDelete->setFixedHeight(32);
+  m_btnDelete->setIcon(actionIcon(QStringLiteral("trash"), QColor(0xF8, 0x71, 0x71)));
+  m_btnDelete->setIconSize(QSize(14, 14));
+  actionRow->addWidget(m_btnDelete, 1);
   lay->addLayout(actionRow);
 
   m_tagSection = new QWidget(m_body);
@@ -294,8 +399,7 @@ LibraryDetailPanel::LibraryDetailPanel(QWidget *parent) : QWidget(parent) {
   m_tagInput->setMinimumHeight(UiScale::dp(32));
   m_btnAddTag = new QPushButton(QStringLiteral("+"), m_tagSection);
   m_btnAddTag->setObjectName(QStringLiteral("LibraryDetailAddTag"));
-  m_btnAddTag->setFixedSize(UiScale::dp(BlopStyle::touchTargetMinDp()),
-                             UiScale::dp(BlopStyle::touchTargetMinDp()));
+  m_btnAddTag->setFixedSize(UiScale::dp(28), UiScale::dp(28));
   m_btnAddTag->setCursor(Qt::PointingHandCursor);
   m_btnAddTag->setAutoDefault(false);
   connect(m_tagInput, &QLineEdit::returnPressed, this,
@@ -449,12 +553,19 @@ void LibraryDetailPanel::refresh() {
   } else {
     m_preview->setPixmap(
         NotePreviewIcon::pixmapForPath(m_path, info.isDir(), px));
-    m_name->setText(info.fileName());
+    m_name->setText(displayName(info));
     if (info.isDir()) {
       m_meta->setText(QStringLiteral("Ordner"));
     } else {
-      m_meta->setText(QStringLiteral("%1 · %2")
-                          .arg(kindLabel(info), humanSize(info.size())));
+      const QString ext = info.suffix().toUpper();
+      if (ext == QLatin1String("BNOTE") || ext == QLatin1String("BLOP") ||
+          ext == QLatin1String("STRUCT")) {
+        m_meta->setText(QStringLiteral("%1 · %2 · %3")
+                            .arg(kindLabel(info), ext, humanSize(info.size())));
+      } else {
+        m_meta->setText(QStringLiteral("%1 · %2")
+                            .arg(kindLabel(info), humanSize(info.size())));
+      }
     }
     m_btnOpen->setText(QStringLiteral("Öffnen"));
     updateFavoriteButton();
@@ -511,33 +622,42 @@ void LibraryDetailPanel::rebuildTagChips() {
     catalog = LibraryTagStore::catalog();
   }
   const QStringList assigned = LibraryTagStore::tagsForPath(m_path);
+  if (assigned.isEmpty()) {
+    auto *empty = new QLabel(QStringLiteral("Keine Tags zugewiesen"), m_tagHost);
+    empty->setObjectName(QStringLiteral("LibraryDetailTagEmpty"));
+    empty->setStyleSheet(
+        QStringLiteral("QLabel#LibraryDetailTagEmpty {"
+                       "  color: #94A3B8; font-size: 12px; font-weight: 500;"
+                       "  background: transparent; border: none;"
+                       "}"));
+    m_tagLay->addWidget(empty, 0, 0, 1, 2);
+    Q_UNUSED(catalog);
+    return;
+  }
   int i = 0;
   constexpr int kCols = 2;
-  for (const QString &tag : catalog) {
-    auto *chip = new QToolButton(m_tagHost);
-    chip->setObjectName(QStringLiteral("LibraryDetailTagChip"));
-    chip->setText(tag);
-    chip->setCheckable(true);
-    chip->setChecked(assigned.contains(tag));
-    chip->setCursor(Qt::PointingHandCursor);
-    chip->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    chip->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    chip->setMinimumHeight(UiScale::dp(28));
-    connect(chip, &QToolButton::toggled, this, [this, tag](bool on) {
-      if (m_path.isEmpty())
+  QFont chipFont;
+  chipFont.setPixelSize(12);
+  chipFont.setWeight(QFont::DemiBold);
+  const QFontMetrics fm(chipFont);
+  const int hostW = m_tagHost->width() > 0 ? m_tagHost->width() : 240;
+  const int colW = qMax(72, (hostW - UiScale::dp(6)) / 2);
+  for (const QString &tag : assigned) {
+    auto *chip = new TagChipButton(tag, m_tagHost);
+    const int w = fm.horizontalAdvance(tag) + 44;
+    chip->setFixedWidth(qBound(72, w, colW));
+    connect(chip, &QPushButton::clicked, this, [this, tag, chip]() {
+      if (!chip->overRemove() || m_path.isEmpty())
         return;
       QStringList next = LibraryTagStore::tagsForPath(m_path);
-      if (on) {
-        if (!next.contains(tag))
-          next.append(tag);
-      } else {
-        next.removeAll(tag);
-      }
+      next.removeAll(tag);
       LibraryTagStore::setTagsForPath(m_path, next);
+      rebuildTagChips();
     });
     m_tagLay->addWidget(chip, i / kCols, i % kCols);
     ++i;
   }
+  Q_UNUSED(catalog);
 }
 
 void LibraryDetailPanel::applyChrome() {
@@ -549,10 +669,6 @@ void LibraryDetailPanel::applyChrome() {
       dark ? QStringLiteral("#9AA3B2")
            : BlopStyle::paperInkMuted().name(QColor::HexRgb);
   const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
-  const QString soft = QStringLiteral("rgba(%1,%2,%3,0.16)")
-                           .arg(BlopTheme::accentPrimary().red())
-                           .arg(BlopTheme::accentPrimary().green())
-                           .arg(BlopTheme::accentPrimary().blue());
   const QString border =
       dark ? QStringLiteral("rgba(255,255,255,0.10)")
            : BlopStyle::paperBorder().name(QColor::HexRgb);
@@ -562,12 +678,11 @@ void LibraryDetailPanel::applyChrome() {
   // Flush docked pane: hairline to Main; only outer (window) corners soft.
   const int outerRad = UiScale::dp(BlopStyle::radiusLgDp());
   const int ctrlRad = UiScale::dp(BlopStyle::radiusLgDp());
-  const int chipRad = UiScale::dp(BlopStyle::radiusMdDp());
   setStyleSheet(QStringLiteral(
       "QWidget#LibraryDetailPanel {"
       "  background: %1; border: none; border-left: 1px solid %2;"
       "  border-top-left-radius: 0; border-bottom-left-radius: 0;"
-      "  border-top-right-radius: %8px; border-bottom-right-radius: %8px;"
+      "  border-top-right-radius: %7px; border-bottom-right-radius: %7px;"
       "}"
       "QWidget#LibraryDetailChrome { background: transparent; border: none; }"
       "QLabel#LibraryDetailTitle {"
@@ -585,7 +700,7 @@ void LibraryDetailPanel::applyChrome() {
       "QLabel#LibraryDetailTagTitle { color: %4; font-size: 12px; font-weight: 600; }"
       "QLineEdit {"
       "  background: %5; color: %3; border: 1px solid %2;"
-      "  border-radius: %9px; padding: 0 10px; font-size: 12px;"
+      "  border-radius: %8px; padding: 0 10px; font-size: 12px;"
       "}"
       "QPushButton#LibraryDetailQuietAction,"
       "QPushButton#LibraryDetailFavorite {"
@@ -593,19 +708,10 @@ void LibraryDetailPanel::applyChrome() {
       "  text-align: left; font-size: 12px; font-weight: 600; padding: 2px 0;"
       "}"
       "QPushButton#LibraryDetailQuietAction:hover,"
-      "QPushButton#LibraryDetailFavorite:hover { color: %6; }"
-      "QToolButton#LibraryDetailTagChip {"
-      "  background: %5; color: %3; border: 1px solid %2;"
-      "  border-radius: %10px; padding: 4px 8px; font-size: 12px; font-weight: 600;"
-      "}"
-      "QToolButton#LibraryDetailTagChip:checked {"
-      "  background: %7; color: %6; border: 1px solid %6;"
-      "}"
-      "QToolButton#LibraryDetailTagChip:hover:!checked { border-color: %6; }")
-                    .arg(bg, border, ink, muted, surface, acc, soft)
+      "QPushButton#LibraryDetailFavorite:hover { color: %6; }")
+                    .arg(bg, border, ink, muted, surface, acc)
                     .arg(outerRad)
-                    .arg(ctrlRad)
-                    .arg(chipRad));
+                    .arg(ctrlRad));
 
   if (m_btnCollapse)
     m_btnCollapse->setStyleSheet(
@@ -620,9 +726,53 @@ void LibraryDetailPanel::applyChrome() {
     m_emptyIcon->setPixmap(emptyPlaceholderPixmap(bd, fill));
   }
 
-  if (m_btnOpen)
-    m_btnOpen->setStyleSheet(BlopTheme::primaryButtonQss());
-  if (m_btnAddTag)
+  if (m_btnOpen) {
+    m_btnOpen->setFixedHeight(36);
+    m_btnOpen->setStyleSheet(QStringLiteral(
+        "QPushButton#LibraryDetailOpen {"
+        "  background: %1; color: white; border: none; border-radius: 8px;"
+        "  font-weight: 600; font-size: 13px; padding: 0 14px;"
+        "  min-height: 36px; max-height: 36px;"
+        "}"
+        "QPushButton#LibraryDetailOpen:hover { background: %2; }")
+                                 .arg(BlopTheme::accentPrimary().name(QColor::HexRgb),
+                                      BlopTheme::accentPrimary().lighter(112).name(
+                                          QColor::HexRgb)));
+  }
+  const QString secondary = QStringLiteral(
+      "QPushButton#LibraryDetailQuietAction {"
+      "  background: transparent; color: %1;"
+      "  border: 1px solid %2; border-radius: 6px;"
+      "  font-size: 12px; font-weight: 600; padding: 0 8px;"
+      "  min-height: 32px; max-height: 32px;"
+      "}"
+      "QPushButton#LibraryDetailQuietAction:hover { background: %3; }")
+                                .arg(ink, border,
+                                     dark ? QStringLiteral("rgba(255,255,255,0.06)")
+                                          : QStringLiteral("#F3F4F6"));
+  if (m_btnRename) {
+    m_btnRename->setStyleSheet(secondary);
+    m_btnRename->setIcon(actionIcon(QStringLiteral("pen"),
+                                    dark ? QColor(0xE5, 0xE7, 0xEB)
+                                         : QColor(0x37, 0x41, 0x51)));
+  }
+  if (m_btnDelete) {
+    m_btnDelete->setStyleSheet(QStringLiteral(
+        "QPushButton#LibraryDetailQuietAction {"
+        "  background: transparent; color: %1;"
+        "  border: 1px solid %2; border-radius: 6px;"
+        "  font-size: 12px; font-weight: 600; padding: 0 8px;"
+        "  min-height: 32px; max-height: 32px;"
+        "}"
+        "QPushButton#LibraryDetailQuietAction:hover {"
+        "  background: rgba(239,68,68,0.15); color: #F87171;"
+        "}")
+                                   .arg(ink, border));
+    m_btnDelete->setIcon(actionIcon(QStringLiteral("trash"), QColor(0xF8, 0x71, 0x71)));
+  }
+  if (m_btnAddTag) {
+    m_btnAddTag->setFixedSize(UiScale::dp(28), UiScale::dp(28));
     m_btnAddTag->setStyleSheet(BlopStyle::framedChromeIconButtonQss(
-        dark, BlopStyle::radiusMdDp(), BlopStyle::touchTargetMinDp()));
+        dark, BlopStyle::radiusMdDp(), 28));
+  }
 }

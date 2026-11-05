@@ -4,6 +4,7 @@
 #include "blopstyle.h"
 #include "uiscale.h"
 
+#include <QAbstractItemModel>
 #include <QApplication>
 #include <QContextMenuEvent>
 #include <QDir>
@@ -343,6 +344,13 @@ LibraryExplorerTree::LibraryExplorerTree(QWidget *parent) : QWidget(parent) {
   barLay->addWidget(m_btnNewNote, 0, Qt::AlignVCenter);
   root->addWidget(bar);
 
+  m_emptyLabel = new QLabel(this);
+  m_emptyLabel->setObjectName(QStringLiteral("LibraryExplorerEmpty"));
+  m_emptyLabel->setWordWrap(true);
+  m_emptyLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+  m_emptyLabel->setVisible(false);
+  root->addWidget(m_emptyLabel, 0);
+
   m_model = new QFileSystemModel(this);
   m_model->setFilter(QDir::AllDirs | QDir::Files | QDir::NoDotAndDotDot);
   m_model->setNameFilters({QStringLiteral("*.bnote"), QStringLiteral("*.blop"),
@@ -399,10 +407,19 @@ LibraryExplorerTree::LibraryExplorerTree(QWidget *parent) : QWidget(parent) {
           });
 
   root->addWidget(tree, 1);
+
   m_model->sort(0, Qt::AscendingOrder);
   applyChrome();
   connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this,
           [this]() { applyChrome(); });
+  connect(m_proxy, &QAbstractItemModel::rowsInserted, this,
+          [this]() { refreshEmptyState(); });
+  connect(m_proxy, &QAbstractItemModel::rowsRemoved, this,
+          [this]() { refreshEmptyState(); });
+  connect(m_proxy, &QAbstractItemModel::modelReset, this,
+          [this]() { refreshEmptyState(); });
+  connect(m_proxy, &QAbstractItemModel::layoutChanged, this,
+          [this]() { refreshEmptyState(); });
 }
 
 void LibraryExplorerTree::setRootPath(const QString &absolutePath) {
@@ -420,8 +437,23 @@ void LibraryExplorerTree::setAccentColor(const QColor &color) {
 }
 
 void LibraryExplorerTree::setFilterText(const QString &text) {
+  m_filterText = text.trimmed();
   if (auto *proxy = static_cast<ExplorerFilterProxy *>(m_proxy))
     proxy->setNeedle(text);
+  refreshEmptyState();
+}
+
+void LibraryExplorerTree::refreshEmptyState() {
+  if (!m_emptyLabel || !m_proxy || !m_tree)
+    return;
+  const QModelIndex root = m_tree->rootIndex();
+  const int rows = m_proxy->rowCount(root);
+  const bool show = !m_filterText.isEmpty() && rows == 0;
+  m_emptyLabel->setVisible(show);
+  if (show) {
+    m_emptyLabel->setText(
+        QStringLiteral("Keine Treffer für '%1'").arg(m_filterText));
+  }
 }
 
 QString LibraryExplorerTree::rootPath() const {
@@ -474,6 +506,10 @@ void LibraryExplorerTree::applyChrome() {
           "  color: %6; font-size: 10px; font-weight: 700;"
           "  letter-spacing: 0.8px; background: transparent;"
           "}"
+          "QLabel#LibraryExplorerEmpty {"
+          "  color: #94A3B8; font-size: 12px; font-weight: 500;"
+          "  background: transparent; padding: 12px;"
+          "}"
           "QToolButton#LibraryExplorerNewFolder,"
           "QToolButton#LibraryExplorerNewNote {"
           "  background: transparent; border: none; border-radius: %8px;"
@@ -508,4 +544,5 @@ void LibraryExplorerTree::applyChrome() {
     proxy->setIcons(strokeIcon(true, iconInk), strokeIcon(false, iconInk));
   if (m_tree)
     m_tree->viewport()->update();
+  refreshEmptyState();
 }

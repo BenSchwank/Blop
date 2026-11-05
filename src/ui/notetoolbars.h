@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QPainterPath>
 #include <QPointer>
+#include <QPoint>
 #include <QRectF>
 #include <QString>
 #include <QVector>
@@ -27,7 +28,9 @@ void noteApplyPenColor(const QColor &color);
 void noteApplyPenWidth(int width);
 
 struct NoteToolTile {
-  enum Action { Tool, Undo, Redo, More, Color, Wheel, Options, Center };
+  enum Action {
+    Tool, Undo, Redo, More, Color, Wheel, Options, Center, Swatch, Width, Gap
+  };
   QString icon;
   QString label;
   ToolMode mode{ToolMode::Pen};
@@ -37,6 +40,7 @@ struct NoteToolTile {
   QRectF rect;   ///< hit + paint rect (rect skins)
   QPainterPath path; ///< hit + paint path (radiant)
   QPointF iconCenter;
+  bool hittable{true};
   qreal iconSize{22};
   qreal radius{10};
 };
@@ -54,6 +58,7 @@ signals:
   void redoRequested();
   void moreRequested(const QPoint &globalPos);
   void toolOptionsRequested();
+  void penStudioRequested();
 
 protected:
   virtual void rebuildTiles() = 0;
@@ -61,6 +66,8 @@ protected:
   virtual void paintTile(QPainter &p, const NoteToolTile &t, int index);
   virtual QColor activeFill() const;
   virtual QColor activeGlyph() const;
+  virtual QColor idleGlyph() const;
+  virtual QColor hoverFill() const;
   bool tileActive(const NoteToolTile &t) const;
   int tileAt(const QPointF &pos) const;
   void activate(int index);
@@ -106,12 +113,17 @@ class NoteFloatToolbar : public NoteToolbarBase {
   Q_OBJECT
 public:
   explicit NoteFloatToolbar(QWidget *parent = nullptr);
+  /// Bottom-left of the width chip (fallback: pen tile), in global coords.
+  QPoint studioAnchorGlobal() const;
 
 protected:
   void rebuildTiles() override;
   void paintSkin(QPainter &p) override;
+  void paintTile(QPainter &p, const NoteToolTile &t, int index) override;
   QColor activeFill() const override;
   QColor activeGlyph() const override;
+  QColor idleGlyph() const override;
+  QColor hoverFill() const override;
 };
 
 /// Quarter bloom anchored bottom-right: center disc + two segmented rings.
@@ -174,12 +186,15 @@ public:
   void setUndoRedoAvailable(bool canUndo, bool canRedo);
   /// Geometry of the currently shown skin (surface coordinates).
   QRect activeRect() const;
+  /// Anchor for Pen Studio: width chip on the float dock, else toolbar bottom.
+  QPoint studioAnchorGlobal() const;
   void raiseAll();
 
 signals:
   void undoRequested();
   void redoRequested();
   void toolOptionsRequested();
+  void penStudioRequested();
   void styleChanged();
 
 private:

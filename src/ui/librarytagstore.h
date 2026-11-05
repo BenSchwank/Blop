@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QColor>
 #include <QHash>
 #include <QString>
 #include <QStringList>
@@ -27,4 +28,7 @@ public:
   static void remapPath(const QString &fromPath, const QString &toPath);
 
   static QString normalize(const QString &raw);
+
+  /// Stable accent color for a tag name (sidebar / list / detail share this).
+  static QColor tagColor(const QString &name);
 };

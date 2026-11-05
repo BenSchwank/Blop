@@ -144,6 +144,7 @@ qt_add_executable(Blop
     src/ui/strukturnoteeditor.cpp
     src/ui/strukturnoteeditor.h
     src/ui/notetoolbars.cpp
+    src/ui/penstudiopopover.cpp
     src/ui/notetoolbars.h
     src/ui/moderntoolbar.cpp
     src/ui/moderntoolbar.h
@@ -187,6 +188,10 @@ qt_add_executable(Blop
     src/ui/libraryorgstore.h
     src/ui/libraryorgbar.cpp
     src/ui/libraryorgbar.h
+    src/ui/librarylistcolumns.cpp
+    src/ui/librarylistcolumns.h
+    src/ui/librarylistheader.cpp
+    src/ui/librarylistheader.h
     src/ui/dashboardpage.cpp
     src/ui/dashboardpage.h
     src/ui/bloplocale.cpp

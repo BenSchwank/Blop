@@ -218,6 +218,21 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
       continue;
     }
 
+    if (it.header) {
+      auto *hdr = new QLabel(it.label, frame);
+      hdr->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+      hdr->setStyleSheet(
+          QStringLiteral("QLabel {"
+                         "  color: #94A3B8; font-size: 10px; font-weight: 700;"
+                         "  background: transparent; border: none;"
+                         "  padding: 6px 12px 4px;"
+                         "}"));
+      vlay->addWidget(hdr);
+      totalContentHeight += UiScale::dp(22) + vlay->spacing();
+      ++filledRows;
+      continue;
+    }
+
     auto *btn = new QPushButton(it.label, frame);
     if (!it.icon.isNull()) {
       btn->setIcon(it.icon);

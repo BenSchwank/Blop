@@ -228,9 +228,10 @@ QString paperThemeTileQss() {
              "  color: %2;"
              "  border: 2px solid %3;"
              "  border-radius: %4px;"
-             "  padding: 18px 16px;"
+             "  padding: 10px 12px;"
              "  min-height: %5px;"
-             "  font-size: 15px;"
+             "  max-height: %5px;"
+             "  font-size: 14px;"
              "  font-weight: 700;"
              "  text-align: center;"
              "}"
@@ -242,7 +243,7 @@ QString paperThemeTileQss() {
              "QPushButton:hover:!checked { background: %8; border-color: %7; }")
       .arg(paperSurface().name(QColor::HexRgb), paperInk().name(QColor::HexRgb),
            paperBorder().name(QColor::HexRgb), QString::number(rad),
-           QString::number(UiScale::dp(88)),
+           QString::number(UiScale::dp(60)),
            paperPrimaryLight().name(QColor::HexRgb),
            acc.name(QColor::HexRgb), paperHover().name(QColor::HexRgb));
 }

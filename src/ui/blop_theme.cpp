@@ -7,12 +7,14 @@
 #include <QApplication>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QStyleHints>
 
 namespace {
 constexpr const char *kSettingsOrg = "Blop";
 constexpr const char *kSettingsApp = "BlopApp";
 constexpr const char *kKeyMode = "ui/theme_mode";
 constexpr const char *kKeyAccent = "ui/accent";
+constexpr const char *kKeyFollowSystem = "ui/theme_follow_system";
 
 // Accent palettes. Each tuple is (primary, hover, pressed). The accent
 // border / subtle tints are derived at call-time via setAlpha to avoid
@@ -26,14 +28,24 @@ struct AccentPalette {
 AccentPalette paletteFor(BlopTheme::Accent a) {
   switch (a) {
   case BlopTheme::Accent::Blue:
-    return {QColor(0x4C, 0x8B, 0xF5), QColor(0x6BA0F8), QColor(0x3B72D8)};
+    return {QColor(0x25, 0x63, 0xEB), QColor(0x3B, 0x82, 0xF6),
+            QColor(0x1D, 0x4E, 0xD8)};
   case BlopTheme::Accent::Green:
-    return {QColor(0x35, 0xC4, 0x8A), QColor(0x4DD49E), QColor(0x2BAA75)};
-  case BlopTheme::Accent::Pink:
-    return {QColor(0xF0, 0x66, 0xB4), QColor(0xF581C2), QColor(0xD24E9A)};
-  case BlopTheme::Accent::Purple:
+    return {QColor(0x10, 0xB9, 0x81), QColor(0x34, 0xD3, 0x99),
+            QColor(0x05, 0x96, 0x69)};
+  case BlopTheme::Accent::Pink: // Rose
+    return {QColor(0xF4, 0x3F, 0x5E), QColor(0xFB, 0x71, 0x85),
+            QColor(0xE1, 0x1D, 0x48)};
+  case BlopTheme::Accent::Orange:
+    return {QColor(0xF5, 0x9E, 0x0B), QColor(0xFB, 0xBF, 0x24),
+            QColor(0xD9, 0x77, 0x06)};
+  case BlopTheme::Accent::Slate:
+    return {QColor(0x47, 0x55, 0x69), QColor(0x64, 0x74, 0x8B),
+            QColor(0x33, 0x41, 0x55)};
+  case BlopTheme::Accent::Purple: // Violet
   default:
-    return {QColor(0x7C, 0x5C, 0xFC), QColor(0x957AFF), QColor(0x6443E0)};
+    return {QColor(0x7C, 0x3A, 0xED), QColor(0x8B, 0x5C, 0xF6),
+            QColor(0x6D, 0x28, 0xD9)};
   }
 }
 
@@ -87,9 +99,12 @@ void BlopTheme::install() {
   // First launch defaults to Dark + Blue. These are defaults only — an
   // explicit user choice under the keys below must always win. Do not call
   // setMode() at startup; that would overwrite the saved choice.
+  m_followSystem = s.value(kKeyFollowSystem, false).toBool();
   m_mode = modeFromKey(s.value(kKeyMode, QStringLiteral("dark")).toString());
   m_accent =
       accentFromKey(s.value(kKeyAccent, QStringLiteral("blue")).toString());
+  if (m_followSystem)
+    applySystemModeIfFollowing();
   // Push the initial palette into UIStyles so existing callers (~42 sites)
   // see the right colors before any widget construction. Re-pushed on every
   // themeChanged signal below.
@@ -99,14 +114,51 @@ void BlopTheme::install() {
     UIStyles::refresh();
     applyTooltipStyle();
   });
+  if (qApp && qApp->styleHints()) {
+    QObject::connect(qApp->styleHints(), &QStyleHints::colorSchemeChanged, this,
+                     [this](Qt::ColorScheme) { applySystemModeIfFollowing(); });
+  }
 }
 
 void BlopTheme::setMode(Mode m) {
+  if (m_followSystem) {
+    m_followSystem = false;
+    QSettings(kSettingsOrg, kSettingsApp).setValue(kKeyFollowSystem, false);
+  }
   if (m == m_mode)
     return;
   m_mode = m;
   clearThemedCache();
   QSettings(kSettingsOrg, kSettingsApp).setValue(kKeyMode, modeKey(m));
+  emit themeChanged();
+}
+
+void BlopTheme::setFollowSystem(bool on) {
+  if (m_followSystem == on) {
+    if (on)
+      applySystemModeIfFollowing();
+    return;
+  }
+  m_followSystem = on;
+  QSettings(kSettingsOrg, kSettingsApp).setValue(kKeyFollowSystem, on);
+  if (on)
+    applySystemModeIfFollowing();
+  else
+    emit themeChanged();
+}
+
+void BlopTheme::applySystemModeIfFollowing() {
+  if (!m_followSystem || !qApp || !qApp->styleHints())
+    return;
+  const Qt::ColorScheme scheme = qApp->styleHints()->colorScheme();
+  const Mode next =
+      (scheme == Qt::ColorScheme::Light) ? Mode::Light : Mode::Dark;
+  if (next == m_mode)
+    return;
+  m_mode = next;
+  clearThemedCache();
+  // Persist resolved mode for cold start before follow flag is applied.
+  QSettings(kSettingsOrg, kSettingsApp).setValue(kKeyMode, modeKey(m_mode));
   emit themeChanged();
 }
 
@@ -138,6 +190,10 @@ QString BlopTheme::accentKey(Accent a) {
     return QStringLiteral("green");
   case Accent::Pink:
     return QStringLiteral("pink");
+  case Accent::Orange:
+    return QStringLiteral("orange");
+  case Accent::Slate:
+    return QStringLiteral("slate");
   case Accent::Purple:
   default:
     return QStringLiteral("purple");
@@ -149,8 +205,13 @@ BlopTheme::Accent BlopTheme::accentFromKey(const QString &k) {
     return Accent::Blue;
   if (k.compare(QStringLiteral("green"), Qt::CaseInsensitive) == 0)
     return Accent::Green;
-  if (k.compare(QStringLiteral("pink"), Qt::CaseInsensitive) == 0)
+  if (k.compare(QStringLiteral("pink"), Qt::CaseInsensitive) == 0 ||
+      k.compare(QStringLiteral("rose"), Qt::CaseInsensitive) == 0)
     return Accent::Pink;
+  if (k.compare(QStringLiteral("orange"), Qt::CaseInsensitive) == 0)
+    return Accent::Orange;
+  if (k.compare(QStringLiteral("slate"), Qt::CaseInsensitive) == 0)
+    return Accent::Slate;
   return Accent::Purple;
 }
 
@@ -202,13 +263,17 @@ QColor BlopTheme::accentColor(Accent a) { return paletteFor(a).primary; }
 
 QVector<BlopTheme::AccentSwatch> BlopTheme::accentColors() {
   return {{Accent::Blue, paletteFor(Accent::Blue).primary,
-           QStringLiteral("Blue")},
-          {Accent::Green, paletteFor(Accent::Green).primary,
-           QStringLiteral("Green")},
-          {Accent::Pink, paletteFor(Accent::Pink).primary,
-           QStringLiteral("Pink")},
+           QStringLiteral("Blau")},
           {Accent::Purple, paletteFor(Accent::Purple).primary,
-           QStringLiteral("Purple")}};
+           QStringLiteral("Violett")},
+          {Accent::Green, paletteFor(Accent::Green).primary,
+           QStringLiteral("Grün")},
+          {Accent::Orange, paletteFor(Accent::Orange).primary,
+           QStringLiteral("Orange")},
+          {Accent::Pink, paletteFor(Accent::Pink).primary,
+           QStringLiteral("Rose")},
+          {Accent::Slate, paletteFor(Accent::Slate).primary,
+           QStringLiteral("Schiefer")}};
 }
 
 QColor BlopTheme::accentHover() {

@@ -30,7 +30,8 @@ inline bool isDark() { return mode() == Mode::Dark; }
 
 inline QColor canvasBg() {
   // Dark well is a step lighter than the #1A1916 L-frame.
-  return isDark() ? QColor(0x32, 0x36, 0x3E) : QColor(245, 245, 245);
+  // Light slate gives A4 paper clear contrast against the surround.
+  return isDark() ? QColor(0x32, 0x36, 0x3E) : QColor(0xE2, 0xE8, 0xF0);
 }
 /// Hairline between the L-frame and the note well.
 inline QColor frameEdge() { return QColor(0x4A, 0x4E, 0x58); }

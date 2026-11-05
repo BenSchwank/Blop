@@ -36,7 +36,10 @@ bool widgetMatchesSearch(QWidget *w, const QString &needle);
 bool sectionMatchesSearch(QWidget *sectionRoot, const QString &needle,
                           const QString &title, const QString &subtitle,
                           const QString &sectionKeywords = QString());
-void applyRowSearchFilter(QWidget *sectionRoot, const QString &needle);
+/// When sectionTitleHit is true (needle matched card title/subtitle/keywords),
+/// every SettingsPropRow stays visible.
+void applyRowSearchFilter(QWidget *sectionRoot, const QString &needle,
+                          bool sectionTitleHit = false);
 
 QWidget *makePropertyRow(QWidget *parent, const QString &label, QWidget *action,
                          bool last = false, const QString &searchKeys = QString());
