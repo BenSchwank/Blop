@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { MoreVertical, Edit, Archive, ArchiveRestore, Trash2, FolderInput, ExternalLink } from "lucide-react";
+import { MoreVertical, Edit, Archive, ArchiveRestore, Trash2, FolderInput, ExternalLink, Check } from "lucide-react";
 import {
     formatCompactDate,
     isAiContextEligible,
@@ -19,8 +19,7 @@ type Props = {
     aiActive: boolean;
     openMenuFileId: string | null;
     setOpenMenuFileId: (id: string | null) => void;
-    onToggleSelect: (id: string, checked: boolean) => void;
-    onToggleAi: (id: string, checked: boolean) => void;
+    onToggleSelect: (id: string, checked: boolean, ev?: React.MouseEvent | React.ChangeEvent) => void;
     onOpen: (file: FolderFile) => void;
     onRename: (file: FolderFile, newName: string) => Promise<void> | void;
     onArchive: (file: FolderFile, archived: boolean) => void;
@@ -39,7 +38,6 @@ export default function FolderFileRow({
     openMenuFileId,
     setOpenMenuFileId,
     onToggleSelect,
-    onToggleAi,
     onOpen,
     onRename,
     onArchive,
@@ -59,6 +57,7 @@ export default function FolderFileRow({
     const archived = isArchived(file);
     const aiEligible = isAiContextEligible(file);
     const menuOpen = openMenuFileId === file.id;
+    const checked = selected || (!archived && aiActive);
 
     useEffect(() => {
         if (editing) inputRef.current?.focus();
@@ -74,50 +73,53 @@ export default function FolderFileRow({
         await onRename(file, next);
     };
 
+    const toggle = (ev?: React.MouseEvent | React.ChangeEvent) => {
+        onToggleSelect(file.id, !checked, ev);
+    };
+
     return (
         <div
             ref={setNodeRef}
             {...attributes}
-            {...listeners}
             className={`group flex h-11 items-center gap-2.5 border-b border-white/[0.06] px-3 transition-colors ${
                 isDragging ? "opacity-40" : ""
             } ${
-                aiActive && !archived
-                    ? "bg-[rgba(59,130,246,0.06)]"
-                    : selected
-                      ? "bg-white/[0.03]"
-                      : "hover:bg-white/[0.03]"
+                checked && !archived
+                    ? "bg-[rgba(37,99,235,0.08)]"
+                    : "hover:bg-white/[0.03]"
             }`}
+            onClick={(e) => {
+                // Row click toggles selection (not when interacting with name/menu/rename).
+                const t = e.target as HTMLElement;
+                if (t.closest("[data-row-open]") || t.closest("[data-row-menu]") || t.closest("input")) return;
+                toggle(e);
+            }}
         >
-            <input
-                type="checkbox"
-                className="h-3.5 w-3.5 rounded border-[#45484F] bg-[#23252A] shrink-0"
-                checked={selected}
-                onChange={(e) => {
-                    e.stopPropagation();
-                    onToggleSelect(file.id, e.target.checked);
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                title="Mehrfachauswahl"
+            <button
+                type="button"
+                role="checkbox"
+                aria-checked={checked}
                 aria-label="Datei auswählen"
-            />
-            <input
-                type="checkbox"
-                className="h-3.5 w-3.5 rounded border-[#45484F] bg-[#23252A] shrink-0 disabled:opacity-40"
-                checked={aiActive}
-                disabled={archived || !aiEligible}
-                onChange={(e) => {
+                title={aiEligible ? "Auswahl & KI-Quelle" : "Auswahl"}
+                onClick={(e) => {
                     e.stopPropagation();
-                    onToggleAi(file.id, e.target.checked);
+                    toggle(e);
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                title="Als Quelle für KI-Tools verwenden"
-                aria-label="Als KI-Quelle verwenden"
-            />
+                className={`shrink-0 flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border-[1.5px] transition-colors ${
+                    checked
+                        ? "border-[#2563EB] bg-[#2563EB] text-white"
+                        : "border-[#4B5563] bg-transparent text-transparent"
+                }`}
+            >
+                <Check size={12} strokeWidth={3} />
+            </button>
 
-            <div className={`h-7 w-7 rounded-md flex items-center justify-center shrink-0 ${typeIconTone(file.type)}`}>
+            {/* drag handle — keep listeners off the checkbox/name */}
+            <div
+                className={`h-7 w-7 rounded-md flex items-center justify-center shrink-0 cursor-grab ${typeIconTone(file.type)}`}
+                {...listeners}
+            >
                 {icon}
             </div>
 
@@ -142,6 +144,7 @@ export default function FolderFileRow({
                 ) : (
                     <button
                         type="button"
+                        data-row-open
                         className="min-w-0 text-left truncate text-[13px] font-medium text-white hover:underline"
                         onClick={(e) => {
                             e.stopPropagation();
@@ -155,7 +158,7 @@ export default function FolderFileRow({
                 )}
                 {aiActive && !archived ? (
                     <span className="hidden sm:inline shrink-0 rounded-full bg-[#2563EB]/15 px-1.5 py-0.5 text-[10px] font-medium text-[#93C5FD]">
-                        KI-Quelle aktiv
+                        KI-Quelle
                     </span>
                 ) : null}
                 {canRename && !editing ? (
@@ -183,7 +186,12 @@ export default function FolderFileRow({
                 {formatCompactDate(file.created_at)}
             </span>
 
-            <div className="relative shrink-0" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            <div
+                className="relative shrink-0"
+                data-row-menu
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+            >
                 <button
                     type="button"
                     onClick={() => setOpenMenuFileId(menuOpen ? null : file.id)}

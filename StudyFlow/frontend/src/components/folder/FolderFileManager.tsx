@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Archive, ChevronDown, ChevronRight, Search, Trash2, FolderInput, Target } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { Archive, Check, ChevronDown, ChevronRight, Clock, FileText, Search, Trash2, FolderInput, Target } from "lucide-react";
 import FolderFileRow from "@/components/folder/FolderFileRow";
 import type { SubfolderRow } from "@/components/folder/SubfolderChipGrid";
 import {
@@ -12,6 +12,7 @@ import {
     isAiContextEligible,
     matchesTypeTab,
     sortFiles,
+    SOURCE_SCRIPT_TYPES,
     type FileGroupMode,
     type FileSortMode,
     type FileTypeTab,
@@ -29,6 +30,7 @@ type Props = {
     youtubeIdFor: (file: FolderFile) => string | null;
     onOpenYoutube: (id: string) => void;
     onToggleSelect: (id: string, checked: boolean) => void;
+    onSelectMany: (ids: string[], checked: boolean) => void;
     onClearSelection: () => void;
     onToggleAi: (id: string, checked: boolean) => void;
     onSetGroupAsAiSources: (ids: string[]) => void;
@@ -64,6 +66,7 @@ export default function FolderFileManager({
     youtubeIdFor,
     onOpenYoutube,
     onToggleSelect,
+    onSelectMany,
     onClearSelection,
     onToggleAi,
     onSetGroupAsAiSources,
@@ -86,6 +89,7 @@ export default function FolderFileManager({
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
     const [moveOpen, setMoveOpen] = useState(false);
     const [rowMoveFile, setRowMoveFile] = useState<FolderFile | null>(null);
+    const lastIndexRef = useRef<number>(-1);
 
     const activeIds = useMemo(
         () => new Set(activeAiContextIds(files, aiContextIncludedIds)),
@@ -100,7 +104,57 @@ export default function FolderFileManager({
 
     const groups = useMemo(() => groupFiles(filtered, groupMode), [filtered, groupMode]);
 
+    const flatVisible = useMemo(() => groups.flatMap((g) => (collapsed[g.key] ? [] : g.files)), [groups, collapsed]);
+
     const selectionCount = selectedIds.size;
+
+    const applyToggle = (id: string, checked: boolean, ev?: React.MouseEvent | React.ChangeEvent) => {
+        const idx = flatVisible.findIndex((f) => f.id === id);
+        const shift = !!(ev && "shiftKey" in ev && ev.shiftKey);
+        if (shift && lastIndexRef.current >= 0 && idx >= 0) {
+            const a = Math.min(lastIndexRef.current, idx);
+            const b = Math.max(lastIndexRef.current, idx);
+            const range = flatVisible.slice(a, b + 1).map((f) => f.id);
+            onSelectMany(range, checked);
+            for (const fid of range) {
+                const f = files.find((x) => x.id === fid);
+                if (f && isAiContextEligible(f)) onToggleAi(fid, checked);
+            }
+        } else {
+            onToggleSelect(id, checked);
+            const f = files.find((x) => x.id === id);
+            if (f && isAiContextEligible(f)) onToggleAi(id, checked);
+        }
+        if (idx >= 0) lastIndexRef.current = idx;
+    };
+
+    const selectAllVisible = () => {
+        const ids = flatVisible.map((f) => f.id);
+        onSelectMany(ids, true);
+        for (const f of flatVisible) {
+            if (isAiContextEligible(f)) onToggleAi(f.id, true);
+        }
+    };
+
+    const selectScripts = () => {
+        const ids = flatVisible.filter((f) => SOURCE_SCRIPT_TYPES.has(f.type)).map((f) => f.id);
+        onClearSelection();
+        onSelectMany(ids, true);
+        for (const id of ids) onToggleAi(id, true);
+    };
+
+    const selectNewest = () => {
+        const sorted = sortFiles([...flatVisible], "newest").slice(0, Math.min(5, flatVisible.length));
+        const ids = sorted.map((f) => f.id);
+        onClearSelection();
+        onSelectMany(ids, true);
+        for (const f of sorted) {
+            if (isAiContextEligible(f)) onToggleAi(f.id, true);
+        }
+    };
+
+    const quickBtn =
+        "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-gray-300 hover:bg-white/5 hover:text-white border border-transparent hover:border-white/[0.08]";
 
     return (
         <div className="relative space-y-3">
@@ -158,6 +212,24 @@ export default function FolderFileManager({
                 })}
             </div>
 
+            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-white/[0.06] bg-[#1A1916] px-1.5 py-1">
+                <button type="button" className={quickBtn} onClick={selectAllVisible}>
+                    <Check size={12} /> Alle auswählen
+                </button>
+                <span className="text-gray-700">|</span>
+                <button type="button" className={quickBtn} onClick={selectScripts}>
+                    <FileText size={12} /> Nur Skripte/PDFs
+                </button>
+                <span className="text-gray-700">|</span>
+                <button type="button" className={quickBtn} onClick={selectNewest}>
+                    <Clock size={12} /> Neueste
+                </button>
+                <span className="text-gray-700">|</span>
+                <button type="button" className={quickBtn} onClick={onClearSelection}>
+                    Auswahl leeren
+                </button>
+            </div>
+
             <div className="rounded-xl border border-[#45484F] bg-[#1A1916] overflow-hidden">
                 {filtered.length === 0 ? (
                     <p className="px-4 py-10 text-center text-sm text-gray-500">
@@ -184,24 +256,32 @@ export default function FolderFileManager({
                                             {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                                         </button>
                                         {groupEligible.length > 0 ? (
-                                            <input
-                                                type="checkbox"
-                                                className="h-3.5 w-3.5 rounded border-[#45484F] bg-[#23252A]"
-                                                checked={allAi}
-                                                ref={(el) => {
-                                                    if (el) el.indeterminate = !allAi && someAi;
-                                                }}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        onSetGroupAsAiSources(groupEligible.map((f) => f.id));
-                                                    } else {
+                                            <button
+                                                type="button"
+                                                role="checkbox"
+                                                aria-checked={allAi}
+                                                className={`shrink-0 flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border-[1.5px] ${
+                                                    allAi
+                                                        ? "border-[#2563EB] bg-[#2563EB] text-white"
+                                                        : someAi
+                                                          ? "border-[#2563EB] bg-[#2563EB]/40 text-white"
+                                                          : "border-[#4B5563] bg-transparent text-transparent"
+                                                }`}
+                                                onClick={() => {
+                                                    if (allAi) {
                                                         const remove = new Set(groupEligible.map((f) => f.id));
                                                         const next = [...activeIds].filter((id) => !remove.has(id));
                                                         onSetGroupAsAiSources(next);
+                                                        onSelectMany(groupEligible.map((f) => f.id), false);
+                                                    } else {
+                                                        onSetGroupAsAiSources(groupEligible.map((f) => f.id));
+                                                        onSelectMany(groupEligible.map((f) => f.id), true);
                                                     }
                                                 }}
                                                 title="KI-Quellen dieser Gruppe"
-                                            />
+                                            >
+                                                <Check size={12} strokeWidth={3} />
+                                            </button>
                                         ) : null}
                                         <span className="text-[12px] font-medium text-gray-300">
                                             {g.label}
@@ -219,8 +299,7 @@ export default function FolderFileManager({
                                               aiActive={activeIds.has(file.id)}
                                               openMenuFileId={openMenuFileId}
                                               setOpenMenuFileId={setOpenMenuFileId}
-                                              onToggleSelect={onToggleSelect}
-                                              onToggleAi={onToggleAi}
+                                              onToggleSelect={applyToggle}
                                               onOpen={onOpen}
                                               onRename={onRename}
                                               onArchive={onArchive}

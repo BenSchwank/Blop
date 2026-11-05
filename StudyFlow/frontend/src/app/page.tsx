@@ -17,6 +17,7 @@ interface FolderData {
   id: string;
   name: string;
   files?: unknown[];
+  file_count?: number;
 }
 
 function FolderCardMenu({ onRename, onDelete }: { onRename: (e: React.MouseEvent) => void, onDelete: (e: React.MouseEvent) => void }) {
@@ -110,7 +111,7 @@ function DraggableFolder({ folder, onClick, onRename, onDelete }: { folder: Fold
 
       <div className="w-full px-2">
         <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{folder.name}</h3>
-        <p className="text-[11px] text-gray-500">{folder.files?.length || 0} Dateien</p>
+        <p className="text-[11px] text-gray-500">{folder.file_count ?? folder.files?.length ?? 0} Dateien</p>
       </div>
     </motion.div>
   );
@@ -511,7 +512,7 @@ export default function Dashboard() {
                       </div>
                       <div className="w-full px-2">
                         <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{activeDragFolder.name}</h3>
-                        <p className="text-[11px] text-gray-500">{activeDragFolder.files?.length || 0} Dateien</p>
+                        <p className="text-[11px] text-gray-500">{activeDragFolder.file_count ?? activeDragFolder.files?.length ?? 0} Dateien</p>
                       </div>
                     </div>
                   ) : null}
@@ -545,7 +546,7 @@ export default function Dashboard() {
                       </div>
                       <div className="w-full px-2">
                         <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{folder.name}</h3>
-                        <p className="text-[11px] text-gray-500">{folder.files?.length || 0} Dateien</p>
+                        <p className="text-[11px] text-gray-500">{folder.file_count ?? folder.files?.length ?? 0} Dateien</p>
                       </div>
                     </motion.div>
                   ))}

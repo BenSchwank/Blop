@@ -9,6 +9,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import RichTextEditor from "@/components/RichTextEditor";
+import MarkdownSplitEditor from "@/components/MarkdownSplitEditor";
 import SmartLearningView, { normalizeSmartLearningContent } from "@/components/SmartLearningView";
 import QuizSession, { type QuizQuestion as QuizSessionQuestion } from "@/components/QuizSession";
 import FlashcardSession from "@/components/FlashcardSession";
@@ -1005,6 +1006,8 @@ export default function FolderPage() {
     const persistAiContext = async (next: string[] | null) => {
         const username = localStorage.getItem("username");
         if (!username) return;
+        // Optimistic UI — apply immediately, persist in background.
+        setAiContextIncludedIds(next);
         setSavingAiContext(true);
         try {
             const res = await fetch(`${API_BASE}/folders/${folderId}/ai-context`, {
@@ -1036,10 +1039,10 @@ export default function FolderPage() {
     };
 
     const toggleAiContextFile = (fileId: string, wantChecked: boolean) => {
-        const contextFiles = files.filter(isAiContextSourceFile);
-        const sourceIds = defaultAiContextIds(files);
-        if (contextFiles.length === 0) return;
+        const target = files.find((f) => f.id === fileId);
+        if (!target || !isAiContextEligible(target)) return;
 
+        const sourceIds = defaultAiContextIds(files);
         const current = aiContextIncludedIds === null ? sourceIds : aiContextIncludedIds;
         const next = wantChecked
             ? [...new Set([...current, fileId])]
@@ -3538,7 +3541,55 @@ export default function FolderPage() {
             const isHtml = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote|<img/i.test(contentStr);
             const ytId = youtubeVideoIdFromTranscriptFile(selectedFile);
 
-            if (isEditingFile || isHtml) {
+            const saveDocContent = async (newContent: string, opts?: { close?: boolean }) => {
+                try {
+                    const username = localStorage.getItem("username");
+                    const sid = localStorage.getItem("session_id") || "";
+                    const res = await fetch(`${API_BASE}/files/update?session_id=${encodeURIComponent(sid)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', 'X-Session-Id': sid },
+                        body: JSON.stringify({
+                            username,
+                            folder_id: folderId,
+                            file_id: selectedFile.id,
+                            content: newContent
+                        })
+                    });
+
+                    if (res.ok) {
+                        const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: newContent } : f);
+                        setFiles(updatedFiles);
+                        setSelectedFile({ ...selectedFile, content: newContent });
+                        if (opts?.close) setIsEditingFile(false);
+                    } else {
+                        const err = await res.json();
+                        showToast(`Fehler beim Speichern: ${err.detail || 'Unbekannt'}`);
+                        throw new Error("save failed");
+                    }
+                } catch (e) {
+                    if (!(e instanceof Error && e.message === "save failed")) {
+                        showToast("Netzwerkfehler beim Speichern.");
+                    }
+                    throw e;
+                }
+            };
+
+            // Markdown docs: raw-source split editor (never TipTap HTML→MD roundtrip).
+            if (isEditingFile && !isHtml) {
+                return (
+                    <MarkdownSplitEditor
+                        initialContent={contentStr}
+                        title={selectedFile.name}
+                        youtubeVideoId={selectedFile.type === 'transcript' ? ytId : null}
+                        contentShiftClass={chatShiftClass}
+                        onClose={() => { setSelectedFile(null); setIsEditingFile(false); }}
+                        onSave={saveDocContent}
+                    />
+                );
+            }
+
+            // Legacy HTML-only content still uses TipTap.
+            if (isHtml) {
                 return (
                     <RichTextEditor
                         initialContent={contentStr}
@@ -3550,35 +3601,7 @@ export default function FolderPage() {
                         modelPreference={effectiveModelPreference}
                         contentShiftClass={chatShiftClass}
                         onClose={() => { setSelectedFile(null); setIsEditingFile(false); }}
-                        onSave={async (newContent, opts) => {
-                            try {
-                                const username = localStorage.getItem("username");
-                                const sid = localStorage.getItem("session_id") || "";
-                                const res = await fetch(`${API_BASE}/files/update?session_id=${encodeURIComponent(sid)}`, {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json', 'X-Session-Id': sid },
-                                    body: JSON.stringify({
-                                        username,
-                                        folder_id: folderId,
-                                        file_id: selectedFile.id,
-                                        content: newContent
-                                    })
-                                });
-
-                                if (res.ok) {
-                                    // Update local state so it doesn't revert on close
-                                    const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: newContent } : f);
-                                    setFiles(updatedFiles);
-                                    setSelectedFile({ ...selectedFile, content: newContent });
-                                    if (opts?.close) setIsEditingFile(false);
-                                } else {
-                                    const err = await res.json();
-                                    showToast(`Fehler beim Speichern: ${err.detail || 'Unbekannt'}`);
-                                }
-                            } catch {
-                                showToast("Netzwerkfehler beim Speichern.");
-                            }
-                        }}
+                        onSave={saveDocContent}
                     />
                 );
             }
@@ -4301,7 +4324,7 @@ export default function FolderPage() {
                             )}
 
                             <SubfolderChipGrid
-                                subfolders={subfolders.map((sf) => ({ ...sf, file_count: undefined }))}
+                                subfolders={subfolders}
                                 onOpen={(sf) => router.push(`/folder/${sf.id}`)}
                                 onRename={openRenameSubfolder}
                                 onDelete={openDeleteSubfolder}
@@ -4346,6 +4369,16 @@ export default function FolderPage() {
                                             const next = new Set(prev);
                                             if (checked) next.add(id);
                                             else next.delete(id);
+                                            return next;
+                                        });
+                                    }}
+                                    onSelectMany={(ids, checked) => {
+                                        setSelectedFileIds((prev) => {
+                                            const next = new Set(prev);
+                                            for (const id of ids) {
+                                                if (checked) next.add(id);
+                                                else next.delete(id);
+                                            }
                                             return next;
                                         });
                                     }}

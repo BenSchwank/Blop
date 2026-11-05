@@ -24,7 +24,8 @@ export const AI_CONTEXT_FILE_TYPES = new Set([
 
 export const AI_CONTEXT_SOURCE_TYPES = new Set(["pdf", "transcript"]);
 
-export const SOURCE_SCRIPT_TYPES = new Set(["pdf", "transcript", "summary", "repetition", "elaboration"]);
+/** Uploads / source materials only — not AI-generated elaborations. */
+export const SOURCE_SCRIPT_TYPES = new Set(["pdf", "transcript"]);
 export const MEDIA_TYPES = new Set(["audio", "video", "podcast", "image"]);
 export const CREATION_TYPES = new Set([
     "plan",
@@ -94,7 +95,7 @@ export function matchesTypeTab(f: FolderFile, tab: FileTypeTab): boolean {
     if (tab === "archive") return archived;
     if (archived) return false;
     if (tab === "all") return true;
-    if (tab === "sources") return SOURCE_SCRIPT_TYPES.has(f.type) || f.type === "pdf" || f.type === "transcript";
+    if (tab === "sources") return SOURCE_SCRIPT_TYPES.has(f.type);
     if (tab === "media") return MEDIA_TYPES.has(f.type);
     if (tab === "creations") return CREATION_TYPES.has(f.type);
     return true;
