@@ -199,24 +199,46 @@ class DataManager:
         return {"folders": folders, "files": files_res.data}
 
     @staticmethod
-    def list_root_folders(username):
-        """Lightweight root-folder list (no nested files / no heavy columns)."""
+    def _file_counts_by_folder(username) -> dict:
         db = DataManager._init_supabase()
         if not db:
-            return []
-        res = (
-            db.table("folders")
-            .select("id, name, parent_id, created_at, username")
-            .eq("username", username)
-            .is_("parent_id", "null")
-            .order("created_at", desc=True)
-            .execute()
-        )
-        return res.data or []
+            return {}
+        try:
+            files_res = (
+                db.table("files")
+                .select("folder_id")
+                .eq("username", username)
+                .execute()
+            )
+        except Exception:
+            return {}
+        counts: dict = {}
+        for f in (files_res.data or []):
+            fid = str(f.get("folder_id") or "")
+            if not fid:
+                continue
+            counts[fid] = counts.get(fid, 0) + 1
+        return counts
+
+    @staticmethod
+    def list_root_folders(username):
+        """Root folders with recursive file_count (own + descendants)."""
+        tree = DataManager.list_folder_tree(username)
+        return [
+            {
+                "id": n["id"],
+                "name": n.get("name"),
+                "parent_id": None,
+                "created_at": n.get("created_at"),
+                "username": username,
+                "file_count": n.get("file_count", 0),
+            }
+            for n in tree
+        ]
 
     @staticmethod
     def list_subfolders(username, parent_id):
-        """Lightweight subfolder list for one parent."""
+        """Subfolders of one parent with direct file_count."""
         db = DataManager._init_supabase()
         if not db:
             return []
@@ -228,7 +250,13 @@ class DataManager:
             .order("created_at", desc=True)
             .execute()
         )
-        return res.data or []
+        counts = DataManager._file_counts_by_folder(username)
+        out = []
+        for row in (res.data or []):
+            item = dict(row)
+            item["file_count"] = counts.get(str(row["id"]), 0)
+            out.append(item)
+        return out
 
     @staticmethod
     def save(data, username):
@@ -574,7 +602,8 @@ class DataManager:
                 "id": fid,
                 "name": row.get("name") or "Ordner",
                 "parent_id": row.get("parent_id"),
-                "file_count": counts.get(fid, 0),
+                "created_at": row.get("created_at"),
+                "file_count": counts.get(fid, 0),  # direct; becomes recursive below
                 "children": [],
             }
 
@@ -586,12 +615,21 @@ class DataManager:
             else:
                 roots.append(node)
 
+        def rollup(node: dict) -> int:
+            total = int(node.get("file_count") or 0)
+            for child in node["children"]:
+                total += rollup(child)
+            node["file_count"] = total
+            return total
+
         def sort_rec(items: List[dict]):
             items.sort(key=lambda n: (n.get("name") or "").lower())
             for n in items:
                 sort_rec(n["children"])
 
         sort_rec(roots)
+        for r in roots:
+            rollup(r)
         for node in nodes.values():
             node.pop("parent_id", None)
         return roots

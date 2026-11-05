@@ -13,6 +13,7 @@ function stripInlineMd(raw: string): string {
         .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
         .replace(/[*_~]+/g, "")
         .replace(/<[^>]+>/g, "")
+        .replace(/(\d+)\\\./g, "$1.")
         .replace(/\s+/g, " ")
         .trim();
 }
@@ -76,10 +77,74 @@ function repairCorruptedCodeFences(src: string): string {
     return t;
 }
 
+/** Undo prose damage from repairStrippedLatexCommands (anschließ\end → anschließend). */
+function repairStrippedCommandInProse(src: string): string {
+    // Letter + \end + letter (German compound words corrupted by \b(end)\b injection)
+    return src.replace(/(?<=\p{L})\\+end(?=\p{L})/gu, "end");
+}
+
+function repairEscapedHeadingDots(src: string): string {
+    return src
+        .split("\n")
+        .map((line) => {
+            if (/^\s*#{1,6}\s/.test(line)) {
+                return line.replace(/(\d+)\\\.\s*/g, "$1. ");
+            }
+            return line;
+        })
+        .join("\n");
+}
+
+/** Wrap bare cases environments in $$ … $$ and clean \\\, row breaks. */
+function repairBareCasesBlocks(src: string): string {
+    return src.replace(/(\\begin\{cases\}[\s\S]*?\\end\{cases\})/g, (block, _full, offset: number) => {
+        const before = src.slice(Math.max(0, offset - 4), offset);
+        const after = src.slice(offset + block.length, offset + block.length + 4);
+        const alreadyWrapped = /\$\$\s*$/.test(before) || /^\s*\$\$/.test(after);
+        let body = block.replace(/\\\\\\,/g, "\\\\ ").replace(/\\{2},/g, "\\\\ ");
+        if (alreadyWrapped) return body;
+        return `\n$$\n${body}\n$$\n`;
+    });
+}
+
+function normalizeMermaidFenceBody(body: string): string {
+    let b = body.trim();
+    b = b.replace(/→/g, "-->");
+    b = b.replace(/--\s*([^-→\n]+?)\s*-+\s*-->/g, "-- $1 -->");
+    b = b.replace(/--\s*([^-→\n]+?)\s*-->/g, "-- $1 -->");
+    if (!b.includes("\n")) {
+        b = b
+            .replace(/;\s*/g, ";\n")
+            .replace(/\s*(-->|---|-.->|==>|==)\s*/g, "\n$1 ")
+            .trim();
+    }
+    return b;
+}
+
+/** Tag flowchart/graph fences as mermaid and fix Unicode arrows. */
+function repairMermaidFences(src: string): string {
+    return src.replace(/```([^\n`]*)\n([\s\S]*?)```/g, (_m, lang: string, body: string) => {
+        const trimmed = String(body || "").trim();
+        const looksMermaid = /^(flowchart|graph)\s/i.test(trimmed);
+        let label = String(lang || "").trim();
+        if (looksMermaid && (!label || label.toLowerCase() === "text" || label.toLowerCase() === "plain")) {
+            label = "mermaid";
+        }
+        if (label.toLowerCase() === "mermaid" || looksMermaid) {
+            return `\`\`\`mermaid\n${normalizeMermaidFenceBody(trimmed)}\n\`\`\``;
+        }
+        return `\`\`\`${lang}\n${body}\`\`\``;
+    });
+}
+
 /** Repair LLM markdown so KaTeX/remark-math can parse it. */
 export function sanitizeDocumentMarkdown(markdown: string): string {
     let t = String(markdown || "").replace(/\r\n/g, "\n");
     t = repairCorruptedCodeFences(t);
+    t = repairStrippedCommandInProse(t);
+    t = repairEscapedHeadingDots(t);
+    t = repairBareCasesBlocks(t);
+    t = repairMermaidFences(t);
     t = t.replace(/\]\(\s*#([^)]*)\)/g, (_m, inner: string) => {
         const slug = String(inner || "").replace(/[\s\r\n]+/g, "");
         return `](#${slug})`;

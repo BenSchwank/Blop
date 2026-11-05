@@ -1,43 +1,5 @@
 import TurndownService from 'turndown';
 
-/** Split markdown into alternating outside / inside ```fenced``` segments. */
-function mapOutsideCodeFences(md: string, fn: (s: string) => string): string {
-    const parts = md.split(/(```[\s\S]*?```)/g);
-    return parts.map((p, i) => (i % 2 === 1 ? p : fn(p))).join('');
-}
-
-/** Transform text outside $...$ and $$...$$ (inline math delimiters). */
-function mapOutsideInlineMath(md: string, fn: (s: string) => string): string {
-    const out: string[] = [];
-    let pos = 0;
-    while (pos < md.length) {
-        const d = md.indexOf('$', pos);
-        if (d === -1) {
-            out.push(fn(md.slice(pos)));
-            break;
-        }
-        out.push(fn(md.slice(pos, d)));
-        if (md[d + 1] === '$') {
-            const close = md.indexOf('$$', d + 2);
-            if (close === -1) {
-                out.push(md.slice(d));
-                break;
-            }
-            out.push(md.slice(d, close + 2));
-            pos = close + 2;
-        } else {
-            const close = md.indexOf('$', d + 1);
-            if (close === -1) {
-                out.push(md.slice(d));
-                break;
-            }
-            out.push(md.slice(d, close + 1));
-            pos = close + 1;
-        }
-    }
-    return out.join('');
-}
-
 /** Inside $$...$$ only: \\frac → \frac (typisch nach HTML/JSON-Doppelung), ohne Zeilen-\\ in Matrizen zu zerstören. */
 function normalizeDoubleBackslashBeforeLettersInDisplayMath(body: string): string {
     return body.replace(/\\{2}(?=[A-Za-z])/g, '\\');
@@ -54,8 +16,7 @@ function textLooksLikeLatex(text: string): boolean {
     if (/\\[a-zA-Z]+/.test(t)) return true;
     if (/\\[,;%#&_{}^]/.test(t)) return true;
     if (/\\frac|\\binom|\\sqrt|\\sum|\\int|\\cdot|\\times|\\leq|\\geq|\\neq|\\approx/.test(t)) return true;
-    // Nach TipTap/marked oft ohne führendes \:
-    if (/\bfrac\s*\{|\bcdot\b|\bsqrt\s*\{|\bbinom\b|\bimplies\b|\bbegin\s*\{|\bend\s*\{|\bint\s*[_^]|\bint\s*\(/i.test(t)) return true;
+    if (/\bfrac\s*\{|\bsqrt\s*\{|\bbinom\b|\bbegin\s*\{/i.test(t)) return true;
     if (/[_^]\s*\{/.test(t) && /[a-zA-Z]/.test(t)) return true;
     return false;
 }
@@ -75,128 +36,14 @@ function wrapForInlineMath(tex: string): string {
     return `$${t}$`;
 }
 
-/**
- * Stellt fehlende \ vor typischen LaTeX-Befehlen wieder her (häufig nach HTML-Serialisierung / Turndown).
- * Läuft nur außerhalb von Code-Fences und Inline-$...$.
- */
-function repairStrippedLatexCommands(text: string): string {
-    let s = text;
-    const cmds = [
-        'frac',
-        'dfrac',
-        'tfrac',
-        'sqrt',
-        'cdot',
-        'times',
-        'binom',
-        'implies',
-        'leq',
-        'geq',
-        'neq',
-        'approx',
-        'equiv',
-        'sum',
-        'prod',
-        'lim',
-        'infty',
-        'partial',
-        'nabla',
-        'ell',
-        'left',
-        'right',
-        'bigl',
-        'bigr',
-        'Bigl',
-        'Bigr',
-        'begin',
-        'end',
-        'pmatrix',
-        'bmatrix',
-        'vmatrix',
-        'matrix',
-        'cases',
-        'align',
-        'mathrm',
-        'mathbf',
-        'mathit',
-        'text',
-        'operatorname',
-        'vec',
-        'hat',
-        'bar',
-        'tilde',
-        'dot',
-        'ddot',
-        'overline',
-        'underline',
-        'cdots',
-        'ldots',
-        'dots',
-        'vdots',
-        'ddots',
-        'forall',
-        'exists',
-        'neg',
-        'wedge',
-        'vee',
-        'cap',
-        'cup',
-        'subset',
-        'subseteq',
-        'Rightarrow',
-        'Leftrightarrow',
-        'rightarrow',
-        'leftarrow',
-        'mapsto',
-        'alpha',
-        'beta',
-        'gamma',
-        'delta',
-        'epsilon',
-        'theta',
-        'lambda',
-        'mu',
-        'sigma',
-        'omega',
-        'pi',
-        'tau',
-        'phi',
-        'psi',
-        'rho',
-        'kappa',
-        'nu',
-        'xi',
-        'zeta',
-        'eta',
-        'Gamma',
-        'Delta',
-        'Theta',
-        'Lambda',
-        'Sigma',
-        'Omega',
-        'Phi',
-        'Psi',
-    ];
-    for (const cmd of cmds) {
-        const re = new RegExp(`(?<![\\\\$])\\b(${cmd})\\b`, 'g');
-        s = s.replace(re, '\\$1');
-    }
-    s = s.replace(/(?<!\\)\bint(?=\s*[_^]|\s*\()/gi, '\\int');
-    return s;
-}
-
+/** Light normalize only inside $$…$$ — never inject \ before bare words in prose. */
 function normalizeMarkdownForKatexExport(md: string): string {
-    let out = mapOutsideCodeFences(md, (seg) => mapOutsideInlineMath(seg, repairStrippedLatexCommands));
-    out = mapDisplayMathBlocks(out, (inner) =>
-        normalizeDoubleBackslashBeforeLettersInDisplayMath(repairStrippedLatexCommands(inner)),
-    );
-    return out;
+    return mapDisplayMathBlocks(md, (inner) => normalizeDoubleBackslashBeforeLettersInDisplayMath(inner));
 }
 
 /**
- * TipTap HTML → Markdown for PDF/print via the same pipeline as read view (ReactMarkdown + KaTeX).
- * Custom rules run after defaults (Turndown matches last-added rules first) so LaTeX in <code> is not
- * wrapped in Markdown backticks — that would break KaTeX and strip backslashes.
+ * TipTap HTML → Markdown for legacy HTML docs / PDF from TipTap.
+ * Does NOT run repairStrippedLatexCommands (that destroyed German prose like anschließ\end).
  */
 export function htmlToMarkdownForPdfExport(html: string): string {
     const td = new TurndownService({
