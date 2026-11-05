@@ -38,7 +38,7 @@
 namespace {
 constexpr const char *kOrderKey = "dashboard/rightRail.moduleOrder";
 constexpr const char *kHiddenKey = "dashboard/rightRail.hiddenModules";
-constexpr int kRailWidthDp = 188;
+constexpr int kRailWidthDp = 228;
 
 enum class SegStyle { Plain, Soft, Callout };
 
@@ -46,7 +46,7 @@ QColor railFill() {
   // Match dashboard desk — no second charcoal stripe beside the board.
   if (BlopTheme::instance().isDark())
     return BlopStyle::obsidianContent();
-  return BlopStyle::paperBg();
+  return QColor(0xF8, 0xFA, 0xFC);
 }
 QString railInk() {
   return BlopTheme::instance().isDark()
@@ -211,7 +211,8 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   m_btnCustomize->setCursor(Qt::PointingHandCursor);
   m_btnCustomize->setFlat(true);
   m_btnCustomize->setFixedHeight(UiScale::dp(32));
-  m_btnCustomize->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+  m_btnCustomize->setMinimumWidth(UiScale::dp(72));
+  m_btnCustomize->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
   m_btnCustomize->setToolTip(QStringLiteral("Dashboard anpassen"));
   connect(m_btnCustomize, &QPushButton::clicked, this,
           &DashRightRail::customizeClicked);
@@ -221,6 +222,8 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   m_btnUndo->setCursor(Qt::PointingHandCursor);
   m_btnUndo->setFlat(true);
   m_btnUndo->setFixedHeight(UiScale::dp(32));
+  m_btnUndo->setMinimumWidth(UiScale::dp(72));
+  m_btnUndo->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
   m_btnUndo->setVisible(false);
   m_btnUndo->setEnabled(false);
   m_btnUndo->setToolTip(QStringLiteral("Rückgängig"));
@@ -267,7 +270,8 @@ DashRightRail::DashRightRail(QWidget *parent) : QWidget(parent) {
   m_btnAdd = new QPushButton(QStringLiteral("+ Widget"), this);
   m_btnAdd->setCursor(Qt::PointingHandCursor);
   m_btnAdd->setFlat(true);
-  m_btnAdd->setMinimumHeight(UiScale::dp(34));
+  m_btnAdd->setFixedHeight(UiScale::dp(40));
+  m_btnAdd->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   m_btnAdd->setToolTip(QStringLiteral("Seitenleisten-Widgets ein-/ausblenden"));
   connect(m_btnAdd, &QPushButton::clicked, this, &DashRightRail::showRailMenu);
   root->addWidget(m_btnAdd, 0);
@@ -435,15 +439,17 @@ void DashRightRail::applyChrome() {
                                        : QStringLiteral("Anpassen"));
     m_btnCustomize->setFlat(false);
     m_btnCustomize->setFixedHeight(UiScale::dp(32));
+    m_btnCustomize->setMinimumWidth(UiScale::dp(72));
     if (m_editMode) {
       m_btnCustomize->setStyleSheet(QStringLiteral(
           "QPushButton {"
           "  color: #FFFFFF; background: #2563EB; border: none;"
-          "  border-radius: 6px; padding: 0 14px;"
+          "  border-radius: 6px; padding: 0 12px;"
           "  font-size: 12px; font-weight: 600;"
-          "  min-height: %1px; max-height: %1px;"
+          "  min-width: %1px; min-height: %2px; max-height: %2px;"
           "}"
           "QPushButton:hover { background: #1D4ED8; }")
+                                        .arg(UiScale::dp(72))
                                         .arg(UiScale::dp(32)));
     } else {
       const bool dark = BlopTheme::instance().isDark();
@@ -451,7 +457,8 @@ void DashRightRail::applyChrome() {
           "QPushButton {"
           "  color: %1; background: %2;"
           "  border: 1px solid %3; border-radius: 6px;"
-          "  padding: 6px 12px; font-size: 12px; font-weight: 600;"
+          "  padding: 0 12px; font-size: 12px; font-weight: 600;"
+          "  min-width: %5px; min-height: %6px; max-height: %6px;"
           "}"
           "QPushButton:hover { background: %4; }")
                                         .arg(railInk(),
@@ -461,7 +468,9 @@ void DashRightRail::applyChrome() {
                                                         "rgba(255,255,255,0.12)")
                                                   : QStringLiteral("#E5E7EB"),
                                              dark ? QStringLiteral("#262B34")
-                                                  : QStringLiteral("#F9FAFB")));
+                                                  : QStringLiteral("#F9FAFB"))
+                                        .arg(UiScale::dp(72))
+                                        .arg(UiScale::dp(32)));
     }
   }
 
@@ -469,20 +478,22 @@ void DashRightRail::applyChrome() {
     const bool dark = BlopTheme::instance().isDark();
     m_btnUndo->setText(QStringLiteral("↺ Reset"));
     m_btnUndo->setFixedHeight(UiScale::dp(32));
+    m_btnUndo->setMinimumWidth(UiScale::dp(72));
     m_btnUndo->setStyleSheet(QStringLiteral(
                                  "QPushButton {"
                                  "  color: %1; background: transparent;"
                                  "  border: 1px solid %2; border-radius: 6px;"
-                                 "  padding: 0 10px; font-size: 12px; font-weight: 600;"
-                                 "  min-height: %3px; max-height: %3px;"
+                                 "  padding: 0 12px; font-size: 12px; font-weight: 600;"
+                                 "  min-width: %3px; min-height: %4px; max-height: %4px;"
                                  "}"
-                                 "QPushButton:hover { background: %4; }"
-                                 "QPushButton:disabled { color: %5; }")
+                                 "QPushButton:hover { background: %5; }"
+                                 "QPushButton:disabled { color: %6; }")
                                  .arg(railInk(),
                                       dark ? QStringLiteral("rgba(255,255,255,0.15)")
-                                           : QStringLiteral("#E5E7EB"),
-                                      QString::number(UiScale::dp(32)),
-                                      dark ? QStringLiteral("#262B34")
+                                           : QStringLiteral("#E5E7EB"))
+                                 .arg(UiScale::dp(72))
+                                 .arg(UiScale::dp(32))
+                                 .arg(dark ? QStringLiteral("#262B34")
                                            : QStringLiteral("#F9FAFB"),
                                       dark ? QStringLiteral("#6B7280")
                                            : QStringLiteral("#9CA3AF")));
@@ -498,7 +509,23 @@ void DashRightRail::applyChrome() {
   m_btnAdd->setVisible(m_editMode);
   m_btnAdd->setEnabled(m_editMode);
   m_btnAdd->setText(QStringLiteral("+ Widget"));
-  m_btnAdd->setStyleSheet(BlopTheme::tertiaryButtonQss());
+  m_btnAdd->setFixedHeight(UiScale::dp(40));
+  m_btnAdd->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  if (m_editMode && !BlopTheme::instance().isDark()) {
+    m_btnAdd->setStyleSheet(QStringLiteral(
+        "QPushButton {"
+        "  color: #475569; background: #F8FAFC;"
+        "  border: 1.5px dashed #CBD5E1; border-radius: 8px;"
+        "  font-size: 13px; font-weight: 600;"
+        "  min-height: %1px; max-height: %1px;"
+        "}"
+        "QPushButton:hover {"
+        "  border-color: #3B82F6; color: #2563EB; background: #EFF6FF;"
+        "}")
+                                .arg(UiScale::dp(40)));
+  } else {
+    m_btnAdd->setStyleSheet(BlopTheme::tertiaryButtonQss());
+  }
 }
 
 void DashRightRail::rebuildModules() {

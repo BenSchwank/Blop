@@ -241,7 +241,8 @@ void PageBookmarkRail::placeIn(int x, int top, int bottom) {
     widest = qMax(widest, t.rect.width());
   const int avail = qMax(tabH(), bottom - top);
   const int h = qMin(avail, m_contentH);
-  setGeometry(x, top, widest + UiScale::dp(12), qMax(1, h));
+  // Extra width for floating-card padding + soft shadow.
+  setGeometry(x, top, widest + UiScale::dp(18), qMax(1, h));
   setScroll(m_scroll);
 }
 
@@ -317,29 +318,44 @@ void PageBookmarkRail::stepPage(int delta) {
 void PageBookmarkRail::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
+  const bool light = !NoteChrome::isDark();
   if (!m_tabs.isEmpty()) {
     QRect u;
     for (const Tab &t : m_tabs) {
       const QRect r = visualRect(t);
       u = u.isNull() ? r : u.united(r);
     }
-    u = u.adjusted(-UiScale::dp(4), -UiScale::dp(4), UiScale::dp(4),
-                   UiScale::dp(4));
-    p.setPen(QPen(NoteChrome::isDark() ? QColor(255, 255, 255, 28)
-                                       : QColor(0xE2, 0xE8, 0xF0),
-                  1));
-    p.setBrush(NoteChrome::isDark() ? QColor(0x1C, 0x20, 0x28)
-                                    : QColor(0xFF, 0xFF, 0xFF));
-    p.drawRoundedRect(u, UiScale::dp(8), UiScale::dp(8));
+    u = u.adjusted(-UiScale::dp(6), -UiScale::dp(6), UiScale::dp(6),
+                   UiScale::dp(6));
+    if (light) {
+      // Soft floating-card shadow.
+      p.setPen(Qt::NoPen);
+      p.setBrush(QColor(15, 23, 42, 18));
+      p.drawRoundedRect(u.translated(0, 2), UiScale::dp(10), UiScale::dp(10));
+      p.setPen(QPen(QColor(0xCB, 0xD5, 0xE1), 1));
+      p.setBrush(QColor(0xFF, 0xFF, 0xFF));
+      p.drawRoundedRect(u, UiScale::dp(10), UiScale::dp(10));
+    } else {
+      p.setPen(QPen(QColor(255, 255, 255, 28), 1));
+      p.setBrush(QColor(0x1C, 0x20, 0x28));
+      p.drawRoundedRect(u, UiScale::dp(10), UiScale::dp(10));
+    }
   }
   const QColor accent = NoteChrome::accent();
   const QColor well = NoteChrome::canvasBg();
-  const QColor idleBg = NoteChrome::isDark() ? QColor(255, 255, 255, 16)
-                                             : QColor(0, 0, 0, 12);
-  const QColor hoverBg = NoteChrome::isDark() ? QColor(255, 255, 255, 28)
-                                              : QColor(0, 0, 0, 20);
+  const QColor idleBg = light ? QColor(0, 0, 0, 10) : QColor(255, 255, 255, 16);
+  const QColor hoverBg =
+      light ? QColor(0, 0, 0, 18) : QColor(255, 255, 255, 28);
+  const QColor activeFill =
+      light ? QColor(0xEF, 0xF6, 0xFF) : well;
+  const QColor activeStroke =
+      light ? QColor(0xBF, 0xDB, 0xFE) : Qt::transparent;
+  const QColor activeInk =
+      light ? QColor(0x1D, 0x4E, 0xD8) : NoteChrome::textPrimary();
   const QColor fg = NoteChrome::textSecondary();
-  const QFont fNum = numberFont();
+  QFont fNum = numberFont();
+  if (light)
+    fNum.setWeight(QFont::DemiBold);
   const QFont fName = nameFont();
 
   for (int i = 0; i < m_tabs.size(); ++i) {
@@ -382,13 +398,18 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
 
     p.setPen(Qt::NoPen);
     if (active) {
-      // Same tone as the note surround — morphs into the well.
-      p.fillPath(path, well);
+      p.fillPath(path, activeFill);
+      if (activeStroke.alpha() > 0) {
+        p.setPen(QPen(activeStroke, 1));
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(path);
+        p.setPen(Qt::NoPen);
+      }
     } else {
       p.fillPath(path, hovered ? hoverBg : idleBg);
     }
 
-    const QColor ink = active ? NoteChrome::textPrimary()
+    const QColor ink = active ? activeInk
                               : (hovered ? NoteChrome::textPrimary() : fg);
     const QRect numRect(r.left(), r.top(), tabW(), r.height());
     p.setFont(fNum);

@@ -36,13 +36,16 @@ signals:
 
 private:
   void applyChrome();
+  void refreshEmptyState();
   QString pathFor(const QModelIndex &viewIndex) const;
 
   QTreeView *m_tree{nullptr};
   QFileSystemModel *m_model{nullptr};
   QSortFilterProxyModel *m_proxy{nullptr};
   QLabel *m_sectionLabel{nullptr};
+  QLabel *m_emptyLabel{nullptr};
   QToolButton *m_btnNewFolder{nullptr};
   QToolButton *m_btnNewNote{nullptr};
   QColor m_accent;
+  QString m_filterText;
 };

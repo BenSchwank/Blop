@@ -24,6 +24,8 @@ struct Item {
   bool destructive = false;
   /// If true, label/icon/handler are ignored; a horizontal divider is drawn.
   bool separator = false;
+  /// Non-clickable section title (e.g. ANSICHTSDICHTE).
+  bool header = false;
 };
 
 /// Show a menu containing `items` anchored at `anchorGlobal`. The menu is

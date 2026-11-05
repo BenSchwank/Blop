@@ -21,6 +21,9 @@ public:
   // Sets the visual size of the item (click area)
   void setItemSize(const QSize &size);
   QSize itemSize() const { return m_itemSize; }
+  /// Desktop library: full-width rows vs paper-card grid.
+  void setListRows(bool on);
+  bool listRows() const { return m_listRows; }
 
 signals:
   void itemDropped(const QModelIndex &sourceIndex,
@@ -49,6 +52,7 @@ private:
   bool m_showGhost;
   QColor m_accentColor;
   QSize m_itemSize; // The size of the content (folder)
+  bool m_listRows{false};
 
   QPoint calculateSnapPosition(const QPoint &pos);
 };

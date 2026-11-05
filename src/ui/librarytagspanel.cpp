@@ -59,10 +59,7 @@ public:
     const int count = idx.data(Qt::UserRole).toInt();
     const QString countStr = QString::number(count);
 
-    static const QColor kDots[] = {
-        QColor(0x25, 0x63, 0xEB), QColor(0xF9, 0x73, 0x16),
-        QColor(0x16, 0xA3, 0x4A), QColor(0x7C, 0x3A, 0xED)};
-    const QColor dot = kDots[qHash(name.toLower()) % 4];
+    const QColor dot = LibraryTagStore::tagColor(name);
     const int dotS = UiScale::dp(8);
     const QRect dotR(r.left() + UiScale::dp(8),
                      r.center().y() - dotS / 2, dotS, dotS);

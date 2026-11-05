@@ -349,8 +349,11 @@ void DashWidget::setEditMode(bool on) {
   applyChrome();
   // Intro edit affordance + calendar chrome depend on edit/size state.
   if (changed && (m_id == QLatin1String("intro") ||
-                  m_id == QLatin1String("calendar")))
+                  m_id == QLatin1String("calendar"))) {
     rebuildBody();
+    // buildCalendar() reparents fresh Cal* buttons — re-hide after rebuild.
+    updateEditAffordances();
+  }
 }
 
 void DashWidget::setPhoneMode(bool phone) {

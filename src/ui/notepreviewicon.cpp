@@ -209,49 +209,57 @@ void paintInfinite(QPainter *p, const QRect &full, const Spec &spec) {
 }
 
 void paintFolder(QPainter *p, const QRect &full) {
-  const qreal s = full.width();
-  const QColor bodyDark(210, 158, 58);
-  const QColor tab(242, 206, 112);
-
+  // Sharp vector folder on a quiet well — no system bitmap blur.
+  const qreal s = qMin(full.width(), full.height());
+  const QRectF well = QRectF(full).adjusted(s * 0.06, s * 0.06, -s * 0.06,
+                                            -s * 0.06);
+  p->setRenderHint(QPainter::Antialiasing, true);
   p->setPen(Qt::NoPen);
-  p->setBrush(QColor(0, 0, 0, 50));
-  p->drawRoundedRect(QRectF(full.left() + s * 0.12, full.top() + s * 0.34,
-                            s * 0.78, s * 0.50),
-                     s * 0.06, s * 0.06);
+  p->setBrush(QColor(0xF8, 0xFA, 0xFC));
+  p->drawRoundedRect(well, s * 0.08, s * 0.08);
 
-  // Paper peeking out.
-  p->setBrush(QColor(248, 246, 240));
-  p->drawRoundedRect(QRectF(full.left() + s * 0.22, full.top() + s * 0.22,
-                            s * 0.52, s * 0.22),
-                     s * 0.03, s * 0.03);
+  const qreal icon = s * 0.52;
+  const QRectF box(full.center().x() - icon * 0.5,
+                   full.center().y() - icon * 0.42, icon, icon * 0.78);
+  const QColor face(0x3B, 0x82, 0xF6);
+  const QColor tab(0x60, 0xA5, 0xFA);
+  const QColor shade(0x1D, 0x4E, 0xD8);
 
+  // Soft contact shadow
+  p->setBrush(QColor(15, 23, 42, 28));
+  p->drawRoundedRect(box.translated(0, s * 0.02), s * 0.04, s * 0.04);
+
+  // Tab
   QPainterPath tabPath;
-  tabPath.moveTo(full.left() + s * 0.14, full.top() + s * 0.36);
-  tabPath.lineTo(full.left() + s * 0.14, full.top() + s * 0.24);
-  tabPath.cubicTo(full.left() + s * 0.14, full.top() + s * 0.20,
-                  full.left() + s * 0.17, full.top() + s * 0.18,
-                  full.left() + s * 0.20, full.top() + s * 0.18);
-  tabPath.lineTo(full.left() + s * 0.46, full.top() + s * 0.18);
-  tabPath.cubicTo(full.left() + s * 0.50, full.top() + s * 0.18,
-                  full.left() + s * 0.52, full.top() + s * 0.21,
-                  full.left() + s * 0.54, full.top() + s * 0.26);
-  tabPath.lineTo(full.left() + s * 0.56, full.top() + s * 0.36);
+  const qreal tabH = box.height() * 0.22;
+  tabPath.moveTo(box.left(), box.top() + tabH);
+  tabPath.lineTo(box.left(), box.top() + tabH * 0.35);
+  tabPath.cubicTo(box.left(), box.top(), box.left() + box.width() * 0.06,
+                  box.top(), box.left() + box.width() * 0.12, box.top());
+  tabPath.lineTo(box.left() + box.width() * 0.42, box.top());
+  tabPath.cubicTo(box.left() + box.width() * 0.48, box.top(),
+                  box.left() + box.width() * 0.52, box.top() + tabH * 0.35,
+                  box.left() + box.width() * 0.55, box.top() + tabH);
   tabPath.closeSubpath();
   p->setBrush(tab);
   p->drawPath(tabPath);
 
-  QLinearGradient g(0, full.top() + s * 0.34, 0, full.top() + s * 0.84);
-  g.setColorAt(0, tab);
-  g.setColorAt(1, bodyDark);
+  // Body
+  QLinearGradient g(box.topLeft(), box.bottomLeft());
+  g.setColorAt(0, face);
+  g.setColorAt(1, shade);
   p->setBrush(g);
-  p->drawRoundedRect(QRectF(full.left() + s * 0.12, full.top() + s * 0.34,
-                            s * 0.76, s * 0.48),
-                     s * 0.07, s * 0.07);
+  p->drawRoundedRect(
+      QRectF(box.left(), box.top() + tabH * 0.85, box.width(),
+             box.height() - tabH * 0.85),
+      s * 0.045, s * 0.045);
 
-  p->setBrush(QColor(255, 255, 255, 55));
-  p->drawRoundedRect(QRectF(full.left() + s * 0.18, full.top() + s * 0.40,
-                            s * 0.64, s * 0.10),
-                     s * 0.04, s * 0.04);
+  // Gloss
+  p->setBrush(QColor(255, 255, 255, 48));
+  p->drawRoundedRect(
+      QRectF(box.left() + box.width() * 0.08, box.top() + tabH * 1.1,
+             box.width() * 0.84, box.height() * 0.14),
+      s * 0.03, s * 0.03);
 }
 
 int clampBg(int v) {

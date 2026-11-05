@@ -65,7 +65,7 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
                               safeNote->onOpenPageManagerRequested();
                       },
                       false, false});
-        items.append({QStringLiteral("Optionen & Tags…"),
+        items.append({QStringLiteral("Optionen && Tags…"),
                       SelectionMenuIcons::gearIcon(),
                       [safeNote]() {
                           if (safeNote && safeNote->onOpenNoteOptionsRequested)
@@ -209,23 +209,35 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
     // value, so the same code path works for both popup() and exec().
     QMenu *menu = new QMenu(this);
     menu->setAttribute(Qt::WA_DeleteOnClose);
-    const QString accent = UIStyles::Accent.name();
-    menu->setStyleSheet(BlopTheme::themed(
-        QString("QMenu { background: #1E1E2E; "
-                "border: 1px solid %1; "
-                "border-radius: 8px; padding: 6px; }"
-                "QMenu::item { color: #D8D5FF; "
-                "padding: 10px 20px; "
-                "border-radius: 5px; font-size: 13px; }"
-                "QMenu::item:selected { background: %1; "
-                "color: white; }")
-            .arg(accent)));
+    menu->setStyleSheet(QStringLiteral(
+        "QMenu {"
+        "  background: #FFFFFF;"
+        "  border: 1px solid #E2E8F0;"
+        "  border-radius: 10px;"
+        "  padding: 6px;"
+        "}"
+        "QMenu::item {"
+        "  color: #334155;"
+        "  padding: 10px 18px 10px 12px;"
+        "  border-radius: 6px;"
+        "  font-size: 13px;"
+        "  icon-size: 16px;"
+        "}"
+        "QMenu::item:selected {"
+        "  background: #EFF6FF;"
+        "  color: #1E293B;"
+        "}"
+        "QMenu::icon { padding-left: 4px; }"
+        "QMenu::separator {"
+        "  height: 1px; background: #E2E8F0; margin: 4px 8px;"
+        "}"));
 
     QPointer<NoteEditor> safe(this);
+    const QColor iconFg = SelectionMenuIcons::menuIconFg();
 
     QAction *actLayout =
         menu->addAction(QStringLiteral("Seitenlayout…"));
-    actLayout->setIcon(SelectionMenuIcons::pageLayoutIcon());
+    actLayout->setIcon(SelectionMenuIcons::pageLayoutIcon(iconFg));
     QObject::connect(actLayout, &QAction::triggered, this, [safe]() {
         if (safe && safe->canvas_)
             safe->canvas_->openPageLayoutForVisiblePage();
@@ -233,15 +245,15 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
 
     QAction *actPages =
         menu->addAction(QStringLiteral("Seiten verwalten…"));
-    actPages->setIcon(SelectionMenuIcons::pageLayoutIcon());
+    actPages->setIcon(SelectionMenuIcons::pageLayoutIcon(iconFg));
     QObject::connect(actPages, &QAction::triggered, this, [safe]() {
         if (safe && safe->onOpenPageManagerRequested)
             safe->onOpenPageManagerRequested();
     });
 
     QAction *actNoteOptions =
-        menu->addAction(QStringLiteral("Optionen & Tags…"));
-    actNoteOptions->setIcon(SelectionMenuIcons::gearIcon());
+        menu->addAction(QStringLiteral("Optionen && Tags…"));
+    actNoteOptions->setIcon(SelectionMenuIcons::gearIcon(iconFg));
     QObject::connect(actNoteOptions, &QAction::triggered, this, [safe]() {
         if (safe && safe->onOpenNoteOptionsRequested)
             safe->onOpenNoteOptionsRequested();
@@ -250,12 +262,14 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
     menu->addSeparator();
     QAction *actFitWidth =
         menu->addAction(QStringLiteral("An Breite anpassen"));
+    actFitWidth->setIcon(SelectionMenuIcons::fitWidthIcon(iconFg));
     QObject::connect(actFitWidth, &QAction::triggered, this, [safe]() {
         if (safe && safe->canvas_)
             safe->canvas_->fitToWidth();
     });
     QAction *actFitPage =
         menu->addAction(QStringLiteral("Ganze Seite / Inhalt"));
+    actFitPage->setIcon(SelectionMenuIcons::fitPageIcon(iconFg));
     QObject::connect(actFitPage, &QAction::triggered, this, [safe]() {
         if (safe && safe->canvas_)
             safe->canvas_->fitPage();
@@ -359,9 +373,23 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
 
     QPoint pos;
     if (anchor && anchor->isVisible())
-        pos = anchor->mapToGlobal(QPoint(0, anchor->height() + 4));
+        pos = anchor->mapToGlobal(QPoint(0, anchor->height() + 6));
     else
         pos = QCursor::pos();
+
+    // Clamp so the menu keeps ≥12px from the right window edge.
+    if (QWidget *win = window()) {
+        menu->ensurePolished();
+        const QSize hint = menu->sizeHint();
+        const QPoint local = win->mapFromGlobal(pos);
+        int x = local.x();
+        const int margin = 12;
+        if (x + hint.width() > win->width() - margin)
+            x = qMax(margin, win->width() - hint.width() - margin);
+        if (x < margin)
+            x = margin;
+        pos = win->mapToGlobal(QPoint(x, local.y()));
+    }
 
     // Desktop only -- the Android path returned early above through the
     // BlopInWindowMenu helper to dodge the EGL/QWindow deadlock.

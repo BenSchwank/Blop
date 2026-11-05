@@ -53,7 +53,7 @@ public:
   enum class Mode { Dark, Light };
   Q_ENUM(Mode)
 
-  enum class Accent { Purple, Blue, Green, Pink };
+  enum class Accent { Purple, Blue, Green, Pink, Orange, Slate };
   Q_ENUM(Accent)
 
   static BlopTheme &instance();
@@ -64,6 +64,12 @@ public:
 
   Mode mode() const { return m_mode; }
   void setMode(Mode m);
+
+  /// When true, Light/Dark follows the OS color scheme.
+  bool followSystem() const { return m_followSystem; }
+  void setFollowSystem(bool on);
+  /// Re-read OS scheme if followSystem is on (also used at install).
+  void applySystemModeIfFollowing();
 
   Accent accent() const { return m_accent; }
   void setAccent(Accent a);
@@ -229,5 +235,6 @@ private:
 
   Mode m_mode{Mode::Dark};
   Accent m_accent{Accent::Purple};
+  bool m_followSystem{false};
   bool m_installed{false};
 };

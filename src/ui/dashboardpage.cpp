@@ -31,7 +31,7 @@ namespace {
 QString pageBg() {
   return BlopTheme::instance().isDark()
              ? BlopStyle::obsidianContent().name(QColor::HexRgb)
-             : BlopStyle::paperBg().name(QColor::HexRgb);
+             : QStringLiteral("#F8FAFC");
 }
 
 QString muted() {

@@ -471,9 +471,16 @@ void CalendarDayView::buildOverlayHeader() {
   auto *prev = new QPushButton(QStringLiteral("‹"), nav);
   auto *today = new QPushButton(QStringLiteral("Heute"), nav);
   auto *next = new QPushButton(QStringLiteral("›"), nav);
+  prev->setObjectName(QStringLiteral("CalOverlayPrev"));
+  today->setObjectName(QStringLiteral("CalOverlayToday"));
+  next->setObjectName(QStringLiteral("CalOverlayNext"));
   for (QPushButton *b : {prev, today, next}) {
     b->setCursor(Qt::PointingHandCursor);
     b->setFixedHeight(UiScale::dp(30));
+    if (b == today)
+      b->setMinimumWidth(UiScale::dp(64));
+    else
+      b->setFixedWidth(UiScale::dp(30));
     navLay->addWidget(b);
   }
   connect(prev, &QPushButton::clicked, this, [this]() {
@@ -522,6 +529,7 @@ void CalendarDayView::applyOverlaySheet() {
   const QString fill = sheetFill();
   setAttribute(Qt::WA_StyledBackground, true);
   setObjectName(QStringLiteral("CalendarDayView"));
+  const bool dark = BlopTheme::instance().isDark();
   if (full) {
     setStyleSheet(QStringLiteral(
                       "QWidget#CalendarDayView { background: %1; }"
@@ -529,7 +537,7 @@ void CalendarDayView::applyOverlaySheet() {
                       "  background: %2; border: none; border-radius: 8px;"
                       "}"
                       "QWidget#CalViewSegment QPushButton {"
-                      "  color: #9CA3AF; background: transparent; border: none;"
+                      "  color: %5; background: transparent; border: none;"
                       "  border-radius: 6px; padding: 0 10px;"
                       "  font-size: 12px; font-weight: 600;"
                       "}"
@@ -537,34 +545,43 @@ void CalendarDayView::applyOverlaySheet() {
                       "  color: %3; background: %4;"
                       "}")
                       .arg(fill,
-                           BlopTheme::instance().isDark()
-                               ? QStringLiteral("#12141A")
-                               : QStringLiteral("#E5E7EB"),
-                           BlopTheme::instance().isDark()
-                               ? QStringLiteral("#F3F4F6")
-                               : QStringLiteral("#111827"),
-                           BlopTheme::instance().isDark()
-                               ? QStringLiteral("#2D3340")
-                               : QStringLiteral("#FFFFFF")));
+                           dark ? QStringLiteral("#12141A")
+                                : QStringLiteral("#E5E7EB"),
+                           dark ? QStringLiteral("#F3F4F6")
+                                : QStringLiteral("#111827"),
+                           dark ? QStringLiteral("#2D3340")
+                                : QStringLiteral("#FFFFFF"),
+                           dark ? QStringLiteral("#9CA3AF")
+                                : QStringLiteral("#475569")));
   } else {
     setStyleSheet(QString());
   }
 
-  const bool dark = BlopTheme::instance().isDark();
   const QString quiet = QStringLiteral(
                             "QPushButton {"
-                            "  color: %1; background: transparent;"
+                            "  color: %1; background: %4;"
                             "  border: 1px solid %2; border-radius: 6px;"
                             "  padding: 0 10px; font-size: 12px; font-weight: 600;"
                             "}"
                             "QPushButton:hover { background: %3; }")
-                            .arg(ink(),
+                            .arg(dark ? ink() : QStringLiteral("#334155"),
                                  dark ? QStringLiteral("rgba(255,255,255,0.15)")
-                                      : QStringLiteral("#E5E7EB"),
+                                      : QStringLiteral("#CBD5E1"),
                                  dark ? QStringLiteral("#262B34")
-                                      : QStringLiteral("#F9FAFB"));
+                                      : QStringLiteral("#F8FAFC"),
+                                 dark ? QStringLiteral("transparent")
+                                      : QStringLiteral("#FFFFFF"));
   if (m_btnOverlayGoogle)
     m_btnOverlayGoogle->setStyleSheet(quiet);
+  for (const char *name :
+       {"CalOverlayPrev", "CalOverlayToday", "CalOverlayNext"}) {
+    if (auto *b = m_overlayHeader
+                      ? m_overlayHeader->findChild<QPushButton *>(
+                            QString::fromLatin1(name))
+                      : nullptr) {
+      b->setStyleSheet(quiet);
+    }
+  }
   if (m_btnOverlayAdd) {
     m_btnOverlayAdd->setStyleSheet(QStringLiteral(
         "QPushButton {"

@@ -1,4 +1,5 @@
 #pragma once
+#include "blop_theme.h"
 #include <QGraphicsRectItem>
 #include <QGraphicsItem>
 #include <QImage>
@@ -53,14 +54,24 @@ protected:
         Q_UNUSED(option);
         Q_UNUSED(widget);
 
+        const bool light = !BlopTheme::instance().isDark();
+
         // 1. Schlagschatten
         painter->setPen(Qt::NoPen);
-        painter->setBrush(QColor(0, 0, 0, 40));
-        painter->drawRect(rect().translated(3, 3));
+        if (light) {
+            painter->setBrush(QColor(15, 23, 42, int(0.08 * 255)));
+            painter->drawRect(rect().translated(2, 2));
+        } else {
+            painter->setBrush(QColor(0, 0, 0, 40));
+            painter->drawRect(rect().translated(3, 3));
+        }
 
         // 2. Papierblatt
         painter->setBrush(m_paperColor);
-        painter->setPen(Qt::NoPen);
+        if (light)
+            painter->setPen(QPen(QColor(0xCB, 0xD5, 0xE1), 1));
+        else
+            painter->setPen(Qt::NoPen);
         painter->drawRect(rect());
 
         // 3. Hintergrundbild (z.B. importierte PDF-Seite)

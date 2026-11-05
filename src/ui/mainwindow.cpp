@@ -21,6 +21,8 @@
 #include "blopwindowcontrols.h"
 #include "librarytagspanel.h"
 #include "librarydetailpanel.h"
+#include "librarylistcolumns.h"
+#include "librarylistheader.h"
 #include "libraryexplorertree.h"
 #include "librarytagstore.h"
 #include "libraryorgstore.h"
@@ -37,6 +39,7 @@
 #include "noteleftrail.h"
 #include "radialtoolbarfab.h"
 #include "notetoolbars.h"
+#include "penstudiopopover.h"
 #include "penpresetbar.h"
 #include "newnotedialog.h"
 #include "onboardingwizard.h"
@@ -56,6 +59,7 @@
 #include "strukturdocument.h"
 #include "multipagenoteview.h"
 #include "noteeditor.h"
+#include "SelectionMenuIcons.h"
 #include "notemanager.h"
 #include "pagemanager.h"
 #include "blop_scroll.h"
@@ -142,6 +146,7 @@
 #include <QNetworkRequest>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPixmap>
 #include <QPalette>
 #include <QProcess>
 #include <QProgressDialog>
@@ -522,7 +527,7 @@ static bool noteContentContains(const QString &path, const QString &needleLower)
 class LibraryFilterProxy : public QSortFilterProxyModel {
 public:
   enum class SmartView { All, Favorites, Recent, Untagged };
-  enum class SortMode { Name, Modified };
+  enum class SortMode { Name, Modified, Place, Size };
 
   explicit LibraryFilterProxy(QObject *parent = nullptr)
       : QSortFilterProxyModel(parent) {
@@ -556,11 +561,30 @@ public:
       return;
     m_sortMode = mode;
     invalidate();
-    sort(0, Qt::AscendingOrder);
+    sort(0, m_sortOrder);
+  }
+
+  void setSortOrder(Qt::SortOrder order) {
+    if (m_sortOrder == order)
+      return;
+    m_sortOrder = order;
+    invalidate();
+    sort(0, m_sortOrder);
+  }
+
+  void setSort(SortMode mode, Qt::SortOrder order) {
+    const bool changed = (m_sortMode != mode) || (m_sortOrder != order);
+    m_sortMode = mode;
+    m_sortOrder = order;
+    if (!changed)
+      return;
+    invalidate();
+    sort(0, m_sortOrder);
   }
 
   SmartView smartView() const { return m_smartView; }
   SortMode sortMode() const { return m_sortMode; }
+  Qt::SortOrder sortOrder() const { return m_sortOrder; }
 
 protected:
   bool filterAcceptsRow(int sourceRow,
@@ -668,9 +692,10 @@ protected:
     if (m_sortMode == SortMode::Name && leftDir != rightDir)
       return leftDir && !rightDir;
 
+    const QString leftPath = fsm->filePath(left);
+    const QString rightPath = fsm->filePath(right);
+
     if (m_sortMode == SortMode::Modified || m_smartView == SmartView::Recent) {
-      const QString leftPath = fsm->filePath(left);
-      const QString rightPath = fsm->filePath(right);
       if (m_smartView == SmartView::Recent) {
         const QStringList recent = LibraryOrgStore::recentPaths(48);
         const int li = recent.indexOf(leftPath);
@@ -681,7 +706,22 @@ protected:
       const QDateTime lt = QFileInfo(leftPath).lastModified();
       const QDateTime rt = QFileInfo(rightPath).lastModified();
       if (lt != rt)
-        return lt > rt; // newest first
+        return lt < rt; // Ascending=oldest first; Descending=newest first
+    }
+
+    if (m_sortMode == SortMode::Place) {
+      // MainWindow is not available here — compare by path root heuristics.
+      const QString lp = leftPath.toLower();
+      const QString rp = rightPath.toLower();
+      if (lp != rp)
+        return lp < rp;
+    }
+
+    if (m_sortMode == SortMode::Size) {
+      const qint64 ls = leftDir ? -1 : QFileInfo(leftPath).size();
+      const qint64 rs = rightDir ? -1 : QFileInfo(rightPath).size();
+      if (ls != rs)
+        return ls < rs;
     }
 
     const QString ln = left.data(Qt::DisplayRole).toString();
@@ -697,13 +737,14 @@ private:
 #else
     invalidateFilter();
 #endif
-    sort(0, Qt::AscendingOrder);
+    sort(0, m_sortOrder);
   }
 
   QString m_search;
   QStringList m_tags;
   SmartView m_smartView{SmartView::All};
   SortMode m_sortMode{SortMode::Name};
+  Qt::SortOrder m_sortOrder{Qt::AscendingOrder};
 };
 
 QString blopWebMenuStyleSheet() {
@@ -1522,30 +1563,37 @@ void SidebarNavDelegate::paint(QPainter *painter,
       painter->setOpacity(1.0);
     }
 
+    QString count = index.data(Qt::UserRole + 2).toString();
+#ifdef Q_OS_ANDROID
+    const int badgeH = 18;
+#else
+    const int badgeH = 20;
+#endif
+    int badgeW = 0;
+    if (!count.isEmpty()) {
+      QFont bf = m_window->font();
+      bf.setPointSize(navFont - 2);
+      bf.setBold(true);
+      badgeW = qMax(badgeH, QFontMetrics(bf).horizontalAdvance(count) + 12);
+    }
+    const int rightPad = count.isEmpty() ? 8 : (badgeW + 10);
+
     QRect textRect = rect;
     textRect.setLeft(iconRect.right() + 15);
-    textRect.setRight(rect.right() - 40);
+    textRect.setRight(rect.right() - rightPad);
     painter->setPen(selected ? accentBlue : primaryText);
 
     QFont f = m_window->font();
     f.setPointSize(navFont);
     if (selected)
-      f.setBold(true);
+      f.setWeight(QFont::DemiBold);
     painter->setFont(f);
 
     painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
                       painter->fontMetrics().elidedText(text, Qt::ElideRight,
                                                         textRect.width()));
 
-    QString count = index.data(Qt::UserRole + 2).toString();
     if (!count.isEmpty()) {
-#ifdef Q_OS_ANDROID
-      int badgeW = 28;
-      int badgeH = 18;
-#else
-      int badgeW = 30;
-      int badgeH = 20;
-#endif
       QRect badgeRect(rect.right() - badgeW - 5, rect.center().y() - badgeH / 2,
                       badgeW, badgeH);
 #ifndef Q_OS_ANDROID
@@ -1620,10 +1668,20 @@ QSize ModernItemDelegate::sizeHint(const QStyleOptionViewItem &option,
 }
 
 namespace {
-QRect libraryRowMenuRect(const QRect &itemRect) {
+bool libraryUsesListPaint(bool listMode) {
+#ifdef Q_OS_ANDROID
+  Q_UNUSED(listMode);
+  return false;
+#else
+  return listMode;
+#endif
+}
+
+QRect libraryRowMenuRect(const QRect &itemRect, bool listMode) {
+#ifdef Q_OS_ANDROID
+  Q_UNUSED(listMode);
   const QRect rect = itemRect.adjusted(4, 4, -4, -4);
   const bool wide = rect.width() > rect.height() * 1.5;
-#ifdef Q_OS_ANDROID
   const int pillW = UiScale::dp(28);
   const int pillH = UiScale::dp(20);
   QRect menuRect(rect.right() - pillW - 6, rect.top() + 6, pillW, pillH);
@@ -1631,12 +1689,10 @@ QRect libraryRowMenuRect(const QRect &itemRect) {
     menuRect.moveTop(rect.center().y() - pillH / 2);
   return menuRect;
 #else
-  if (!wide)
+  if (!libraryUsesListPaint(listMode))
     return {};
-  const int menu = UiScale::dp(28);
-  const int pad = UiScale::dp(10);
-  return QRect(rect.right() - menu - pad, rect.center().y() - menu / 2, menu,
-               menu);
+  const auto cols = LibraryListColumns::columnRects(itemRect);
+  return LibraryListColumns::menuRect(cols[LibraryListColumns::Modified]);
 #endif
 }
 
@@ -1691,10 +1747,361 @@ void ModernItemDelegate::paint(QPainter *painter,
   painter->save();
   painter->setRenderHint(QPainter::Antialiasing);
   painter->setRenderHint(QPainter::SmoothPixmapTransform);
-  QRect rect = option.rect.adjusted(4, 4, -4, -4);
 
   const bool hovered = option.state & QStyle::State_MouseOver;
   const bool selected = option.state & QStyle::State_Selected;
+
+  QString fileName = index.data(Qt::DisplayRole).toString();
+  QString path;
+  bool isFolder = false;
+  const bool cloudItem =
+      !index.data(Qt::UserRole + 13).toString().isEmpty();
+  const QString cloudMime = index.data(Qt::UserRole + 15).toString();
+  if (auto *proxy = qobject_cast<const QSortFilterProxyModel *>(index.model())) {
+    const QModelIndex src = proxy->mapToSource(index);
+    if (auto *fsm =
+            qobject_cast<const QFileSystemModel *>(proxy->sourceModel())) {
+      path = fsm->filePath(src);
+      isFolder = fsm->isDir(src);
+    }
+  } else if (auto *fsm =
+                 qobject_cast<const QFileSystemModel *>(index.model())) {
+    path = fsm->filePath(index);
+    isFolder = fsm->isDir(index);
+  } else {
+    path = index.data(Qt::UserRole).toString();
+    if (cloudItem)
+      isFolder = index.data(Qt::UserRole + 14).toBool();
+    else if (!path.isEmpty())
+      isFolder = QFileInfo(path).isDir();
+  }
+
+  const bool isBnote = fileName.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive);
+  const bool isBlop = fileName.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive);
+  const bool isStruct =
+      fileName.endsWith(QLatin1String(".struct"), Qt::CaseInsensitive);
+  // Do not guess "folder" from missing extensions — that painted Assistent
+  // JSON and other stray files as yellow folders in the library grid.
+
+  // Clean caption: strip Blop extensions so tiles read as product names.
+  QString text = fileName;
+  if (isBnote)
+    text.chop(6);
+  else if (isBlop)
+    text.chop(5);
+  else if (isStruct)
+    text.chop(7);
+
+  bool isWideList = libraryUsesListPaint(m_window && m_window->m_libraryListMode);
+#ifdef Q_OS_ANDROID
+  isWideList = false;
+  const double iconShrink = 0.94;
+#else
+  const double iconShrink = 0.96;
+#endif
+
+#ifndef Q_OS_ANDROID
+  // High-density table row — no card chrome.
+  if (isWideList) {
+    const QRect row = option.rect;
+    const bool darkRow = BlopTheme::instance().isDark();
+    const QColor muted =
+        darkRow ? QColor(0x9C, 0xA3, 0xAF) : QColor(0x6B, 0x72, 0x80);
+    const QColor ink =
+        darkRow ? QColor(0xF8, 0xFA, 0xFC) : QColor(0x11, 0x18, 0x27);
+
+    painter->setPen(Qt::NoPen);
+    if (selected)
+      painter->setBrush(darkRow ? QColor(59, 130, 246, 36)
+                                : QColor(0xEF, 0xF6, 0xFF));
+    else if (hovered)
+      painter->setBrush(darkRow ? QColor(255, 255, 255, 10)
+                                : QColor(0xF8, 0xFA, 0xFC));
+    else
+      painter->setBrush(Qt::NoBrush);
+    if (selected || hovered)
+      painter->drawRect(row);
+    if (selected) {
+      painter->setBrush(QColor(0x3B, 0x82, 0xF6));
+      painter->drawRect(QRect(row.left(), row.top(), 2, row.height()));
+    }
+    painter->setPen(QPen(darkRow ? QColor(255, 255, 255, 15)
+                                 : QColor(0xF3, 0xF4, 0xF6),
+                         1));
+    painter->drawLine(row.bottomLeft(), row.bottomRight());
+
+    const auto cols = LibraryListColumns::columnRects(row);
+    const QRect checkR = LibraryListColumns::checkboxRect(cols[0]);
+    const QRect starR = LibraryListColumns::starRect(cols[0]);
+    const QRect menuR = LibraryListColumns::menuRect(cols[5]);
+    const LibraryListColumns::Meta meta = LibraryListColumns::peekMeta(
+        path, isFolder, m_window ? m_window->m_rootPath : QString());
+    const bool inTrash =
+        m_window && !path.isEmpty() && m_window->isPathInLibraryTrash(path);
+
+    // Col0: checkbox + star (star hidden in trash)
+    {
+      const bool fav = !path.isEmpty() && LibraryOrgStore::isFavorite(path);
+      const bool idleChrome = !hovered && !selected;
+      painter->save();
+      if (idleChrome)
+        painter->setOpacity(0.45);
+      if (selected) {
+        painter->setPen(QPen(QColor(0x25, 0x63, 0xEB), 1.5));
+        painter->setBrush(QColor(0x25, 0x63, 0xEB));
+        painter->drawRoundedRect(checkR, 4, 4);
+        painter->setPen(QPen(QColor(0xFF, 0xFF, 0xFF), 1.6));
+        const int x0 = checkR.left() + 3;
+        const int y0 = checkR.center().y();
+        painter->drawLine(x0, y0, x0 + 3, y0 + 3);
+        painter->drawLine(x0 + 3, y0 + 3, x0 + 9, y0 - 4);
+      } else {
+        const QColor fill =
+            darkRow ? QColor(0, 0, 0, 0) : QColor(0xFF, 0xFF, 0xFF);
+        const QColor border =
+            hovered ? QColor(0x3B, 0x82, 0xF6)
+                    : (darkRow ? QColor(0x47, 0x55, 0x69)
+                               : QColor(0xCB, 0xD5, 0xE1));
+        painter->setPen(QPen(border, 1.5));
+        painter->setBrush(fill);
+        painter->drawRoundedRect(checkR, 4, 4);
+      }
+      painter->restore();
+
+      if (!inTrash) {
+        painter->save();
+        if (idleChrome && !fav)
+          painter->setOpacity(0.45);
+        QFont sf = painter->font();
+        sf.setPixelSize(UiScale::sp(13));
+        painter->setFont(sf);
+        painter->setPen(fav ? QColor(0xF5, 0x9E, 0x0B) : muted);
+        painter->drawText(starR, Qt::AlignCenter,
+                          fav ? QStringLiteral("★") : QStringLiteral("☆"));
+        painter->restore();
+      }
+    }
+
+    // Col1: thumb + title + format badge
+    {
+      const QRect nameCol = cols[1];
+      const int thumbW = 18;
+      const int thumbH = 24;
+      QRect thumb(nameCol.left(), nameCol.center().y() - thumbH / 2, thumbW,
+                  thumbH);
+      QPixmap preview;
+      if (cloudItem)
+        preview = NotePreviewIcon::pixmapForCloud(fileName, cloudMime, isFolder,
+                                                  thumbH);
+      else
+        preview = NotePreviewIcon::pixmapForPath(path, isFolder, thumbH);
+      if (!preview.isNull())
+        painter->drawPixmap(thumb, preview);
+
+      QFont tf = painter->font();
+      tf.setPixelSize(UiScale::sp(13));
+      tf.setWeight(QFont::DemiBold);
+      painter->setFont(tf);
+      painter->setPen(ink);
+      int textX = thumb.right() + UiScale::dp(8);
+      QString badge = meta.formatBadge;
+      int badgeW = 0;
+      if (!badge.isEmpty() && !isFolder) {
+        QFont bf = tf;
+        bf.setPixelSize(UiScale::sp(10));
+        bf.setWeight(QFont::Medium);
+        badgeW = QFontMetrics(bf).horizontalAdvance(badge) + UiScale::dp(12);
+      }
+      const int titleMax =
+          qMax(40, nameCol.right() - textX - badgeW - UiScale::dp(8));
+      const QString elided =
+          painter->fontMetrics().elidedText(text, Qt::ElideRight, titleMax);
+      const int titleW = painter->fontMetrics().horizontalAdvance(elided);
+      painter->drawText(QRect(textX, nameCol.top(), titleW, nameCol.height()),
+                        Qt::AlignVCenter | Qt::AlignLeft, elided);
+      if (badgeW > 0) {
+        QFont bf = tf;
+        bf.setPixelSize(UiScale::sp(10));
+        bf.setWeight(QFont::Medium);
+        painter->setFont(bf);
+        const int bh = UiScale::dp(16);
+        QRect br(textX + titleW + UiScale::dp(6),
+                 nameCol.center().y() - bh / 2, badgeW, bh);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(QColor(107, 114, 128, 30));
+        painter->drawRoundedRect(br, 4, 4);
+        painter->setPen(muted);
+        painter->drawText(br, Qt::AlignCenter, badge);
+      }
+    }
+
+    // Col2: tags / ghost (+ Tag always on hover)
+    {
+      const QRect tagsCol = cols[2];
+      const QStringList tags =
+          (!isFolder && !path.isEmpty()) ? LibraryTagStore::tagsForPath(path)
+                                         : QStringList();
+      QFont metaF = painter->font();
+      metaF.setPixelSize(UiScale::sp(11));
+      metaF.setWeight(QFont::Normal);
+      painter->setFont(metaF);
+      int x = tagsCol.left();
+      const int pillH = UiScale::dp(22);
+      const int y = tagsCol.center().y() - pillH / 2;
+      int shown = 0;
+      const int ghostReserve =
+          hovered ? UiScale::dp(72) : UiScale::dp(28);
+      for (const QString &tag : tags) {
+        const QString label = tag.trimmed();
+        if (label.isEmpty())
+          continue;
+        const int tw =
+            painter->fontMetrics().horizontalAdvance(label) + UiScale::dp(22);
+        // Prefer at least two full pills before collapsing to +N.
+        if (shown >= 2 && x + tw > tagsCol.right() - ghostReserve)
+          break;
+        if (x + tw > tagsCol.right() - UiScale::dp(8))
+          break;
+        const QColor dot = LibraryTagStore::tagColor(label);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(darkRow ? QColor(255, 255, 255, 20)
+                                  : QColor(0xF3, 0xF4, 0xF6));
+        painter->drawRoundedRect(QRect(x, y, tw, pillH), pillH / 2, pillH / 2);
+        painter->setBrush(dot);
+        const int dotS = 6;
+        painter->drawEllipse(QRect(x + 6, y + (pillH - dotS) / 2, dotS, dotS));
+        painter->setPen(ink);
+        painter->drawText(QRect(x + 16, y, tw - 18, pillH),
+                          Qt::AlignVCenter | Qt::AlignLeft, label);
+        x += tw + UiScale::dp(4);
+        ++shown;
+      }
+      const int rest = tags.size() - shown;
+      if (rest > 0) {
+        painter->setPen(muted);
+        const int rw = painter->fontMetrics().horizontalAdvance(
+                           QStringLiteral("+%1").arg(rest)) +
+                       UiScale::dp(4);
+        painter->drawText(QRect(x, y, rw, pillH),
+                          Qt::AlignVCenter | Qt::AlignLeft,
+                          QStringLiteral("+%1").arg(rest));
+        x += rw + UiScale::dp(4);
+      }
+      if (hovered && !isFolder) {
+        const QString ghost = QStringLiteral("+ Tag");
+        const int gw =
+            painter->fontMetrics().horizontalAdvance(ghost) + UiScale::dp(14);
+        QRect gr(x, y, qMin(gw, qMax(0, tagsCol.right() - x)), pillH);
+        if (gr.width() >= UiScale::dp(40)) {
+          QPen dash(darkRow ? QColor(255, 255, 255, 70) : QColor(0x9C, 0xA3, 0xAF),
+                    1.2, Qt::DashLine);
+          painter->setPen(dash);
+          painter->setBrush(Qt::NoBrush);
+          painter->drawRoundedRect(gr, pillH / 2, pillH / 2);
+          painter->setPen(darkRow ? QColor(0xCB, 0xD5, 0xE1)
+                                  : QColor(0x6B, 0x72, 0x80));
+          painter->drawText(gr, Qt::AlignCenter, ghost);
+        }
+      }
+    }
+
+    // Col3: place
+    {
+      QFont mf = painter->font();
+      mf.setPixelSize(UiScale::sp(12));
+      mf.setWeight(QFont::Normal);
+      painter->setFont(mf);
+      painter->setPen(muted);
+      const bool isCloud =
+          cloudItem || meta.placeLabel.startsWith(QLatin1String("Cloud"));
+      const int iconS = UiScale::dp(14);
+      QRect ir(cols[3].left(), cols[3].center().y() - iconS / 2, iconS, iconS);
+      if (m_window) {
+        const QColor placeTint =
+            darkRow ? muted : QColor(0x6B, 0x72, 0x80);
+        m_window
+            ->createModernIcon(isCloud ? QStringLiteral("cloud")
+                                       : QStringLiteral("device"),
+                               placeTint)
+            .paint(painter, ir, Qt::AlignCenter);
+      }
+      QRect tr(ir.right() + UiScale::dp(6), cols[3].top(),
+               cols[3].right() - ir.right() - UiScale::dp(6), cols[3].height());
+      painter->drawText(
+          tr, Qt::AlignVCenter | Qt::AlignLeft,
+          painter->fontMetrics().elidedText(meta.placeLabel, Qt::ElideRight,
+                                            tr.width()));
+    }
+
+    // Col4: extent
+    {
+      QFont mf = painter->font();
+      mf.setPixelSize(UiScale::sp(12));
+      mf.setStyleHint(QFont::Monospace);
+      mf.setWeight(QFont::Normal);
+      painter->setFont(mf);
+      painter->setPen(muted);
+      painter->drawText(
+          cols[4], Qt::AlignVCenter | Qt::AlignLeft,
+          painter->fontMetrics().elidedText(meta.extentLabel, Qt::ElideRight,
+                                            cols[4].width()));
+    }
+
+    // Col5: modified + menu (or restore action in trash)
+    {
+      QFont mf = painter->font();
+      mf.setPixelSize(UiScale::sp(12));
+      mf.setStyleHint(QFont::SansSerif);
+      mf.setWeight(QFont::Normal);
+      painter->setFont(mf);
+      painter->setPen(muted);
+      if (inTrash && hovered) {
+        const QString restoreLbl = QStringLiteral("↺ Wiederherstellen");
+        QFont rf = mf;
+        rf.setPixelSize(UiScale::sp(11));
+        rf.setWeight(QFont::DemiBold);
+        painter->setFont(rf);
+        const int need =
+            painter->fontMetrics().horizontalAdvance(restoreLbl) +
+            UiScale::dp(16);
+        QRect restoreR(cols[5].right() - need, cols[5].top() + 4, need,
+                       cols[5].height() - 8);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(darkRow ? QColor(59, 130, 246, 40)
+                                  : QColor(0xEF, 0xF6, 0xFF));
+        painter->drawRoundedRect(restoreR, 6, 6);
+        painter->setPen(QColor(0x1D, 0x4E, 0xD8));
+        painter->drawText(restoreR, Qt::AlignCenter, restoreLbl);
+      } else {
+        QRect dateR =
+            cols[5].adjusted(0, 0, -menuR.width() - UiScale::dp(4), 0);
+        painter->drawText(
+            dateR, Qt::AlignVCenter | Qt::AlignRight,
+            painter->fontMetrics().elidedText(meta.modifiedLabel, Qt::ElideRight,
+                                              dateR.width()));
+        if (hovered) {
+          painter->setPen(Qt::NoPen);
+          painter->setBrush(darkRow ? QColor(255, 255, 255, 20)
+                                    : QColor(0xE5, 0xE7, 0xEB));
+          painter->drawRoundedRect(menuR, 6, 6);
+        }
+        if (m_window) {
+          const QColor menuTint =
+              hovered ? (darkRow ? QColor(0xF8, 0xFA, 0xFC)
+                                 : QColor(0x11, 0x18, 0x27))
+                      : QColor(0x6B, 0x72, 0x80);
+          m_window->createModernIcon(QStringLiteral("more_pill"), menuTint)
+              .paint(painter, menuR.adjusted(5, 5, -5, -5), Qt::AlignCenter);
+        }
+      }
+    }
+
+    painter->restore();
+    return;
+  }
+#endif
+
+  QRect rect = option.rect.adjusted(4, 4, -4, -4);
 
 #ifndef Q_OS_ANDROID
   const bool darkLib = BlopTheme::instance().isDark();
@@ -1744,55 +2151,6 @@ void ModernItemDelegate::paint(QPainter *painter,
 #endif
   painter->drawRoundedRect(rect, radius, radius);
 
-  QString fileName = index.data(Qt::DisplayRole).toString();
-  QString path;
-  bool isFolder = false;
-  const bool cloudItem =
-      !index.data(Qt::UserRole + 13).toString().isEmpty();
-  const QString cloudMime = index.data(Qt::UserRole + 15).toString();
-  if (auto *proxy = qobject_cast<const QSortFilterProxyModel *>(index.model())) {
-    const QModelIndex src = proxy->mapToSource(index);
-    if (auto *fsm =
-            qobject_cast<const QFileSystemModel *>(proxy->sourceModel())) {
-      path = fsm->filePath(src);
-      isFolder = fsm->isDir(src);
-    }
-  } else if (auto *fsm =
-                 qobject_cast<const QFileSystemModel *>(index.model())) {
-    path = fsm->filePath(index);
-    isFolder = fsm->isDir(index);
-  } else {
-    path = index.data(Qt::UserRole).toString();
-    if (cloudItem)
-      isFolder = index.data(Qt::UserRole + 14).toBool();
-    else if (!path.isEmpty())
-      isFolder = QFileInfo(path).isDir();
-  }
-
-  const bool isBnote = fileName.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive);
-  const bool isBlop = fileName.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive);
-  const bool isStruct =
-      fileName.endsWith(QLatin1String(".struct"), Qt::CaseInsensitive);
-  // Do not guess "folder" from missing extensions — that painted Assistent
-  // JSON and other stray files as yellow folders in the library grid.
-
-  // Clean caption: strip Blop extensions so tiles read as product names.
-  QString text = fileName;
-  if (isBnote)
-    text.chop(6);
-  else if (isBlop)
-    text.chop(5);
-  else if (isStruct)
-    text.chop(7);
-
-  bool isWideList = rect.width() > (rect.height() * 1.5);
-#ifdef Q_OS_ANDROID
-  isWideList = false;
-  const double iconShrink = 0.94;
-#else
-  const double iconShrink = 0.96;
-#endif
-
 #ifndef Q_OS_ANDROID
   painter->setPen(BlopTheme::instance().isDark() ? BlopTheme::textPrimary()
                                                  : BlopStyle::paperInk());
@@ -1800,136 +2158,7 @@ void ModernItemDelegate::paint(QPainter *painter,
   painter->setPen(BlopTheme::textPrimary());
 #endif
 
-  if (isWideList) {
-    const QRect menuRect = libraryRowMenuRect(option.rect);
-    const bool darkRow = BlopTheme::instance().isDark();
-    const QColor muted = darkRow ? BlopTheme::textTertiary()
-                                 : BlopStyle::paperInkMuted();
-    const QColor ink = darkRow ? BlopTheme::textPrimary()
-                               : BlopStyle::paperInk();
-    if (menuRect.isValid()) {
-      painter->setPen(Qt::NoPen);
-      painter->setBrush(darkRow ? QColor(255, 255, 255, 16)
-                                : BlopStyle::paperHover());
-      painter->drawRoundedRect(menuRect, UiScale::dp(8), UiScale::dp(8));
-      if (m_window) {
-        const QIcon more = m_window->createModernIcon(QStringLiteral("more_pill"),
-                                                      muted);
-        more.paint(painter, menuRect.adjusted(5, 5, -5, -5), Qt::AlignCenter);
-      }
-    }
-
-    int iconDim = rect.height() - UiScale::dp(20);
-    iconDim = qBound(UiScale::dp(28), iconDim, UiScale::dp(44));
-    iconDim = qMax(16, (int)(iconDim * iconShrink));
-    QRect iconRect(rect.left() + UiScale::dp(12),
-                   rect.center().y() - iconDim / 2, iconDim, iconDim);
-    QPixmap preview;
-    if (cloudItem)
-      preview = NotePreviewIcon::pixmapForCloud(fileName, cloudMime, isFolder,
-                                                iconDim);
-    else
-      preview = NotePreviewIcon::pixmapForPath(path, isFolder, iconDim);
-    if (!preview.isNull())
-      painter->drawPixmap(iconRect, preview);
-
-    // Drawboard detail columns: Name | Zuletzt | Speicherort | Geteilt | Tags
-    const int colOpened = UiScale::dp(88);
-    const int colPlace = UiScale::dp(72);
-    const int colShared = UiScale::dp(56);
-    const int colTags = UiScale::dp(140);
-    const int menuReserve =
-        menuRect.isValid() ? menuRect.width() + UiScale::dp(10) : 0;
-    const int textLeft = iconRect.right() + UiScale::dp(12);
-    const int rightEdge =
-        (menuRect.isValid() ? menuRect.left() : rect.right()) - UiScale::dp(6);
-    int cursorR = rightEdge;
-    const QRect tagsRect(cursorR - colTags, rect.top(), colTags, rect.height());
-    cursorR -= colTags + UiScale::dp(6);
-    const QRect sharedRect(cursorR - colShared, rect.top(), colShared,
-                           rect.height());
-    cursorR -= colShared + UiScale::dp(6);
-    const QRect placeRect(cursorR - colPlace, rect.top(), colPlace,
-                          rect.height());
-    cursorR -= colPlace + UiScale::dp(6);
-    const QRect openedRect(cursorR - colOpened, rect.top(), colOpened,
-                           rect.height());
-    cursorR -= colOpened + UiScale::dp(8);
-    Q_UNUSED(menuReserve);
-    const QRect titleRect(textLeft, rect.top() + UiScale::dp(6),
-                          qMax(40, cursorR - textLeft), UiScale::dp(22));
-
-    QFont f = painter->font();
-    f.setPixelSize(UiScale::sp(13));
-    f.setWeight(QFont::DemiBold);
-    painter->setFont(f);
-    painter->setPen(ink);
-    painter->drawText(titleRect, Qt::AlignVCenter | Qt::AlignLeft,
-                      painter->fontMetrics().elidedText(text, Qt::ElideRight,
-                                                        titleRect.width()));
-
-    QFont meta = painter->font();
-    meta.setPixelSize(UiScale::sp(11));
-    meta.setWeight(QFont::Normal);
-    painter->setFont(meta);
-    painter->setPen(muted);
-    const QString opened = libraryOpenedLabel(path);
-    const QString place = libraryStoragePlace(
-        path, m_window ? m_window->m_rootPath : QString());
-    const QString shared = QStringLiteral("—");
-    painter->drawText(openedRect, Qt::AlignVCenter | Qt::AlignLeft,
-                      painter->fontMetrics().elidedText(
-                          opened, Qt::ElideRight, openedRect.width()));
-    painter->drawText(placeRect, Qt::AlignVCenter | Qt::AlignLeft,
-                      painter->fontMetrics().elidedText(
-                          place, Qt::ElideRight, placeRect.width()));
-    painter->drawText(sharedRect, Qt::AlignVCenter | Qt::AlignLeft, shared);
-
-    // Tag pills (+N overflow).
-    if (!isFolder && !path.isEmpty()) {
-      const QStringList tags = LibraryTagStore::tagsForPath(path);
-      int x = tagsRect.left();
-      const int pillH = UiScale::dp(18);
-      const int y = tagsRect.center().y() - pillH / 2;
-      QFont tf = meta;
-      tf.setPixelSize(UiScale::sp(10));
-      tf.setWeight(QFont::DemiBold);
-      painter->setFont(tf);
-      int shown = 0;
-      for (const QString &tag : tags) {
-        const QString label = tag.trimmed();
-        if (label.isEmpty())
-          continue;
-        const int tw =
-            painter->fontMetrics().horizontalAdvance(label) + UiScale::dp(12);
-        if (x + tw > tagsRect.right() - UiScale::dp(28) && shown > 0)
-          break;
-        if (x + tw > tagsRect.right())
-          break;
-        QColor fill = m_window ? m_window->currentAccentColor()
-                               : BlopTheme::accentPrimary();
-        fill.setAlpha(darkRow ? 48 : 36);
-        painter->setPen(Qt::NoPen);
-        painter->setBrush(fill);
-        painter->drawRoundedRect(QRect(x, y, tw, pillH), UiScale::dp(6),
-                                 UiScale::dp(6));
-        painter->setPen(m_window ? m_window->currentAccentColor()
-                                 : BlopTheme::accentPrimary());
-        painter->drawText(QRect(x, y, tw, pillH), Qt::AlignCenter, label);
-        x += tw + UiScale::dp(4);
-        ++shown;
-      }
-      const int rest = tags.size() - shown;
-      if (rest > 0) {
-        const QString more = QStringLiteral("+%1").arg(rest);
-        const int tw =
-            painter->fontMetrics().horizontalAdvance(more) + UiScale::dp(10);
-        painter->setPen(muted);
-        painter->drawText(QRect(x, y, tw, pillH), Qt::AlignVCenter | Qt::AlignLeft,
-                          more);
-      }
-    }
-  } else {
+  {
     // Preview (~65%) above a white footer (~35%).
     const int textH = qMax(UiScale::dp(56), (rect.height() * 35) / 100);
     QRect previewBand(rect.left() + 1, rect.top() + 1, rect.width() - 2,
@@ -2068,8 +2297,9 @@ void ModernItemDelegate::paint(QPainter *painter,
   menuIcon.paint(painter, menuRect, Qt::AlignCenter);
 #endif
 
-  // Organization badges: color label stripe + favorite star.
-  if (!path.isEmpty()) {
+  // Organization badges: color label stripe + favorite star (grid only —
+  // list rows would paint them over the 24×32 thumb).
+  if (!isWideList && !path.isEmpty()) {
     const auto label = LibraryOrgStore::colorLabel(path);
     if (label != LibraryOrgStore::ColorLabel::None) {
       QColor stripe = LibraryOrgStore::colorForLabel(label);
@@ -2079,7 +2309,8 @@ void ModernItemDelegate::paint(QPainter *painter,
       painter->drawRoundedRect(
           QRect(rect.left() + 2, rect.top() + 10, 4, rect.height() - 20), 2, 2);
     }
-    if (LibraryOrgStore::isFavorite(path)) {
+    if (LibraryOrgStore::isFavorite(path) &&
+        !(m_window && m_window->isPathInLibraryTrash(path))) {
       painter->setPen(Qt::NoPen);
       painter->setBrush(QColor(QStringLiteral("#E6B450")));
       const QPointF c(rect.left() + 16, rect.top() + 16);
@@ -2121,8 +2352,129 @@ bool ModernItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
 #else
   if (event->type() == QEvent::MouseButtonRelease) {
     auto *me = static_cast<QMouseEvent *>(event);
-    if (me->button() == Qt::LeftButton) {
-      const QRect menu = libraryRowMenuRect(option.rect);
+    if (me->button() == Qt::LeftButton && m_window &&
+        m_window->m_libraryListMode) {
+      const auto cols = LibraryListColumns::columnRects(option.rect);
+      const QRect check = LibraryListColumns::checkboxRect(cols[0]);
+      const QRect star = LibraryListColumns::starRect(cols[0]);
+      const QRect menu = LibraryListColumns::menuRect(cols[5]);
+      const QRect tagGhost = LibraryListColumns::tagGhostRect(cols[2]);
+
+      auto resolvePath = [&]() -> QString {
+        if (auto *proxy =
+                qobject_cast<const QSortFilterProxyModel *>(index.model())) {
+          const QModelIndex src = proxy->mapToSource(index);
+          if (auto *fsm = qobject_cast<const QFileSystemModel *>(
+                  proxy->sourceModel()))
+            return fsm->filePath(src);
+        } else if (auto *fsm =
+                       qobject_cast<const QFileSystemModel *>(index.model())) {
+          return fsm->filePath(index);
+        }
+        return index.data(Qt::UserRole).toString();
+      };
+
+      if (check.adjusted(-4, -4, 4, 4).contains(me->pos())) {
+        if (auto *view = qobject_cast<QAbstractItemView *>(
+                const_cast<QWidget *>(option.widget))) {
+          m_window->m_suppressLibraryClick = true;
+          QItemSelectionModel *sel = view->selectionModel();
+          if (sel) {
+            if (sel->isSelected(index))
+              sel->select(index, QItemSelectionModel::Deselect |
+                                     QItemSelectionModel::Rows);
+            else
+              sel->select(index, QItemSelectionModel::Select |
+                                     QItemSelectionModel::Rows);
+          }
+          return true;
+        }
+      }
+      {
+        const QString path = resolvePath();
+        const bool inTrash =
+            !path.isEmpty() && m_window->isPathInLibraryTrash(path);
+        if (inTrash) {
+          const QString restoreLbl = QStringLiteral("↺ Wiederherstellen");
+          QFontMetrics fm(option.font);
+          const int need =
+              fm.horizontalAdvance(restoreLbl) + UiScale::dp(16);
+          QRect restoreR(cols[5].right() - need, cols[5].top() + 4, need,
+                         cols[5].height() - 8);
+          if (restoreR.adjusted(-4, -4, 4, 4).contains(me->pos())) {
+            m_window->m_suppressLibraryClick = true;
+            m_window->restorePathFromTrash(path);
+            if (auto *view = qobject_cast<QAbstractItemView *>(
+                    const_cast<QWidget *>(option.widget)))
+              view->viewport()->update();
+            return true;
+          }
+        } else if (star.adjusted(-4, -4, 4, 4).contains(me->pos())) {
+          if (!path.isEmpty()) {
+            m_window->m_suppressLibraryClick = true;
+            LibraryOrgStore::toggleFavorite(path);
+            if (auto *view = qobject_cast<QAbstractItemView *>(
+                    const_cast<QWidget *>(option.widget)))
+              view->viewport()->update(option.rect);
+            return true;
+          }
+        }
+      }
+      {
+        const QString path = resolvePath();
+        const bool isDir = !path.isEmpty() && QFileInfo(path).isDir();
+        if (!isDir && !path.isEmpty()) {
+          // Ghost "+ Tag" sits after painted pills; approximate hit as the
+          // trailing stretch of the tags column (always available on click).
+          const QStringList tags = LibraryTagStore::tagsForPath(path);
+          QRect ghostHit = tagGhost;
+          if (!tags.isEmpty()) {
+            QFontMetrics fm(option.font);
+            int x = cols[2].left();
+            const int reserve = UiScale::dp(64);
+            int shown = 0;
+            for (const QString &tag : tags) {
+              const QString label = tag.trimmed();
+              if (label.isEmpty())
+                continue;
+              const int tw =
+                  fm.horizontalAdvance(label) + UiScale::dp(22);
+              if (x + tw > cols[2].right() - reserve && shown > 0)
+                break;
+              x += tw + UiScale::dp(4);
+              ++shown;
+            }
+            ghostHit = QRect(x, cols[2].top(),
+                             qMax(UiScale::dp(48), cols[2].right() - x),
+                             cols[2].height());
+          }
+          if (ghostHit.contains(me->pos())) {
+            m_window->m_suppressLibraryClick = true;
+            m_window->assignTagsForNotePath(path);
+            if (auto *view = qobject_cast<QAbstractItemView *>(
+                    const_cast<QWidget *>(option.widget)))
+              view->viewport()->update();
+            return true;
+          }
+        }
+      }
+      if (menu.adjusted(-4, -4, 4, 4).contains(me->pos())) {
+        QPoint global = me->globalPosition().toPoint();
+        if (auto *view = qobject_cast<QAbstractItemView *>(
+                const_cast<QWidget *>(option.widget))) {
+          if (view->viewport())
+            global = view->viewport()->mapToGlobal(me->pos());
+        }
+        m_window->m_suppressLibraryClick = true;
+        if (m_window->libraryCloudNotesMode())
+          m_window->showCloudContextMenu(global, index);
+        else
+          m_window->showContextMenu(global, index);
+        return true;
+      }
+    } else if (me->button() == Qt::LeftButton) {
+      const QRect menu = libraryRowMenuRect(
+          option.rect, m_window && m_window->m_libraryListMode);
       const QRect hit = menu.adjusted(-6, -6, 6, 6);
       if (!menu.isNull() && hit.contains(me->pos())) {
         QPoint global = me->globalPosition().toPoint();
@@ -2966,9 +3318,7 @@ void MainWindow::applyThemeRefresh() {
   if (btnStripMenu)
     btnStripMenu->setIcon(
         createModernIcon(QStringLiteral("menu"), BlopTheme::textPrimary()));
-  if (m_lblEmptyIcon) {
-    m_lblEmptyIcon->hide();
-  }
+  // Empty-state icon visibility is driven by updateSidebarBadges().
   if (m_fileListView && m_fileListView->viewport())
     m_fileListView->viewport()->update();
   // Force a polish pass on the entire MainWindow so any QSS-tagged
@@ -4380,32 +4730,32 @@ void MainWindow::setupTitleBar() {
             m_documentTabBar->setTabTitle(index, safe);
           });
 
-  // "+ Tab" Button
+  // "+ Tab" Button — sits immediately beside the document tabs.
   m_btnNewTab = new QPushButton(m_topNavControls);
   m_btnNewTab->setObjectName(QStringLiteral("TitleBarNewTab"));
-  m_btnNewTab->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+  m_btnNewTab->setFixedSize(UiScale::dp(28), UiScale::dp(28));
   m_btnNewTab->setCursor(Qt::PointingHandCursor);
   m_btnNewTab->setToolTip(QStringLiteral("Neue Notiz"));
   m_btnNewTab->setIcon(
       createModernIcon(QStringLiteral("add"), BlopTheme::textSecondary()));
-  m_btnNewTab->setIconSize(QSize(18, 18));
+  m_btnNewTab->setIconSize(QSize(14, 14));
   m_btnNewTab->setStyleSheet(BlopTheme::themed(
       "QPushButton {"
       "  background: transparent;"
       "  border: none;"
-      "  border-radius: 8px;"
+      "  border-radius: 6px;"
       "}"
       "QPushButton:hover {"
       "  background: rgba(91,157,255,0.18);"
       "}"));
   connect(m_btnNewTab, &QPushButton::clicked, this, &MainWindow::onNewPage);
 
-  navLayout->addWidget(m_documentTabBar, 1);
+  navLayout->addWidget(m_documentTabBar, /*stretch=*/0);
   navLayout->addWidget(m_btnNewTab);
   m_btnNewTab->hide();
   navLayout->addSpacing(10);
-  // Only expands while the tab bar is hidden (library): keeps actions right.
-  navLayout->addStretch(0);
+  // Push theme/overflow chrome to the right; + stays next to tabs.
+  navLayout->addStretch(1);
 
   // Title-bar search retired — library search lives in the notes header.
   m_titleSearchBar = new QLineEdit(m_topNavControls);
@@ -5230,6 +5580,11 @@ void MainWindow::openSettingsShell() {
             &MainWindow::applyBrandMark);
     connect(m_settingsShellDlg, &SettingsDialog::appPrefsChanged, this,
             &MainWindow::applyToolHotkeys);
+    connect(m_settingsShellDlg, &SettingsDialog::appPrefsChanged, this, [this]() {
+      QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+      setLibraryDensity(
+          qBound(0, st.value(QStringLiteral("ui/libraryDensity"), 1).toInt(), 2));
+    });
     connect(m_settingsShellDlg, &SettingsDialog::logoutRequested, this,
             [this]() {
               QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
@@ -5340,9 +5695,40 @@ void MainWindow::openSettingsShell() {
               const QString role = item->data(Qt::UserRole + 5).toString();
               if (role != QLatin1String("settings_section"))
                 return;
+              // Expand parent group and clear settings search — never put the
+              // leaf label into the search field.
+              const QString gid = item->data(Qt::UserRole + 4).toString();
+              for (int i = 0; i < m_settingsNavList->count(); ++i) {
+                QListWidgetItem *hdr = m_settingsNavList->item(i);
+                if (!hdr || !hdr->data(Qt::UserRole + 1).toBool())
+                  continue;
+                if (hdr->data(Qt::UserRole + 4).toString() != gid)
+                  continue;
+                hdr->setData(Qt::UserRole + 3, false); // expanded
+                for (int j = 0; j < m_settingsNavList->count(); ++j) {
+                  QListWidgetItem *child = m_settingsNavList->item(j);
+                  if (!child || child->data(Qt::UserRole + 1).toBool())
+                    continue;
+                  if (child->data(Qt::UserRole + 4).toString() == gid)
+                    child->setHidden(false);
+                }
+                break;
+              }
+              if (m_settingsShellDlg) {
+                if (auto *search = m_settingsShellDlg->findChild<QLineEdit *>(
+                        QStringLiteral("SettingsSearch"))) {
+                  // Clear without writing the leaf label into the field; emit
+                  // textChanged so all section rows become visible again.
+                  if (!search->text().isEmpty())
+                    search->clear();
+                }
+              }
+              m_settingsNavList->setCurrentItem(item);
               const int section = item->data(Qt::UserRole + 12).toInt();
               if (m_settingsShellDlg)
                 m_settingsShellDlg->setSectionIndex(section);
+              if (m_settingsNavList->viewport())
+                m_settingsNavList->viewport()->update();
             });
   }
 
@@ -5445,26 +5831,25 @@ void MainWindow::rebuildSettingsShellNav() {
     it->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
   };
 
-  // KONTO — account + UI profiles
+  // Desktop stack: 0 Konto, 1 Darstellung, 2 Werkzeuge, 3 Tastatur,
+  // 4 Profile, 5 Cloud, 6 Kalender, 7 System — shell leaves skip Tastatur/System.
   addHeader(QStringLiteral("KONTO"), QStringLiteral("grp_konto"));
   addLeaf(QStringLiteral("Konto"), QStringLiteral("person"),
           QStringLiteral("grp_konto"), QStringLiteral("settings_section"), 0);
   addLeaf(QStringLiteral("Profile"), QStringLiteral("person"),
-          QStringLiteral("grp_konto"), QStringLiteral("settings_section"), 3);
+          QStringLiteral("grp_konto"), QStringLiteral("settings_section"), 4);
 
-  // NOTIZEN — editor look & tools
   addHeader(QStringLiteral("NOTIZEN"), QStringLiteral("grp_notes"));
   addLeaf(QStringLiteral("Darstellung"), QStringLiteral("palette"),
           QStringLiteral("grp_notes"), QStringLiteral("settings_section"), 1);
   addLeaf(QStringLiteral("Werkzeuge"), QStringLiteral("settings"),
           QStringLiteral("grp_notes"), QStringLiteral("settings_section"), 2);
 
-  // ONLINE — one nav entry each; services live in the content pane
   addHeader(QStringLiteral("ONLINE"), QStringLiteral("grp_online"));
   addLeaf(QStringLiteral("Cloud"), QStringLiteral("cloud"),
-          QStringLiteral("grp_online"), QStringLiteral("settings_section"), 4);
-  addLeaf(QStringLiteral("Kalender"), QStringLiteral("history"),
           QStringLiteral("grp_online"), QStringLiteral("settings_section"), 5);
+  addLeaf(QStringLiteral("Kalender"), QStringLiteral("history"),
+          QStringLiteral("grp_online"), QStringLiteral("settings_section"), 6);
 
   // Select first leaf (Konto).
   for (int i = 0; i < m_settingsNavList->count(); ++i) {
@@ -6072,6 +6457,10 @@ void MainWindow::applyTheme() {
 #endif
     if (m_libraryOrgBar)
       m_libraryOrgBar->setAccentColor(m_currentAccentColor);
+#ifndef Q_OS_ANDROID
+    if (m_libraryListHeader)
+      m_libraryListHeader->syncTheme();
+#endif
 
   // Main window fill — true black in dark mode (via BlopTheme tokens).
   QString style =
@@ -6394,10 +6783,12 @@ void MainWindow::applyTheme() {
                        "  background: %1; color: #FFFFFF; border: none;"
                        "  border-radius: %3px; padding: 0 14px;"
                        "  font-size: 13px; font-weight: 500;"
+                       "  min-width: %5px;"
                        "  min-height: %2px; max-height: %2px;"
                        "}"
                        "QPushButton#overviewBtnNewNote:hover { background: %4; }")
-                       .arg(ctaBg, searchPx, searchRad, ctaHover);
+                       .arg(ctaBg, searchPx, searchRad, ctaHover)
+                       .arg(UiScale::dp(120));
 #endif
     overviewQss += QStringLiteral(
                        "QPushButton#overviewEmptyCta:hover {"
@@ -6444,6 +6835,8 @@ void MainWindow::applyTheme() {
       }
       m_libraryOrgBar->setAccentColor(m_currentAccentColor);
     }
+    if (m_libraryListHeader)
+      m_libraryListHeader->syncTheme();
 #endif
   }
 
@@ -6611,6 +7004,14 @@ void MainWindow::updateGrid() {
   if (!m_fileListView)
     return;
 
+#ifndef Q_OS_ANDROID
+  // List header owns sort; hide the org-bar Sortieren dropdown in list mode.
+  if (m_libraryOrgBar) {
+    if (QPushButton *sortBtn = m_libraryOrgBar->sortButton())
+      sortBtn->setVisible(!m_libraryListMode);
+  }
+#endif
+
   // Real Android phones and BLOP_SIMULATE_ANDROID_PHONE=1 use the denser
   // column-fit tile sizing so the main library stays usable on narrow widths.
   const bool phoneGrid = UiScale::isAndroidPhoneUi(this);
@@ -6628,6 +7029,27 @@ void MainWindow::updateGrid() {
       screenWidth = m_fileListView->width();
     if (screenWidth <= 0)
       screenWidth = QApplication::primaryScreen()->availableGeometry().width();
+
+#ifndef Q_OS_ANDROID
+    // Phone-sim on desktop still honors the library list toggle.
+    if (m_libraryListMode) {
+      const int itemWidth = qMax(UiScale::dp(240), screenWidth);
+      const int itemHeight = UiScale::dp(40);
+      m_fileListView->setListRows(true);
+      m_fileListView->setSpacing(0);
+      m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
+      m_fileListView->setIconSize(QSize(UiScale::dp(24), UiScale::dp(24)));
+      m_fileListView->setUniformItemSizes(true);
+      m_fileListView->setGridSize(QSize(itemWidth, itemHeight));
+      m_fileListView->doItemsLayout();
+      if (m_libraryListHeader)
+        m_libraryListHeader->setVisible(true);
+      return;
+    }
+    m_fileListView->setListRows(false);
+    if (m_libraryListHeader)
+      m_libraryListHeader->setVisible(false);
+#endif
 
     int s = m_currentProfile.iconSize;
     if (s <= 20)
@@ -6678,19 +7100,27 @@ void MainWindow::updateGrid() {
     spacing = qBound(UiScale::dp(4), spacing, UiScale::dp(8));
 
     if (m_libraryListMode) {
-      const int itemWidth = qMax(UiScale::dp(240), screenWidth - 2 * spacing);
-      const int rowDp = m_libraryDensity <= 0 ? 56 : m_libraryDensity >= 2 ? 96
-                                                                          : 72;
-      const int itemHeight = UiScale::dp(rowDp);
-      m_fileListView->setSpacing(spacing);
+      const int itemWidth = qMax(UiScale::dp(240), screenWidth);
+      const int itemHeight = UiScale::dp(40);
+      m_fileListView->setListRows(true);
+      m_fileListView->setSpacing(0);
       m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
-      m_fileListView->setIconSize(QSize(UiScale::dp(48), UiScale::dp(48)));
+      m_fileListView->setIconSize(QSize(UiScale::dp(24), UiScale::dp(24)));
       m_fileListView->setUniformItemSizes(true);
-      m_fileListView->setGridSize(
-          QSize(itemWidth + spacing, itemHeight + spacing));
+      m_fileListView->setGridSize(QSize(itemWidth, itemHeight));
+      m_fileListView->doItemsLayout();
+#ifndef Q_OS_ANDROID
+      if (m_libraryListHeader)
+        m_libraryListHeader->setVisible(true);
+#endif
       return;
     }
 
+    m_fileListView->setListRows(false);
+#ifndef Q_OS_ANDROID
+    if (m_libraryListHeader)
+      m_libraryListHeader->setVisible(false);
+#endif
     // Fixed paper cards: 160×200, 16dp gutter, as many columns as fit.
     spacing = UiScale::dp(16);
     const int tileW = UiScale::dp(160);
@@ -6732,10 +7162,13 @@ void MainWindow::showLibrarySizeMenu(const QPoint &globalPos) {
     it.handler = [this, density]() { setLibraryDensity(density); };
     return it;
   };
+  BlopInWindowMenu::Item header;
+  header.label = QStringLiteral("ANSICHTSDICHTE");
+  header.header = true;
   BlopInWindowMenu::show(
       m_fileListView, globalPos,
-      {item(QStringLiteral("Klein"), 0), item(QStringLiteral("Mittel"), 1),
-       item(QStringLiteral("Groß"), 2)});
+      {header, item(QStringLiteral("Klein"), 0),
+       item(QStringLiteral("Mittel"), 1), item(QStringLiteral("Groß"), 2)});
 }
 
 void MainWindow::applyProfile(const UiProfile &profile) {
@@ -7719,7 +8152,27 @@ void MainWindow::setupUi() {
             applyLibraryFilters();
           });
   connect(m_libraryOrgBar, &LibraryOrgBar::sortModeChanged, this,
-          [this](LibraryOrgBar::SortMode) { applyLibraryFilters(); });
+          [this](LibraryOrgBar::SortMode mode) {
+            if (auto *proxy = static_cast<LibraryFilterProxy *>(m_libraryProxy)) {
+              const auto pm =
+                  static_cast<LibraryFilterProxy::SortMode>(mode);
+              const Qt::SortOrder order =
+                  (mode == LibraryOrgBar::SortMode::Modified)
+                      ? Qt::DescendingOrder
+                      : Qt::AscendingOrder;
+              proxy->setSort(pm, order);
+#ifndef Q_OS_ANDROID
+              if (m_libraryListHeader) {
+                m_libraryListHeader->setSort(
+                    mode == LibraryOrgBar::SortMode::Name
+                        ? LibraryListHeader::SortColumn::Name
+                        : LibraryListHeader::SortColumn::Modified,
+                    order);
+              }
+#endif
+            }
+            applyLibraryFilters();
+          });
 
   auto *topBar = new QHBoxLayout();
   topBar->setContentsMargins(0, 0, 0, 0);
@@ -7762,8 +8215,8 @@ void MainWindow::setupUi() {
     auto *frame = new QWidget(m_overviewContainer);
     frame->setObjectName(QStringLiteral("overviewSearchFrame"));
     frame->setFixedHeight(UiScale::dp(36));
-    frame->setMinimumWidth(UiScale::dp(240));
-    frame->setMaximumWidth(UiScale::dp(280));
+    frame->setMinimumWidth(UiScale::dp(180));
+    frame->setMaximumWidth(UiScale::dp(260));
     frame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     frame->setStyleSheet(QStringLiteral(
         "QWidget#overviewSearchFrame {"
@@ -7863,47 +8316,72 @@ void MainWindow::setupUi() {
   m_btnLibraryList->setToolTip(QStringLiteral("Listenansicht"));
   m_btnLibraryList->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
   applyViewIcons(false);
+  {
+    auto *viewGroup = new QButtonGroup(m_libraryOrgBar);
+    viewGroup->setExclusive(true);
+    viewGroup->addButton(m_btnLibraryGrid);
+    viewGroup->addButton(m_btnLibraryList);
+  }
   m_libraryOrgBar->placeViewModeButtons(m_btnLibraryGrid, m_btnLibraryList);
   m_libraryOrgBar->placeInspectorButton(m_btnLibraryDetailShow);
 
-  m_btnEmptyTrash = new QPushButton(m_overviewContainer);
-  m_btnEmptyTrash->setFixedSize(viewBtn, viewBtn);
+  m_btnEmptyTrash = new QPushButton(QStringLiteral("🗑 Papierkorb leeren"),
+                                    m_overviewContainer);
+  m_btnEmptyTrash->setObjectName(QStringLiteral("EmptyTrashBtn"));
   m_btnEmptyTrash->setCursor(Qt::PointingHandCursor);
   m_btnEmptyTrash->setToolTip(QStringLiteral("Papierkorb leeren"));
-  m_btnEmptyTrash->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
-  m_btnEmptyTrash->setStyleSheet(
-      BlopStyle::quietIconButtonQss(BlopStyle::radiusMdDp()));
-  m_btnEmptyTrash->setIcon(
-      createModernIcon(QStringLiteral("trash"), BlopStyle::paperInkMuted()));
+  m_btnEmptyTrash->setFixedHeight(UiScale::dp(36));
+  m_btnEmptyTrash->setStyleSheet(QStringLiteral(
+      "QPushButton#EmptyTrashBtn {"
+      "  background: #FEF2F2; color: #DC2626;"
+      "  border: 1px solid #FECACA; border-radius: 8px;"
+      "  padding: 0 14px; font-size: 13px; font-weight: 600;"
+      "}"
+      "QPushButton#EmptyTrashBtn:hover { background: #FEE2E2; }"));
   m_btnEmptyTrash->hide();
   connect(m_btnEmptyTrash, &QPushButton::clicked, this,
           &MainWindow::emptyLibraryTrash);
   topBar->addWidget(m_btnEmptyTrash, 0, Qt::AlignVCenter);
 
-  connect(m_btnLibraryGrid, &QPushButton::clicked, this, [this, applyViewIcons]() {
-    if (!m_btnLibraryGrid || !m_btnLibraryList)
-      return;
-    m_libraryListMode = false;
-    m_btnLibraryGrid->setChecked(true);
-    m_btnLibraryList->setChecked(false);
-    applyViewIcons(false);
-    updateGrid();
-  });
-  connect(m_btnLibraryList, &QPushButton::clicked, this, [this, applyViewIcons]() {
-    if (!m_btnLibraryGrid || !m_btnLibraryList)
-      return;
-    m_libraryListMode = true;
-    m_btnLibraryGrid->setChecked(false);
-    m_btnLibraryList->setChecked(true);
-    applyViewIcons(true);
-    updateGrid();
-  });
+  // Prefer toggled over clicked: exclusive QButtonGroup can swallow a second
+  // click on an already-checked sibling, and clicked alone was flaky with
+  // FreeGridView still stuck in IconMode.
+  connect(m_btnLibraryGrid, &QPushButton::toggled, this,
+          [this, applyViewIcons](bool on) {
+            if (!on || !m_btnLibraryGrid || !m_btnLibraryList)
+              return;
+            if (!m_libraryListMode) {
+              applyViewIcons(false);
+              return;
+            }
+            m_libraryListMode = false;
+            applyViewIcons(false);
+            updateGrid();
+            if (m_fileListView)
+              m_fileListView->viewport()->update();
+          });
+  connect(m_btnLibraryList, &QPushButton::toggled, this,
+          [this, applyViewIcons](bool on) {
+            if (!on || !m_btnLibraryGrid || !m_btnLibraryList)
+              return;
+            if (m_libraryListMode) {
+              applyViewIcons(true);
+              return;
+            }
+            m_libraryListMode = true;
+            applyViewIcons(true);
+            updateGrid();
+            if (m_fileListView)
+              m_fileListView->viewport()->update();
+          });
 
   // Quiet create in the library header (also Ctrl+N).
   QPushButton *btnNewNote =
       new QPushButton(QStringLiteral("+ Neue Notiz"), m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
   btnNewNote->setFixedHeight(UiScale::dp(36));
+  btnNewNote->setMinimumWidth(UiScale::dp(120));
+  btnNewNote->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setToolTip(QStringLiteral("Neue Notiz (Strg+N)"));
   {
@@ -7917,10 +8395,12 @@ void MainWindow::setupUi() {
         "  background: %1; color: #FFFFFF; border: none;"
         "  border-radius: %3px; padding: 0 14px;"
         "  font-size: 13px; font-weight: 500;"
+        "  min-width: %4px;"
         "}"
         "QPushButton#overviewBtnNewNote:hover { background: %2; }")
                                   .arg(bg, hover)
-                                  .arg(UiScale::dp(8)));
+                                  .arg(UiScale::dp(8))
+                                  .arg(UiScale::dp(120)));
   }
   connect(btnNewNote, &QPushButton::clicked, this, [this]() {
     if (m_libraryCloudNotesMode)
@@ -7979,6 +8459,14 @@ void MainWindow::setupUi() {
 
   m_libraryProxy = new LibraryFilterProxy(this);
   m_libraryProxy->setSourceModel(m_fileModel);
+#ifndef Q_OS_ANDROID
+  // Default: newest first (matches OrgBar Modified default).
+  static_cast<LibraryFilterProxy *>(m_libraryProxy)
+      ->setSort(LibraryFilterProxy::SortMode::Modified, Qt::DescendingOrder);
+  if (m_libraryListHeader)
+    m_libraryListHeader->setSort(LibraryListHeader::SortColumn::Modified,
+                                 Qt::DescendingOrder);
+#endif
 
 #ifdef Q_OS_ANDROID
   m_libraryOrgBar = new LibraryOrgBar(libraryMain);
@@ -8001,6 +8489,49 @@ void MainWindow::setupUi() {
   // on top of the notes.
   if (m_libraryOrgBar)
     libraryMainLay->addWidget(m_libraryOrgBar, 0);
+
+#ifndef Q_OS_ANDROID
+  m_libraryListHeader = new LibraryListHeader(libraryMain);
+  m_libraryListHeader->hide();
+  libraryMainLay->addWidget(m_libraryListHeader, 0);
+  connect(m_libraryListHeader, &LibraryListHeader::sortRequested, this,
+          [this](LibraryListHeader::SortColumn col, Qt::SortOrder order) {
+            auto *proxy = static_cast<LibraryFilterProxy *>(m_libraryProxy);
+            if (!proxy)
+              return;
+            LibraryFilterProxy::SortMode mode =
+                LibraryFilterProxy::SortMode::Modified;
+            switch (col) {
+            case LibraryListHeader::SortColumn::Name:
+              mode = LibraryFilterProxy::SortMode::Name;
+              if (m_libraryOrgBar)
+                m_libraryOrgBar->setSortMode(LibraryOrgBar::SortMode::Name);
+              break;
+            case LibraryListHeader::SortColumn::Place:
+              mode = LibraryFilterProxy::SortMode::Place;
+              break;
+            case LibraryListHeader::SortColumn::Extent:
+              mode = LibraryFilterProxy::SortMode::Size;
+              break;
+            case LibraryListHeader::SortColumn::Modified:
+              mode = LibraryFilterProxy::SortMode::Modified;
+              if (m_libraryOrgBar)
+                m_libraryOrgBar->setSortMode(
+                    LibraryOrgBar::SortMode::Modified);
+              break;
+            }
+            proxy->setSort(mode, order);
+          });
+  connect(m_libraryListHeader, &LibraryListHeader::selectAllRequested, this,
+          [this](bool selectAll) {
+            if (!m_fileListView)
+              return;
+            if (selectAll)
+              m_fileListView->selectAll();
+            else
+              m_fileListView->clearSelection();
+          });
+#endif
 
   m_fileListView = new FreeGridView(this);
   m_fileListView->setModel(m_libraryProxy);
@@ -8298,7 +8829,8 @@ void MainWindow::setupUi() {
   m_lblEmptyIcon = new QLabel(m_emptyStateHost);
   m_lblEmptyIcon->setObjectName(QStringLiteral("overviewEmptyIcon"));
   m_lblEmptyIcon->setAlignment(Qt::AlignCenter);
-  m_lblEmptyIcon->hide(); // quiet row — no large preview tile
+  m_lblEmptyIcon->setFixedSize(UiScale::dp(48), UiScale::dp(48));
+  emptyLay->addWidget(m_lblEmptyIcon, 0, Qt::AlignHCenter);
 
   m_lblEmptyTitle = new QLabel(QStringLiteral("Noch keine Notizen"),
                               m_emptyStateHost);
@@ -8580,6 +9112,15 @@ void MainWindow::setupUi() {
             &MainWindow::onUndo);
     connect(m_noteToolbars, &NoteToolbarHost::redoRequested, this,
             &MainWindow::onRedo);
+    connect(m_noteToolbars, &NoteToolbarHost::penStudioRequested, this, [this]() {
+      if (!m_penStudio)
+        m_penStudio = new PenStudioPopover(m_editorCenterWidget);
+      if (m_penStudio->isVisible()) {
+        m_penStudio->hide();
+        return;
+      }
+      m_penStudio->present(m_noteToolbars->studioAnchorGlobal());
+    });
     connect(m_noteToolbars, &NoteToolbarHost::toolOptionsRequested, this,
             [this]() {
               m_toolPropertiesVisible = !m_toolPropertiesVisible;
@@ -8961,6 +9502,112 @@ void MainWindow::setupUi() {
 
   m_noteBottomChrome->installEventFilter(this);
   applyNoteChromeLayoutOrientation();
+
+#ifndef Q_OS_ANDROID
+  auto makeHud = [this](const QString &name) {
+    auto *hud = new QWidget(m_editorCenterWidget);
+    hud->setObjectName(name);
+    hud->setAttribute(Qt::WA_StyledBackground, true);
+    hud->setFixedHeight(34);
+    hud->hide();
+    return hud;
+  };
+  m_pageHud = makeHud(QStringLiteral("PageHud"));
+  auto *pageLay = new QHBoxLayout(m_pageHud);
+  pageLay->setContentsMargins(8, 0, 8, 0);
+  pageLay->setSpacing(6);
+  m_lblPageHud = new QLabel(QStringLiteral("1 / 1"), m_pageHud);
+  pageLay->addWidget(m_lblPageHud);
+  auto *pagesBtn = new QPushButton(QStringLiteral("⊞ Seiten"), m_pageHud);
+  pagesBtn->setCursor(Qt::PointingHandCursor);
+  pagesBtn->setFocusPolicy(Qt::NoFocus);
+  pagesBtn->setFlat(true);
+  connect(pagesBtn, &QPushButton::clicked, this, [this]() {
+    if (!m_allPagesOverlay || !m_editorCenterWidget)
+      return;
+    m_allPagesOverlay->setNoteView(currentNoteView());
+    m_allPagesOverlay->setGeometry(0, 0, m_editorCenterWidget->width(),
+                                   m_editorCenterWidget->height());
+    m_allPagesOverlay->present();
+  });
+  pageLay->addWidget(pagesBtn);
+  auto *addPageBtn = new QPushButton(QStringLiteral("+"), m_pageHud);
+  addPageBtn->setCursor(Qt::PointingHandCursor);
+  addPageBtn->setFocusPolicy(Qt::NoFocus);
+  addPageBtn->setFixedSize(28, 28);
+  addPageBtn->setFlat(true);
+  connect(addPageBtn, &QPushButton::clicked, this, [this]() {
+    if (auto *view = currentNoteView()) {
+      view->addNewPage();
+      updateNoteBottomChrome();
+    }
+  });
+  pageLay->addWidget(addPageBtn);
+
+  m_zoomHud = makeHud(QStringLiteral("ZoomHud"));
+  m_zoomHud->setFixedHeight(UiScale::dp(36));
+  auto *zoomLay = new QHBoxLayout(m_zoomHud);
+  zoomLay->setContentsMargins(6, 0, 6, 0);
+  zoomLay->setSpacing(2);
+  m_btnZoomHudUndo = new QPushButton(QStringLiteral("↶"), m_zoomHud);
+  m_btnZoomHudRedo = new QPushButton(QStringLiteral("↷"), m_zoomHud);
+  m_btnZoomHudUndo->setToolTip(QStringLiteral("Rückgängig"));
+  m_btnZoomHudRedo->setToolTip(QStringLiteral("Wiederholen"));
+  auto *zoomOut = new QPushButton(QStringLiteral("−"), m_zoomHud);
+  auto *zoomIn = new QPushButton(QStringLiteral("+"), m_zoomHud);
+  m_lblZoomHud = new QLabel(QStringLiteral("100%"), m_zoomHud);
+  m_lblZoomHud->setAlignment(Qt::AlignCenter);
+  m_lblZoomHud->setMinimumWidth(40);
+  auto *fitBtn = new QPushButton(QStringLiteral("⛶"), m_zoomHud);
+  fitBtn->setToolTip(QStringLiteral("Auf Seitenbreite anpassen"));
+  for (QPushButton *b :
+       {m_btnZoomHudUndo, m_btnZoomHudRedo, zoomOut, zoomIn, fitBtn}) {
+    b->setCursor(Qt::PointingHandCursor);
+    b->setFocusPolicy(Qt::NoFocus);
+    b->setFlat(true);
+    b->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  }
+  connect(m_btnZoomHudUndo, &QPushButton::clicked, this, &MainWindow::onUndo);
+  connect(m_btnZoomHudRedo, &QPushButton::clicked, this, &MainWindow::onRedo);
+  connect(zoomOut, &QPushButton::clicked, this, [this]() {
+    if (auto *view = currentNoteView())
+      view->zoomBy(1.0 / 1.1);
+    else if (CanvasView *cv = getCurrentCanvas())
+      cv->scale(1.0 / 1.1, 1.0 / 1.1);
+    updateNoteBottomChrome();
+  });
+  connect(zoomIn, &QPushButton::clicked, this, [this]() {
+    if (auto *view = currentNoteView())
+      view->zoomBy(1.1);
+    else if (CanvasView *cv = getCurrentCanvas())
+      cv->scale(1.1, 1.1);
+    updateNoteBottomChrome();
+  });
+  connect(fitBtn, &QPushButton::clicked, this, [this]() {
+    if (auto *view = currentNoteView())
+      view->fitToWidth();
+    else if (CanvasView *cv = getCurrentCanvas())
+      cv->fitToWidth();
+    updateNoteBottomChrome();
+  });
+  zoomLay->addWidget(m_btnZoomHudUndo);
+  zoomLay->addWidget(m_btnZoomHudRedo);
+  auto *sep = new QFrame(m_zoomHud);
+  sep->setFrameShape(QFrame::VLine);
+  sep->setFixedWidth(1);
+  sep->setStyleSheet(QStringLiteral("background: #CBD5E1; border: none;"));
+  zoomLay->addWidget(sep);
+  zoomLay->addWidget(zoomOut);
+  zoomLay->addWidget(m_lblZoomHud);
+  zoomLay->addWidget(zoomIn);
+  auto *sep2 = new QFrame(m_zoomHud);
+  sep2->setFrameShape(QFrame::VLine);
+  sep2->setFixedWidth(1);
+  sep2->setStyleSheet(QStringLiteral("background: #CBD5E1; border: none;"));
+  zoomLay->addWidget(sep2);
+  zoomLay->addWidget(fitBtn);
+#endif
+
   refreshNoteChromeStyle();
   refreshNoteBottomChromeIcons();
 
@@ -9824,32 +10471,90 @@ void MainWindow::setupWebBrowser() {
   // Build without Qt WebEngine (e.g. local MinGW): Study cannot be embedded.
   // Offer the system browser instead of a dead end; Notes stay usable (guest).
   {
+    const bool dark = BlopTheme::instance().isDark();
     auto *fallback = new QWidget(m_studyContainer);
-    fallback->setStyleSheet(QStringLiteral("background: #1E1E1E;"));
+    fallback->setObjectName(QStringLiteral("StudyFallbackHost"));
+    fallback->setStyleSheet(
+        dark ? QStringLiteral("QWidget#StudyFallbackHost { background: #1E1E1E; }")
+             : QStringLiteral(
+                   "QWidget#StudyFallbackHost { background: #F8FAFC; }"));
     auto *fl = new QVBoxLayout(fallback);
     fl->setAlignment(Qt::AlignCenter);
-    fl->setSpacing(UiScale::dp(12));
+    fl->setContentsMargins(UiScale::dp(24), UiScale::dp(24), UiScale::dp(24),
+                           UiScale::dp(24));
+    fl->setSpacing(UiScale::dp(16));
+
+    auto *card = new QFrame(fallback);
+    card->setObjectName(QStringLiteral("StudyFallbackCard"));
+    card->setStyleSheet(
+        dark ? QStringLiteral(
+                   "QFrame#StudyFallbackCard {"
+                   "  background: #252830; border: 1px solid #3A3F4A;"
+                   "  border-radius: 12px; }")
+             : QStringLiteral(
+                   "QFrame#StudyFallbackCard {"
+                   "  background: #FFFFFF; border: 1px solid #E2E8F0;"
+                   "  border-radius: 12px; }"));
+    auto *cardLay = new QVBoxLayout(card);
+    cardLay->setContentsMargins(UiScale::dp(32), UiScale::dp(32),
+                                UiScale::dp(32), UiScale::dp(32));
+    cardLay->setSpacing(UiScale::dp(14));
+    cardLay->setAlignment(Qt::AlignCenter);
+
+    auto *iconLbl = new QLabel(card);
+    iconLbl->setFixedSize(UiScale::dp(48), UiScale::dp(48));
+    iconLbl->setAlignment(Qt::AlignCenter);
+    {
+      QPixmap pm(UiScale::dp(48), UiScale::dp(48));
+      pm.fill(Qt::transparent);
+      QPainter p(&pm);
+      p.setRenderHint(QPainter::Antialiasing, true);
+      const QColor ink =
+          dark ? QColor(0x94, 0xA3, 0xB8) : QColor(0xCB, 0xD5, 0xE1);
+      p.setPen(QPen(ink, 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+      // Simple graduation-cap silhouette.
+      const qreal s = UiScale::dp(48);
+      QPainterPath cap;
+      cap.moveTo(s * 0.12, s * 0.42);
+      cap.lineTo(s * 0.50, s * 0.22);
+      cap.lineTo(s * 0.88, s * 0.42);
+      cap.lineTo(s * 0.50, s * 0.58);
+      cap.closeSubpath();
+      p.fillPath(cap, ink);
+      p.drawLine(QPointF(s * 0.88, s * 0.42), QPointF(s * 0.88, s * 0.62));
+      p.drawEllipse(QPointF(s * 0.88, s * 0.66), s * 0.035, s * 0.035);
+      p.drawRoundedRect(QRectF(s * 0.28, s * 0.52, s * 0.44, s * 0.18), 3, 3);
+      iconLbl->setPixmap(pm);
+    }
+    cardLay->addWidget(iconLbl, 0, Qt::AlignHCenter);
+
     auto *lblInfo = new QLabel(
         QStringLiteral("Blop Study ist in diesem Build nicht eingebettet.\n"
                        "Du kannst es im Browser öffnen. Notizen funktionieren "
                        "weiterhin ohne Konto."),
-        fallback);
+        card);
     lblInfo->setAlignment(Qt::AlignCenter);
     lblInfo->setWordWrap(true);
-    lblInfo->setStyleSheet(QStringLiteral(
-        "color: #C9CCD3; font-size: 15px; background: transparent;"));
-    fl->addWidget(lblInfo);
-    auto *btn = new QPushButton(QStringLiteral("Im Browser öffnen"), fallback);
+    lblInfo->setStyleSheet(
+        dark ? QStringLiteral(
+                   "color: #C9CCD3; font-size: 15px; background: transparent;")
+             : QStringLiteral(
+                   "color: #0F172A; font-size: 15px; background: transparent;"));
+    cardLay->addWidget(lblInfo);
+
+    auto *btn = new QPushButton(QStringLiteral("Im Browser öffnen"), card);
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setFixedHeight(UiScale::dp(BlopStyle::touchTargetMinDp()));
+    btn->setFixedHeight(UiScale::dp(36));
     btn->setStyleSheet(QStringLiteral(
-        "QPushButton{background:#5B9DFF;color:#10131A;border:none;"
-        "border-radius:8px;padding:0 18px;font-weight:600;}"
-        "QPushButton:hover{background:#7EB2FF;}"));
+        "QPushButton{background:#2563EB;color:#FFFFFF;border:none;"
+        "border-radius:8px;padding:0 18px;font-weight:600;font-size:13px;}"
+        "QPushButton:hover{background:#1D4ED8;}"));
     connect(btn, &QPushButton::clicked, this, []() {
       QDesktopServices::openUrl(QUrl(kBlopStudyUrl + QStringLiteral("/login")));
     });
-    fl->addWidget(btn, 0, Qt::AlignHCenter);
+    cardLay->addWidget(btn, 0, Qt::AlignHCenter);
+
+    fl->addWidget(card, 0, Qt::AlignHCenter);
     layout->addWidget(fallback);
   }
 #endif
@@ -10015,6 +10720,14 @@ void MainWindow::applyModeChange(int index) {
 #endif
       ;
   const int mainStackIdx = (index <= 0) ? 0 : 1;
+
+  // Keep icon-rail in sync: Study must not leave "calendar" highlighted.
+  if (m_libraryIconRail) {
+    if (mainStackIdx == 1)
+      m_libraryIconRail->setActiveId(QStringLiteral("apps"));
+    else if (!m_authNavigationLocked)
+      m_libraryIconRail->setActiveId(QStringLiteral("library"));
+  }
 
   // Leaving Notes: drop library selection callbacks before the inspector
   // and file view are hidden or rebuilt.
@@ -11110,7 +11823,7 @@ void MainWindow::setupSidebar() {
 #ifndef Q_OS_ANDROID
   m_sidebarSearch = new QLineEdit(m_sidebarNavPanel);
   m_sidebarSearch->setObjectName(QStringLiteral("SidebarSearch"));
-  m_sidebarSearch->setClearButtonEnabled(false);
+  m_sidebarSearch->setClearButtonEnabled(true);
   m_sidebarSearch->setFixedHeight(UiScale::dp(36));
   {
     const bool darkNav = BlopTheme::instance().isDark();
@@ -11914,7 +12627,11 @@ void MainWindow::updateLibraryHeader() {
                           : m_cloudNotesDisplayName;
       if (!m_cloudNotesFolderNames.isEmpty())
         title = m_cloudNotesFolderNames.last();
-      m_lblLibraryTitle->setText(title);
+      // Elide long Drive folder names so "+ Neue Notiz" keeps min-width 120.
+      const QFontMetrics fm(m_lblLibraryTitle->font());
+      m_lblLibraryTitle->setText(
+          fm.elidedText(title, Qt::ElideRight, UiScale::dp(220)));
+      m_lblLibraryTitle->setToolTip(title);
     }
     if (m_lblLibrarySubtitle) {
       const int n = m_cloudNotesModel ? m_cloudNotesModel->rowCount() : 0;
@@ -11935,11 +12652,17 @@ void MainWindow::updateLibraryHeader() {
     }
     if (m_btnEmptyTrash)
       m_btnEmptyTrash->setVisible(false);
+    if (m_btnLibraryNewNote)
+      m_btnLibraryNewNote->setVisible(true);
     return;
   }
   if (m_libraryFavoritesMode) {
     if (m_lblLibraryTitle)
       m_lblLibraryTitle->setText(QStringLiteral("Favoriten"));
+    if (m_btnEmptyTrash)
+      m_btnEmptyTrash->setVisible(false);
+    if (m_btnLibraryNewNote)
+      m_btnLibraryNewNote->setVisible(false);
     return;
   }
   QString folderPath = m_fileModel->rootPath();
@@ -11973,6 +12696,8 @@ void MainWindow::updateLibraryHeader() {
   }
   if (m_btnEmptyTrash)
     m_btnEmptyTrash->setVisible(inTrash);
+  if (m_btnLibraryNewNote)
+    m_btnLibraryNewNote->setVisible(!inTrash && !m_libraryFavoritesMode);
   if (m_lblLibrarySubtitle) {
     QDir dir(folderPath);
     const int count =
@@ -12038,6 +12763,9 @@ void MainWindow::setLibraryFavoritesMode(bool on) {
     m_fileListView->setModel(m_favoritesModel);
     m_fileListView->setRootIndex(QModelIndex());
     wireLibrarySelectionModel();
+    // Favorites is rail-driven — don't leave ORTE "Alle Notizen" blue.
+    if (m_navSidebar)
+      m_navSidebar->clearSelection();
   } else if (!m_libraryCloudNotesMode && m_libraryProxy) {
     m_fileListView->setModel(m_libraryProxy);
     wireLibrarySelectionModel();
@@ -12048,6 +12776,21 @@ void MainWindow::setLibraryFavoritesMode(bool on) {
       const QModelIndex idx = m_fileModel->index(restore);
       if (idx.isValid())
         setLibraryRootFromSource(idx);
+    }
+    // Reselect Alle Notizen under ORTE when leaving favorites.
+    if (m_navSidebar) {
+      for (int i = 0; i < m_navSidebar->count(); ++i) {
+        QListWidgetItem *it = m_navSidebar->item(i);
+        if (!it)
+          continue;
+        const QString t = it->text();
+        if (t == QLatin1String("Alle Notizen") ||
+            t == QLatin1String("Alle") || t == QLatin1String("Bibliothek") ||
+            t == QLatin1String("Blop Notizen")) {
+          m_navSidebar->setCurrentItem(it);
+          break;
+        }
+      }
     }
   }
   updateLibraryHeader();
@@ -12230,6 +12973,19 @@ void MainWindow::wireLibrarySelectionModel() {
             if (!m_fileListView || !m_libraryDetail)
               return;
             updateLibraryBulkBar();
+#ifndef Q_OS_ANDROID
+            if (m_libraryListHeader && m_fileListView->model()) {
+              const int total = m_fileListView->model()->rowCount();
+              const int sel =
+                  m_fileListView->selectionModel()->selectedIndexes().size();
+              if (total <= 0 || sel <= 0)
+                m_libraryListHeader->setMasterChecked(false);
+              else if (sel >= total)
+                m_libraryListHeader->setMasterChecked(true);
+              else
+                m_libraryListHeader->setMasterTristate(Qt::PartiallyChecked);
+            }
+#endif
           });
 #endif
 }
@@ -12453,8 +13209,24 @@ void MainWindow::setLibraryCloudNotesMode(bool on, const QString &providerType,
     if (m_btnLibraryNewNote) {
       m_btnLibraryNewNote->setToolTip(
           QStringLiteral("Neuen Ordner in der Cloud anlegen"));
-      m_btnLibraryNewNote->setText(QStringLiteral("+"));
+      m_btnLibraryNewNote->setText(QStringLiteral("+ Neue Notiz"));
+      m_btnLibraryNewNote->setMinimumWidth(UiScale::dp(120));
     }
+    // Mark matching INTEGRATIONEN provider as selected.
+    if (m_sidebarCloudList) {
+      m_sidebarCloudList->clearSelection();
+      for (int i = 0; i < m_sidebarCloudList->count(); ++i) {
+        QListWidgetItem *it = m_sidebarCloudList->item(i);
+        if (!it)
+          continue;
+        if (it->data(Qt::UserRole + 13).toString() == providerType) {
+          m_sidebarCloudList->setCurrentItem(it);
+          break;
+        }
+      }
+    }
+    if (m_navSidebar)
+      m_navSidebar->clearSelection();
     if (m_libraryDetail)
       m_libraryDetail->clearSelection();
   } else {
@@ -12468,6 +13240,8 @@ void MainWindow::setLibraryCloudNotesMode(bool on, const QString &providerType,
     m_cloudNotesFolderNames.clear();
     if (m_btnLibraryNewNote)
       m_btnLibraryNewNote->setToolTip(QStringLiteral("Neue Notiz (Ctrl+N)"));
+    if (m_sidebarCloudList)
+      m_sidebarCloudList->clearSelection();
     if (m_libraryDetail)
       m_libraryDetail->clearSelection();
     if (!m_fileListView)
@@ -12489,6 +13263,7 @@ void MainWindow::setLibraryCloudNotesMode(bool on, const QString &providerType,
   updateOverviewBackButton();
   updateSidebarBadges();
   updateGrid();
+  refreshSidebarCloudSectionChrome();
 }
 
 // Sidecar next to .Papierkorb (not inside it, so item counts stay correct):
@@ -12998,8 +13773,6 @@ void MainWindow::applyLibraryFilters() {
   if (m_libraryOrgBar) {
     proxy->setSmartView(
         static_cast<LibraryFilterProxy::SmartView>(m_libraryOrgBar->smartView()));
-    proxy->setSortMode(
-        static_cast<LibraryFilterProxy::SortMode>(m_libraryOrgBar->sortMode()));
   }
   updateSidebarBadges();
   updateLibraryHeader();
@@ -13293,6 +14066,17 @@ void MainWindow::refreshSidebarCloudList() {
   addCloud->setData(Qt::UserRole + 5, QStringLiteral("clouds_add"));
   addCloud->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
   BlopScroll::makeListFitContents(m_sidebarCloudList);
+  // Re-select active Drive/provider after list rebuild.
+  if (m_libraryCloudNotesMode && !m_cloudNotesProviderType.isEmpty()) {
+    for (int i = 0; i < m_sidebarCloudList->count(); ++i) {
+      QListWidgetItem *it = m_sidebarCloudList->item(i);
+      if (it &&
+          it->data(Qt::UserRole + 13).toString() == m_cloudNotesProviderType) {
+        m_sidebarCloudList->setCurrentItem(it);
+        break;
+      }
+    }
+  }
 #endif
 }
 
@@ -13410,7 +14194,9 @@ void MainWindow::updateSidebarBadges() {
                              "In diesem Cloud-Ordner liegen noch keine Dateien."))
                 : (favoritesEmpty
                        ? QStringLiteral(
-                             "Markiere Notizen über Rechtsklick → Zu Favoriten.")
+                             "Klicke auf das Stern-Symbol (☆) neben einer Notiz "
+                             "oder über das Rechtsklick-Menü, um sie hier "
+                             "anzuheften.")
                        : (trashEmpty
                               ? QStringLiteral(
                                     "Gelöschte Notizen erscheinen hier. Mit Entf "
@@ -13422,6 +14208,30 @@ void MainWindow::updateSidebarBadges() {
                                      : QStringLiteral(
                                            "Lege deine erste Notiz an — oder "
                                            "ziehe Dateien hierher.")))));
+      }
+      if (m_lblEmptyIcon) {
+        if (favoritesEmpty) {
+          QPixmap pm(UiScale::dp(48), UiScale::dp(48));
+          pm.fill(Qt::transparent);
+          QPainter p(&pm);
+          p.setRenderHint(QPainter::Antialiasing, true);
+          const QColor ink(0xCB, 0xD5, 0xE1);
+          p.setPen(Qt::NoPen);
+          p.setBrush(ink);
+          const QPointF c(UiScale::dp(24), UiScale::dp(24));
+          QPolygonF star;
+          for (int i = 0; i < 5; ++i) {
+            const qreal a = -M_PI / 2 + i * 2 * M_PI / 5;
+            star << QPointF(c.x() + qCos(a) * 16, c.y() + qSin(a) * 16);
+            const qreal b = a + M_PI / 5;
+            star << QPointF(c.x() + qCos(b) * 7, c.y() + qSin(b) * 7);
+          }
+          p.drawPolygon(star);
+          m_lblEmptyIcon->setPixmap(pm);
+          m_lblEmptyIcon->show();
+        } else {
+          m_lblEmptyIcon->hide();
+        }
       }
       if (m_btnEmptyCta) {
         if (trashEmpty) {
@@ -13965,7 +14775,7 @@ void MainWindow::switchToEditorChrome() {
 #endif
   applyNoteChromeTheme();
   if (m_toolOptionsStrip)
-    m_toolOptionsStrip->show();
+    m_toolOptionsStrip->hide();
   setActiveTool(m_activeToolType);
   updateSidebarState();
 #ifndef Q_OS_ANDROID
@@ -14620,6 +15430,12 @@ void MainWindow::updateOverviewBackButton() {
     updateLibraryHeader();
     return;
   }
+  // Trash is a top-level smart view — no orphan "<" above the title.
+  if (isLibraryTrashView() || m_libraryFavoritesMode) {
+    btnBackOverview->setVisible(false);
+    updateLibraryHeader();
+    return;
+  }
   if (!m_fileListView || !m_fileModel)
     return;
   QString folderPath = m_fileModel->rootPath();
@@ -14659,8 +15475,8 @@ void MainWindow::setupRightSidebar() {
   m_pageSettingsCard->setObjectName(QStringLiteral("PageSettingsCard"));
   m_pageSettingsCard->setProperty("blopOwnsBackground", true);
   m_pageSettingsCard->setProperty("blopForcePaper", true);
-  m_pageSettingsCard->setMinimumWidth(UiScale::dp(640));
-  m_pageSettingsCard->setMinimumHeight(UiScale::dp(600));
+  m_pageSettingsCard->setMinimumWidth(UiScale::dp(520));
+  m_pageSettingsCard->setMinimumHeight(UiScale::dp(420));
   const int radLg = UiScale::dp(BlopStyle::radiusLgDp());
   m_pageSettingsCard->setStyleSheet(
       QStringLiteral("QWidget#PageSettingsCard { background: %1; border: 1px solid %2; "
@@ -14724,10 +15540,10 @@ void MainWindow::setupRightSidebar() {
 
   auto *navRail = new QWidget(body);
   navRail->setObjectName(QStringLiteral("PageSettingsNav"));
-  navRail->setFixedWidth(UiScale::dp(176));
+  navRail->setFixedWidth(UiScale::dp(130));
   navRail->setAttribute(Qt::WA_StyledBackground, true);
   auto *navLay = new QVBoxLayout(navRail);
-  navLay->setContentsMargins(UiScale::dp(12), UiScale::dp(8), UiScale::dp(12),
+  navLay->setContentsMargins(UiScale::dp(8), UiScale::dp(8), UiScale::dp(8),
                              UiScale::dp(16));
   navLay->setSpacing(UiScale::dp(4));
 
@@ -14785,10 +15601,8 @@ void MainWindow::setupRightSidebar() {
   QWidget *optContent = new QWidget();
   optContent->setStyleSheet("background: transparent;");
   QVBoxLayout *optLayout = new QVBoxLayout(optContent);
-  optLayout->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
-                                UiScale::dp(BlopStyle::sectionGapDp()),
-                                UiScale::dp(BlopStyle::edgeInsetDp()),
-                                UiScale::dp(BlopStyle::edgeInsetDp()));
+  optLayout->setContentsMargins(UiScale::dp(24), UiScale::dp(20),
+                                UiScale::dp(24), UiScale::dp(20));
   optLayout->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
 
   auto sectionLabel = [&](const QString &text, QWidget *sectionParent) -> QLabel * {
@@ -14807,8 +15621,11 @@ void MainWindow::setupRightSidebar() {
   auto *formatHint = new QLabel(optContent);
   formatHint->setObjectName(QStringLiteral("pageSettingsFormatHint"));
   formatHint->setWordWrap(true);
+  formatHint->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  formatHint->setMinimumWidth(0);
   formatHint->setStyleSheet(QStringLiteral(
-      "color: %1; font-size: 12px; background: transparent; padding: 2px 0 6px 0;")
+      "color: %1; font-size: 12px; font-weight: 400;"
+      "background: transparent; padding: 2px 0 6px 0;")
                                 .arg(BlopStyle::paperInkMuted().name(
                                     QColor::HexRgb)));
   optLayout->addWidget(formatHint);
@@ -14974,7 +15791,7 @@ void MainWindow::setupRightSidebar() {
   m_btnColorWhite->setChecked(NoteChrome::isDark() == false);
   m_btnColorWhite->setCursor(Qt::PointingHandCursor);
   m_btnColorWhite->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  m_btnColorWhite->setMinimumHeight(UiScale::dp(88));
+  m_btnColorWhite->setFixedHeight(UiScale::dp(60));
   connect(m_btnColorWhite, &QPushButton::clicked, this, [this]() {
     NoteChrome::setMode(NoteChrome::Mode::Light);
     setPageColor(false);
@@ -14986,7 +15803,7 @@ void MainWindow::setupRightSidebar() {
   m_btnColorDark->setChecked(NoteChrome::isDark());
   m_btnColorDark->setCursor(Qt::PointingHandCursor);
   m_btnColorDark->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  m_btnColorDark->setMinimumHeight(UiScale::dp(88));
+  m_btnColorDark->setFixedHeight(UiScale::dp(60));
   connect(m_btnColorDark, &QPushButton::clicked, this, [this]() {
     NoteChrome::setMode(NoteChrome::Mode::Dark);
     setPageColor(true);
@@ -15002,8 +15819,8 @@ void MainWindow::setupRightSidebar() {
   auto *themeLay = new QHBoxLayout(themeRow);
   themeLay->setContentsMargins(0, 0, 0, 0);
   themeLay->setSpacing(UiScale::dp(12));
-  themeLay->addWidget(m_btnColorWhite);
-  themeLay->addWidget(m_btnColorDark);
+  themeLay->addWidget(m_btnColorWhite, 1);
+  themeLay->addWidget(m_btnColorDark, 1);
   optLayout->addWidget(themeRow);
 
   optLayout->addWidget(sectionLabel(QStringLiteral("EINGABE"), optContent));
@@ -15183,10 +16000,8 @@ void MainWindow::setupRightSidebar() {
   QWidget *tabTags = new QWidget();
   m_pageSettingsTabTags = tabTags;
   QVBoxLayout *tagsLayoutMain = new QVBoxLayout(tabTags);
-  tagsLayoutMain->setContentsMargins(UiScale::dp(BlopStyle::edgeInsetDp()),
-                                     UiScale::dp(BlopStyle::edgeInsetDp()),
-                                     UiScale::dp(BlopStyle::edgeInsetDp()),
-                                     UiScale::dp(BlopStyle::edgeInsetDp()));
+  tagsLayoutMain->setContentsMargins(UiScale::dp(24), UiScale::dp(20),
+                                     UiScale::dp(24), UiScale::dp(20));
   tagsLayoutMain->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
 
   // Tags Section — wired to LibraryTagStore (same catalog as library shelf).
@@ -15364,11 +16179,11 @@ void MainWindow::refreshPageSettingsTheme() {
   }
   const QString themeTileQss = BlopStyle::paperThemeTileQss();
   if (m_btnColorWhite) {
-    m_btnColorWhite->setMinimumHeight(UiScale::dp(88));
+    m_btnColorWhite->setFixedHeight(UiScale::dp(60));
     m_btnColorWhite->setStyleSheet(themeTileQss);
   }
   if (m_btnColorDark) {
-    m_btnColorDark->setMinimumHeight(UiScale::dp(88));
+    m_btnColorDark->setFixedHeight(UiScale::dp(60));
     m_btnColorDark->setStyleSheet(themeTileQss);
   }
   const QString inputBtnQss =
@@ -15414,19 +16229,23 @@ void MainWindow::refreshPageSettingsTheme() {
 
   const QString checkQss = QStringLiteral(
       "QCheckBox { color: %1; background: transparent; spacing: 10px;"
-      "  font-size: 13px; min-height: %5px; }"
+      "  font-size: 13px; min-height: %4px; }"
       "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px;"
-      "  border: 1px solid %2; background: %3; }"
-      "QCheckBox::indicator:checked { background: %4; border: 1px solid %4; }")
-      .arg(textPrimary, border, surfaceBg, accent,
+      "  border: 1.5px solid %2; background: %3; }"
+      "QCheckBox::indicator:checked {"
+      "  background: #2563EB; border: 1.5px solid #2563EB;"
+      "  image: url(:/assets/check_white.svg); }")
+      .arg(textPrimary, border, surfaceBg,
            QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 4)));
   const QString radioQss = QStringLiteral(
       "QRadioButton { color: %1; background: transparent; font-size: 13px;"
-      "  spacing: 8px; min-height: %5px; }"
+      "  spacing: 8px; min-height: %4px; }"
       "QRadioButton::indicator { width: 16px; height: 16px; border-radius: 8px;"
-      "  border: 1px solid %2; background: %3; }"
-      "QRadioButton::indicator:checked { background: %4; border: 1px solid %4; }")
-      .arg(textPrimary, border, surfaceBg, accent,
+      "  border: 1.5px solid %2; background: %3; }"
+      "QRadioButton::indicator:checked {"
+      "  background: #2563EB; border: 1.5px solid #2563EB;"
+      "  image: url(:/assets/radio_dot_white.svg); }")
+      .arg(textPrimary, border, surfaceBg,
            QString::number(UiScale::dp(BlopStyle::touchTargetMinDp() - 4)));
   for (QCheckBox *cb : m_pageSettingsCard->findChildren<QCheckBox *>())
     cb->setStyleSheet(checkQss);
@@ -15441,6 +16260,8 @@ void MainWindow::refreshPageSettingsTheme() {
     if (lbl == m_lblActiveNote)
       continue;
     if (lbl->objectName() == QStringLiteral("PageSettingsTitle"))
+      continue;
+    if (lbl->objectName() == QStringLiteral("pageSettingsFormatHint"))
       continue;
     const QString existing = lbl->styleSheet();
     if (existing.contains(QStringLiteral("font-weight: 700")) &&
@@ -15946,8 +16767,13 @@ void MainWindow::updateSidebarState() {
   if (m_floatingTools) {
     m_floatingTools->setVisible(isEditor && !m_noteToolbars);
   }
+#ifndef Q_OS_ANDROID
+  if (m_toolOptionsStrip)
+    m_toolOptionsStrip->hide();
+#else
   if (m_toolOptionsStrip)
     m_toolOptionsStrip->setVisible(isEditor);
+#endif
   if (m_noteToolbars) {
     const bool strukturTab =
         m_editorTabs &&
@@ -15991,15 +16817,18 @@ void MainWindow::updateSidebarState() {
     m_titleBarSep->setVisible(!dashboardHome && !libraryChrome &&
                               !inEditorWithTabs);
   }
+  // Keep the mode dropdown ("Notizen ▾" / "Study ▾") in both modes — Study
+  // previously hid it and only showed a broken white "+" square.
   if (m_btnMode)
-    m_btnMode->setVisible(inNotesMode && !m_isSidebarOpen &&
-                          !inEditorWithTabs && !tabsInLibraryChrome &&
-                          !m_authNavigationLocked);
-  // Library: create notes only via sidebar header +. Web-bookmark + lives in Study.
+    m_btnMode->setVisible(!m_isSidebarOpen && !inEditorWithTabs &&
+                          !tabsInLibraryChrome && !m_authNavigationLocked);
+  // Desktop: URL-add lives in the mode menu; hide the orphan "+" tile.
   if (m_btnAddWebBookmark)
-    m_btnAddWebBookmark->setVisible(!inNotesMode && !m_authNavigationLocked);
-  if (m_btnNewTab)
-    m_btnNewTab->hide();
+    m_btnAddWebBookmark->setVisible(false);
+  if (m_btnNewTab) {
+    m_btnNewTab->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+    m_btnNewTab->setVisible(inEditorWithTabs && !m_authNavigationLocked);
+  }
   if (m_btnSidebarNewNote) {
     m_btnSidebarNewNote->setEnabled(!m_authNavigationLocked);
     m_btnSidebarNewNote->setVisible(inNotesMode && !m_settingsShellActive);
@@ -16384,9 +17213,8 @@ void MainWindow::setPageSettingsOverlayVisible(bool show) {
       return; // already presented
     syncPageSettingsPanelFromEditor();
     rebuildPageSettingsTags();
-    // BlopModal will size the card via its layout; release the fixed-width
-    // constraint that the legacy scrim used.
-    m_pageSettingsCard->setMinimumWidth(0);
+    // BlopModal sizes the card; keep a 520dp floor so content does not clip.
+    m_pageSettingsCard->setMinimumWidth(UiScale::dp(520));
     m_pageSettingsCard->setMaximumWidth(QWIDGETSIZE_MAX);
     m_pageSettingsCard->setMaximumHeight(QWIDGETSIZE_MAX);
     m_pageSettingsCard->setMinimumHeight(0);
@@ -16395,12 +17223,13 @@ void MainWindow::setPageSettingsOverlayVisible(bool show) {
     refreshPageSettingsTheme();
     m_pageSettingsCard->show();
 #ifndef Q_OS_ANDROID
-    // Desktop: large centered modal (~85% width, max ~900px).
+    // Desktop: compact centered card (540 preferred, min 520).
     m_pageSettingsModal = BlopModal::present(this, m_pageSettingsCard,
                                              BlopModal::Mode::Card);
     if (m_pageSettingsModal) {
-      const int targetW = qMin(UiScale::dp(900),
-                               qMax(UiScale::dp(640), int(width() * 0.85)));
+      const int targetW = qMin(UiScale::dp(540),
+                               qMax(UiScale::dp(520), int(width() * 0.72)));
+      m_pageSettingsCard->setMinimumWidth(UiScale::dp(520));
       m_pageSettingsCard->setMinimumHeight(0);
       m_pageSettingsModal->setPreferredCardWidth(targetW);
 #else
@@ -16578,17 +17407,20 @@ void MainWindow::onEditorNoteOverflowMenu() {
   const QPoint globalPos =
       anchor->mapToGlobal(QPoint(anchor->width() / 2, anchor->height()));
   QList<BlopInWindowMenu::Item> items;
-  items.append({QStringLiteral("Optionen & Tags…"), QIcon(),
+  items.append({QStringLiteral("Optionen && Tags…"),
+                SelectionMenuIcons::gearIcon(),
                 [this]() { setPageSettingsOverlayVisible(true); }});
   items.append({QString(), QIcon(), {}, false, true});
-  items.append({QStringLiteral("An Breite anpassen"), QIcon(),
+  items.append({QStringLiteral("An Breite anpassen"),
+                SelectionMenuIcons::fitWidthIcon(),
                 [this, cv]() {
                   if (cv) {
                     cv->fitToWidth();
                     updateNoteBottomChrome();
                   }
                 }});
-  items.append({QStringLiteral("Ganze Seite / Inhalt"), QIcon(),
+  items.append({QStringLiteral("Ganze Seite / Inhalt"),
+                SelectionMenuIcons::fitPageIcon(),
                 [this, cv]() {
                   if (cv) {
                     cv->fitPage();
@@ -17416,7 +18248,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               "  border-radius: 6px; font-size: 13px; }"
               "QMenu::item:selected { background: #7C5CFC; color: white; }"));
           auto *actLayout = menu->addAction("Seitenlayout...");
-          auto *actOptions = menu->addAction("Optionen & Tags...");
+          auto *actOptions = menu->addAction("Optionen && Tags...");
           menu->addSeparator();
           auto *actPdf = menu->addAction("\U00002714  Als PDF exportieren");
           auto *actImg = menu->addAction("\U0001F5BC  Als Bild exportieren");
@@ -18432,6 +19264,17 @@ void MainWindow::startRename(const QModelIndex &index) {
   showRenameOverlay(index.data().toString());
 }
 void MainWindow::showRenameOverlay(const QString &currentName) {
+  const QString oldPath =
+      m_indexToRename.isValid() && m_fileModel
+          ? m_fileModel->filePath(m_indexToRename)
+          : currentName;
+  const QFileInfo oldFi(oldPath);
+  const bool isDir = oldFi.isDir();
+  const QString origSuffix = oldFi.suffix();
+  const QString baseSeed = oldFi.exists()
+                               ? oldFi.completeBaseName()
+                               : QFileInfo(currentName).completeBaseName();
+
   auto *form = new QWidget();
   form->setObjectName(QStringLiteral("RenameForm"));
   auto *lay = new QVBoxLayout(form);
@@ -18442,43 +19285,61 @@ void MainWindow::showRenameOverlay(const QString &currentName) {
   lay->setSpacing(UiScale::dp(BlopStyle::sectionGapDp()));
 
   auto *title = new QLabel(QStringLiteral("Umbenennen"), form);
-  title->setStyleSheet(BlopTheme::themed(QStringLiteral(
+  title->setStyleSheet(QStringLiteral(
       "color: %1; font-size: 16px; font-weight: 700; background: transparent;")
-                                             .arg(BlopTheme::textPrimary().name())));
+                           .arg(BlopStyle::paperInk().name(QColor::HexRgb)));
   lay->addWidget(title);
 
-  auto *edit = new QLineEdit(currentName, form);
+  auto *edit = new QLineEdit(baseSeed, form);
   edit->setObjectName(QStringLiteral("RenameInput"));
-  edit->setFixedHeight(UiScale::dp(40));
-  edit->setStyleSheet(BlopTheme::themed(QStringLiteral(
+  edit->setFixedHeight(UiScale::dp(38));
+  edit->setStyleSheet(QStringLiteral(
       "QLineEdit {"
-      "  background: %1; color: %2; border: 1px solid %3;"
-      "  border-radius: 12px; padding: 0 12px; font-size: 14px;"
+      "  background: #FFFFFF; color: %1;"
+      "  border: 1px solid %2; border-radius: 8px;"
+      "  padding: 0 12px; font-size: 14px;"
       "}"
-      "QLineEdit:focus { border: 1px solid %4; }")
-                                            .arg(BlopTheme::surfaceMuted().name(QColor::HexRgb),
-                                                 BlopTheme::textPrimary().name(QColor::HexRgb),
-                                                 BlopTheme::borderSubtle().name(QColor::HexRgb),
-                                                 m_currentAccentColor.name(QColor::HexRgb))));
+      "QLineEdit:focus { border: 1.5px solid #2563EB; }")
+                          .arg(BlopStyle::paperInk().name(QColor::HexRgb),
+                               BlopStyle::paperBorder().name(QColor::HexRgb)));
   lay->addWidget(edit);
 
   auto *row = new QHBoxLayout();
-  row->setSpacing(8);
+  row->setSpacing(UiScale::dp(10));
   row->addStretch(1);
+  const QString btnBaseQss = QStringLiteral(
+      "QPushButton {"
+      "  border-radius: 8px; padding: 0 16px;"
+      "  font-size: 13px; font-weight: 600;"
+      "  min-height: 0; max-height: %1px;"
+      "}");
   auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), form);
   btnCancel->setCursor(Qt::PointingHandCursor);
-  btnCancel->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "QPushButton { background: transparent; color: %1; border: 1px solid %2;"
-      "  border-radius: 10px; padding: 8px 14px; font-size: 12px; }"
-      "QPushButton:hover { color: %3; border-color: %4; }")
-                                                 .arg(BlopTheme::textSecondary().name(),
-                                                      BlopTheme::borderSubtle().name(QColor::HexRgb),
-                                                      BlopTheme::textPrimary().name(),
-                                                      m_currentAccentColor.name(QColor::HexRgb))));
+  btnCancel->setFixedHeight(UiScale::dp(36));
+  btnCancel->setStyleSheet(
+      btnBaseQss.arg(UiScale::dp(36)) +
+      QStringLiteral(
+          "QPushButton {"
+          "  background: #FFFFFF; color: %1; border: 1px solid %2;"
+          "}"
+          "QPushButton:hover { background: #F8FAFC; border-color: %3; }")
+          .arg(BlopStyle::paperInk().name(QColor::HexRgb),
+               BlopStyle::paperBorder().name(QColor::HexRgb),
+               BlopStyle::paperInkMuted().name(QColor::HexRgb)));
   auto *btnOk = new QPushButton(QStringLiteral("Speichern"), form);
   btnOk->setCursor(Qt::PointingHandCursor);
   btnOk->setDefault(true);
-  btnOk->setStyleSheet(BlopTheme::primaryButtonQss());
+  btnOk->setFixedHeight(UiScale::dp(36));
+  const QColor acc = BlopTheme::accentPrimary();
+  btnOk->setStyleSheet(
+      btnBaseQss.arg(UiScale::dp(36)) +
+      QStringLiteral(
+          "QPushButton {"
+          "  background: %1; color: #FFFFFF; border: none;"
+          "}"
+          "QPushButton:hover { background: %2; }")
+          .arg(acc.name(QColor::HexRgb),
+               acc.lighter(108).name(QColor::HexRgb)));
   row->addWidget(btnCancel);
   row->addWidget(btnOk);
   lay->addLayout(row);
@@ -18489,30 +19350,42 @@ void MainWindow::showRenameOverlay(const QString &currentName) {
     return;
   modal->setPreferredCardWidth(420);
 
-  auto commit = [this, edit, modal]() {
+  auto commit = [this, edit, modal, isDir, origSuffix]() {
     if (!edit || !m_indexToRename.isValid()) {
       if (modal)
         modal->dismiss();
       return;
     }
-    const QString newName = edit->text().trimmed();
-    if (!newName.isEmpty()) {
-      const QString oldPath = m_fileModel->filePath(m_indexToRename);
-      if (!m_fileModel->setData(m_indexToRename, newName, Qt::EditRole)) {
-        BlopDialogs::notify(
-            this, QStringLiteral("Umbenennen"),
-            QStringLiteral("Umbenennen fehlgeschlagen. Name evtl. ungültig "
-                           "oder bereits vergeben."));
-        return;
-      }
-      const QString newPath =
-          QFileInfo(oldPath).absolutePath() + QLatin1Char('/') + newName;
-      LibraryTagStore::remapPath(oldPath, newPath);
-      LibraryOrgStore::remapPath(oldPath, newPath);
-      StoragePrefs::renameCloudMirrorIfNeeded(oldPath, newPath);
-      remapOrCloseEditorTabs(oldPath, newPath);
-      applyLibraryFilters();
+    QString base = edit->text().trimmed();
+    if (base.isEmpty()) {
+      if (modal)
+        modal->dismiss();
+      return;
     }
+    // If the user typed an extension, keep only the stem before re-append.
+    if (!isDir && base.contains(QLatin1Char('.')))
+      base = QFileInfo(base).completeBaseName();
+    QString newName = base;
+    if (!isDir && !origSuffix.isEmpty())
+      newName = base + QLatin1Char('.') + origSuffix;
+    else if (!isDir && origSuffix.isEmpty())
+      newName = base + QStringLiteral(".bnote");
+
+    const QString oldPath = m_fileModel->filePath(m_indexToRename);
+    if (!m_fileModel->setData(m_indexToRename, newName, Qt::EditRole)) {
+      BlopDialogs::notify(
+          this, QStringLiteral("Umbenennen"),
+          QStringLiteral("Umbenennen fehlgeschlagen. Name evtl. ungültig "
+                         "oder bereits vergeben."));
+      return;
+    }
+    const QString newPath =
+        QFileInfo(oldPath).absolutePath() + QLatin1Char('/') + newName;
+    LibraryTagStore::remapPath(oldPath, newPath);
+    LibraryOrgStore::remapPath(oldPath, newPath);
+    StoragePrefs::renameCloudMirrorIfNeeded(oldPath, newPath);
+    remapOrCloseEditorTabs(oldPath, newPath);
+    applyLibraryFilters();
     m_indexToRename = QModelIndex();
     if (modal)
       modal->dismiss();
@@ -19621,6 +20494,37 @@ void MainWindow::refreshNoteChromeStyle() {
                                                  QColor::HexRgb),
                                              NoteChrome::borderSoft().name(
                                                  QColor::HexRgb)));
+#ifndef Q_OS_ANDROID
+  const bool darkHud = NoteChrome::isDark();
+  const auto hudQss = [darkHud](const QString &name) {
+    return QStringLiteral(
+               "QWidget#%1 { background: %2; border: 1px solid %3; border-radius: 8px; }"
+               "QLabel { background: transparent; color: %4; font-size: 12px; font-weight: 600; }"
+               "QPushButton { background: transparent; color: %4; border: none;"
+               " border-radius: 6px; font-size: 13px; font-weight: 600; padding: 0 4px; }"
+               "QPushButton:hover { background: rgba(127,127,127,0.18); }"
+               "QPushButton:disabled { color: rgba(127,127,127,0.35); }")
+        .arg(name,
+             darkHud ? QStringLiteral("#181B22") : QStringLiteral("#FFFFFF"),
+             darkHud ? QStringLiteral("rgba(255,255,255,0.10)")
+                     : QStringLiteral("#CBD5E1"),
+             NoteChrome::textPrimary().name(QColor::HexRgb));
+  };
+  if (m_pageHud)
+    m_pageHud->setStyleSheet(hudQss(QStringLiteral("PageHud")));
+  if (m_zoomHud) {
+    m_zoomHud->setStyleSheet(hudQss(QStringLiteral("ZoomHud")));
+    if (!darkHud && !m_zoomHud->graphicsEffect()) {
+      auto *shadow = new QGraphicsDropShadowEffect(m_zoomHud);
+      shadow->setBlurRadius(12);
+      shadow->setOffset(0, 4);
+      shadow->setColor(QColor(0, 0, 0, 20));
+      m_zoomHud->setGraphicsEffect(shadow);
+    } else if (darkHud) {
+      m_zoomHud->setGraphicsEffect(nullptr);
+    }
+  }
+#endif
 }
 
 void MainWindow::showNoteChromeEdgeMenu(const QPoint &globalPos) {
@@ -19768,6 +20672,45 @@ void MainWindow::positionNoteChrome() {
   // Pill/rail geometry must be current before anchoring the props card.
   positionDrawboardToolbar();
   positionNoteToolbars();
+  if (m_pageHud && m_pageHud->isVisible()) {
+    m_pageHud->adjustSize();
+    int y = 16;
+    if (noteToolbarsActive()) {
+      const QRect tb = m_noteToolbars->activeRect();
+      if (tb.isValid())
+        y = tb.bottom() + 8;
+    }
+    m_pageHud->move(16, y);
+    m_pageHud->raise();
+  }
+  if (m_zoomHud && m_zoomHud->isVisible()) {
+    m_zoomHud->adjustSize();
+    // Prefer intrinsic size; fall back so a zero-size layout still paints.
+    if (m_zoomHud->width() < 40 || m_zoomHud->height() < 20)
+      m_zoomHud->resize(qMax(m_zoomHud->sizeHint().width(), 200),
+                        UiScale::dp(36));
+    int zx = qMax(16, W - m_zoomHud->width() - 16);
+    int zy = qMax(16, H - m_zoomHud->height() - 16);
+    if (noteToolbarsActive()) {
+      const QRect tb = m_noteToolbars->activeRect();
+      // Radiant: keep ~16px gap left of the fan (bottom: 16).
+      if (tb.isValid() && m_noteToolbars->style() == NoteToolbarStyle::Radiant) {
+        zx = qMax(16, tb.left() - m_zoomHud->width() - 16);
+        zy = qMax(16, H - m_zoomHud->height() - 16);
+      } else {
+        QRect hud(zx, zy, m_zoomHud->width(), m_zoomHud->height());
+        if (tb.isValid() && tb.intersects(hud.adjusted(-8, -8, 8, 8))) {
+          zx = tb.left() - m_zoomHud->width() - 16;
+          if (zx < 16) {
+            zx = qMax(16, W - m_zoomHud->width() - 16);
+            zy = qMax(16, tb.top() - m_zoomHud->height() - 16);
+          }
+        }
+      }
+    }
+    m_zoomHud->move(zx, zy);
+    m_zoomHud->raise();
+  }
 
   // Tool options float as a light card — beside the J rail or above the K pill.
   if (m_toolPropertiesPanel && m_toolPropertiesVisible) {
@@ -19940,6 +20883,13 @@ void MainWindow::positionNoteChrome() {
     m_allPagesOverlay->setGeometry(0, 0, W, H);
     m_allPagesOverlay->raise();
   }
+  // Keep page rail + zoom HUD above toolbar chrome; PenStudio on top if open.
+  if (m_pageBookmarkRail && m_pageBookmarkRail->isVisible())
+    m_pageBookmarkRail->raise();
+  if (m_zoomHud && m_zoomHud->isVisible())
+    m_zoomHud->raise();
+  if (m_penStudio && m_penStudio->isVisible())
+    m_penStudio->raise();
 #endif
 }
 
@@ -19949,15 +20899,14 @@ void MainWindow::updateNoteBottomChrome() {
   // Android phone / simulate: single bottom bar is AndroidPhoneToolbar.
   if (qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
     m_noteBottomChrome->hide();
-    return;
-  }
 #ifndef Q_OS_ANDROID
-  // Desktop studio mix: K/J toolbar replaces legacy bottom chrome.
-  if (!qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
-    m_noteBottomChrome->hide();
+    if (m_pageHud)
+      m_pageHud->hide();
+    if (m_zoomHud)
+      m_zoomHud->hide();
+#endif
     return;
   }
-#endif
   MultiPageNoteView *view = nullptr;
   CanvasView *canvas = nullptr;
   if (m_editorTabs) {
@@ -19971,9 +20920,24 @@ void MainWindow::updateNoteBottomChrome() {
   }
   if (!view && !canvas) {
     m_noteBottomChrome->hide();
+#ifndef Q_OS_ANDROID
+    if (m_pageHud)
+      m_pageHud->hide();
+    if (m_zoomHud)
+      m_zoomHud->hide();
+#endif
     return;
   }
+#ifndef Q_OS_ANDROID
+  // Desktop: corner HUDs replace the wide bottom chrome.
+  m_noteBottomChrome->hide();
+  if (m_pageHud)
+    m_pageHud->setVisible(view != nullptr);
+  if (m_zoomHud)
+    m_zoomHud->setVisible(true);
+#else
   m_noteBottomChrome->show();
+#endif
 
   // Page controls only for A4 MultiPage notes — infinite canvas hides them.
   const bool a4 = (view != nullptr);
@@ -20007,6 +20971,11 @@ void MainWindow::updateNoteBottomChrome() {
     if (m_lblNoteZoom)
       m_lblNoteZoom->setText(
           QStringLiteral("%1%").arg(qRound(view->zoomFactor() * 100.0)));
+    if (m_lblPageHud)
+      m_lblPageHud->setText(QStringLiteral("%1 / %2").arg(cur).arg(pages));
+    if (m_lblZoomHud)
+      m_lblZoomHud->setText(
+          QStringLiteral("%1%").arg(qRound(view->zoomFactor() * 100.0)));
     if (m_btnNotePagePrev)
       m_btnNotePagePrev->setEnabled(cur > 1);
     if (m_btnNotePageNext)
@@ -20014,6 +20983,9 @@ void MainWindow::updateNoteBottomChrome() {
   } else if (canvas) {
     if (m_lblNoteZoom)
       m_lblNoteZoom->setText(
+          QStringLiteral("%1%").arg(qRound(canvas->transform().m11() * 100.0)));
+    if (m_lblZoomHud)
+      m_lblZoomHud->setText(
           QStringLiteral("%1%").arg(qRound(canvas->transform().m11() * 100.0)));
   }
   positionNoteChrome();
@@ -20145,16 +21117,19 @@ void MainWindow::refreshLibraryModeSwitchChrome() {
   if (!m_libraryModeSwitch || !m_libraryModeGroup)
     return;
   const bool dark = BlopTheme::instance().isDark();
-  const int minH = UiScale::dp(28);
+  const int segH = UiScale::dp(28);
+  const int wrapH = UiScale::dp(34);
+  m_libraryModeSwitch->setFixedHeight(wrapH);
   const QString seg = dark
       ? QStringLiteral(
             "QWidget#LibraryModeSwitch {"
             "  background: #181B22; border: none; border-radius: 8px;"
-            "  margin-top: 12px; margin-left: 8px; margin-right: 8px;"
+            "  margin-left: 8px; margin-right: 8px;"
+            "  min-height: %2px; max-height: %2px;"
             "}"
             "QPushButton#LibraryModeLib, QPushButton#LibraryModeExp {"
             "  background: transparent; color: #9CA3AF; border: none;"
-            "  border-radius: 6px; padding: 2px 8px;"
+            "  border-radius: 6px; padding: 0 8px;"
             "  font-size: 12px; font-weight: 600;"
             "  min-height: %1px; max-height: %1px;"
             "}"
@@ -20162,39 +21137,33 @@ void MainWindow::refreshLibraryModeSwitchChrome() {
             "QPushButton#LibraryModeExp:checked {"
             "  background: #2D3340; color: #F3F4F6; border: none;"
             "}")
-            .arg(minH)
+            .arg(segH)
+            .arg(wrapH)
       : QStringLiteral(
             "QWidget#LibraryModeSwitch {"
-            "  background: #E5E7EB; border: none; border-radius: 8px;"
-            "  margin-top: 12px; margin-left: 8px; margin-right: 8px;"
+            "  background: #E2E8F0; border: none; border-radius: 8px;"
+            "  margin-left: 8px; margin-right: 8px;"
+            "  min-height: %2px; max-height: %2px;"
             "}"
             "QPushButton#LibraryModeLib, QPushButton#LibraryModeExp {"
-            "  background: transparent; color: #4B5563; border: none;"
-            "  border-radius: 6px; padding: 2px 8px;"
+            "  background: transparent; color: #475569; border: none;"
+            "  border-radius: 6px; padding: 0 8px;"
             "  font-size: 12px; font-weight: 600;"
             "  min-height: %1px; max-height: %1px;"
             "}"
             "QPushButton#LibraryModeLib:checked,"
             "QPushButton#LibraryModeExp:checked {"
-            "  background: #FFFFFF; color: #111827; font-weight: 600;"
+            "  background: #FFFFFF; color: #0F172A; font-weight: 600;"
             "}")
-            .arg(minH);
+            .arg(segH)
+            .arg(wrapH);
   m_libraryModeSwitch->setStyleSheet(seg);
   if (m_libraryModeGroup) {
     const auto buttons = m_libraryModeGroup->buttons();
     for (QAbstractButton *b : buttons) {
-      if (!dark && b->isChecked()) {
-        auto *sh = qobject_cast<QGraphicsDropShadowEffect *>(b->graphicsEffect());
-        if (!sh) {
-          sh = new QGraphicsDropShadowEffect(b);
-          b->setGraphicsEffect(sh);
-        }
-        sh->setBlurRadius(2);
-        sh->setOffset(0, 1);
-        sh->setColor(QColor(0, 0, 0, 20));
-      } else if (b->graphicsEffect()) {
+      b->setFixedHeight(segH);
+      if (b->graphicsEffect())
         b->setGraphicsEffect(nullptr);
-      }
     }
   }
 #else
@@ -20270,14 +21239,18 @@ void MainWindow::refreshSidebarCloudSectionChrome() {
         "QListWidget#SidebarCloudList { background: transparent; border: none; outline: 0; }"
         "QListWidget#SidebarCloudList::item {"
         "  color: %4; padding: 6px 10px; border-radius: 8px;"
+        "  font-weight: 500;"
         "}"
         "QListWidget#SidebarCloudList::item:hover { background: %5; }"
         "QListWidget#SidebarCloudList::item:selected {"
-        "  background: rgba(%1,%2,%3,0.18); }")
+        "  background: rgba(%1,%2,%3,0.18);"
+        "  color: %6; font-weight: 600;"
+        "  border-left: 3px solid rgb(%1,%2,%3); }")
                                           .arg(a.red())
                                           .arg(a.green())
                                           .arg(a.blue())
-                                          .arg(itemInk, itemHover));
+                                          .arg(itemInk, itemHover,
+                                               a.name(QColor::HexRgb)));
   }
 #endif
 }
@@ -20917,7 +21890,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   if (m_btnNewTab) {
     if (noteChrome) {
       const bool darkBar = darkShell;
-      m_btnNewTab->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+      m_btnNewTab->setFixedSize(UiScale::dp(28), UiScale::dp(28));
       m_btnNewTab->setIcon(createModernIcon(
           QStringLiteral("add"),
           darkBar ? QColor(0xC8, 0xCC, 0xD4) : NoteChrome::textSecondary()));
@@ -21326,8 +22299,6 @@ bool MainWindow::noteToolbarsActive() const {
 }
 
 void MainWindow::syncNoteToolbarUndoState() {
-  if (!m_noteToolbars)
-    return;
   bool canUndo = false;
   bool canRedo = false;
   if (CanvasView *cv = getCurrentCanvas()) {
@@ -21337,7 +22308,14 @@ void MainWindow::syncNoteToolbarUndoState() {
     canUndo = v->canUndo();
     canRedo = v->canRedo();
   }
-  m_noteToolbars->setUndoRedoAvailable(canUndo, canRedo);
+  if (m_noteToolbars)
+    m_noteToolbars->setUndoRedoAvailable(canUndo, canRedo);
+#ifndef Q_OS_ANDROID
+  if (m_btnZoomHudUndo)
+    m_btnZoomHudUndo->setEnabled(canUndo);
+  if (m_btnZoomHudRedo)
+    m_btnZoomHudRedo->setEnabled(canRedo);
+#endif
 }
 
 void MainWindow::positionNoteToolbars() {
@@ -21366,9 +22344,9 @@ void MainWindow::positionPageBookmarkRail() {
   if (!m_pageBookmarkRail || !m_editorCenterWidget ||
       !m_pageBookmarkRail->isVisible())
     return;
-  // Flush to the editor's left edge (against the L-frame icon rail).
-  const int gap = UiScale::dp(10);
-  const int x = 0;
+  // Floating card inset from the editor edge.
+  const int gap = UiScale::dp(16);
+  const int x = gap;
   int top = noteHeaderHeight() + gap;
   if (m_strukturBackPill && m_strukturBackPill->isVisible())
     top = qMax(top, m_strukturBackPill->geometry().bottom() + gap);
@@ -21608,7 +22586,7 @@ void MainWindow::onTabChanged(int index) {
     noteTitle = m_editorTabs->tabText(index);
 
   if (m_lblActiveNote)
-    m_lblActiveNote->setText(noteTitle);
+    m_lblActiveNote->setText(QFileInfo(noteTitle).completeBaseName());
 
   rebuildPageSettingsTags();
 

@@ -56,8 +56,10 @@
 #include <QSettings>
 #include <QVector>
 #include <QShowEvent>
+#include <QSize>
 #include <QSizePolicy>
 #include <QStandardPaths>
+#include <QIcon>
 #include <QTabBar>
 #include <QToolButton>
 #include <QUrl>
@@ -684,7 +686,22 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                                   pagePad, UiScale::dp(BlopStyle::sectionGapDp()));
     auto *search = new QLineEdit(searchRow);
     search->setObjectName(QStringLiteral("SettingsSearch"));
-    search->setPlaceholderText(QStringLiteral("Einstellungen durchsuchen..."));
+    search->setPlaceholderText(QStringLiteral("Suchen…"));
+    search->setClearButtonEnabled(true);
+    {
+        const int s = UiScale::dp(16);
+        QPixmap pm(s, s);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(QPen(QColor(0x94, 0xA3, 0xB8), 1.6, Qt::SolidLine, Qt::RoundCap));
+        p.setBrush(Qt::NoBrush);
+        const qreal r = s * 0.28;
+        p.drawEllipse(QPointF(s * 0.42, s * 0.42), r, r);
+        p.drawLine(QPointF(s * 0.62, s * 0.62), QPointF(s * 0.82, s * 0.82));
+        p.end();
+        search->addAction(QIcon(pm), QLineEdit::LeadingPosition);
+    }
     if (useSettingsPaper()) {
         setLiteralQss(search, BlopStyle::paperInputQss());
     } else {
@@ -793,13 +810,26 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             studyLoggedIn
                 ? QStringLiteral("Angemeldet als %1").arg(studyUser)
                 : QStringLiteral("Nicht angemeldet — Notizen teilen braucht Study");
-        auto *statusLbl = new QLabel(statusText, cardKonto);
+        auto *statusWrap = new QWidget(cardKonto);
+        auto *statusLay = new QHBoxLayout(statusWrap);
+        statusLay->setContentsMargins(0, 0, 0, 0);
+        statusLay->setSpacing(UiScale::dp(8));
+        auto *statusDot = new QLabel(statusWrap);
+        statusDot->setFixedSize(UiScale::dp(8), UiScale::dp(8));
+        statusDot->setStyleSheet(
+            QStringLiteral("background: %1; border-radius: %2px; border: none;")
+                .arg(studyLoggedIn ? QStringLiteral("#10B981")
+                                   : QStringLiteral("#94A3B8"))
+                .arg(UiScale::dp(4)));
+        auto *statusLbl = new QLabel(statusText, statusWrap);
         statusLbl->setWordWrap(true);
         setLiteralQss(statusLbl, QStringLiteral(
             "color: %1; font-size: 12px; background: transparent;")
             .arg(settingsInkMuted()));
+        statusLay->addWidget(statusDot, 0, Qt::AlignVCenter);
+        statusLay->addWidget(statusLbl, 1);
         cardKonto->addBodyWidget(makePropertyRow(
-            cardKonto, QStringLiteral("Status"), statusLbl, false,
+            cardKonto, QStringLiteral("Status"), statusWrap, false,
             QStringLiteral("status sitzung account")));
 
         auto *btnAuthScreen = makeQuietAction(
@@ -865,9 +895,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         modeLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
                                     UiScale::dp(3), UiScale::dp(3));
         modeLay->setSpacing(UiScale::dp(2));
-        auto *btnDark = new QPushButton(QStringLiteral("Dunkel"), modeSeg);
         auto *btnLight = new QPushButton(QStringLiteral("Hell"), modeSeg);
-        for (QPushButton *b : {btnDark, btnLight}) {
+        auto *btnDark = new QPushButton(QStringLiteral("Dunkel"), modeSeg);
+        auto *btnSystem = new QPushButton(QStringLiteral("System"), modeSeg);
+        for (QPushButton *b : {btnLight, btnDark, btnSystem}) {
             b->setCheckable(true);
             b->setCursor(Qt::PointingHandCursor);
             b->setFixedHeight(segH);
@@ -878,18 +909,27 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         }
         auto *bgMode = new QButtonGroup(this);
         bgMode->setExclusive(true);
-        bgMode->addButton(btnDark, 0);
         bgMode->addButton(btnLight, 1);
-        const bool startLight = BlopTheme::instance().isLight();
-        btnDark->setChecked(!startLight);
-        btnLight->setChecked(startLight);
+        bgMode->addButton(btnDark, 0);
+        bgMode->addButton(btnSystem, 2);
+        if (BlopTheme::instance().followSystem())
+            btnSystem->setChecked(true);
+        else if (BlopTheme::instance().isLight())
+            btnLight->setChecked(true);
+        else
+            btnDark->setChecked(true);
         connect(bgMode, &QButtonGroup::idClicked, this, [](int id) {
-            BlopTheme::instance().setMode(id == 1 ? BlopTheme::Mode::Light
-                                                  : BlopTheme::Mode::Dark);
+            if (id == 2) {
+                BlopTheme::instance().setFollowSystem(true);
+            } else {
+                BlopTheme::instance().setFollowSystem(false);
+                BlopTheme::instance().setMode(id == 1 ? BlopTheme::Mode::Light
+                                                      : BlopTheme::Mode::Dark);
+            }
         });
         cardTheme->addBodyWidget(makePropertyRow(
-            cardTheme, QStringLiteral("Modus"), modeSeg, false,
-            QStringLiteral("dark light hell dunkel thema")));
+            cardTheme, QStringLiteral("Farbschema"), modeSeg, false,
+            QStringLiteral("dark light hell dunkel thema farbschema system")));
 
         auto *langSeg = new QWidget(cardTheme);
         styleSegmentTrack(langSeg);
@@ -935,7 +975,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         const BlopTheme::Accent activeAccent = BlopTheme::instance().accent();
         auto *accentGroup = new QButtonGroup(this);
         accentGroup->setExclusive(true);
-        const int swatch = UiScale::dp(28);
+        const int swatch = UiScale::dp(24);
         const auto choices = BlopTheme::accentColors();
         for (int i = 0; i < choices.size(); ++i) {
             const BlopTheme::AccentSwatch &ch = choices[i];
@@ -950,10 +990,12 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     "  border-radius: %2px;"
                     "  border: 2px solid rgba(55,53,47,0.12); }"
                     "QPushButton:hover { border: 2px solid rgba(55,53,47,0.35); }"
-                    "QPushButton:checked { border: 2px solid %3; }")
+                    "QPushButton:checked {"
+                    "  border: 2.5px solid #1D4ED8;"
+                    "  outline: 2px solid #BFDBFE;"
+                    "}")
                     .arg(ch.color.name(QColor::HexRgb),
-                         QString::number(swatch / 2),
-                         BlopStyle::paperInk().name(QColor::HexRgb)));
+                         QString::number(swatch / 2)));
             b->setChecked(ch.accent == activeAccent);
             accentGroup->addButton(b, static_cast<int>(ch.accent));
             BlopRipple::attachPressFeedback(b, 0.88);
@@ -966,8 +1008,53 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             emit accentColorChanged(BlopTheme::accentPrimary());
         });
         cardTheme->addBodyWidget(makePropertyRow(
-            cardTheme, QStringLiteral("Akzent"), accentRow, false,
-            QStringLiteral("akzent farbe accent blue green pink")));
+            cardTheme, QStringLiteral("Akzentfarbe"), accentRow, false,
+            QStringLiteral("akzent farbe accent blue green pink orange slate")));
+
+        auto *densSeg = new QWidget(cardTheme);
+        styleSegmentTrack(densSeg);
+        auto *densLay = new QHBoxLayout(densSeg);
+        densLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                    UiScale::dp(3), UiScale::dp(3));
+        densLay->setSpacing(UiScale::dp(2));
+        auto *btnDensS = new QPushButton(QStringLiteral("Klein"), densSeg);
+        auto *btnDensM = new QPushButton(QStringLiteral("Mittel"), densSeg);
+        auto *btnDensL = new QPushButton(QStringLiteral("Groß"), densSeg);
+        for (QPushButton *b : {btnDensS, btnDensM, btnDensL}) {
+            b->setCheckable(true);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setFixedHeight(segH);
+            b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+            setThemedQss(b, segStyle);
+            BlopRipple::attachPressFeedback(b, 0.92);
+            densLay->addWidget(b, 0);
+        }
+        auto *densGroup = new QButtonGroup(this);
+        densGroup->setExclusive(true);
+        densGroup->addButton(btnDensS, 0);
+        densGroup->addButton(btnDensM, 1);
+        densGroup->addButton(btnDensL, 2);
+        {
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            const int d =
+                qBound(0, st.value(QStringLiteral("ui/libraryDensity"), 1).toInt(),
+                       2);
+            if (d == 0)
+                btnDensS->setChecked(true);
+            else if (d == 2)
+                btnDensL->setChecked(true);
+            else
+                btnDensM->setChecked(true);
+        }
+        connect(densGroup, &QButtonGroup::idClicked, this, [this](int id) {
+            QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            s.setValue(QStringLiteral("ui/libraryDensity"), id);
+            emit appPrefsChanged();
+        });
+        cardTheme->addBodyWidget(makePropertyRow(
+            cardTheme, QStringLiteral("Ansichtsdichte (Bibliothek)"), densSeg,
+            false,
+            QStringLiteral("dichte density klein mittel groß bibliothek")));
 
         auto *brandBox = new QWidget(cardTheme);
         auto *brandLay = new QHBoxLayout(brandBox);
@@ -1227,14 +1314,14 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         // Radiant / Science). The old Klassisch/A-D list only drove the hidden
         // ModernToolbar, so the segment now edits the toolbar that is
         // actually on screen.
+        // Settings UI shows Dock vs Radial; Floating/Science stay available
+        // via profiles / runtime enums.
         const VariantOpt opts[] = {
-            {0, "Balken", "Feste Werkzeugleiste (Standard)"},
-            {1, "Floating", "Schwebende Pill"},
-            {2, "Radiant", "Radiale Auswahl"},
-            {3, "Wissenschaftlich", "Zweispaltige Werkzeug-Leiste"},
+            {0, "Obere Leiste (Dock)", "Feste Werkzeugleiste oben"},
+            {2, "Radialmenü", "Radiale Werkzeugauswahl"},
         };
         int saved = static_cast<int>(noteToolbarStyle());
-        if (saved < 0 || saved > 3)
+        if (saved != 0 && saved != 2)
           saved = 0;
         for (const VariantOpt &o : opts) {
           auto *b = new QPushButton(QString::fromUtf8(o.label), variantSeg);
@@ -1255,58 +1342,144 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
           emit noteToolbarStyleChanged();
         });
         cardLook->addBodyWidget(makePropertyRow(
-            cardLook, QStringLiteral("Werkzeugleiste"), variantSeg, false,
-            QStringLiteral("toolbar werkzeugleiste layout balken floating "
-                           "radiant wissenschaftlich")));
+            cardLook, QStringLiteral("Standard-Werkzeugleiste im Editor"),
+            variantSeg, false,
+            QStringLiteral("toolbar werkzeugleiste layout dock radial balken")));
 #endif
 
-        auto *autoSeg = new QWidget(cardLook);
-        styleSegmentTrack(autoSeg);
-        auto *autoLay = new QHBoxLayout(autoSeg);
-        autoLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
-                                    UiScale::dp(3), UiScale::dp(3));
-        autoLay->setSpacing(UiScale::dp(2));
         const int autoSegH = settingsSegmentMinHeight();
         const QString autoSegStyle = segmentedControlQss();
-        auto *btnAutoNow = new QPushButton(QStringLiteral("Sofort"), autoSeg);
-        auto *btnAuto15 = new QPushButton(QStringLiteral("1,5s"), autoSeg);
-        auto *btnAuto5 = new QPushButton(QStringLiteral("5s"), autoSeg);
-        auto *btnAutoOff = new QPushButton(QStringLiteral("Aus"), autoSeg);
-        for (QPushButton *b :
-             {btnAutoNow, btnAuto15, btnAuto5, btnAutoOff}) {
+
+        auto *fmtSeg = new QWidget(cardLook);
+        styleSegmentTrack(fmtSeg);
+        auto *fmtLay = new QHBoxLayout(fmtSeg);
+        fmtLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                   UiScale::dp(3), UiScale::dp(3));
+        fmtLay->setSpacing(UiScale::dp(2));
+        auto *btnFmtA4 = new QPushButton(QStringLiteral("DIN A4"), fmtSeg);
+        auto *btnFmtInf = new QPushButton(QStringLiteral("Unendlich"), fmtSeg);
+        auto *btnFmtStruct =
+            new QPushButton(QStringLiteral("Struktur"), fmtSeg);
+        for (QPushButton *b : {btnFmtA4, btnFmtInf, btnFmtStruct}) {
             b->setCheckable(true);
             b->setCursor(Qt::PointingHandCursor);
             b->setFixedHeight(autoSegH);
             b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
             setThemedQss(b, autoSegStyle);
             BlopRipple::attachPressFeedback(b, 0.92);
-            autoLay->addWidget(b, 0);
+            fmtLay->addWidget(b, 0);
         }
-        auto *autoGroup = new QButtonGroup(this);
-        autoGroup->setExclusive(true);
-        autoGroup->addButton(btnAutoNow, 0);
-        autoGroup->addButton(btnAuto15, 1500);
-        autoGroup->addButton(btnAuto5, 5000);
-        autoGroup->addButton(btnAutoOff, 9999);
+        auto *fmtGroup = new QButtonGroup(this);
+        fmtGroup->setExclusive(true);
+        fmtGroup->addButton(btnFmtA4, 1);
+        fmtGroup->addButton(btnFmtInf, 0);
+        fmtGroup->addButton(btnFmtStruct, 2);
         {
             QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-            const int ms = st.value(QStringLiteral("ui/autoSaveMs"), 1500).toInt();
-            if (ms < 0)
-                btnAutoOff->setChecked(true);
-            else if (ms == 0)
-                btnAutoNow->setChecked(true);
-            else if (ms >= 4000)
-                btnAuto5->setChecked(true);
+            const int f =
+                st.value(QStringLiteral("ui/defaultNoteFormat"), 1).toInt();
+            if (f == 0)
+                btnFmtInf->setChecked(true);
+            else if (f == 2)
+                btnFmtStruct->setChecked(true);
             else
-                btnAuto15->setChecked(true);
+                btnFmtA4->setChecked(true);
         }
-        connect(autoGroup, &QButtonGroup::idClicked, this, [this](int id) {
+        connect(fmtGroup, &QButtonGroup::idClicked, this, [this](int id) {
             QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-            s.setValue(QStringLiteral("ui/autoSaveMs"), id == 9999 ? -1 : id);
+            s.setValue(QStringLiteral("ui/defaultNoteFormat"), id);
             emit appPrefsChanged();
         });
         cardLook->addBodyWidget(makePropertyRow(
-            cardLook, QStringLiteral("Auto-Speichern"), autoSeg, false,
+            cardLook, QStringLiteral("Standardformat"), fmtSeg, false,
+            QStringLiteral("format a4 unendlich struktur vorlage")));
+
+        auto *tplSeg = new QWidget(cardLook);
+        styleSegmentTrack(tplSeg);
+        auto *tplLay = new QHBoxLayout(tplSeg);
+        tplLay->setContentsMargins(UiScale::dp(3), UiScale::dp(3),
+                                   UiScale::dp(3), UiScale::dp(3));
+        tplLay->setSpacing(UiScale::dp(2));
+        // IDs match NewNoteDialog backgroundType: 0 Leer, 1 Liniert, 2 Kariert, 3 Punktiert.
+        auto *btnTplBlank = new QPushButton(QStringLiteral("Leer"), tplSeg);
+        auto *btnTplLine = new QPushButton(QStringLiteral("Liniert"), tplSeg);
+        auto *btnTplGrid = new QPushButton(QStringLiteral("Kariert"), tplSeg);
+        auto *btnTplDot = new QPushButton(QStringLiteral("Punktiert"), tplSeg);
+        for (QPushButton *b :
+             {btnTplBlank, btnTplLine, btnTplGrid, btnTplDot}) {
+            b->setCheckable(true);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setFixedHeight(autoSegH);
+            b->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+            setThemedQss(b, autoSegStyle);
+            BlopRipple::attachPressFeedback(b, 0.92);
+            tplLay->addWidget(b, 0);
+        }
+        auto *tplGroup = new QButtonGroup(this);
+        tplGroup->setExclusive(true);
+        tplGroup->addButton(btnTplBlank, 0);
+        tplGroup->addButton(btnTplLine, 1);
+        tplGroup->addButton(btnTplGrid, 2);
+        tplGroup->addButton(btnTplDot, 3);
+        {
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            const int p =
+                qBound(0,
+                       st.value(QStringLiteral("ui/defaultPaperPattern"), 2)
+                           .toInt(),
+                       3);
+            QAbstractButton *btn = tplGroup->button(p);
+            if (btn)
+                btn->setChecked(true);
+            else
+                btnTplGrid->setChecked(true);
+        }
+        connect(tplGroup, &QButtonGroup::idClicked, this, [this](int id) {
+            QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            s.setValue(QStringLiteral("ui/defaultPaperPattern"), id);
+            emit appPrefsChanged();
+        });
+        cardLook->addBodyWidget(makePropertyRow(
+            cardLook, QStringLiteral("Standard-Vorlage"), tplSeg, false,
+            QStringLiteral("vorlage kariert punktiert liniert leer paper")));
+
+        auto *autoToggle = new QPushButton(cardLook);
+        autoToggle->setObjectName(QStringLiteral("SettingsAutoSaveToggle"));
+        autoToggle->setCheckable(true);
+        autoToggle->setCursor(Qt::PointingHandCursor);
+        autoToggle->setFixedHeight(UiScale::dp(32));
+        autoToggle->setMinimumWidth(UiScale::dp(52));
+        {
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            const int ms =
+                st.value(QStringLiteral("ui/autoSaveMs"), 1500).toInt();
+            autoToggle->setChecked(ms >= 0);
+        }
+        auto restyleAuto = [autoToggle]() {
+            const bool on = autoToggle->isChecked();
+            autoToggle->setText(on ? QStringLiteral("An")
+                                   : QStringLiteral("Aus"));
+            autoToggle->setStyleSheet(QStringLiteral(
+                "QPushButton#SettingsAutoSaveToggle {"
+                "  border: none; border-radius: 16px; padding: 0 14px;"
+                "  font-size: 12px; font-weight: 600;"
+                "  color: %1; background: %2;"
+                "}")
+                                          .arg(on ? QStringLiteral("#FFFFFF")
+                                                  : QStringLiteral("#475569"),
+                                               on ? QStringLiteral("#2563EB")
+                                                  : QStringLiteral("#E2E8F0")));
+        };
+        restyleAuto();
+        connect(autoToggle, &QPushButton::toggled, this,
+                [this, restyleAuto](bool on) {
+                    QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+                    s.setValue(QStringLiteral("ui/autoSaveMs"), on ? 1500 : -1);
+                    restyleAuto();
+                    emit appPrefsChanged();
+                });
+        cardLook->addBodyWidget(makePropertyRow(
+            cardLook, QStringLiteral("Automatisch speichern"), autoToggle, false,
             QStringLiteral("autosave speichern debounce")));
 
         auto *pageSeg = new QWidget(cardLook);
@@ -1564,30 +1737,37 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("verhalten profil mode modus ui-profil bearbeiten"));
     {
         m_profileList = new QListWidget(cardBehavior);
-        setThemedQss(m_profileList, QStringLiteral(
+        setLiteralQss(m_profileList, QStringLiteral(
             "QListWidget {"
             "  background: transparent;"
             "  border: none;"
-            "  color: %1;"
-            "  padding: 2px 4px;"
+            "  color: #334155;"
+            "  padding: 0;"
             "  outline: none;"
             "}"
             "QListWidget::item {"
-            "  padding: 6px 10px;"
-            "  border-radius: 6px;"
-            "  margin: 1px 0;"
-            "  min-height: 28px;"
+            "  background: #FFFFFF;"
+            "  border: 1px solid #E2E8F0;"
+            "  border-radius: 8px;"
+            "  margin: 0 0 8px 0;"
+            "  padding: 0 14px;"
+            "  min-height: 44px;"
+            "  color: #334155;"
             "}"
             "QListWidget::item:selected {"
-            "  background: %2;"
+            "  background: #EFF6FF;"
+            "  border: 1.5px solid #2563EB;"
+            "  color: #1E3A8A;"
+            "  font-weight: 600;"
             "}"
             "QListWidget::item:hover:!selected {"
-            "  background: rgba(55,53,47,0.05);"
-            "}")
-            .arg(settingsInk(), accentRgba(90)));
-        m_profileList->setMinimumHeight(UiScale::dp(96));
-        m_profileList->setMaximumHeight(UiScale::dp(160));
+            "  background: #F8FAFC;"
+            "  border: 1px solid #CBD5E1;"
+            "}"));
+        m_profileList->setMinimumHeight(UiScale::dp(100));
+        m_profileList->setMaximumHeight(UiScale::dp(120));
         m_profileList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        m_profileList->setSpacing(0);
         m_profileList->setFrameShape(QFrame::NoFrame);
         m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
         BlopScroll::enableFingerScroll(m_profileList);
@@ -1747,9 +1927,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             QString id;
             QString name;
             QLabel *statusLbl{nullptr};
-            QPushButton *openBtn{nullptr};
+            QPushButton *connectBtn{nullptr};
             QPushButton *primaryBtn{nullptr};
             QPushButton *folderBtn{nullptr};
+            QPushButton *disconnectBtn{nullptr};
         };
         auto cloudRefs = std::make_shared<QVector<CloudRowRef>>();
 
@@ -1766,41 +1947,56 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     api = cur->apiConnected;
                     folder = StoragePrefs::isUsableFilesystemDir(cur->path);
                 }
+                const bool linked = api || folder || webOk ||
+                                    StoragePrefs::isProviderLinked(r.id);
                 const QString st = api ? QStringLiteral("Per API verbunden")
                                     : folder ? QStringLiteral("Ordner verknüpft")
                                     : webOk ? QStringLiteral("Im Web angemeldet")
                                             : QStringLiteral("Nicht verbunden");
                 if (r.statusLbl)
                     r.statusLbl->setText(st);
-                if (r.openBtn)
-                    r.openBtn->setText((api || folder || webOk)
-                                           ? QStringLiteral("Öffnen →")
-                                           : QStringLiteral("Anmelden →"));
+                if (r.connectBtn)
+                    r.connectBtn->setVisible(!linked);
                 if (r.primaryBtn) {
+                    r.primaryBtn->setVisible(linked);
                     r.primaryBtn->setEnabled(api || folder);
                     r.primaryBtn->setText(primary == r.id
-                                             ? QStringLiteral("Primär ✓")
-                                             : QStringLiteral("Primär"));
+                                             ? QStringLiteral("Als Primär ✓")
+                                             : QStringLiteral("Als Primär"));
                 }
+                if (r.folderBtn)
+                    r.folderBtn->setVisible(linked);
+                if (r.disconnectBtn)
+                    r.disconnectBtn->setVisible(linked);
             }
         };
 
         auto addCloudRow = [&](const CloudStorageEntry &e, bool last) {
             auto *actions = new QWidget(cardStorage);
+            auto *btnConnect =
+                makeQuietAction(actions, QStringLiteral("Verbinden →"));
+            btnConnect->setFixedHeight(UiScale::dp(32));
+            btnConnect->setMinimumWidth(UiScale::dp(110));
+            setLiteralQss(btnConnect, QStringLiteral(
+                "QPushButton {"
+                "  color: #334155; background: #FFFFFF;"
+                "  border: 1px solid #CBD5E1; border-radius: 6px;"
+                "  padding: 0 14px; font-size: 12px; font-weight: 600;"
+                "}"
+                "QPushButton:hover { border-color: #94A3B8; background: #F8FAFC; }"));
             auto *btnPrimary =
-                makeQuietAction(actions, QStringLiteral("Primär"));
+                makeQuietAction(actions, QStringLiteral("Als Primär"));
             auto *btnFolder =
                 makeQuietAction(actions, QStringLiteral("Ordner"));
-            auto *btnConnect =
-                makeQuietAction(actions, QStringLiteral("Verbinden"));
-            auto *btnOpen =
-                makeQuietAction(actions, QStringLiteral("Öffnen →"));
+            auto *btnDisconnect =
+                makeQuietAction(actions, QStringLiteral("Trennen"), true);
 
             if (phoneUi) {
                 auto *al = new QVBoxLayout(actions);
                 al->setContentsMargins(0, 0, 0, 0);
                 al->setSpacing(UiScale::dp(4));
-                for (QPushButton *b : {btnPrimary, btnConnect, btnFolder, btnOpen}) {
+                for (QPushButton *b :
+                     {btnConnect, btnPrimary, btnFolder, btnDisconnect}) {
                     b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
                     b->setMinimumHeight(
                         UiScale::dp(BlopStyle::touchTargetMinDp()));
@@ -1809,14 +2005,15 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             } else {
                 auto *al = new QHBoxLayout(actions);
                 al->setContentsMargins(0, 0, 0, 0);
-                al->setSpacing(UiScale::dp(2));
-                al->addWidget(btnPrimary);
+                al->setSpacing(UiScale::dp(4));
                 al->addWidget(btnConnect);
+                al->addWidget(btnPrimary);
                 al->addWidget(btnFolder);
-                al->addWidget(btnOpen);
+                al->addWidget(btnDisconnect);
             }
 
-            const bool linked = StoragePrefs::isProviderLinked(e.id);
+            const bool linked = StoragePrefs::isProviderLinked(e.id) ||
+                                e.apiConnected || e.webConnected;
             auto *row = makeNamedPropertyRow(
                 cardStorage, e.name,
                 linked ? QStringLiteral("Verbunden")
@@ -1829,31 +2026,18 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             ref.id = e.id;
             ref.name = e.name;
             ref.statusLbl = statusLbl;
-            ref.openBtn = btnOpen;
+            ref.connectBtn = btnConnect;
             ref.primaryBtn = btnPrimary;
             ref.folderBtn = btnFolder;
+            ref.disconnectBtn = btnDisconnect;
             cloudRefs->append(ref);
 
             const QString id = e.id;
             const QString displayName = e.name;
-            QObject::connect(btnOpen, &QPushButton::clicked, this,
-                             [this, id, displayName, requestCloud,
-                              refreshCloudUi]() {
-                                 QVector<CloudStorageEntry> entries =
-                                     CloudStorageStore::load();
-                                 CloudStorageEntry entry;
-                                 if (CloudStorageEntry *found =
-                                         CloudStorageStore::findMutable(
-                                             entries, id))
-                                     entry = *found;
-                                 else {
-                                     entry.id = id;
-                                     entry.name = displayName;
-                                     entry.type = id;
-                                 }
-                                 requestCloud(entry);
-                                 refreshCloudUi();
-                                 emit storagePrefsChanged();
+            QObject::connect(btnConnect, &QPushButton::clicked, this,
+                             [this, id]() {
+                                 CloudLinkHub::instance().connectProvider(id,
+                                                                          this);
                              });
             QObject::connect(btnFolder, &QPushButton::clicked, this,
                              [this, id, displayName, connectCloudProvider,
@@ -1865,13 +2049,26 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                                  refreshCloudUi();
                                  emit storagePrefsChanged();
                              });
-            QObject::connect(btnConnect, &QPushButton::clicked, this,
-                             [this, id]() {
-                                 CloudLinkHub::instance().connectProvider(id, this);
-                             });
             QObject::connect(btnPrimary, &QPushButton::clicked, this,
                              [this, id, refreshCloudUi]() {
                                  StoragePrefs::setPrimaryCloudId(id);
+                                 refreshCloudUi();
+                                 emit storagePrefsChanged();
+                             });
+            QObject::connect(btnDisconnect, &QPushButton::clicked, this,
+                             [this, id, refreshCloudUi]() {
+                                 QVector<CloudStorageEntry> entries =
+                                     CloudStorageStore::load();
+                                 if (CloudStorageEntry *cur =
+                                         CloudStorageStore::findMutable(entries,
+                                                                        id)) {
+                                     cur->path.clear();
+                                     cur->apiConnected = false;
+                                     cur->webConnected = false;
+                                     CloudStorageStore::save(entries);
+                                 }
+                                 if (StoragePrefs::primaryCloudId() == id)
+                                     StoragePrefs::setPrimaryCloudId(QString());
                                  refreshCloudUi();
                                  emit storagePrefsChanged();
                              });
@@ -1879,36 +2076,38 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             cardStorage->addBodyWidget(row);
         };
 
-        // Prefer Drive first, then other providers from the store.
+        // Canonical provider order matching the library sidebar.
         {
             QVector<CloudStorageEntry> entries = CloudStorageStore::load();
+            const char *wantIds[] = {"googledrive", "dropbox", "onedrive",
+                                     "nextcloud", "icloud"};
             QVector<CloudStorageEntry> ordered;
-            CloudStorageEntry drive;
-            bool haveDrive = false;
-            for (const CloudStorageEntry &e : entries) {
-                const bool isDrive =
-                    e.id.compare(QLatin1String("googledrive"),
-                                 Qt::CaseInsensitive) == 0 ||
-                    e.type.compare(QLatin1String("googledrive"),
-                                   Qt::CaseInsensitive) == 0 ||
-                    e.name.compare(QLatin1String("Google Drive"),
-                                   Qt::CaseInsensitive) == 0;
-                if (isDrive) {
-                    drive = e;
-                    drive.id = QStringLiteral("googledrive");
-                    drive.name = QStringLiteral("Google Drive");
-                    drive.type = QStringLiteral("googledrive");
-                    haveDrive = true;
-                } else {
-                    ordered.append(e);
+            auto takeOrMake = [&](const QString &id, const QString &name) {
+                for (const CloudStorageEntry &e : entries) {
+                    if (e.id.compare(id, Qt::CaseInsensitive) == 0 ||
+                        e.type.compare(id, Qt::CaseInsensitive) == 0) {
+                        CloudStorageEntry copy = e;
+                        copy.id = id;
+                        copy.type = id;
+                        copy.name = name;
+                        ordered.append(copy);
+                        return;
+                    }
                 }
-            }
-            if (!haveDrive) {
-                drive.id = QStringLiteral("googledrive");
-                drive.type = drive.id;
-                drive.name = QStringLiteral("Google Drive");
-            }
-            ordered.prepend(drive);
+                CloudStorageEntry e;
+                e.id = id;
+                e.type = id;
+                e.name = name;
+                e.webUrl = CloudStorageStore::defaultWebUrl(id);
+                ordered.append(e);
+            };
+            takeOrMake(QStringLiteral("googledrive"),
+                       QStringLiteral("Google Drive"));
+            takeOrMake(QStringLiteral("dropbox"), QStringLiteral("Dropbox"));
+            takeOrMake(QStringLiteral("onedrive"), QStringLiteral("OneDrive"));
+            takeOrMake(QStringLiteral("nextcloud"), QStringLiteral("Nextcloud"));
+            takeOrMake(QStringLiteral("icloud"), QStringLiteral("iCloud"));
+            Q_UNUSED(wantIds);
 
             for (int i = 0; i < ordered.size(); ++i)
                 addCloudRow(ordered[i], /*last=*/false);
@@ -1957,33 +2156,25 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                              applyMode(StoragePrefs::Mode::LocalAndCloud);
                          });
 
-        // Custom embed — one compact row.
+        // Custom WebDAV / own cloud — one compact row.
         auto *customUrl = new QLineEdit(cardStorage);
         customUrl->setPlaceholderText(QStringLiteral("https://…"));
-        customUrl->setFixedHeight(UiScale::dp(26));
+        customUrl->setFixedHeight(UiScale::dp(32));
+        customUrl->setMinimumWidth(UiScale::dp(220));
+        customUrl->setMaximumWidth(UiScale::dp(280));
 #ifndef Q_OS_ANDROID
-        {
-          const bool paper = useSettingsPaper();
-          const QString ink = paper ? BlopStyle::paperInk().name(QColor::HexRgb)
-                                    : BlopTheme::textPrimary().name(QColor::HexRgb);
-          const QString idleBg = paper ? QStringLiteral("rgba(55,53,47,0.04)")
-                                       : QStringLiteral("rgba(255,255,255,0.06)");
-          const QString focusBg = paper ? QStringLiteral("rgba(55,53,47,0.06)")
-                                        : QStringLiteral("rgba(255,255,255,0.09)");
-          setLiteralQss(customUrl, QStringLiteral(
-              "QLineEdit {"
-              "  background: %1; color: %2;"
-              "  border: none; border-radius: 8px;"
-              "  padding: 0 10px; font-size: 12px;"
-              "}"
-              "QLineEdit:focus { background: %3; }")
-              .arg(idleBg, ink, focusBg));
-        }
+        setLiteralQss(customUrl, QStringLiteral(
+            "QLineEdit {"
+            "  background: #FFFFFF; color: #0F172A;"
+            "  border: 1px solid #CBD5E1; border-radius: 6px;"
+            "  padding: 0 10px; font-size: 12px;"
+            "}"
+            "QLineEdit:focus { border-color: #2563EB; }"));
 #else
         setTokenQss(customUrl, "input");
 #endif
         auto *btnEmbed =
-            makeQuietAction(cardStorage, QStringLiteral("Einbetten →"));
+            makeQuietAction(cardStorage, QStringLiteral("Verbinden →"));
         connect(btnEmbed, &QPushButton::clicked, this,
                 [this, customUrl, requestCloud]() {
                   const QString typed = customUrl->text().trimmed();
@@ -1992,7 +2183,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                   CloudStorageEntry e;
                   e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
                   e.type = QStringLiteral("custom");
-                  e.name = QStringLiteral("Eigene Cloud");
+                  e.name = QStringLiteral("Eigene Cloud (WebDAV)");
                   e.webUrl = QUrl::fromUserInput(typed).toString();
                   CloudStorageStore::upsert(e);
                   requestCloud(e);
@@ -2002,11 +2193,13 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         auto *customLay = new QHBoxLayout(customActions);
         customLay->setContentsMargins(0, 0, 0, 0);
         customLay->setSpacing(UiScale::dp(6));
-        customLay->addWidget(customUrl, 1);
+        customLay->addWidget(customUrl, 0);
         customLay->addWidget(btnEmbed, 0, Qt::AlignVCenter);
+        customLay->addStretch(1);
         cardStorage->addBodyWidget(makePropertyRow(
-            cardStorage, QStringLiteral("Eigene"), customActions, true,
-            QStringLiteral("eigene cloud custom url einbetten webdav")));
+            cardStorage, QStringLiteral("Eigene Cloud (WebDAV)"), customActions,
+            true,
+            QStringLiteral("eigene cloud custom url verbinden webdav")));
     }
 
     // ----- Card: Kalender ------------------------------------------------
@@ -2020,10 +2213,13 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
       auto *calStatusLbl = new QLabel(cardMore);
       calStatusLbl->hide(); // status text mirrored into named row
       auto refreshCalStatusText = []() -> QString {
-        return CalendarService::instance().hasGoogleAccess()
-                   ? QStringLiteral("Verbunden")
-                   : QStringLiteral("Nicht verbunden");
+        const bool on = CalendarService::instance().hasGoogleAccess();
+        return on ? QStringLiteral(
+                        "<span style='color:#10B981;'>●</span> Verbunden")
+                  : QStringLiteral(
+                        "<span style='color:#94A3B8;'>●</span> Nicht verbunden");
       };
+      calStatusLbl->setTextFormat(Qt::RichText);
       calStatusLbl->setText(refreshCalStatusText());
 
       auto *btnCalConnect =
@@ -2072,6 +2268,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
       cardMore->addBodyWidget(calRow);
       auto *calStatusInRow =
           calRow->findChild<QLabel *>(QStringLiteral("PropStatus"));
+      if (calStatusInRow) {
+        calStatusInRow->setTextFormat(Qt::RichText);
+        calStatusInRow->setText(refreshCalStatusText());
+      }
       auto syncCalStatusUi = [calStatusInRow, calStatusLbl, refreshCalStatusText,
                               updateCalButtons]() {
         const QString t = refreshCalStatusText();
@@ -2505,11 +2705,17 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     int firstVisible = -1;
                     for (int i = 0; i < allCards.size(); ++i) {
                         BlopSettingsCard *c = allCards[i];
+                        const bool titleHit =
+                            !needle.isEmpty() &&
+                            (c->title().toLower().contains(needle) ||
+                             c->subtitle().toLower().contains(needle) ||
+                             c->sectionKeywords().toLower().contains(needle));
                         const bool hit = sectionMatchesSearch(
                             c->bodyWidget() ? c->bodyWidget() : c, needle,
                             c->title(), c->subtitle(), c->sectionKeywords());
                         applyRowSearchFilter(
-                            c->bodyWidget() ? c->bodyWidget() : c, needle);
+                            c->bodyWidget() ? c->bodyWidget() : c, needle,
+                            titleHit);
                         if (auto *item = nav->item(i))
                             item->setHidden(!hit);
                         if (hit && firstVisible < 0)
@@ -2545,14 +2751,18 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 if (needle.isEmpty()) {
                     c->setVisible(true);
                     applyRowSearchFilter(c->bodyWidget() ? c->bodyWidget() : c,
-                                         QString());
+                                         QString(), false);
                     continue;
                 }
+                const bool titleHit =
+                    c->title().toLower().contains(needle) ||
+                    c->subtitle().toLower().contains(needle) ||
+                    c->sectionKeywords().toLower().contains(needle);
                 const bool hit = sectionMatchesSearch(
                     c->bodyWidget() ? c->bodyWidget() : c, needle, c->title(),
                     c->subtitle(), c->sectionKeywords());
                 applyRowSearchFilter(c->bodyWidget() ? c->bodyWidget() : c,
-                                     needle);
+                                     needle, titleHit);
                 c->setVisible(hit);
                 if (hit)
                     c->setExpanded(true);
@@ -2780,10 +2990,15 @@ void SettingsDialog::refreshProfileList() {
     m_profileList->clear();
     QString currentId = m_profileManager->currentProfile().id;
     for (const auto &p : m_profileManager->profiles()) {
-        QListWidgetItem *item = new QListWidgetItem(p.name);
+        const bool active = (p.id == currentId);
+        const QString label =
+            active ? QStringLiteral("●  %1          Aktiv").arg(p.name)
+                   : QStringLiteral("○  %1").arg(p.name);
+        auto *item = new QListWidgetItem(label);
         item->setData(Qt::UserRole, p.id);
+        item->setSizeHint(QSize(0, UiScale::dp(44)));
         m_profileList->addItem(item);
-        if (p.id == currentId)
+        if (active)
             m_profileList->setCurrentItem(item);
     }
 }
@@ -2792,6 +3007,7 @@ void SettingsDialog::onProfileClicked(QListWidgetItem *item) {
     if (!item) return;
     QString id = item->data(Qt::UserRole).toString();
     m_profileManager->setCurrentProfile(id);
+    refreshProfileList();
 }
 
 void SettingsDialog::onCreateProfile() {

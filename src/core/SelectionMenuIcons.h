@@ -201,17 +201,50 @@ inline void drawImport(QPainter &p, const QColor &c) {
   p.drawLine(3, -9, 0, -6);
 }
 
-inline QIcon pageLayoutIcon(const QColor &fg = QColor(210, 214, 232)) {
+/// Horizontal expand arrows (↔) for "An Breite anpassen".
+inline void drawFitWidth(QPainter &p, const QColor &c) {
+  p.setPen(QPen(c, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.setBrush(Qt::NoBrush);
+  p.drawLine(-10, 0, 10, 0);
+  p.drawLine(-10, 0, -6, -4);
+  p.drawLine(-10, 0, -6, 4);
+  p.drawLine(10, 0, 6, -4);
+  p.drawLine(10, 0, 6, 4);
+  p.drawLine(-3, -7, -3, 7);
+  p.drawLine(3, -7, 3, 7);
+}
+
+/// Maximize / page fit (⛶) for "Ganze Seite / Inhalt".
+inline void drawFitPage(QPainter &p, const QColor &c) {
+  p.setPen(QPen(c, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.setBrush(Qt::NoBrush);
+  p.drawRoundedRect(-8, -9, 16, 18, 2, 2);
+  p.drawLine(-4, -5, -4, -2);
+  p.drawLine(-4, -5, -1, -5);
+  p.drawLine(4, 5, 4, 2);
+  p.drawLine(4, 5, 1, 5);
+}
+
+/// Default overflow/menu glyph color (Light slate, not washed-out lilac).
+inline QColor menuIconFg() { return QColor(0x47, 0x55, 0x69); }
+
+inline QIcon pageLayoutIcon(const QColor &fg = menuIconFg()) {
   return makeIcon(drawPageLayout, fg);
 }
-inline QIcon gearIcon(const QColor &fg = QColor(210, 214, 232)) {
+inline QIcon gearIcon(const QColor &fg = menuIconFg()) {
   return makeIcon(drawGear, fg);
 }
-inline QIcon pdfDocIcon(const QColor &fg = QColor(210, 214, 232)) {
+inline QIcon pdfDocIcon(const QColor &fg = menuIconFg()) {
   return makeIcon(drawPdfDoc, fg);
 }
-inline QIcon importIcon(const QColor &fg = QColor(210, 214, 232)) {
+inline QIcon importIcon(const QColor &fg = menuIconFg()) {
   return makeIcon(drawImport, fg);
+}
+inline QIcon fitWidthIcon(const QColor &fg = menuIconFg()) {
+  return makeIcon(drawFitWidth, fg);
+}
+inline QIcon fitPageIcon(const QColor &fg = menuIconFg()) {
+  return makeIcon(drawFitPage, fg);
 }
 
 } // namespace SelectionMenuIcons

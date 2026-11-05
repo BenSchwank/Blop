@@ -292,6 +292,12 @@ NewNoteDialog::NewNoteDialog(QWidget *parent) : QDialog(parent)
             m_paperColor = QColor(0x16, 0x18, 0x1E);
         else
             m_paperColor = QColor(252, 250, 245);
+        m_backgroundType =
+            qBound(0, st.value(QStringLiteral("ui/defaultPaperPattern"), 2).toInt(),
+                   4);
+        m_selectedFormat =
+            qBound(0, st.value(QStringLiteral("ui/defaultNoteFormat"), 1).toInt(),
+                   2);
     }
     setupUi();
 }
@@ -670,7 +676,8 @@ void NewNoteDialog::setupUi()
     connect(btnAddTag, &QPushButton::clicked, this, addTagFromInput);
     connect(m_tagInput, &QLineEdit::returnPressed, this, addTagFromInput);
 
-    composerLay->addWidget(body, 1);
+    composerLay->addWidget(body, 0);
+    composerLay->addSpacing(UiScale::dp(16));
 
     auto *footer = new QWidget(m_composer);
     footer->setObjectName(QStringLiteral("NewNoteFooter"));
@@ -963,21 +970,25 @@ void NewNoteDialog::applyChrome()
             b->setStyleSheet(QStringLiteral(
                 "QPushButton#NewNoteTagChip {"
                 "  background: %1; border: 1px solid %2;"
-                "  border-radius: 14px; padding: 0; min-height: %3px; max-height: %3px;"
+                "  border-radius: 14px; padding: 0 12px;"
+                "  min-height: %3px; max-height: %3px;"
+                "  color: transparent; font-size: 1px;"
                 "}"
-                "QPushButton#NewNoteTagChip QLabel {"
-                "  color: %4; font-size: 12px; font-weight: 500;"
+                "QPushButton#NewNoteTagChip QLabel#NewNoteTagChipText {"
+                "  color: #334155; font-size: 12px; font-weight: 500;"
                 "  background: transparent; padding: 0; margin: 0;"
                 "}"
                 "QPushButton#NewNoteTagChip:checked {"
-                "  background: %5; border: 1px solid %5;"
+                "  background: #EFF6FF; border: 1.5px solid #2563EB;"
                 "}"
-                "QPushButton#NewNoteTagChip:checked QLabel { color: white; }"
-                "QPushButton#NewNoteTagChip:hover:!checked { background: %6; }")
+                "QPushButton#NewNoteTagChip:checked QLabel#NewNoteTagChipText {"
+                "  color: #1D4ED8;"
+                "}"
+                "QPushButton#NewNoteTagChip:hover:!checked { background: %4; }")
                                  .arg(tok.dark ? QStringLiteral("transparent")
                                                : QStringLiteral("#FFFFFF"),
                                       tok.dark ? border : QStringLiteral("#E5E7EB"),
-                                      QString::number(UiScale::dp(28)), ink, acc,
+                                      QString::number(UiScale::dp(28)),
                                       hover));
         }
     }
@@ -1203,34 +1214,40 @@ void NewNoteDialog::rebuildTagList()
         LibraryTagStore::addTagToCatalog(QStringLiteral("Entwurf"));
         catalog = LibraryTagStore::catalog();
     }
-    static const QColor kDots[] = {
-        QColor(0x25, 0x63, 0xEB), QColor(0xF9, 0x73, 0x16),
-        QColor(0x16, 0xA3, 0x4A), QColor(0x7C, 0x3A, 0xED)};
+    QFont chipFont;
+    chipFont.setPixelSize(12);
+    chipFont.setWeight(QFont::Medium);
+    const QFontMetrics fm(chipFont);
     for (const QString &tag : catalog) {
-        auto *chip = new QPushButton(m_tagChipHost);
+        auto *chip = new QPushButton(tag, m_tagChipHost);
         chip->setObjectName(QStringLiteral("NewNoteTagChip"));
         chip->setCheckable(true);
         chip->setChecked(selected.contains(tag));
         chip->setCursor(Qt::PointingHandCursor);
         chip->setFocusPolicy(Qt::NoFocus);
-        chip->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+        chip->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
         chip->setFixedHeight(UiScale::dp(28));
+        chip->setMinimumWidth(fm.horizontalAdvance(tag) + UiScale::dp(40));
         auto *chipLay = new QHBoxLayout(chip);
         chipLay->setContentsMargins(UiScale::dp(12), 0, UiScale::dp(12), 0);
         chipLay->setSpacing(UiScale::dp(6));
-        const QColor dot = kDots[qHash(tag.toLower()) % 4];
+        const QColor dot = LibraryTagStore::tagColor(tag);
         auto *dotMark = new QWidget(chip);
-        dotMark->setFixedSize(8, 8);
+        const int dotS = UiScale::dp(8);
+        dotMark->setFixedSize(dotS, dotS);
         dotMark->setAttribute(Qt::WA_TransparentForMouseEvents, true);
         dotMark->setStyleSheet(
-            QStringLiteral("background: %1; border-radius: 4px; border: none;")
-                .arg(dot.name(QColor::HexRgb)));
+            QStringLiteral("background: %1; border-radius: %2px; border: none;")
+                .arg(dot.name(QColor::HexRgb))
+                .arg(dotS / 2));
         auto *chipText = new QLabel(tag, chip);
         chipText->setObjectName(QStringLiteral("NewNoteTagChipText"));
         chipText->setAttribute(Qt::WA_TransparentForMouseEvents, true);
         chipText->setAlignment(Qt::AlignVCenter);
+        chipText->setFont(chipFont);
         chipLay->addWidget(dotMark, 0, Qt::AlignVCenter);
         chipLay->addWidget(chipText, 0, Qt::AlignVCenter);
+        // Keep setText for sizeHint; hide the style-drawn label via stylesheet.
         m_tagGroup->addButton(chip);
         m_tagChipLay->addWidget(chip);
     }

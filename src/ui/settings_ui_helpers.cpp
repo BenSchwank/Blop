@@ -72,16 +72,14 @@ bool sectionMatchesSearch(QWidget *sectionRoot, const QString &needle,
     return false;
 }
 
-void applyRowSearchFilter(QWidget *sectionRoot, const QString &needle) {
+void applyRowSearchFilter(QWidget *sectionRoot, const QString &needle,
+                          bool sectionTitleHit) {
     if (!sectionRoot)
         return;
-    const auto rows = sectionRoot->findChildren<QWidget *>(
-        QStringLiteral("SettingsPropRow"), Qt::FindDirectChildrenOnly);
-    // Also scan nested rows (body may wrap).
     const auto allRows = sectionRoot->findChildren<QWidget *>(
         QStringLiteral("SettingsPropRow"));
     for (QWidget *row : allRows) {
-        if (needle.isEmpty()) {
+        if (needle.isEmpty() || sectionTitleHit) {
             row->setVisible(true);
             continue;
         }
@@ -95,10 +93,7 @@ void applyRowSearchFilter(QWidget *sectionRoot, const QString &needle) {
                 }
             }
         }
-        // Keep unlabeled chrome (mode rows etc.) visible when empty needle only;
-        // if tagged empty and no match on children, hide when searching.
         if (!hit && row->property(kSearchKeysProp).toString().isEmpty()) {
-            // Untagged body widgets (segment rows): match against all child text.
             const auto kids = row->findChildren<QWidget *>();
             for (QWidget *k : kids) {
                 if (widgetMatchesSearch(k, needle)) {
@@ -106,15 +101,9 @@ void applyRowSearchFilter(QWidget *sectionRoot, const QString &needle) {
                     break;
                 }
             }
-            if (!hit) {
-                // Leave untagged structural widgets visible if any sibling/section hit —
-                // handled by caller; default hide when searching.
-                hit = false;
-            }
         }
-        row->setVisible(hit || needle.isEmpty());
+        row->setVisible(hit);
     }
-    Q_UNUSED(rows);
 }
 
 #ifndef Q_OS_ANDROID

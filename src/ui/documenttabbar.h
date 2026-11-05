@@ -56,6 +56,7 @@ private:
   void updateIndicator(bool animate = true);
   void ensureTabVisible(int index);
   void rebindTabSignals();
+  void syncScrollToContent();
   DocumentTab *tabAt(int index) const;
 
   QHBoxLayout *m_outerLayout{nullptr};
