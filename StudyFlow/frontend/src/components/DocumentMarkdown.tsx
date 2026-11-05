@@ -5,8 +5,13 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import rehypeHighlight from "rehype-highlight";
+import type { Root } from "mdast";
+import type { Plugin } from "unified";
 import "katex/dist/katex.min.css";
+import "highlight.js/styles/github-dark.css";
 import MermaidBlock from "@/components/MermaidBlock";
+import CodeBlock from "@/components/CodeBlock";
 import {
     extractMarkdownHeadings,
     sanitizeDocumentMarkdown,
@@ -30,6 +35,14 @@ function plainChildren(node: React.ReactNode): string {
     }
     return "";
 }
+
+/** Prevent 4-space / tab indented blocks from becoming <pre> (breaks #### c) headings). */
+const remarkDisableIndentedCode: Plugin<[], Root> = function remarkDisableIndentedCode() {
+    const data = this.data() as Record<string, unknown>;
+    const micromarkExtensions = (data.micromarkExtensions as Array<Record<string, unknown>> | undefined) || [];
+    micromarkExtensions.push({ disable: { null: ["codeIndented"] } });
+    data.micromarkExtensions = micromarkExtensions;
+};
 
 const headingClass: Record<"h1" | "h2" | "h3", string> = {
     h1: "scroll-mt-20 text-3xl font-semibold text-white tracking-tight",
@@ -57,8 +70,11 @@ export default function DocumentMarkdown({ children, className = "" }: Props) {
     return (
         <div className={className}>
             <ReactMarkdown
-                remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
+                remarkPlugins={[remarkGfm, remarkMath, remarkDisableIndentedCode]}
+                rehypePlugins={[
+                    [rehypeKatex, { throwOnError: false, strict: false }],
+                    [rehypeHighlight, { detect: false, ignoreMissing: true }],
+                ]}
                 components={{
                     h1: heading("h1"),
                     h2: heading("h2"),
@@ -66,13 +82,20 @@ export default function DocumentMarkdown({ children, className = "" }: Props) {
                     pre: ({ children: kids }) => <>{kids}</>,
                     code: ({ className, children: kids }) => {
                         const lang = /language-(\w+)/.exec(className || "")?.[1];
-                        const text = String(kids ?? "").replace(/\n$/, "");
-                        if (lang === "mermaid") return <MermaidBlock code={text} />;
+                        const plain = String(kids ?? "").replace(/\n$/, "");
+                        if (lang === "mermaid") {
+                            // Prefer raw text; highlighted children may already be nodes
+                            const raw =
+                                typeof kids === "string" || typeof kids === "number"
+                                    ? String(kids).replace(/\n$/, "")
+                                    : plainChildren(kids).replace(/\n$/, "") || plain;
+                            return <MermaidBlock code={raw} />;
+                        }
                         if (lang) {
                             return (
-                                <pre className="overflow-x-auto">
-                                    <code className={className}>{kids}</code>
-                                </pre>
+                                <CodeBlock language={lang} className={className}>
+                                    {kids}
+                                </CodeBlock>
                             );
                         }
                         return <code className={className}>{kids}</code>;
