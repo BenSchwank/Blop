@@ -3584,12 +3584,10 @@ export default function FolderPage() {
             }
 
             const typeLabel = AI_JOB_LABELS[selectedFile.type] || selectedFile.type;
-            const crumbLabel = selectedFile.name && selectedFile.name !== typeLabel
-                ? `${typeLabel}: ${selectedFile.name}`
-                : typeLabel;
+            const crumbLabel = (selectedFile.name && selectedFile.name.trim()) || typeLabel;
             return (
-                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 ${chatShiftClass}`}>
-                    <div className="flex items-center justify-between h-14 px-4 border-b border-white/[0.08] bg-[#23252A] shrink-0 z-10 w-full gap-3 no-print">
+                <div className={`study-document-view print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden min-h-0 animate-in fade-in slide-in-from-bottom-4 duration-300 ${chatShiftClass}`}>
+                    <div className="study-top-toolbar relative z-20 flex items-center justify-between h-14 px-4 border-b border-white/[0.08] bg-[#23252A] shrink-0 w-full gap-3 no-print">
                         <div className="flex items-center gap-2 min-w-0">
                             <button onClick={() => { setSelectedFile(null); setIsEditingFile(false); }} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors shrink-0" aria-label="Schließen">
                                 <X size={18} />
@@ -3664,7 +3662,7 @@ export default function FolderPage() {
                     </div>
                     <div
                         ref={docScrollRef}
-                        className={`flex-1 overflow-y-auto bg-[#1a1a1a] p-6 sm:p-8 transition-[padding] duration-200 ${
+                        className={`study-scroll-content flex-1 min-h-0 overflow-y-auto bg-[#1a1a1a] p-6 sm:p-8 transition-[padding] duration-200 ${
                             readSelectionOpen ? 'pr-[min(100vw-1.5rem,22rem)] sm:pr-[calc(min(100vw-1.5rem,22rem)+1rem)]' : ''
                         }`}
                     >

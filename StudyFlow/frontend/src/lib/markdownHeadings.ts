@@ -32,18 +32,28 @@ export function slugifyHeading(text: string): string {
     return base || "abschnitt";
 }
 
-function stashSegments(src: string, pattern: RegExp): { text: string; slots: string[] } {
+/** Isolated ASCII placeholders — never share indices across fence/math layers. */
+function stashWithPrefix(
+    src: string,
+    pattern: RegExp,
+    prefix: "BLOPFENCE" | "BLOPDISP" | "BLOPINL"
+): { text: string; slots: string[] } {
     const slots: string[] = [];
     const text = src.replace(pattern, (block) => {
         const i = slots.length;
         slots.push(block);
-        return `\uE000${i}\uE001`;
+        return `%%${prefix}${i}%%`;
     });
     return { text, slots };
 }
 
-function restoreSlots(text: string, slots: string[]): string {
-    return text.replace(/\uE000(\d+)\uE001/g, (_m, idx: string) => slots[Number(idx)] ?? "");
+function restoreWithPrefix(
+    text: string,
+    slots: string[],
+    prefix: "BLOPFENCE" | "BLOPDISP" | "BLOPINL"
+): string {
+    const re = new RegExp(`%%${prefix}(\\d+)%%`, "g");
+    return text.replace(re, (_m, idx: string) => slots[Number(idx)] ?? "");
 }
 
 function wrapInlineDisplaystyle(inner: string): string {
@@ -53,9 +63,23 @@ function wrapInlineDisplaystyle(inner: string): string {
     return t;
 }
 
+/**
+ * Heal docs where a prior slot-collision replaced ```lang fences with KaTeX $A^{10}$ / A¹⁰.
+ * Only rewrite clear fence-open/close markers — leave real math alone.
+ */
+function repairCorruptedCodeFences(src: string): string {
+    let t = src;
+    // Opening fence: $A^{10}$mermaid / A¹⁰c / A10python
+    t = t.replace(/(?:\$A\^\{10\}\$|A[¹1][⁰0]|\$A\^\{10\})(\w+)/g, "\n```$1\n");
+    // Closing fence on its own (after a language-open repair left body + trailing marker)
+    t = t.replace(/(^|\n)(?:\$A\^\{10\}\$|A[¹1][⁰0])(?=\s*(?:\n|$))/g, "$1\n```\n");
+    return t;
+}
+
 /** Repair LLM markdown so KaTeX/remark-math can parse it. */
 export function sanitizeDocumentMarkdown(markdown: string): string {
     let t = String(markdown || "").replace(/\r\n/g, "\n");
+    t = repairCorruptedCodeFences(t);
     t = t.replace(/\]\(\s*#([^)]*)\)/g, (_m, inner: string) => {
         const slug = String(inner || "").replace(/[\s\r\n]+/g, "");
         return `](#${slug})`;
@@ -63,7 +87,8 @@ export function sanitizeDocumentMarkdown(markdown: string): string {
     t = t.replace(/^#{1,3}\s+inhaltsverzeichnis\s*\n(?:[ \t]*(?:[-*+]|\d+[.)])[ \t]+.*\n?)+/gim, "\n");
     t = t.replace(/\n\s*[-*+]\s*$/g, "");
 
-    const fences = stashSegments(t, /```[\s\S]*?```/g);
+    // Fences first — restored last, byte-identical, never touched by math/heading passes.
+    const fences = stashWithPrefix(t, /```[\s\S]*?```/g, "BLOPFENCE");
     t = fences.text;
 
     // Isolate display math (possibly without newlines), then force delimiter line breaks.
@@ -74,11 +99,11 @@ export function sanitizeDocumentMarkdown(markdown: string): string {
     t = t.replace(/([^\n])\$\$/g, "$1\n$$");
     t = t.replace(/\$\$([^\n])/g, "$$\n$1");
 
-    const display = stashSegments(t, /\$\$[\s\S]*?\$\$/g);
+    const display = stashWithPrefix(t, /\$\$[\s\S]*?\$\$/g, "BLOPDISP");
     t = display.text;
 
     t = t.replace(/\$([^$\n]+?)\$/g, (_m, inner: string) => `$${wrapInlineDisplaystyle(inner)}$`);
-    const inline = stashSegments(t, /\$[^$\n]+\$/g);
+    const inline = stashWithPrefix(t, /\$[^$\n]+\$/g, "BLOPINL");
     t = inline.text;
 
     t = t
@@ -92,9 +117,9 @@ export function sanitizeDocumentMarkdown(markdown: string): string {
         .join("\n");
     t = t.replace(/\n{3,}/g, "\n\n");
 
-    t = restoreSlots(t, inline.slots);
-    t = restoreSlots(t, display.slots);
-    t = restoreSlots(t, fences.slots);
+    t = restoreWithPrefix(t, inline.slots, "BLOPINL");
+    t = restoreWithPrefix(t, display.slots, "BLOPDISP");
+    t = restoreWithPrefix(t, fences.slots, "BLOPFENCE");
     return t.trim();
 }
 
