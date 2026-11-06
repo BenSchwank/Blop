@@ -741,8 +741,8 @@ export default function FolderPage() {
 
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
-    const [chatDockOpen, setChatDockOpen] = useState(false);
-    const [chatDockExpanded, setChatDockExpanded] = useState(false);
+    const [, setChatDockOpen] = useState(false);
+    const [, setChatDockExpanded] = useState(false);
     const [printMarkdownJob, setPrintMarkdownJob] = useState<{ md: string; title: string } | null>(null);
     const [documentUndoStack, setDocumentUndoStack] = useState<Record<string, string[]>>({});
     const [expandedDay, setExpandedDay] = useState<number | null>(0);
@@ -3207,41 +3207,80 @@ export default function FolderPage() {
     };
 
     const applyPatchToContent = (baseContent: string, patch: DocumentPatch): string => {
-        // The document is stored as HTML (Tiptap). Convert the AI's markdown new_text to HTML.
         const isBaseHtml = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote>/i.test(baseContent);
-        const newHtml = isBaseHtml
-            ? (marked.parse(patch.new_text.trim(), { async: false }) as string).trim()
-            : patch.new_text.trim();
+        const newText = patch.new_text.trim();
+
+        // --- Markdown path (current elaborations / summaries) ---
+        if (!isBaseHtml) {
+            if (patch.apply_mode === 'append') {
+                return `${baseContent.trimEnd()}\n\n${newText}\n`;
+            }
+            const hint = (patch.section_hint || '').trim();
+            const plainHint = hint.replace(/^#+\s*/, '').trim().toLowerCase();
+            if (!plainHint) {
+                // Full rewrite when the model sends a substantial body, else append
+                if (newText.length >= Math.max(80, Math.floor(baseContent.length * 0.35))) {
+                    return newText.endsWith('\n') ? newText : `${newText}\n`;
+                }
+                return `${baseContent.trimEnd()}\n\n${newText}\n`;
+            }
+            const lines = baseContent.split(/\r?\n/);
+            let start = -1;
+            let startLevel = 0;
+            for (let i = 0; i < lines.length; i++) {
+                const m = /^(#{1,6})\s+(.+?)\s*$/.exec(lines[i]);
+                if (!m) continue;
+                const title = m[2].replace(/[*_`~]/g, '').trim().toLowerCase();
+                if (title.includes(plainHint) || plainHint.includes(title)) {
+                    start = i;
+                    startLevel = m[1].length;
+                    break;
+                }
+            }
+            if (start < 0) {
+                return `${baseContent.trimEnd()}\n\n${newText}\n`;
+            }
+            let end = lines.length;
+            for (let i = start + 1; i < lines.length; i++) {
+                const m = /^(#{1,6})\s+/.exec(lines[i]);
+                if (m && m[1].length <= startLevel) {
+                    end = i;
+                    break;
+                }
+            }
+            const replacement = newText.split(/\r?\n/);
+            // Keep original heading line if new_text doesn't start with a heading
+            const keepHeading = !/^#{1,6}\s/.test(newText);
+            const before = lines.slice(0, keepHeading ? start + 1 : start);
+            const after = lines.slice(end);
+            return [...before, ...replacement, ...after].join('\n').replace(/\n{3,}/g, '\n\n');
+        }
+
+        // --- Legacy HTML (TipTap) path ---
+        const newHtml = (marked.parse(newText, { async: false }) as string).trim();
 
         if (patch.apply_mode === 'append') {
             return `${baseContent.trimEnd()}\n${newHtml}\n`;
         }
 
         const hint = (patch.section_hint || '').trim();
-        if (!hint || !isBaseHtml) {
+        if (!hint) {
             return `${baseContent.trimEnd()}\n${newHtml}\n`;
         }
 
-        // Strip markdown heading markers (## Titel → Titel) to search in HTML
         const plainHint = hint.replace(/^#+\s*/, '').trim();
         const escapedHint = plainHint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-        // Find an HTML heading element containing this text
         const headingRegex = new RegExp(`<h([1-6])[^>]*>[^<]*${escapedHint}[^<]*</h\\1>`, 'i');
         const headingMatch = baseContent.match(headingRegex);
 
         if (!headingMatch || headingMatch.index === undefined) {
-            // Fallback: append
             return `${baseContent.trimEnd()}\n${newHtml}\n`;
         }
 
         const headingEnd = headingMatch.index + headingMatch[0].length;
         const afterHeading = baseContent.slice(headingEnd);
-
-        // Find where the next heading starts (same or higher level = replace this section's content)
         const nextHeadingMatch = afterHeading.match(/<h[1-6][^>]*>/i);
         if (!nextHeadingMatch || nextHeadingMatch.index === undefined) {
-            // No next heading — replace everything after this heading
             return `${baseContent.slice(0, headingEnd)}\n${newHtml}\n`;
         }
 
@@ -3434,9 +3473,6 @@ export default function FolderPage() {
         }
     };
 
-    const chatShiftClass = chatDockOpen
-        ? `max-md:mr-0 transition-[margin] duration-200 ease ${chatDockExpanded ? "md:mr-[min(100vw-1.25rem,40rem)]" : "md:mr-[min(100vw-1.25rem,26rem)]"}`
-        : "transition-[margin] duration-200 ease";
 
     // --- VIEWER COMPONENTS ---
     const renderViewer = () => {
@@ -3581,7 +3617,6 @@ export default function FolderPage() {
                         initialContent={contentStr}
                         title={selectedFile.name}
                         youtubeVideoId={selectedFile.type === 'transcript' ? ytId : null}
-                        contentShiftClass={chatShiftClass}
                         onClose={() => { setSelectedFile(null); setIsEditingFile(false); }}
                         onSave={saveDocContent}
                     />
@@ -3599,7 +3634,6 @@ export default function FolderPage() {
                         jumpToText={chatPatchJumpText}
                         username={typeof window !== 'undefined' ? localStorage.getItem("username") || "" : ""}
                         modelPreference={effectiveModelPreference}
-                        contentShiftClass={chatShiftClass}
                         onClose={() => { setSelectedFile(null); setIsEditingFile(false); }}
                         onSave={saveDocContent}
                     />
@@ -3609,7 +3643,7 @@ export default function FolderPage() {
             const typeLabel = AI_JOB_LABELS[selectedFile.type] || selectedFile.type;
             const crumbLabel = (selectedFile.name && selectedFile.name.trim()) || typeLabel;
             return (
-                <div className={`study-document-view print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden min-h-0 animate-in fade-in slide-in-from-bottom-4 duration-300 ${chatShiftClass}`}>
+                <div className="study-document-view print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden min-h-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="study-top-toolbar relative z-20 flex items-center justify-between h-14 px-4 border-b border-white/[0.08] bg-[#23252A] shrink-0 w-full gap-3 no-print">
                         <div className="flex items-center gap-2 min-w-0">
                             <button onClick={() => { setSelectedFile(null); setIsEditingFile(false); }} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors shrink-0" aria-label="Schließen">
@@ -3752,7 +3786,7 @@ export default function FolderPage() {
             const sessionId = typeof window !== 'undefined' ? localStorage.getItem("session_id") || "" : "";
             const busyPractice = isGenerating.includes('quiz') || isGenerating.includes('flashcards');
             return (
-                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 ${chatShiftClass}`}>
+                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300`}>
                     <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full no-print">
                         <div className="flex items-center gap-3">
                             <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
@@ -3831,7 +3865,7 @@ export default function FolderPage() {
             };
 
             return (
-                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 ${chatShiftClass}`}>
+                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300`}>
                     <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full no-print">
                         <div className="flex items-center gap-3">
                             <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">
@@ -4108,7 +4142,7 @@ export default function FolderPage() {
         const ytIdGeneric = youtubeVideoIdFromTranscriptFile(selectedFile);
 
         return (
-                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 ${chatShiftClass}`}>
+                <div className={`print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300`}>
                 <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full no-print">
                     <div className="flex items-center gap-3">
                         <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#3A3D45] rounded-xl transition-colors">

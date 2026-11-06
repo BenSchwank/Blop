@@ -66,16 +66,19 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
     const [pendingPatch, setPendingPatch] = useState<DocumentPatch | null>(null);
     const [lastUsageInfo, setLastUsageInfo] = useState<string>('');
     const [vvOffset, setVvOffset] = useState({ top: 0, height: 0 });
-    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesRef = useRef<HTMLDivElement>(null);
     const dockRef = useRef<HTMLDivElement>(null);
 
+    /** Scroll only the messages pane — never scrollIntoView (that scrolls ancestors). */
     const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const el = messagesRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
     };
 
     useEffect(() => {
         if (isOpen) scrollToBottom();
-    }, [messages, isOpen]);
+    }, [messages, isOpen, pendingPatch]);
 
     const onOpenChangeRef = useRef(onOpenChange);
     onOpenChangeRef.current = onOpenChange;
@@ -83,12 +86,16 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
         onOpenChangeRef.current?.(isOpen, isExpanded);
     }, [isOpen, isExpanded]);
 
-    // Keep the mobile chat sheet inside the visual viewport (keyboard-safe).
+    // Keep the mobile chat sheet inside the visual viewport (keyboard-safe). Desktop untouched.
     useEffect(() => {
         if (!isOpen || typeof window === 'undefined') return;
         const vv = window.visualViewport;
         if (!vv) return;
         const sync = () => {
+            if (window.innerWidth >= 768) {
+                setVvOffset({ top: 0, height: 0 });
+                return;
+            }
             setVvOffset({ top: vv.offsetTop, height: vv.height });
         };
         sync();
@@ -266,6 +273,15 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
         setMessages((prev) => [...prev, { role: 'model', content: 'Änderung verworfen.' }]);
     };
 
+    const mobileVvStyle =
+        vvOffset.height > 0 && typeof window !== 'undefined' && window.innerWidth < 768
+            ? {
+                  top: Math.max(8, vvOffset.top + 8),
+                  height: Math.max(240, vvOffset.height - 16),
+                  bottom: 'auto' as const,
+              }
+            : undefined;
+
     return (
         <>
             <AnimatePresence>
@@ -277,64 +293,48 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 40 }}
                         transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-                        className={`${OVERLAY_FLOATING_CHAT_DOCK} max-md:w-auto ${isExpanded ? 'md:w-[min(100vw-1.25rem,40rem)]' : 'md:w-[min(100vw-1.25rem,26rem)]'}`}
-                        style={
-                            vvOffset.height > 0
-                                ? {
-                                      // Mobile: pin to visualViewport so the composer stays above the keyboard
-                                      top: typeof window !== 'undefined' && window.innerWidth < 768
-                                          ? Math.max(8, vvOffset.top + 8)
-                                          : undefined,
-                                      height:
-                                          typeof window !== 'undefined' && window.innerWidth < 768
-                                              ? Math.max(240, vvOffset.height - 16)
-                                              : undefined,
-                                      bottom:
-                                          typeof window !== 'undefined' && window.innerWidth < 768
-                                              ? 'auto'
-                                              : undefined,
-                                  }
-                                : undefined
-                        }
+                        className={`${OVERLAY_FLOATING_CHAT_DOCK} ${isExpanded ? 'md:w-[min(100vw-1.25rem,40rem)]' : ''}`}
+                        style={mobileVvStyle}
                         role="dialog"
                         aria-label="Blop KI-Assistent"
                     >
-                        <div className="bg-[#1A1F2A] p-2.5 md:p-3.5 border-b border-[#2A3140] flex items-center justify-between shrink-0 gap-2">
-                            <div className="flex items-center gap-2 md:gap-2.5 min-w-0">
-                                <div className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-[#5B9DFF]/15 text-[#5B9DFF] flex items-center justify-center ring-1 ring-[#5B9DFF]/25">
-                                    <MessageCircle size={18} />
+                        {/* 1. Fixed header */}
+                        <div className="ai-chat-header flex h-[52px] shrink-0 items-center justify-between gap-2 border-b border-white/[0.08] bg-[#181B24] px-4">
+                            <div className="flex min-w-0 items-center gap-2.5">
+                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#5B9DFF]/15 text-[#5B9DFF] ring-1 ring-[#5B9DFF]/25">
+                                    <MessageCircle size={16} />
                                 </div>
                                 <div className="min-w-0">
-                                    <h3 className="text-white font-semibold text-sm truncate">Blop KI-Assistent</h3>
-                                    <p className="text-[10px] text-gray-500 truncate hidden md:block">Rechts am Rand · zum Ordner fragen</p>
+                                    <h3 className="truncate text-sm font-semibold text-white">Blop KI-Assistent</h3>
+                                    <p className="hidden truncate text-[10px] text-gray-500 md:block">Rechts am Rand · zum Ordner fragen</p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1 shrink-0">
+                            <div className="flex shrink-0 items-center gap-1">
                                 {canUndo ? (
-                                <button
-                                    type="button"
-                                    disabled={isLoading}
-                                    onClick={async () => {
-                                        if (!onUndoLastPatch) return;
-                                        setIsLoading(true);
-                                        try {
-                                            await onUndoLastPatch();
-                                            setMessages((prev) => [...prev, { role: 'model', content: 'Letzte Änderung rückgängig gemacht.' }]);
-                                        } catch (e: any) {
-                                            setMessages((prev) => [...prev, { role: 'model', content: e?.message || 'Rückgängig fehlgeschlagen.' }]);
-                                        } finally {
-                                            setIsLoading(false);
-                                        }
-                                    }}
-                                    className="px-2 py-1 text-[11px] rounded-lg border border-[#3A4558] text-gray-300 hover:text-white hover:bg-[#243044] disabled:opacity-40"
-                                >
-                                    Rückgängig
-                                </button>
+                                    <button
+                                        type="button"
+                                        disabled={isLoading}
+                                        onClick={async () => {
+                                            if (!onUndoLastPatch) return;
+                                            setIsLoading(true);
+                                            try {
+                                                await onUndoLastPatch();
+                                                setMessages((prev) => [...prev, { role: 'model', content: 'Letzte Änderung rückgängig gemacht.' }]);
+                                            } catch (e: any) {
+                                                setMessages((prev) => [...prev, { role: 'model', content: e?.message || 'Rückgängig fehlgeschlagen.' }]);
+                                            } finally {
+                                                setIsLoading(false);
+                                            }
+                                        }}
+                                        className="rounded-lg border border-[#3A4558] px-2 py-1 text-[11px] text-gray-300 hover:bg-[#243044] hover:text-white disabled:opacity-40"
+                                    >
+                                        Rückgängig
+                                    </button>
                                 ) : null}
                                 <button
                                     type="button"
                                     onClick={() => setIsExpanded(!isExpanded)}
-                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-[#243044] rounded-lg max-md:hidden"
+                                    className="hidden rounded-lg p-1.5 text-gray-400 hover:bg-[#243044] hover:text-white md:inline-flex"
                                     aria-label={isExpanded ? 'Schmaler' : 'Breiter'}
                                 >
                                     {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
@@ -342,7 +342,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                 <button
                                     type="button"
                                     onClick={() => setIsOpen(false)}
-                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-[#243044] rounded-lg"
+                                    className="rounded-lg p-1.5 text-gray-400 hover:bg-[#243044] hover:text-white"
                                     aria-label="Schließen"
                                 >
                                     <X size={16} />
@@ -350,17 +350,21 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar bg-[#0E1117] min-h-0">
+                        {/* 2. Scrollable messages */}
+                        <div
+                            ref={messagesRef}
+                            className="ai-chat-messages custom-scrollbar flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto bg-[#0E1117] p-4"
+                        >
                             {messages.map((msg, index) => (
                                 <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div
                                         className={`max-w-[88%] rounded-2xl px-3.5 py-3 ${msg.role === 'user'
-                                            ? 'bg-[#5B9DFF] text-white rounded-tr-md'
-                                            : 'bg-[#1A1F2A] text-gray-100 rounded-tl-md border border-[#2A3140]'
+                                            ? 'rounded-tr-md bg-[#5B9DFF] text-white'
+                                            : 'rounded-tl-md border border-[#2A3140] bg-[#1A1F2A] text-gray-100'
                                             }`}
                                     >
                                         {msg.role === 'model' ? (
-                                            <div className="prose prose-invert prose-blop max-w-none text-sm leading-relaxed prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:bg-[#12141A] prose-pre:border prose-pre:border-[#2A3140] prose-code:text-[#9EC5FF] [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto">
+                                            <div className="prose prose-invert prose-blop max-w-none text-sm leading-relaxed prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:border prose-pre:border-[#2A3140] prose-pre:bg-[#12141A] prose-code:text-[#9EC5FF] [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto">
                                                 <ReactMarkdown
                                                     remarkPlugins={[remarkGfm, remarkMath]}
                                                     rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
@@ -369,28 +373,28 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                                 </ReactMarkdown>
                                             </div>
                                         ) : (
-                                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                                            <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                                         )}
                                     </div>
                                 </div>
                             ))}
                             {isLoading && (
                                 <div className="flex justify-start">
-                                    <div className="bg-[#1A1F2A] text-gray-400 rounded-2xl rounded-tl-md px-3.5 py-3 border border-[#2A3140] flex items-center gap-2">
+                                    <div className="flex items-center gap-2 rounded-2xl rounded-tl-md border border-[#2A3140] bg-[#1A1F2A] px-3.5 py-3 text-gray-400">
                                         <Loader2 size={16} className="animate-spin text-[#5B9DFF]" />
                                         <span className="text-sm">Denkt nach…</span>
                                     </div>
                                 </div>
                             )}
                             {pendingPatch && (
-                                <div className="bg-[#152033] border border-[#5B9DFF]/35 rounded-xl p-3">
-                                    <p className="text-xs text-gray-300 mb-2">Vorgeschlagene Dokumentänderung bereit.</p>
+                                <div className="rounded-xl border border-[#5B9DFF]/35 bg-[#152033] p-3">
+                                    <p className="mb-2 text-xs text-gray-300">Vorgeschlagene Dokumentänderung bereit.</p>
                                     <div className="flex gap-2">
                                         <button
                                             type="button"
                                             onClick={handleApplyPatch}
                                             disabled={isLoading}
-                                            className="px-3 py-1.5 text-xs rounded-lg bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white disabled:opacity-50"
+                                            className="rounded-lg bg-[#5B9DFF] px-3 py-1.5 text-xs text-white hover:bg-[#4A8AE6] disabled:opacity-50"
                                         >
                                             Übernehmen
                                         </button>
@@ -398,28 +402,28 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                             type="button"
                                             onClick={handleRejectPatch}
                                             disabled={isLoading}
-                                            className="px-3 py-1.5 text-xs rounded-lg bg-[#243044] hover:bg-[#2E3A4F] text-gray-200 disabled:opacity-50"
+                                            className="rounded-lg bg-[#243044] px-3 py-1.5 text-xs text-gray-200 hover:bg-[#2E3A4F] disabled:opacity-50"
                                         >
                                             Verwerfen
                                         </button>
                                     </div>
                                 </div>
                             )}
-                            <div ref={messagesEndRef} />
                         </div>
 
-                        <div className="p-3.5 bg-[#1A1F2A] border-t border-[#2A3140] shrink-0 space-y-2">
+                        {/* 3. Fixed footer */}
+                        <div className="ai-chat-footer flex shrink-0 flex-col gap-2 border-t border-white/[0.08] bg-[#181B24] px-4 py-3 pb-4">
                             {activeFile && typeof activeFile.content === 'string' ? (
                                 <button
                                     type="button"
                                     onClick={() => setEditDocument((v) => !v)}
-                                    className={`inline-flex items-center gap-2 text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                                    className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
                                         editDocument
-                                            ? 'bg-[#5B9DFF]/15 text-[#9EC5FF] border-[#5B9DFF]/40'
-                                            : 'bg-transparent text-gray-400 border-[#3A4558] hover:border-[#5B9DFF]/30'
+                                            ? 'border-[#5B9DFF]/40 bg-[#5B9DFF]/15 text-[#9EC5FF]'
+                                            : 'border-[#3A4558] bg-transparent text-gray-400 hover:border-[#5B9DFF]/30'
                                     }`}
                                 >
-                                    <span className={`w-1.5 h-1.5 rounded-full ${editDocument ? 'bg-[#5B9DFF]' : 'bg-gray-500'}`} />
+                                    <span className={`h-1.5 w-1.5 rounded-full ${editDocument ? 'bg-[#5B9DFF]' : 'bg-gray-500'}`} />
                                     Dokument ändern
                                 </button>
                             ) : null}
@@ -436,14 +440,14 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                             handleSend();
                                         }
                                     }}
-                                    placeholder="Frage etwas zum Ordner…"
-                                    className="flex-1 bg-[#0E1117] text-white border border-[#2A3140] rounded-xl px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40 focus:border-[#5B9DFF]/50 resize-none max-h-32 min-h-[48px] custom-scrollbar"
+                                    placeholder={editDocument ? 'Beschreibe die Änderung am Dokument…' : 'Frage etwas zum Ordner…'}
+                                    className="custom-scrollbar max-h-32 min-h-[48px] flex-1 resize-none rounded-xl border border-[#2A3140] bg-[#0E1117] px-3.5 py-3 text-sm text-white focus:border-[#5B9DFF]/50 focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
                                     rows={1}
                                 />
                                 <button
                                     type="submit"
                                     disabled={!input.trim() || isLoading}
-                                    className="bg-[#5B9DFF] hover:bg-[#4A8AE6] disabled:opacity-50 disabled:cursor-not-allowed text-white p-3 rounded-xl transition-colors shrink-0 flex items-center justify-center h-[48px] w-[48px]"
+                                    className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-xl bg-[#5B9DFF] p-3 text-white transition-colors hover:bg-[#4A8AE6] disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                     <Send size={18} className={input.trim() ? 'translate-x-0.5' : ''} />
                                 </button>
@@ -466,7 +470,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => setIsOpen(true)}
-                        className="bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white rounded-full p-4 shadow-xl border border-[#5B9DFF]/30 flex items-center justify-center"
+                        className="flex items-center justify-center rounded-full border border-[#5B9DFF]/30 bg-[#5B9DFF] p-4 text-white shadow-xl hover:bg-[#4A8AE6]"
                         aria-label="Chat öffnen"
                     >
                         <MessageCircle size={24} />

@@ -24,11 +24,14 @@ export const OVERLAY_FLOATING_CHAT =
     "no-print fixed bottom-32 right-20 z-[100] max-md:bottom-36 max-md:right-3 flex flex-col items-end";
 
 /**
- * Open chat panel: fixed right-edge dock on desktop; full-bleed sheet on mobile.
- * Leaves a gap for the queue dock on md+; on max-md uses left/right insets (no right-16).
+ * Open chat panel: fixed right-edge dock (desktop) / sheet (mobile).
+ * Strict column flex — never column-reverse. z above document viewer (100).
  */
 export const OVERLAY_FLOATING_CHAT_DOCK =
-    "no-print fixed z-[100] flex flex-col rounded-2xl border border-[#2A3140] bg-[#12141A] shadow-2xl overflow-hidden top-16 bottom-28 right-16 max-md:inset-x-3 max-md:top-14 max-md:bottom-28 max-md:right-3 max-md:left-3";
+    "no-print ai-chat-panel fixed z-[120] flex flex-col overflow-hidden " +
+    "top-14 right-0 bottom-0 h-[calc(100vh-3.5rem)] w-[380px] max-w-[100vw] " +
+    "border-l border-white/[0.08] bg-[#14171F] shadow-2xl " +
+    "max-md:inset-x-3 max-md:top-14 max-md:bottom-24 max-md:right-3 max-md:left-3 max-md:w-auto max-md:h-auto max-md:rounded-2xl max-md:border max-md:border-[#2A3140]";
 
 /** Folder page “KI & Verarbeitung” — sm+ inset from right so it clears the global queue dock */
 export const OVERLAY_FOLDER_KI_PANEL =
