@@ -28,6 +28,7 @@ class CropResizer;
 class QGraphicsOpacityEffect;
 class QPropertyAnimation;
 class GraphLegendDock;
+class GraphValueTableDock;
 class GraphQuickActionPopup;
 class GraphFormulaEntryBar;
 class GraphTangentXPopup;
@@ -146,6 +147,8 @@ public slots:
     void startTransformSession();
     void applyTransform();
     void screenshotSelection();
+    void recognizeSelectionMath();
+    void plotSelectionMath();
     // v3.18.0: Rechteck-Crop-Session (analog CanvasView::startCropSession).
     void startCropSession();
     void applyCrop();
@@ -168,6 +171,8 @@ protected:
     /// Apply a fit-to-width transform so the A4 page fits the viewport.
 signals:
     void pagesChanged();
+    /// Fired when scene selection becomes empty or non-empty (chrome refresh).
+    void canvasSelectionPresenceChanged(bool hasSelection);
 
 public:
     void addNewPage();
@@ -339,6 +344,7 @@ private:
     void updateGraphChromeIfVisible();
 
     GraphLegendDock* m_graphLegendDock{nullptr};
+    GraphValueTableDock* m_graphValueTableDock{nullptr};
     GraphQuickActionPopup* m_graphQuickPopup{nullptr};
     GraphFormulaEntryBar* m_graphEntryBar{nullptr};
     GraphTangentXPopup* m_tangentXPopup{nullptr};
@@ -352,6 +358,7 @@ private:
     bool m_syncingStickies{false};
     QTimer* m_stickySyncTimer{nullptr};
     QTimer* m_strokeSyncTimer{nullptr};
+    QMetaObject::Connection m_toolOverlayConn;
     bool m_rebuildingScene{false};
     int m_contentRevision{0};
     bool m_syncingTexts{false};

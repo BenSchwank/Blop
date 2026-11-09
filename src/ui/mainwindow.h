@@ -729,6 +729,7 @@ private:
   RadialToolbarFab *m_radialFab{nullptr};
   /// Desktop: four mockup toolbars replacing the ModernToolbar rail.
   NoteToolbarHost *m_noteToolbars{nullptr};
+  QMetaObject::Connection m_noteSelChromeConn;
   QPushButton *m_strukturBackPill{nullptr};
   QPointer<StrukturNoteEditor> m_strukturReturnEditor;
   QPointer<QWidget> m_strukturReturnNote;

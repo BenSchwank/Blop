@@ -1,5 +1,6 @@
 #include "penstudiopopover.h"
 
+#include "ToolSettings.h"
 #include "blop_theme.h"
 #include "blopstyle.h"
 #include "notechrome.h"
@@ -10,6 +11,7 @@
 #include <QAbstractButton>
 #include <QButtonGroup>
 #include <QColorDialog>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
@@ -58,7 +60,12 @@ protected:
     }
     QColor ink = cfg.penColor.isValid() ? cfg.penColor : QColor(Qt::black);
     ink.setAlphaF(qBound(0.1, cfg.opacity, 1.0));
-    QPen pen(ink, qBound(1, cfg.penWidth, 24), Qt::SolidLine, Qt::RoundCap,
+    Qt::PenStyle style = Qt::SolidLine;
+    if (cfg.penStrokeStyle == PenStrokeStyle::Dashed)
+      style = Qt::DashLine;
+    else if (cfg.penStrokeStyle == PenStrokeStyle::Dotted)
+      style = Qt::DotLine;
+    QPen pen(ink, qBound(0.5, qreal(cfg.penWidth), 24.0), style, Qt::RoundCap,
              Qt::RoundJoin);
     p.setPen(pen);
     p.drawPath(path);
@@ -111,37 +118,40 @@ QPushButton *styleCard(const QString &text, QWidget *parent) {
   b->setCheckable(true);
   b->setCursor(Qt::PointingHandCursor);
   b->setFocusPolicy(Qt::NoFocus);
-  b->setFixedHeight(UiScale::dp(36));
+  b->setFixedHeight(UiScale::dp(32));
   return b;
 }
 
 void styleCards(QAbstractButton *btn, bool on) {
   const bool dark = NoteChrome::isDark();
-  const QString bg = on ? QStringLiteral("rgba(91,157,255,0.18)")
-                        : (dark ? QStringLiteral("rgba(255,255,255,0.06)")
-                                : QStringLiteral("#F3F4F6"));
-  const QString border = on ? QStringLiteral("#5B9DFF")
-                            : (dark ? QStringLiteral("rgba(255,255,255,0.12)")
-                                    : QStringLiteral("#E5E7EB"));
+  const QString bg =
+      on ? QStringLiteral("rgba(91,157,255,0.18)")
+         : (dark ? QStringLiteral("rgba(255,255,255,0.06)")
+                 : NoteChrome::panelBg().name(QColor::HexRgb));
+  const QString border =
+      on ? NoteChrome::accent().name(QColor::HexRgb)
+         : (dark ? QStringLiteral("rgba(255,255,255,0.12)")
+                 : NoteChrome::borderSoft().name(QColor::HexRgb));
   btn->setStyleSheet(QStringLiteral(
                          "QPushButton { background: %1; color: %2; border: 1px solid %3;"
-                         " border-radius: 8px; font-size: 11px; font-weight: 600;"
-                         " padding: 4px 4px; }")
+                         " border-radius: 8px; font-size: 10px; font-weight: 600;"
+                         " padding: 2px 2px; }")
                          .arg(bg, panelInk().name(QColor::HexRgb), border));
 }
 
 QString sliderQss() {
-  const QString groove = NoteChrome::isDark()
-                             ? QStringLiteral("rgba(255,255,255,0.12)")
-                             : QStringLiteral("#E5E7EB");
+  const QString groove =
+      NoteChrome::isDark() ? QStringLiteral("rgba(255,255,255,0.12)")
+                           : NoteChrome::borderSoft().name(QColor::HexRgb);
+  const QString acc = NoteChrome::accent().name(QColor::HexRgb);
   return QStringLiteral(
-      "QSlider::groove:horizontal { height: 4px; background: %1;"
-      " border: none; border-radius: 2px; }"
-      "QSlider::sub-page:horizontal { background: #5B9DFF; border-radius: 2px; }"
-      "QSlider::add-page:horizontal { background: %1; border-radius: 2px; }"
-      "QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;"
-      " background: #5B9DFF; border: none; border-radius: 7px; }")
-      .arg(groove);
+             "QSlider::groove:horizontal { height: 4px; background: %1;"
+             " border: none; border-radius: 2px; }"
+             "QSlider::sub-page:horizontal { background: %2; border-radius: 2px; }"
+             "QSlider::add-page:horizontal { background: %1; border-radius: 2px; }"
+             "QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;"
+             " background: %2; border: none; border-radius: 7px; }")
+      .arg(groove, acc);
 }
 
 QLabel *sectionLabel(const QString &text, QWidget *parent) {
@@ -156,27 +166,29 @@ PenStudioPopover::PenStudioPopover(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("PenStudioPopover"));
   setWindowFlags(Qt::Popup | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
   setAttribute(Qt::WA_TranslucentBackground, true);
-  setFixedWidth(280);
+  setFixedWidth(300);
 
   auto *root = new QVBoxLayout(this);
   root->setContentsMargins(16, 16, 16, 16);
-  root->setSpacing(12);
+  root->setSpacing(10);
 
   m_preview = new StrokePreview(this);
   root->addWidget(m_preview);
 
-  auto *styleRow = new QHBoxLayout;
-  styleRow->setSpacing(6);
   m_styles = new QButtonGroup(this);
   m_styles->setExclusive(true);
-  const QStringList names = {QStringLiteral("Einfach"), QStringLiteral("Druck"),
-                             QStringLiteral("Kalligrafie")};
+  const QStringList names = {
+      QStringLiteral("Füller"),   QStringLiteral("Fineliner"), QStringLiteral("Bleistift"),
+      QStringLiteral("Kalligrafie"), QStringLiteral("Gestrichelt"), QStringLiteral("Gepunktet")};
+  auto *styleGrid = new QGridLayout;
+  styleGrid->setHorizontalSpacing(6);
+  styleGrid->setVerticalSpacing(6);
   for (int i = 0; i < names.size(); ++i) {
     auto *b = styleCard(names[i], this);
     m_styles->addButton(b, i);
-    styleRow->addWidget(b, 1);
+    styleGrid->addWidget(b, i / 3, i % 3);
   }
-  root->addLayout(styleRow);
+  root->addLayout(styleGrid);
   connect(m_styles, &QButtonGroup::idClicked, this, [this](int id) {
     if (!m_syncing)
       applyStyle(id);
@@ -187,18 +199,19 @@ PenStudioPopover::PenStudioPopover(QWidget *parent) : QWidget(parent) {
 
   auto *widthRow = new QHBoxLayout;
   m_width = new QSlider(Qt::Horizontal, this);
-  m_width->setRange(1, 24);
+  m_width->setRange(1, 240); // 0.1 pt steps → display /10
   m_width->setFocusPolicy(Qt::NoFocus);
   m_widthValue = new QLabel(this);
-  m_widthValue->setFixedWidth(44);
+  m_widthValue->setFixedWidth(48);
   m_widthValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
   widthRow->addWidget(m_width, 1);
   widthRow->addWidget(m_widthValue);
   root->addLayout(widthRow);
   connect(m_width, &QSlider::valueChanged, this, [this](int v) {
-    m_widthValue->setText(QStringLiteral("%1 pt").arg(v));
+    const qreal pt = v / 10.0;
+    m_widthValue->setText(QStringLiteral("%1 pt").arg(pt, 0, 'f', 1));
     if (!m_syncing)
-      ToolUIBridge::instance().setPenWidth(v);
+      ToolUIBridge::instance().setPenWidth(qMax(1, qRound(pt)));
     refreshPreview();
     applyChrome();
   });
@@ -210,7 +223,7 @@ PenStudioPopover::PenStudioPopover(QWidget *parent) : QWidget(parent) {
     dot->setFixedSize(28, 28);
     dot->setCursor(Qt::PointingHandCursor);
     dot->setFocusPolicy(Qt::NoFocus);
-    connect(dot, &QPushButton::clicked, this, [this, w]() { m_width->setValue(w); });
+    connect(dot, &QPushButton::clicked, this, [this, w]() { m_width->setValue(w * 10); });
     presets->addWidget(dot);
     m_presets.append(dot);
   }
@@ -275,25 +288,44 @@ PenStudioPopover::PenStudioPopover(QWidget *parent) : QWidget(parent) {
     refreshPreview();
   });
 
+  m_smoothLabel = sectionLabel(QStringLiteral("Glättung / Stabilizer"), this);
+  root->addWidget(m_smoothLabel);
+  auto *smRow = new QHBoxLayout;
+  m_smooth = new QSlider(Qt::Horizontal, this);
+  m_smooth->setRange(0, 100);
+  m_smooth->setFocusPolicy(Qt::NoFocus);
+  m_smoothValue = new QLabel(this);
+  m_smoothValue->setFixedWidth(40);
+  m_smoothValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  smRow->addWidget(m_smooth, 1);
+  smRow->addWidget(m_smoothValue);
+  root->addLayout(smRow);
+  connect(m_smooth, &QSlider::valueChanged, this, [this](int v) {
+    m_smoothValue->setText(QString::number(v));
+    if (!m_syncing)
+      ToolUIBridge::instance().setSmoothing(v);
+  });
+
   m_rule = new QWidget(this);
   m_rule->setFixedHeight(1);
   root->addWidget(m_rule);
 
-  m_pressure = new StudioToggle(QStringLiteral("Drucksensitivität"), this);
-  m_holdShape =
-      new StudioToggle(QStringLiteral("Tinte zu gerader Linie / Form"), this);
-  root->addWidget(m_pressure);
+  m_holdLine = new StudioToggle(QStringLiteral("Tinte → Linie (350 ms)"), this);
+  m_holdShape = new StudioToggle(QStringLiteral("Tinte → Form (350 ms)"), this);
+  root->addWidget(m_holdLine);
   root->addWidget(m_holdShape);
-  connect(m_pressure, &QAbstractButton::toggled, this, [this](bool on) {
-    if (!m_syncing)
-      ToolUIBridge::instance().setPressure(on);
-    refreshPreview();
+  connect(m_holdLine, &QAbstractButton::toggled, this, [this](bool on) {
+    if (m_syncing)
+      return;
+    ToolUIBridge::instance().setHoldEnableLine(on);
+    ToolUIBridge::instance().setHoldStillDelayMs(350);
   });
   connect(m_holdShape, &QAbstractButton::toggled, this, [this](bool on) {
     if (m_syncing)
       return;
     ToolUIBridge::instance().setHoldEnableCircle(on);
     ToolUIBridge::instance().setHoldEnableTriangle(on);
+    ToolUIBridge::instance().setHoldStillDelayMs(350);
   });
 
   connect(&ToolManager::instance(), &ToolManager::configChanged, this,
@@ -323,30 +355,33 @@ void PenStudioPopover::applyChrome() {
       QStringLiteral("QLabel { color: %1; font-size: 12px; font-weight: 600; "
                      "background: transparent; }")
           .arg(ink);
-  if (m_widthLabel)
-    m_widthLabel->setStyleSheet(labelQss);
-  if (m_colorLabel)
-    m_colorLabel->setStyleSheet(labelQss);
-  if (m_opacityLabel)
-    m_opacityLabel->setStyleSheet(labelQss);
-  if (m_widthValue)
-    m_widthValue->setStyleSheet(valueQss);
-  if (m_opacityValue)
-    m_opacityValue->setStyleSheet(valueQss);
-  if (m_width)
-    m_width->setStyleSheet(sliderQss());
-  if (m_opacity)
-    m_opacity->setStyleSheet(sliderQss());
+  for (QLabel *l : {m_widthLabel, m_colorLabel, m_opacityLabel, m_smoothLabel}) {
+    if (l)
+      l->setStyleSheet(labelQss);
+  }
+  for (QLabel *l : {m_widthValue, m_opacityValue, m_smoothValue}) {
+    if (l)
+      l->setStyleSheet(valueQss);
+  }
+  for (QSlider *s : {m_width, m_opacity, m_smooth}) {
+    if (s)
+      s->setStyleSheet(sliderQss());
+  }
   if (m_rule) {
-    m_rule->setStyleSheet(dark ? QStringLiteral("background: rgba(255,255,255,0.10);")
-                               : QStringLiteral("background: #E5E7EB;"));
+    m_rule->setStyleSheet(
+        dark ? QStringLiteral("background: rgba(255,255,255,0.10);")
+             : QStringLiteral("background: %1;")
+                   .arg(NoteChrome::borderSoft().name(QColor::HexRgb)));
   }
 
-  const int currentW = m_width ? m_width->value() : 0;
+  const int currentW = m_width ? qRound(m_width->value() / 10.0) : 0;
   const QString idleBg =
-      dark ? QStringLiteral("rgba(255,255,255,0.08)") : QStringLiteral("#F3F4F6");
+      dark ? QStringLiteral("rgba(255,255,255,0.08)")
+           : NoteChrome::panelBg().name(QColor::HexRgb);
   const QString idleBd =
-      dark ? QStringLiteral("rgba(255,255,255,0.12)") : QStringLiteral("#E5E7EB");
+      dark ? QStringLiteral("rgba(255,255,255,0.12)")
+           : NoteChrome::borderSoft().name(QColor::HexRgb);
+  const QString accHex = NoteChrome::accent().name(QColor::HexRgb);
   for (QPushButton *dot : m_presets) {
     const bool on = dot->text().toInt() == currentW;
     dot->setStyleSheet(QStringLiteral(
@@ -354,7 +389,7 @@ void PenStudioPopover::applyChrome() {
                            " border: 1px solid %3; border-radius: 14px;"
                            " font-size: 11px; font-weight: 600; }")
                            .arg(on ? QStringLiteral("rgba(91,157,255,0.22)") : idleBg,
-                                ink, on ? QStringLiteral("#5B9DFF") : idleBd));
+                                ink, on ? accHex : idleBd));
   }
 
   const QColor cur = ToolManager::instance().config().penColor;
@@ -381,24 +416,22 @@ void PenStudioPopover::applyChrome() {
     for (auto *b : m_styles->buttons())
       styleCards(b, b->isChecked());
   }
-  if (m_pressure)
-    m_pressure->update();
+  if (m_holdLine)
+    m_holdLine->update();
   if (m_holdShape)
     m_holdShape->update();
 }
 
 void PenStudioPopover::applyStyle(int style) {
   auto &bridge = ToolUIBridge::instance();
-  if (style == 0) {
-    bridge.setPressure(false);
-    bridge.setSmoothing(0);
-  } else if (style == 1) {
-    bridge.setPressure(true);
-    bridge.setSmoothing(45);
-  } else {
-    bridge.setPressure(true);
-    bridge.setSmoothing(12);
-  }
+  bridge.setPenStrokeStyle(style);
+  // Pencil feel: route to pencil tool when Bleistift selected.
+  if (style == int(PenStrokeStyle::Pencil))
+    bridge.setSmoothing(35);
+  else if (style == int(PenStrokeStyle::Fountain) || style == int(PenStrokeStyle::Calligraphy))
+    bridge.setSmoothing(qMax(12, bridge.smoothing()));
+  else
+    bridge.setSmoothing(qMin(bridge.smoothing(), 20));
   refreshPreview();
   syncFromTool();
 }
@@ -412,26 +445,26 @@ void PenStudioPopover::syncFromTool() {
   m_syncing = true;
   const ToolConfig cfg = ToolManager::instance().config();
   if (m_width)
-    m_width->setValue(qBound(1, cfg.penWidth, 24));
+    m_width->setValue(qBound(5, int(qRound(cfg.penWidth * 10.0)), 240));
   if (m_opacity)
     m_opacity->setValue(qBound(10, int(qRound(cfg.opacity * 100.0)), 100));
-  if (m_pressure)
-    m_pressure->setChecked(cfg.pressureSensitivity);
+  if (m_smooth)
+    m_smooth->setValue(qBound(0, cfg.smoothing, 100));
+  if (m_holdLine)
+    m_holdLine->setChecked(cfg.holdEnableLine);
   if (m_holdShape)
     m_holdShape->setChecked(cfg.holdEnableCircle || cfg.holdEnableTriangle);
-  int style = 2;
-  if (!cfg.pressureSensitivity)
-    style = 0;
-  else if (cfg.smoothing >= 30)
-    style = 1;
+  const int style = qBound(0, int(cfg.penStrokeStyle), 5);
   if (m_styles) {
     if (auto *b = m_styles->button(style))
       b->setChecked(true);
   }
   if (m_widthValue && m_width)
-    m_widthValue->setText(QStringLiteral("%1 pt").arg(m_width->value()));
+    m_widthValue->setText(QStringLiteral("%1 pt").arg(m_width->value() / 10.0, 0, 'f', 1));
   if (m_opacityValue && m_opacity)
     m_opacityValue->setText(QStringLiteral("%1%").arg(m_opacity->value()));
+  if (m_smoothValue && m_smooth)
+    m_smoothValue->setText(QString::number(m_smooth->value()));
   m_syncing = false;
   applyChrome();
   refreshPreview();
@@ -441,7 +474,6 @@ void PenStudioPopover::syncFromTool() {
 void PenStudioPopover::present(const QPoint &globalAnchor) {
   syncFromTool();
   adjustSize();
-  // Prefer left/above the anchor (Radiant lives bottom-right).
   QPoint pos = globalAnchor - QPoint(width() + 12, height() / 3);
   if (QWidget *host = parentWidget()) {
     const QRect bounds = host->rect();

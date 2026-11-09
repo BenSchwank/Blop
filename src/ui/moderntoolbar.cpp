@@ -350,6 +350,14 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(48, 16, 46, 30);
     return;
   }
+  if (name == QLatin1String("laser")) {
+    p->setPen(QPen(primary, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->drawLine(18, 46, 40, 24);
+    p->setBrush(primary);
+    p->setPen(Qt::NoPen);
+    p->drawEllipse(QPointF(44, 20), 5.5, 5.5);
+    return;
+  }
   if (name == QLatin1String("axes") || name == QLatin1String("axes2d")) {
     p->setPen(QPen(primary, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p->drawLine(14, 50, 50, 50);

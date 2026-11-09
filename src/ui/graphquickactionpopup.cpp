@@ -1,5 +1,6 @@
 #include "graphquickactionpopup.h"
 #include "tools/GraphCanvasItem.h"
+#include "tools/math/NumericAnalysis.h"
 #include "notechrome.h"
 
 #include <QDoubleSpinBox>
@@ -8,6 +9,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
+#include <QSlider>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -60,8 +62,8 @@ GraphQuickActionPopup::GraphQuickActionPopup(QWidget *parent) : QWidget(parent) 
     connect(m_btnAxes, &QToolButton::clicked, this, [this]() { emit axisSettingsRequested(); });
 
     m_btnAnalyse = new QToolButton(toolbar);
-    m_btnAnalyse->setText(QStringLiteral("A"));
-    m_btnAnalyse->setToolTip(QStringLiteral("Analyse (Ableitung, Nullstellen, Extrema)"));
+    m_btnAnalyse->setText(QStringLiteral("K"));
+    m_btnAnalyse->setToolTip(QStringLiteral("Kurvendiskussion"));
     m_menuAnalyse = new QMenu(this);
     rebuildAnalyseMenu();
     m_btnAnalyse->setMenu(m_menuAnalyse);
@@ -120,6 +122,35 @@ GraphQuickActionPopup::GraphQuickActionPopup(QWidget *parent) : QWidget(parent) 
     x0Lay->addWidget(m_btnTangentAtRoot, 0, Qt::AlignVCenter);
     v->addWidget(x0Row);
 
+    m_paramRow = new QWidget(card);
+    m_paramRow->setObjectName(QStringLiteral("GraphQuickParamRow"));
+    auto *pLay = new QHBoxLayout(m_paramRow);
+    pLay->setContentsMargins(8, 6, 8, 6);
+    pLay->setSpacing(8);
+    m_paramLabel = new QLabel(QStringLiteral("a"), m_paramRow);
+    m_paramSlider = new QSlider(Qt::Horizontal, m_paramRow);
+    m_paramSlider->setRange(0, 1000);
+    m_paramValue = new QLabel(QStringLiteral("1"), m_paramRow);
+    m_paramValue->setMinimumWidth(36);
+    m_paramValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    pLay->addWidget(m_paramLabel, 0, Qt::AlignVCenter);
+    pLay->addWidget(m_paramSlider, 1);
+    pLay->addWidget(m_paramValue, 0, Qt::AlignVCenter);
+    connect(m_paramSlider, &QSlider::valueChanged, this, [this](int v) {
+        if (m_syncingParam || !m_paramSlider)
+            return;
+        const double t = v / 1000.0;
+        // Map via stored min/max from last bind (encoded in slider property).
+        const double pmin = m_paramSlider->property("pmin").toDouble();
+        const double pmax = m_paramSlider->property("pmax").toDouble();
+        const double val = pmin + t * (pmax - pmin);
+        if (m_paramValue)
+            m_paramValue->setText(QString::number(val, 'g', 3));
+        emit paramValueRequested(val);
+    });
+    v->addWidget(m_paramRow);
+    m_paramRow->hide();
+
     outerLay->addWidget(card);
 
     hide();
@@ -172,12 +203,67 @@ void GraphQuickActionPopup::rebuildAnalyseMenu() {
                                      .arg(page, text,
                                           NoteChrome::rgbaCss(NoteChrome::accent(), 110),
                                           NoteChrome::rgbaCss(NoteChrome::accent(), 90)));
+    connect(m_menuAnalyse->addAction(QStringLiteral("Nullstellen (N)")), &QAction::triggered, this,
+            [this]() { emit toggleRequested(QStringLiteral("roots")); });
+    connect(m_menuAnalyse->addAction(QStringLiteral("Extremstellen (H/T)")), &QAction::triggered, this,
+            [this]() { emit toggleRequested(QStringLiteral("extrema")); });
+    connect(m_menuAnalyse->addAction(QStringLiteral("Wendepunkte (W)")), &QAction::triggered, this,
+            [this]() { emit toggleRequested(QStringLiteral("inflection")); });
+    connect(m_menuAnalyse->addAction(QStringLiteral("Schnittpunkte (S)")), &QAction::triggered, this,
+            [this]() { emit toggleRequested(QStringLiteral("intersections")); });
+    connect(m_menuAnalyse->addAction(QStringLiteral("Ableitung f'")), &QAction::triggered, this,
+            [this]() { emit toggleRequested(QStringLiteral("derivative")); });
+    connect(m_menuAnalyse->addAction(QStringLiteral("2. Ableitung f''")), &QAction::triggered, this,
+            [this]() { emit toggleRequested(QStringLiteral("second_derivative")); });
     connect(m_menuAnalyse->addAction(QStringLiteral("Ableitungskurve")), &QAction::triggered, this,
             [this]() { emit toggleRequested(QStringLiteral("derivative_create")); });
-    connect(m_menuAnalyse->addAction(QStringLiteral("Nullstellen")), &QAction::triggered, this,
-            [this]() { emit toggleRequested(QStringLiteral("roots")); });
-    connect(m_menuAnalyse->addAction(QStringLiteral("Extremstellen")), &QAction::triggered, this,
-            [this]() { emit toggleRequested(QStringLiteral("extrema")); });
+    connect(m_menuAnalyse->addAction(QStringLiteral("Integral ∫")), &QAction::triggered, this,
+            [this]() { emit toggleRequested(QStringLiteral("integral")); });
+    m_menuAnalyse->addSeparator();
+    connect(m_menuAnalyse->addAction(QStringLiteral("Ansicht: Analyse-Labels")), &QAction::triggered,
+            this, [this]() { emit toggleRequested(QStringLiteral("view_labels")); });
+    connect(m_menuAnalyse->addAction(QStringLiteral("Ansicht: Legend")), &QAction::triggered, this,
+            [this]() { emit toggleRequested(QStringLiteral("view_legend")); });
+    connect(m_menuAnalyse->addAction(QStringLiteral("Ansicht: Wertetabelle")), &QAction::triggered,
+            this, [this]() { emit toggleRequested(QStringLiteral("view_vtable")); });
+    connect(m_menuAnalyse->addAction(QStringLiteral("Ansicht: Graph-Gitter")), &QAction::triggered,
+            this, [this]() { emit toggleRequested(QStringLiteral("view_grid")); });
+}
+
+void GraphQuickActionPopup::syncParamRow(GraphCanvasItem *item) {
+    if (!m_paramRow || !m_paramSlider)
+        return;
+    if (!item) {
+        m_paramRow->hide();
+        return;
+    }
+    const GraphObject d = item->data();
+    if (d.selectedFunction < 0 || d.selectedFunction >= d.functions.size()) {
+        m_paramRow->hide();
+        return;
+    }
+    GraphFunction f = d.functions[d.selectedFunction];
+    if (f.paramName.isEmpty()) {
+        const QString detected = NumericAnalysis::detectFreeParam(f.expression);
+        if (detected.isEmpty()) {
+            m_paramRow->hide();
+            return;
+        }
+        f.paramName = detected;
+    }
+    m_syncingParam = true;
+    if (m_paramLabel)
+        m_paramLabel->setText(f.paramName);
+    m_paramSlider->setProperty("pmin", f.paramMin);
+    m_paramSlider->setProperty("pmax", f.paramMax);
+    const double span = qMax(1e-9, f.paramMax - f.paramMin);
+    const int sliderV =
+        qBound(0, int(qRound(1000.0 * (f.paramValue - f.paramMin) / span)), 1000);
+    m_paramSlider->setValue(sliderV);
+    if (m_paramValue)
+        m_paramValue->setText(QString::number(f.paramValue, 'g', 3));
+    m_paramRow->show();
+    m_syncingParam = false;
 }
 
 void GraphQuickActionPopup::bind(GraphCanvasItem *item) {
@@ -190,6 +276,7 @@ void GraphQuickActionPopup::bind(GraphCanvasItem *item) {
         m_x0->setEnabled(false);
         m_btnDelFn->setEnabled(false);
         m_btnTangentAtRoot->setEnabled(false);
+        syncParamRow(nullptr);
         return;
     }
     const GraphObject d = item->data();
@@ -203,5 +290,6 @@ void GraphQuickActionPopup::bind(GraphCanvasItem *item) {
     else
         m_x0->setValue(0.0);
     m_x0->blockSignals(false);
+    syncParamRow(item);
     adjustSize();
 }

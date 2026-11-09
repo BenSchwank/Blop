@@ -1,25 +1,41 @@
 #include "notetoolbars.h"
 
 #include "ToolSettings.h"
+#include "blop_dialogs.h"
 #include "blop_inwindow_menu.h"
 #include "blop_theme.h"
 #include "blopstyle.h"
 #include "moderntoolbar.h"
+#include "notechrome.h"
+#include "shapescatalogpopover.h"
 #include "tools/ToolManager.h"
+#include "tools/ToolUIBridge.h"
 #include "uiscale.h"
 
+#include <QApplication>
+#include <QButtonGroup>
+#include <QCheckBox>
 #include <QConicalGradient>
 #include <cmath>
 #include <QCursor>
 #include <QFont>
+#include <QFrame>
+#include <QGraphicsDropShadowEffect>
+#include <QGraphicsPathItem>
+#include <QGraphicsView>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPushButton>
+#include <QRadioButton>
 #include <QRadialGradient>
 #include <QSettings>
 #include <QSlider>
+#include <QTabWidget>
 #include <QVariantAnimation>
+#include <QVBoxLayout>
 #include <QtMath>
 
 namespace {
@@ -125,11 +141,22 @@ QString noteToolbarStyleLabel(NoteToolbarStyle style) {
   return QStringLiteral("Balken");
 }
 
+bool noteMintToolsVisible() {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  return s.value(QStringLiteral("ui/mintToolsVisible"), true).toBool();
+}
+
+void setNoteMintToolsVisible(bool on) {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  s.setValue(QStringLiteral("ui/mintToolsVisible"), on);
+}
+
 void noteActivateTool(ToolMode mode, int shapeKind) {
   auto &mgr = ToolManager::instance();
   if (shapeKind >= 0) {
     ToolConfig cfg = mgr.configFor(ToolMode::Shape);
-    cfg.shapeToolKind = static_cast<ShapeToolKind>(qBound(0, shapeKind, 7));
+    cfg.shapeToolKind =
+        static_cast<ShapeToolKind>(qBound(0, shapeKind, 28));
     mgr.configFor(ToolMode::Shape) = cfg;
     mode = ToolMode::Shape;
   }
@@ -252,6 +279,12 @@ void NoteToolbarBase::activate(int index) {
         (t.mode == ToolMode::Pen || t.mode == ToolMode::Pencil ||
          t.mode == ToolMode::Highlighter)) {
       emit penStudioRequested();
+      break;
+    }
+    // Float dock handles second-click eraser/shapes/measure popovers itself.
+    if (inherits("NoteFloatToolbar") && tileActive(t) &&
+        (t.mode == ToolMode::Eraser || t.mode == ToolMode::Shape ||
+         t.mode == ToolMode::Ruler)) {
       break;
     }
     noteActivateTool(t.mode, t.shapeKind);
@@ -595,23 +628,80 @@ QPoint NoteFloatToolbar::studioAnchorGlobal() const {
   return mapToGlobal(QPoint(width() / 2, height()));
 }
 
+namespace {
+const QColor kProInk[5] = {
+    QColor(0x1E, 0x29, 0x3B), QColor(0xF8, 0xFA, 0xFC), QColor(0x25, 0x63, 0xEB),
+    QColor(0xE1, 0x1D, 0x48), QColor(0x10, 0xB9, 0x81)};
+constexpr qreal kWidthPresets[3] = {1.5, 3.0, 6.0};
+} // namespace
+
 void NoteFloatToolbar::rebuildTiles() {
   m_tiles.clear();
-  const qreal tool = UiScale::dp(32);
-  const qreal swatch = UiScale::dp(20);
-  const qreal widthBtn = UiScale::dp(78);
-  const qreal gap = UiScale::dp(4);
-  const qreal sep = UiScale::dp(12);
-  const qreal padX = UiScale::dp(10);
+  const qreal tool = UiScale::dp(36);
+  const qreal swatch = UiScale::dp(22);
+  const qreal widthBtn = UiScale::dp(118);
+  const qreal shadow = UiScale::dp(6);
+  const int surfaceW = parentWidget() ? parentWidget()->width() : 1600;
+  const int hudReserve = UiScale::dp(280); // PageHud + margins
+  const int maxDockW = qMax(UiScale::dp(320), surfaceW - hudReserve);
+
+  // Shrink horizontal spacing when the dock would clip the surface.
+  qreal gap = UiScale::dp(4);
+  qreal swatchGap = UiScale::dp(8);
+  qreal sep = UiScale::dp(12);
+  qreal padX = UiScale::dp(10);
   const qreal padY = UiScale::dp(6);
-  const qreal shadow = UiScale::dp(4);
+  const bool mintOn = noteMintToolsVisible();
+
+  auto estimate = [&](bool withSwatches, qreal g, qreal sg, qreal s,
+                      qreal px) {
+    qreal xx = px;
+    auto add = [&](qreal ww) { xx += ww + g; };
+    auto addSep = [&] { xx += s - g; };
+    add(tool);
+    add(tool);
+    addSep();
+    for (int i = 0; i < (mintOn ? 8 : 7); ++i)
+      add(tool);
+    addSep();
+    if (withSwatches) {
+      for (int i = 0; i < 5; ++i)
+        add(swatch + (sg - g));
+    }
+    add(widthBtn);
+    addSep();
+    add(tool);
+    add(tool);
+    add(tool);
+    return int(std::ceil(xx + px - g + shadow));
+  };
+
+  bool showSwatches = true;
+  for (int pass = 0; pass < 4; ++pass) {
+    const int full = estimate(true, gap, swatchGap, sep, padX);
+    if (full <= maxDockW)
+      break;
+    if (pass == 0) {
+      showSwatches = estimate(false, gap, swatchGap, sep, padX) <= maxDockW;
+      if (showSwatches)
+        break;
+      showSwatches = false;
+    }
+    gap = qMax(1.0, gap - 1.0);
+    swatchGap = qMax(2.0, swatchGap - 2.0);
+    sep = qMax(4.0, sep - 2.0);
+    padX = qMax(4.0, padX - 2.0);
+  }
+  if (estimate(showSwatches, gap, swatchGap, sep, padX) > maxDockW)
+    showSwatches = false;
+
   qreal x = padX;
   const qreal y = shadow + padY;
 
   auto push = [&](NoteToolTile t, qreal w, qreal h) {
     t.rect = QRectF(x, y + (tool - h) / 2.0, w, h);
-    t.iconSize = qMin(w, h) * 0.62;
-    t.radius = UiScale::dp(8);
+    t.iconSize = qMin(w, h) * 0.55;
+    t.radius = UiScale::dp(9);
     m_tiles.append(t);
     x += w + gap;
   };
@@ -629,7 +719,8 @@ void NoteFloatToolbar::rebuildTiles() {
     NoteToolTile t;
     t.action = NoteToolTile::Gap;
     t.hittable = false;
-    t.rect = QRectF(x - sep / 2.0, y + 6, 1, tool - 12);
+    t.rect = QRectF(x - sep / 2.0, y + (tool - UiScale::dp(24)) / 2.0, 1,
+                    UiScale::dp(24));
     m_tiles.append(t);
   };
 
@@ -639,38 +730,13 @@ void NoteFloatToolbar::rebuildTiles() {
   toolTile("pen", ToolMode::Pen);
   toolTile("highlighter", ToolMode::Highlighter, -1, kHighlighter);
   toolTile("eraser", ToolMode::Eraser);
-  toolTile("line", ToolMode::Shape, static_cast<int>(ShapeToolKind::Line));
+  toolTile("shape", ToolMode::Shape, static_cast<int>(ShapeToolKind::Line));
+  if (mintOn)
+    toolTile("pi", ToolMode::Formula);
   toolTile("ruler", ToolMode::Ruler);
   toolTile("text", ToolMode::Text);
+  toolTile("laser", ToolMode::Laser);
   separator();
-
-  auto estimate = [&](bool withSwatches) {
-    qreal xx = padX;
-    auto add = [&](qreal ww) { xx += ww + gap; };
-    auto addSep = [&] { xx += sep - gap; };
-    add(tool);
-    add(tool);
-    addSep();
-    for (int i = 0; i < 6; ++i)
-      add(tool);
-    addSep();
-    if (withSwatches) {
-      for (int i = 0; i < 5; ++i)
-        add(swatch);
-    }
-    add(widthBtn);
-    addSep();
-    add(tool);
-    add(tool);
-    add(tool);
-    return int(std::ceil(xx + padX - gap + shadow));
-  };
-  const int surfaceW = parentWidget() ? parentWidget()->width() : 1600;
-  const int hudReserve = UiScale::dp(200);
-  const int gutter = UiScale::dp(32);
-  const bool showSwatches =
-      surfaceW < UiScale::dp(240) ||
-      estimate(true) + hudReserve + gutter <= surfaceW;
 
   const ToolConfig cfg = ToolManager::instance().config();
   if (showSwatches) {
@@ -678,17 +744,20 @@ void NoteFloatToolbar::rebuildTiles() {
       NoteToolTile t;
       t.action = NoteToolTile::Swatch;
       QColor c = cfg.quickColors[static_cast<size_t>(i)];
-      if (!c.isValid())
-        c = kPresetColors[i % kPenPresets];
+      if (!c.isValid() ||
+          (c == QColor(Qt::red) || c == QColor(Qt::blue) ||
+           c == QColor(0, 200, 0) || c == QColor(Qt::green)))
+        c = kProInk[i];
       t.tint = c;
       push(t, swatch, swatch);
+      x += (swatchGap - gap);
     }
   }
   {
     NoteToolTile t;
     t.action = NoteToolTile::Width;
     t.icon = QStringLiteral("pen");
-    push(t, widthBtn, UiScale::dp(28));
+    push(t, widthBtn, UiScale::dp(32));
   }
   separator();
   toolTile("undo", ToolMode::Pen);
@@ -710,57 +779,88 @@ void NoteFloatToolbar::rebuildTiles() {
 }
 
 void NoteFloatToolbar::paintSkin(QPainter &p) {
-  const QRectF plate = QRectF(rect()).adjusted(1, 1, -5, -5);
+  const QRectF plate = QRectF(rect()).adjusted(1, 1, -7, -7);
   p.setPen(Qt::NoPen);
-  p.setBrush(QColor(0, 0, 0, 70));
+  p.setBrush(QColor(0, 0, 0, 100));
   const qreal rad = UiScale::dp(14);
-  p.drawRoundedRect(plate.adjusted(0, 3, 0, 1), rad, rad);
-  const bool dark = BlopTheme::instance().isDark();
-  p.setBrush(dark ? QColor(24, 27, 34, 235) : QColor(255, 255, 255, 242));
-  p.setPen(QPen(dark ? QColor(255, 255, 255, 26) : QColor(0xE5, 0xE7, 0xEB), 1));
+  p.drawRoundedRect(plate.adjusted(0, 4, 0, 2), rad, rad);
+  p.setBrush(QColor(20, 23, 30, 242));
+  p.setPen(QPen(QColor(255, 255, 255, 31), 1));
   p.drawRoundedRect(plate, rad, rad);
-  p.setPen(QPen(dark ? QColor(255, 255, 255, 26) : QColor(0, 0, 0, 28), 1));
+  p.setPen(QPen(QColor(255, 255, 255, 26), 1));
   for (const NoteToolTile &t : m_tiles) {
     if (t.action == NoteToolTile::Gap)
-      p.drawLine(QPointF(t.rect.center().x(), plate.top() + 10),
-                 QPointF(t.rect.center().x(), plate.bottom() - 10));
+      p.drawLine(QPointF(t.rect.center().x(), plate.top() + 12),
+                 QPointF(t.rect.center().x(), plate.bottom() - 12));
   }
+}
+
+int NoteFloatToolbar::widthPresetAt(const NoteToolTile &t,
+                                    const QPointF &local) const {
+  if (t.action != NoteToolTile::Width)
+    return -1;
+  const qreal zone = (t.rect.width() - UiScale::dp(44)) / 3.0;
+  if (zone <= 1.0)
+    return -1;
+  const qreal x = local.x() - t.rect.left();
+  if (x < 0 || x > t.rect.width() - UiScale::dp(44))
+    return -1;
+  return qBound(0, int(x / zone), 2);
 }
 
 void NoteFloatToolbar::paintTile(QPainter &p, const NoteToolTile &t, int index) {
   if (t.action == NoteToolTile::Gap)
     return;
-  const bool dark = BlopTheme::instance().isDark();
   const bool hover = index == m_hover;
   if (t.action == NoteToolTile::Swatch) {
     const QColor cur = currentPenColor();
-    const bool on = t.tint.isValid() && cur.isValid() && t.tint.rgb() == cur.rgb();
-    QColor ring = on ? QColor(0x5B, 0x9D, 0xFF)
-                     : (dark ? QColor(255, 255, 255, 180) : QColor(0, 0, 0, 48));
-    if (hover && !on)
-      ring = kAccent;
-    p.setPen(QPen(ring, on || hover ? 2.0 : 1.0));
+    const bool on =
+        t.tint.isValid() && cur.isValid() && t.tint.rgb() == cur.rgb();
+    QRectF r = t.rect;
+    if (on)
+      r = QRectF(r.center().x() - 12, r.center().y() - 12, 24, 24);
     p.setBrush(t.tint);
-    p.drawEllipse(t.rect);
+    if (on) {
+      // Offset ring: dark gap then white outer.
+      p.setPen(QPen(QColor(20, 23, 30), 2.0));
+      p.drawEllipse(r.adjusted(-2, -2, 2, 2));
+      p.setPen(QPen(QColor(255, 255, 255), 2.0));
+      p.drawEllipse(r.adjusted(-4, -4, 4, 4));
+    } else if (t.tint.lightness() < 40) {
+      p.setPen(QPen(QColor(255, 255, 255, 76), 1.0));
+    } else {
+      p.setPen(Qt::NoPen);
+    }
+    p.drawEllipse(r);
+    if (hover && !on) {
+      p.setPen(QPen(kAccent, 1.5));
+      p.setBrush(Qt::NoBrush);
+      p.drawEllipse(r.adjusted(-1, -1, 1, 1));
+    }
     return;
   }
   if (t.action == NoteToolTile::Width) {
     const int w = qBound(1, ToolManager::instance().config().penWidth, 24);
-    const QColor ink = ToolManager::instance().config().penColor;
-    p.setPen(Qt::NoPen);
-    QColor fill = dark ? QColor(255, 255, 255, 20) : QColor(0, 0, 0, 12);
-    if (hover)
-      fill = dark ? QColor(255, 255, 255, 32) : BlopStyle::paperHover();
-    p.setBrush(fill);
-    p.drawRoundedRect(t.rect, UiScale::dp(6), UiScale::dp(6));
-    p.setBrush(ink.isValid() ? ink : QColor(Qt::black));
-    p.drawEllipse(QRectF(t.rect.left() + 8, t.rect.center().y() - 5, 10, 10));
-    p.setPen(dark ? QColor(0xF4, 0xF6, 0xFA) : BlopStyle::paperInk());
+    p.setPen(QPen(QColor(255, 255, 255, 26), 1));
+    p.setBrush(QColor(255, 255, 255, 15));
+    p.drawRoundedRect(t.rect, UiScale::dp(8), UiScale::dp(8));
+    const QColor dot(0xE2, 0xE8, 0xF0);
+    const qreal zone = (t.rect.width() - UiScale::dp(44)) / 3.0;
+    for (int i = 0; i < 3; ++i) {
+      const qreal d = 4.0 + i * 3.0;
+      const bool on = qAbs(w - kWidthPresets[i]) < 0.6;
+      const QPointF c(t.rect.left() + zone * (i + 0.5), t.rect.center().y());
+      p.setPen(Qt::NoPen);
+      p.setBrush(on ? QColor(255, 255, 255) : dot);
+      p.drawEllipse(c, d / 2.0, d / 2.0);
+    }
+    p.setPen(QColor(0xE2, 0xE8, 0xF0));
     QFont f = p.font();
-    f.setPixelSize(12);
+    f.setPixelSize(11);
     f.setWeight(QFont::DemiBold);
     p.setFont(f);
-    p.drawText(t.rect.adjusted(22, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft,
+    p.drawText(t.rect.adjusted(t.rect.width() - UiScale::dp(44), 0, -4, 0),
+               Qt::AlignVCenter | Qt::AlignLeft,
                QStringLiteral("%1 pt ▾").arg(w));
     return;
   }
@@ -773,6 +873,311 @@ void NoteFloatToolbar::paintTile(QPainter &p, const NoteToolTile &t, int index) 
     const QRectF bar(t.rect.center().x() - 8, t.rect.bottom() - 5, 16, 3);
     p.drawRoundedRect(bar, 1.5, 1.5);
   }
+}
+
+void NoteFloatToolbar::mousePressEvent(QMouseEvent *event) {
+  const int idx = tileAt(event->position());
+  if (idx >= 0 && idx < m_tiles.size()) {
+    const NoteToolTile &t = m_tiles[idx];
+    if (t.action == NoteToolTile::Width) {
+      const int preset = widthPresetAt(t, event->position());
+      if (preset >= 0) {
+        noteApplyPenWidth(qRound(kWidthPresets[preset]));
+        update();
+        event->accept();
+        return;
+      }
+      emit penStudioRequested();
+      event->accept();
+      return;
+    }
+    if (t.action == NoteToolTile::Tool && tileActive(t)) {
+      if (t.mode == ToolMode::Eraser) {
+        showEraserPopover(mapToGlobal(t.rect.bottomLeft().toPoint()));
+        event->accept();
+        return;
+      }
+      if (t.mode == ToolMode::Shape) {
+        showShapesPopover(mapToGlobal(t.rect.bottomLeft().toPoint()));
+        event->accept();
+        return;
+      }
+    }
+    // Measure: first tap activates + opens popover; second tap reopens it.
+    if (t.action == NoteToolTile::Tool && t.mode == ToolMode::Ruler) {
+      if (!tileActive(t))
+        noteActivateTool(ToolMode::Ruler);
+      showMeasurePopover(mapToGlobal(t.rect.bottomLeft().toPoint()));
+      event->accept();
+      return;
+    }
+  }
+  NoteToolbarBase::mousePressEvent(event);
+}
+
+void NoteFloatToolbar::showEraserPopover(const QPoint &globalAnchor) {
+  auto *pop = new QFrame(window(), Qt::Popup | Qt::FramelessWindowHint);
+  pop->setAttribute(Qt::WA_DeleteOnClose);
+  pop->setObjectName(QStringLiteral("StudioEraserPopover"));
+  pop->setStyleSheet(NoteChrome::studioPopoverStyle(
+      QStringLiteral("StudioEraserPopover")));
+  auto *shadow = new QGraphicsDropShadowEffect(pop);
+  shadow->setBlurRadius(32);
+  shadow->setOffset(0, 12);
+  shadow->setColor(QColor(0, 0, 0, 115));
+  pop->setGraphicsEffect(shadow);
+  auto *lay = new QVBoxLayout(pop);
+  lay->setContentsMargins(14, 14, 14, 14);
+  lay->setSpacing(8);
+  auto *stroke = new QRadioButton(QStringLiteral("Strich-Radierer (Objekt)"), pop);
+  auto *pixel = new QRadioButton(QStringLiteral("Pixel-Radierer"), pop);
+  auto *grp = new QButtonGroup(pop);
+  grp->addButton(stroke);
+  grp->addButton(pixel);
+  const ToolConfig cfg = ToolManager::instance().configFor(ToolMode::Eraser);
+  stroke->setChecked(cfg.eraserMode == EraserMode::Object);
+  pixel->setChecked(cfg.eraserMode != EraserMode::Object);
+  lay->addWidget(stroke);
+  lay->addWidget(pixel);
+  auto *sizeLbl = new QLabel(QStringLiteral("Größe"), pop);
+  lay->addWidget(sizeLbl);
+  auto *slider = new QSlider(Qt::Horizontal, pop);
+  slider->setRange(1, 40);
+  slider->setValue(qBound(1, cfg.penWidth, 40));
+  lay->addWidget(slider);
+  auto *keepHl = new QCheckBox(QStringLiteral("Nur Textmarker löschen"), pop);
+  keepHl->setChecked(cfg.eraserKeepInk);
+  lay->addWidget(keepHl);
+  connect(keepHl, &QCheckBox::toggled, pop, [](bool on) {
+    auto &mgr = ToolManager::instance();
+    ToolConfig c = mgr.configFor(ToolMode::Eraser);
+    c.eraserKeepInk = on;
+    mgr.configFor(ToolMode::Eraser) = c;
+    if (mgr.activeTool() && mgr.activeToolMode() == ToolMode::Eraser)
+      mgr.activeTool()->setConfig(c);
+  });
+  auto *clearBtn = new QPushButton(QStringLiteral("Aktuelle Seite leeren"), pop);
+  clearBtn->setStyleSheet(
+      QStringLiteral("QPushButton { background: rgba(248,113,113,0.16); color: #FCA5A5;"
+                     "  border: 1px solid rgba(248,113,113,0.35); }"));
+  lay->addWidget(clearBtn);
+
+  auto applyMode = [](EraserMode mode) {
+    auto &mgr = ToolManager::instance();
+    ToolConfig c = mgr.configFor(ToolMode::Eraser);
+    c.eraserMode = mode;
+    mgr.configFor(ToolMode::Eraser) = c;
+    mgr.selectTool(ToolMode::Eraser);
+    if (mgr.activeTool())
+      mgr.activeTool()->setConfig(c);
+  };
+  connect(stroke, &QRadioButton::toggled, pop, [applyMode](bool on) {
+    if (on)
+      applyMode(EraserMode::Object);
+  });
+  connect(pixel, &QRadioButton::toggled, pop, [applyMode](bool on) {
+    if (on)
+      applyMode(EraserMode::Pixel);
+  });
+  connect(slider, &QSlider::valueChanged, pop, [](int v) {
+    noteApplyPenWidth(v);
+    auto &mgr = ToolManager::instance();
+    ToolConfig c = mgr.configFor(ToolMode::Eraser);
+    c.penWidth = v;
+    mgr.configFor(ToolMode::Eraser) = c;
+    if (mgr.activeTool() && mgr.activeToolMode() == ToolMode::Eraser)
+      mgr.activeTool()->setConfig(c);
+  });
+  connect(clearBtn, &QPushButton::clicked, pop, [pop]() {
+    if (!BlopDialogs::confirm(pop, QStringLiteral("Seite leeren"),
+                              QStringLiteral("Alles auf dieser Seite löschen?"),
+                              QStringLiteral("Löschen"),
+                              QStringLiteral("Abbrechen")))
+      return;
+    QGraphicsView *view = nullptr;
+    if (QWidget *fw = QApplication::focusWidget()) {
+      view = qobject_cast<QGraphicsView *>(fw);
+      if (!view)
+        view = fw->findChild<QGraphicsView *>();
+      if (!view)
+        if (QWidget *win = fw->window())
+          view = win->findChild<QGraphicsView *>();
+    }
+    if (!view) {
+      for (QWidget *tl : QApplication::topLevelWidgets()) {
+        view = tl->findChild<QGraphicsView *>();
+        if (view)
+          break;
+      }
+    }
+    if (view && view->scene()) {
+      const QList<QGraphicsItem *> items = view->scene()->items();
+      for (QGraphicsItem *item : items) {
+        if (dynamic_cast<QGraphicsPathItem *>(item)) {
+          view->scene()->removeItem(item);
+          delete item;
+        }
+      }
+      view->viewport()->update();
+    }
+    pop->close();
+  });
+
+  pop->adjustSize();
+  NoteChrome::clampPopupToHost(pop, globalAnchor + QPoint(0, 6),
+                               parentWidget() ? parentWidget() : window());
+  pop->show();
+}
+
+void NoteFloatToolbar::showShapesPopover(const QPoint &globalAnchor) {
+  auto *pop = new ShapesCatalogPopover(window());
+  connect(pop, &ShapesCatalogPopover::shapeChosen, pop, [](int kind) {
+    noteActivateTool(ToolMode::Shape, kind);
+  });
+  pop->present(globalAnchor, noteMintToolsVisible());
+}
+
+void NoteFloatToolbar::showMeasurePopover(const QPoint &globalAnchor) {
+  auto *pop = new QFrame(window(), Qt::Popup | Qt::FramelessWindowHint);
+  pop->setAttribute(Qt::WA_DeleteOnClose);
+  pop->setObjectName(QStringLiteral("StudioMeasurePopover"));
+  pop->setStyleSheet(NoteChrome::studioPopoverStyle(
+      QStringLiteral("StudioMeasurePopover")));
+  auto *shadow = new QGraphicsDropShadowEffect(pop);
+  shadow->setBlurRadius(32);
+  shadow->setOffset(0, 12);
+  shadow->setColor(QColor(0, 0, 0, 115));
+  pop->setGraphicsEffect(shadow);
+  auto *lay = new QVBoxLayout(pop);
+  lay->setContentsMargins(14, 14, 14, 14);
+  lay->setSpacing(8);
+
+  const bool mintOn = noteMintToolsVisible();
+  auto &mgr = ToolManager::instance();
+  const ToolMode activeMode = mgr.activeToolMode();
+  const ToolConfig rulerCfg = mgr.configFor(ToolMode::Ruler);
+  const ToolConfig dimCfg = mgr.configFor(ToolMode::Dimension);
+
+  auto *modeLay = new QVBoxLayout;
+  modeLay->setSpacing(6);
+
+  auto makeModeBtn = [&](const QString &label, bool checked) {
+    auto *b = new QPushButton(label, pop);
+    b->setCheckable(true);
+    b->setChecked(checked);
+    b->setMinimumHeight(UiScale::dp(34));
+    b->setCursor(Qt::PointingHandCursor);
+    b->setFocusPolicy(Qt::NoFocus);
+    modeLay->addWidget(b);
+    return b;
+  };
+
+  auto *rulerBtn = makeModeBtn(
+      QStringLiteral("📏  Lineal"),
+      activeMode == ToolMode::Ruler && !rulerCfg.compassMode);
+  connect(rulerBtn, &QPushButton::clicked, pop, [pop]() {
+    auto &m = ToolManager::instance();
+    ToolConfig c = m.configFor(ToolMode::Ruler);
+    c.compassMode = false;
+    m.configFor(ToolMode::Ruler) = c;
+    noteActivateTool(ToolMode::Ruler);
+    if (m.activeTool())
+      m.activeTool()->setConfig(c);
+    pop->close();
+  });
+
+  if (mintOn) {
+    auto *geoBtn = makeModeBtn(
+        QStringLiteral("📐  Geodreieck"),
+        activeMode == ToolMode::Ruler && rulerCfg.compassMode);
+    connect(geoBtn, &QPushButton::clicked, pop, [pop]() {
+      auto &m = ToolManager::instance();
+      ToolConfig c = m.configFor(ToolMode::Ruler);
+      c.compassMode = true;
+      m.configFor(ToolMode::Ruler) = c;
+      noteActivateTool(ToolMode::Ruler);
+      if (m.activeTool())
+        m.activeTool()->setConfig(c);
+      pop->close();
+    });
+
+    auto *lenBtn = makeModeBtn(
+        QStringLiteral("↔  Streckenbemaßung"),
+        activeMode == ToolMode::Dimension &&
+            dimCfg.dimensionKind == DimensionKind::Length);
+    connect(lenBtn, &QPushButton::clicked, pop, [pop]() {
+      auto &m = ToolManager::instance();
+      ToolConfig c = m.configFor(ToolMode::Dimension);
+      c.dimensionKind = DimensionKind::Length;
+      m.configFor(ToolMode::Dimension) = c;
+      noteActivateTool(ToolMode::Dimension);
+      if (m.activeTool())
+        m.activeTool()->setConfig(c);
+      pop->close();
+    });
+
+    auto *angBtn = makeModeBtn(
+        QStringLiteral("∠  Winkelmesser"),
+        activeMode == ToolMode::Dimension &&
+            dimCfg.dimensionKind == DimensionKind::Angle3Point);
+    connect(angBtn, &QPushButton::clicked, pop, [pop]() {
+      auto &m = ToolManager::instance();
+      ToolConfig c = m.configFor(ToolMode::Dimension);
+      c.dimensionKind = DimensionKind::Angle3Point;
+      m.configFor(ToolMode::Dimension) = c;
+      noteActivateTool(ToolMode::Dimension);
+      if (m.activeTool())
+        m.activeTool()->setConfig(c);
+      pop->close();
+    });
+
+    auto *areaBtn = makeModeBtn(
+        QStringLiteral("⬡  Flächenmesser"),
+        activeMode == ToolMode::Dimension &&
+            dimCfg.dimensionKind == DimensionKind::Area);
+    connect(areaBtn, &QPushButton::clicked, pop, [pop]() {
+      auto &m = ToolManager::instance();
+      ToolConfig c = m.configFor(ToolMode::Dimension);
+      c.dimensionKind = DimensionKind::Area;
+      m.configFor(ToolMode::Dimension) = c;
+      noteActivateTool(ToolMode::Dimension);
+      if (m.activeTool())
+        m.activeTool()->setConfig(c);
+      pop->close();
+    });
+  }
+
+  lay->addLayout(modeLay);
+
+  auto *scaleLbl = new QLabel(QStringLiteral("Maßstab: 1 Kästchen ="), pop);
+  lay->addWidget(scaleLbl);
+  const ToolConfig cfg = ToolManager::instance().config();
+  auto *scaleSlider = new QSlider(Qt::Horizontal, pop);
+  scaleSlider->setRange(1, 100); // 0.1 … 10.0 units
+  scaleSlider->setValue(qBound(1, int(qRound(cfg.measureUnitsPerCell * 10.0)), 100));
+  auto *scaleVal = new QLabel(
+      QStringLiteral("%1 Einheit(en)").arg(cfg.measureUnitsPerCell, 0, 'g', 3), pop);
+  lay->addWidget(scaleSlider);
+  lay->addWidget(scaleVal);
+  connect(scaleSlider, &QSlider::valueChanged, pop, [scaleVal](int v) {
+    const double units = v / 10.0;
+    ToolUIBridge::instance().setMeasureUnitsPerCell(units);
+    scaleVal->setText(QStringLiteral("%1 Einheit(en)").arg(units, 0, 'g', 3));
+  });
+  auto *presets = new QHBoxLayout;
+  for (double u : {0.5, 1.0, 2.0, 5.0}) {
+    auto *b = new QPushButton(QString::number(u), pop);
+    connect(b, &QPushButton::clicked, pop, [scaleSlider, u]() {
+      scaleSlider->setValue(qBound(1, int(qRound(u * 10.0)), 100));
+    });
+    presets->addWidget(b);
+  }
+  lay->addLayout(presets);
+  pop->setFixedWidth(UiScale::dp(280));
+  pop->adjustSize();
+  NoteChrome::clampPopupToHost(pop, globalAnchor + QPoint(0, 6),
+                               parentWidget() ? parentWidget() : window());
+  pop->show();
 }
 
 // ─── Radiant bloom ──────────────────────────────────────────────────────────
@@ -1213,6 +1618,18 @@ void NoteToolbarHost::showStyleMenu(const QPoint &globalPos) {
   BlopInWindowMenu::Item sep;
   sep.separator = true;
   items.append(sep);
+  const bool mintOn = noteMintToolsVisible();
+  BlopInWindowMenu::Item mint;
+  mint.label = (mintOn ? QStringLiteral("●  ") : QStringLiteral("○  ")) +
+               QStringLiteral("MINT-Werkzeuge anzeigen");
+  mint.handler = [this]() {
+    setNoteMintToolsVisible(!noteMintToolsVisible());
+    if (m_float)
+      m_float->refreshTiles();
+    applyStyle();
+    emit styleChanged();
+  };
+  items.append(mint);
   BlopInWindowMenu::Item opts;
   opts.label = QStringLiteral("Werkzeugoptionen");
   opts.handler = [this]() { emit toolOptionsRequested(); };

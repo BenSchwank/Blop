@@ -2,6 +2,7 @@
 #include "AbstractTool.h"
 #include "RulerItem.h"
 #include <QGraphicsScene>
+#include <QGraphicsView>
 #include <QHash>
 #include <limits>
 
@@ -70,27 +71,55 @@ public:
                                                                                    std::numeric_limits<qreal>::quiet_NaN())) {
         if (!scene) return nullptr;
 
+        const bool havePreferred = !qIsNaN(preferredScenePos.x()) &&
+                                   !qIsNaN(preferredScenePos.y());
+        auto spawnFallback = [&]() -> QPointF {
+            if (havePreferred)
+                return preferredScenePos;
+            const auto views = scene->views();
+            if (!views.isEmpty() && views.first() && views.first()->viewport()) {
+                auto *v = views.first();
+                return v->mapToScene(v->viewport()->rect().center());
+            }
+            return scene->sceneRect().center();
+        };
+
+        auto visibleInAnyView = [&](RulerItem *r) -> bool {
+            if (!r)
+                return false;
+            const QRectF bb = r->sceneBoundingRect();
+            for (QGraphicsView *v : scene->views()) {
+                if (!v || !v->viewport())
+                    continue;
+                const QRectF vis =
+                    v->mapToScene(v->viewport()->rect()).boundingRect();
+                if (vis.intersects(bb) || vis.contains(r->pos()))
+                    return true;
+            }
+            return false;
+        };
+
         RulerItem* ruler = findActiveRuler(scene);
 
-        // Erstellen, falls nicht vorhanden
         if (!ruler) {
             ruler = new RulerItem();
-            // Startposition: bevorzugt sichtbarer Viewport-Mittelpunkt, sonst Szenenmitte.
-            QRectF r = scene->sceneRect();
-            QPointF spawn = r.center();
-            if (!qIsNaN(preferredScenePos.x()) && !qIsNaN(preferredScenePos.y()))
-                spawn = preferredScenePos;
-            ruler->setPos(spawn);
-            ruler->setZValue(5000); // Über allem anderen liegen
+            ruler->setPos(spawnFallback());
+            ruler->setZValue(1000);
             scene->addItem(ruler);
             rememberActiveRuler(scene, ruler);
+        } else if (havePreferred && !visibleInAnyView(ruler)) {
+            // Re-center into the current viewport when the cached ruler is off-screen
+            // (common after a prior create at tall sceneRect().center()).
+            ruler->setPos(preferredScenePos);
         }
 
-        // 3. Konfigurieren und Anzeigen
-        // Important UX rule: once the ruler exists, keep its scene position.
-        // Do not reposition it to viewport center when the tool is re-activated.
         ruler->setVisible(true);
+        ruler->setZValue(1000);
         ruler->setConfig(config);
+        for (QGraphicsView *v : scene->views()) {
+            if (v && v->viewport())
+                v->viewport()->update();
+        }
 
         return ruler;
     }

@@ -37,7 +37,10 @@ private:
   QLabel *m_opacityLabel{nullptr};
   QSlider *m_opacity{nullptr};
   QLabel *m_opacityValue{nullptr};
-  QAbstractButton *m_pressure{nullptr};
+  QLabel *m_smoothLabel{nullptr};
+  QSlider *m_smooth{nullptr};
+  QLabel *m_smoothValue{nullptr};
+  QAbstractButton *m_holdLine{nullptr};
   QAbstractButton *m_holdShape{nullptr};
   QWidget *m_rule{nullptr};
   QList<QPushButton *> m_presets;

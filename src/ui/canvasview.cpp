@@ -382,7 +382,10 @@ void CanvasView::setToolManager(ToolManager *manager) {
               // FIX: Hier prüfen wir, ob das Lineal aktiviert wurde, und zeigen
               // es an.
               if (tool && tool->mode() == ToolMode::Ruler) {
-                RulerTool::ensureRulerExists(m_scene, m_toolManager->config());
+                const QPointF spawn =
+                    mapToScene(viewport()->rect().center());
+                RulerTool::ensureRulerExists(m_scene, m_toolManager->config(),
+                                             spawn);
               }
               viewport()->update();
             });

@@ -163,12 +163,23 @@ public:
     }
     void setHoldEnableCircle(bool v) { updateConfig([v](ToolConfig& c) { c.holdEnableCircle = v; }); }
     void setHoldEnableTriangle(bool v) { updateConfig([v](ToolConfig& c) { c.holdEnableTriangle = v; }); }
+    void setHoldEnableLine(bool v) { updateConfig([v](ToolConfig& c) { c.holdEnableLine = v; }); }
     void setHoldStillDelayMs(int v) {
         updateConfig([v](ToolConfig& c) { c.holdStillDelayMs = qBound(200, v, 900); });
     }
+    void setPenStrokeStyle(int v) {
+        updateConfig([v](ToolConfig& c) {
+            c.penStrokeStyle = static_cast<PenStrokeStyle>(qBound(0, v, 5));
+            c.pressureSensitivity = (c.penStrokeStyle == PenStrokeStyle::Fountain ||
+                                     c.penStrokeStyle == PenStrokeStyle::Calligraphy);
+        });
+    }
+    void setMeasureUnitsPerCell(double v) {
+        updateConfig([v](ToolConfig& c) { c.measureUnitsPerCell = qBound(0.01, v, 1000.0); });
+    }
     void setShapeToolKind(int v) {
         updateConfig([v](ToolConfig& c) {
-            c.shapeToolKind = static_cast<ShapeToolKind>(qBound(0, v, 7));
+            c.shapeToolKind = static_cast<ShapeToolKind>(qBound(0, v, 28));
         });
     }
     void setShapeMathA(double v) {

@@ -74,8 +74,10 @@ QPainterPath chromeTabPath(const QRectF &r, qreal topR, qreal earR) {
 QColor readingMarkActiveFill(bool noteChrome) {
   if (!readingMarkUsesDarkBar())
     return QColor(0xFF, 0xFF, 0xFF);
+  // Studio Canvas: raised dark pill on charcoal title — never match
+  // toolbarFill (same luminance) or text goes dark-on-dark.
   if (noteChrome)
-    return NoteChrome::canvasBg();
+    return QColor(0x27, 0x2B, 0x36);
   // One step lighter than the charcoal title bar.
   const QColor bar = BlopStyle::libraryTitleBar();
   return QColor(qMin(255, bar.red() + 28), qMin(255, bar.green() + 30),
@@ -189,10 +191,12 @@ void DocumentTab::setReadingMarkMode(bool on) {
 
 void DocumentTab::refreshChromeStyle() {
   const bool darkBar = m_readingMarkMode && readingMarkUsesDarkBar();
+  const bool studioActive =
+      m_readingMarkMode && m_noteChromeMode && m_active && darkBar;
   const QColor fg =
       m_readingMarkMode
-          ? (m_active ? (darkBar ? QColor(0xF4, 0xF6, 0xFA)
-                                 : QColor(0x1C, 0x1E, 0x24))
+          ? (m_active ? (studioActive || darkBar ? QColor(0xF8, 0xFA, 0xFC)
+                                                 : QColor(0x1C, 0x1E, 0x24))
                       : (darkBar ? QColor(0xB0, 0xB6, 0xC2)
                                  : QColor(0x6B, 0x72, 0x80)))
           : (m_noteChromeMode ? NoteChrome::textPrimary()
@@ -205,7 +209,7 @@ void DocumentTab::refreshChromeStyle() {
                                 : BlopTheme::accentPrimary());
     const QColor iconFg =
         m_readingMarkMode
-            ? (m_active ? (darkBar ? accent.lighter(118) : accent)
+            ? (m_active ? (studioActive ? QColor(0x60, 0xA5, 0xFA) : accent)
                         : (darkBar ? QColor(0x8A, 0x90, 0x9C)
                                    : QColor(0x9C, 0xA3, 0xAF)))
             : fg;
@@ -220,40 +224,44 @@ void DocumentTab::refreshChromeStyle() {
         QStringLiteral(
             "QLabel { color: %1; font-size: %2px; font-weight: %3; }")
             .arg(fg.name(QColor::HexRgb))
-            .arg(m_readingMarkMode ? 12 : 13)
+            .arg(m_readingMarkMode ? (studioActive ? 13 : 12) : 13)
             .arg(m_active && m_readingMarkMode ? 600 : 500));
   }
   if (auto *closeBtn =
           findChild<QPushButton *>(QStringLiteral("DocumentTabClose"))) {
     const QString idle = m_readingMarkMode
-                             ? (darkBar ? QStringLiteral("#9CA3AF")
-                                        : QStringLiteral("#9CA3AF"))
+                             ? QStringLiteral("#9CA3AF")
                              : (m_noteChromeMode
                                     ? NoteChrome::textSecondary().name(QColor::HexRgb)
                                     : BlopTheme::textTertiary().name(QColor::HexRgb));
     const QString hoverFg =
         m_readingMarkMode
-            ? (darkBar ? QStringLiteral("#F2F2F2")
-                       : QStringLiteral("#1C1E24"))
+            ? QStringLiteral("#F87171")
             : (m_noteChromeMode ? NoteChrome::textPrimary().name(QColor::HexRgb)
                                 : BlopTheme::textPrimary().name(QColor::HexRgb));
     const QString hoverBg = m_readingMarkMode
-                                ? (darkBar ? QStringLiteral("rgba(255,255,255,0.12)")
-                                           : QStringLiteral("rgba(0,0,0,0.06)"))
+                                ? QStringLiteral("rgba(248,113,113,0.16)")
                                 : (BlopTheme::instance().isDark()
                                        ? QStringLiteral("rgba(255,255,255,0.10)")
                                        : QStringLiteral("rgba(0,0,0,0.08)"));
+    closeBtn->setFixedSize(UiScale::dp(16), UiScale::dp(16));
     closeBtn->setStyleSheet(
         QStringLiteral("QPushButton {"
                        "  background-color: transparent; border: none;"
-                       "  color: %1; font-size: 11px; border-radius: 9px;"
+                       "  color: %1; font-size: 11px; border-radius: 4px;"
+                       "  min-width: 16px; max-width: 16px;"
+                       "  min-height: 16px; max-height: 16px;"
                        "}"
                        "QPushButton:hover {"
                        "  background-color: %3; color: %2;"
                        "}")
             .arg(idle, hoverFg, hoverBg));
     // Keep hover-only visibility when chrome refreshes.
-    closeBtn->setVisible(m_hovered || closeBtn->underMouse());
+    closeBtn->setVisible(m_hovered || closeBtn->underMouse() ||
+                         (m_noteChromeMode && m_active));
+    // Close visibility changes layout width — always re-fit so ✕ never
+    // overlaps the trailing title glyphs (e.g. "3)").
+    setFixedWidth(sizeHint().width());
   }
 }
 
@@ -267,8 +275,12 @@ void DocumentTab::refreshTitleLabel() {
   f.setWeight(m_active ? QFont::DemiBold : QFont::Medium);
   m_textLbl->setFont(f);
   QFontMetrics fm(f);
+  // Reserve close-button chrome whenever note-chrome tabs can show ✕ on
+  // the active tab — otherwise sizeHint collapses and ✕ overlaps "3)".
+  const bool reserveClose =
+      m_closable && (m_noteChromeMode || m_hovered);
   const int chromeW = UiScale::dp(12) + UiScale::dp(18) + UiScale::dp(8) +
-                      (m_closable ? UiScale::dp(26) : 0) + UiScale::dp(12);
+                      (reserveClose ? UiScale::dp(26) : 0) + UiScale::dp(12);
   const int maxTextW = qMax(UiScale::dp(40), tabMaxWidthPx() - chromeW);
   const QString shown = fm.elidedText(m_title, Qt::ElideRight, maxTextW);
   m_textLbl->setText(shown);
@@ -306,17 +318,27 @@ QSize DocumentTab::iconTextSize() const {
 }
 
 QSize DocumentTab::sizeHint() const {
+  const bool reserveClose = m_closable && (m_noteChromeMode || m_hovered ||
+                                           m_active);
   if (m_readingMarkMode) {
     int w = layout() ? layout()->sizeHint().width() : UiScale::dp(120);
     if (m_title.isEmpty() && !m_closable)
       w = UiScale::dp(28);
+    // Layout ignores hidden close — pad when note-chrome will show it.
+    if (reserveClose) {
+      if (auto *closeBtn =
+              findChild<QPushButton *>(QStringLiteral("DocumentTabClose"))) {
+        if (!closeBtn->isVisible())
+          w += UiScale::dp(8) + UiScale::dp(16);
+      }
+    }
     return QSize(qMin(w, tabMaxWidthPx()), UiScale::dp(32));
   }
   QFontMetrics fm(font());
   const QString shown = m_textLbl ? m_textLbl->text() : m_title;
   int textW = fm.horizontalAdvance(shown.isEmpty() ? QStringLiteral("W") : shown);
   int w = UiScale::dp(12) + UiScale::dp(18) + UiScale::dp(8) + textW +
-          (m_closable ? UiScale::dp(24) : 0) + UiScale::dp(8);
+          (reserveClose ? UiScale::dp(24) : 0) + UiScale::dp(8);
   if (m_title.isEmpty() && !m_closable) {
     // Home squircle: icon-only compact chip.
     w = UiScale::dp(36);
@@ -331,18 +353,25 @@ void DocumentTab::paintEvent(QPaintEvent *) {
   p.setRenderHint(QPainter::Antialiasing);
 
   if (m_readingMarkMode && m_noteChromeMode) {
+    // Studio pill on charcoal title bar.
     const QRectF r = QRectF(rect()).adjusted(1, 1, -1, -1);
     QPainterPath path;
-    path.addRoundedRect(r, 6, 6);
+    path.addRoundedRect(r, 8, 8);
     const bool darkBar = readingMarkUsesDarkBar();
     p.setPen(Qt::NoPen);
-    if (m_active)
-      p.setBrush(darkBar ? QColor(255, 255, 255, 28) : QColor(255, 255, 255));
-    else if (m_hovered)
-      p.setBrush(darkBar ? QColor(255, 255, 255, 16) : QColor(0xF3, 0xF4, 0xF6));
-    else
-      p.setBrush(darkBar ? QColor(255, 255, 255, 15) : QColor(0xF3, 0xF4, 0xF6));
-    p.drawPath(path);
+    if (m_active) {
+      p.setBrush(readingMarkActiveFill(true));
+      p.drawPath(path);
+      p.setPen(QPen(QColor(255, 255, 255, 36), 1.0));
+      p.setBrush(Qt::NoBrush);
+      p.drawPath(path);
+    } else if (m_hovered) {
+      p.setBrush(darkBar ? QColor(255, 255, 255, 28) : QColor(0xF3, 0xF4, 0xF6));
+      p.drawPath(path);
+    } else {
+      p.setBrush(darkBar ? QColor(255, 255, 255, 18) : QColor(0xF3, 0xF4, 0xF6));
+      p.drawPath(path);
+    }
     return;
   }
 
@@ -449,9 +478,16 @@ void DocumentTab::mouseDoubleClickEvent(QMouseEvent *event) {
   edit->setText(m_title);
   edit->selectAll();
   edit->setGeometry(m_textLbl->geometry());
-  edit->setStyleSheet(m_textLbl->styleSheet() +
-                      QStringLiteral("QLineEdit { background: rgba(255,255,255,0.08);"
-                                     " border: none; border-radius: 4px; padding: 0 4px; }"));
+  const bool darkBar = m_readingMarkMode && readingMarkUsesDarkBar();
+  edit->setStyleSheet(
+      QStringLiteral("QLineEdit { background: %1; color: %2;"
+                     " border: 1px solid rgba(255,255,255,0.18);"
+                     " border-radius: 4px; padding: 0 4px;"
+                     " font-size: 13px; font-weight: 600; }")
+          .arg(darkBar ? QStringLiteral("rgba(255,255,255,0.10)")
+                       : QStringLiteral("rgba(0,0,0,0.06)"),
+               darkBar ? QStringLiteral("#F8FAFC")
+                       : QStringLiteral("#1C1E24")));
   edit->show();
   edit->setFocus();
   connect(edit, &QLineEdit::editingFinished, this, [this, edit]() {

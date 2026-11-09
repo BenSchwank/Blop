@@ -52,11 +52,12 @@ RailMetrics railMetrics(QWidget *ref, bool twoCol, bool horizontal) {
             UiScale::dp(6)};
   }
   if (twoCol) {
-    return {UiScale::dp(176), UiScale::dp(70), UiScale::dp(94),
+    return {UiScale::dp(190), UiScale::dp(70), UiScale::dp(94),
             UiScale::dp(112), UiScale::dp(6)};
   }
-  return {UiScale::dp(108), UiScale::dp(80), UiScale::dp(104), UiScale::dp(124),
-          UiScale::dp(8)};
+  // Studio Canvas drawer: wider thumbs for live page cards.
+  return {UiScale::dp(190), UiScale::dp(120), UiScale::dp(170),
+          UiScale::dp(196), UiScale::dp(10)};
 }
 
 QIcon railGlyph(const QString &name, const QColor &fg, int px) {
@@ -223,7 +224,7 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   if (UiScale::isAndroidPhoneUi(this))
     m_btnAddPage->setText(QString());
   else
-    m_btnAddPage->setText(QStringLiteral(" Seite"));
+    m_btnAddPage->setText(QStringLiteral("+ Neue Seite anfügen"));
   connect(m_btnAddPage, &QPushButton::clicked, this,
           &PageThumbnailSidebar::addPageRequested);
   footer->addWidget(m_btnAddPage, 1);
@@ -546,17 +547,31 @@ void PageThumbnailSidebar::applyCollapsedState() {
 }
 
 void PageThumbnailSidebar::refreshListStyle() {
-  const QColor accent = NoteChrome::accent();
-  const QString bg = NoteChrome::toolbarFill().name();
+  const QColor accent = QColor(0x3B, 0x82, 0xF6);
+  const bool studioDrawer = m_floatingMode && !m_horizontalStrip;
+  const QString bg =
+      studioDrawer ? QStringLiteral("rgba(24, 27, 34, 0.96)")
+                   : NoteChrome::toolbarFill().name();
   const QString edge =
       m_horizontalStrip
           ? QStringLiteral("border-bottom: 1px solid %1;")
                 .arg(NoteChrome::isDark()
                          ? NoteChrome::borderSoft().name()
                          : QStringLiteral("rgba(20,24,40,0.10)"))
-          : QStringLiteral("border-right: 1px solid %1;")
-                .arg(NoteChrome::borderSoft().name());
-  const QColor toggleFg = NoteChrome::textSecondary();
+          : (studioDrawer
+                 ? QStringLiteral(
+                       "border-right: 1px solid rgba(255,255,255,0.10);"
+                       "border-radius: 12px;")
+                 : QStringLiteral("border-right: 1px solid %1;")
+                       .arg(NoteChrome::borderSoft().name()));
+  const QColor toggleFg =
+      studioDrawer ? QColor(0xCB, 0xD5, 0xE1) : NoteChrome::textSecondary();
+  const QString btnBg =
+      studioDrawer ? QStringLiteral("rgba(255,255,255,0.06)")
+                   : NoteChrome::panelElevated().name();
+  const QString btnBorder =
+      studioDrawer ? QStringLiteral("rgba(255,255,255,0.12)")
+                   : NoteChrome::borderSoft().name();
   setStyleSheet(QStringLiteral(
       "QWidget#PageThumbnailSidebar {"
       "  background: %1; border: none; %2"
@@ -566,24 +581,23 @@ void PageThumbnailSidebar::refreshListStyle() {
       "  background: transparent; border: none; color: %3;"
       "  border-radius: 6px;"
       "}"
-      "QPushButton#PageRailToggleBtn:hover { background: rgba(0,0,0,0.06); }"
+      "QPushButton#PageRailToggleBtn:hover { background: rgba(255,255,255,0.08); }"
       "QPushButton#PageRailAddBtn, QPushButton#PageRailColsBtn {"
       "  background: %4; color: %3; border: 1px solid %5; border-radius: 6px;"
       "  font-size: 12px; font-weight: 600;"
       "}"
       "QPushButton#PageRailAddBtn:hover, QPushButton#PageRailColsBtn:hover,"
       "QPushButton#PageRailScrollBtn:hover {"
-      "  border-color: %6; color: %7; background: rgba(91,157,255,0.10);"
+      "  border-color: %6; color: %7; background: rgba(59,130,246,0.16);"
       "}"
       "QPushButton#PageRailScrollBtn {"
       "  background: %4; color: %3; border: 1px solid %5; border-radius: 10px;"
       "  font-size: 18px; font-weight: 700;"
       "}")
-                    .arg(bg, edge, toggleFg.name(),
-                         NoteChrome::panelElevated().name(),
-                         NoteChrome::borderSoft().name(),
+                    .arg(bg, edge, toggleFg.name(), btnBg, btnBorder,
                          accent.name(),
-                         NoteChrome::textPrimary().name()));
+                         studioDrawer ? QStringLiteral("#F8FAFC")
+                                      : NoteChrome::textPrimary().name()));
 
   if (m_btnAddPage) {
     m_btnAddPage->setIcon(
@@ -600,16 +614,23 @@ void PageThumbnailSidebar::refreshListStyle() {
   }
 
   if (m_list) {
-    const QString itemBg = NoteChrome::panelElevated().name();
-    const QString itemFg = NoteChrome::textSecondary().name();
-    const QString itemBorder = NoteChrome::borderSoft().name();
-    const QString hover = QStringLiteral("rgba(91,157,255,0.12)");
+    const bool studioDrawer = m_floatingMode && !m_horizontalStrip;
+    const QString itemBg =
+        studioDrawer ? QStringLiteral("#1E222A")
+                     : NoteChrome::panelElevated().name();
+    const QString itemFg =
+        studioDrawer ? QStringLiteral("#CBD5E1")
+                     : NoteChrome::textSecondary().name();
+    const QString itemBorder =
+        studioDrawer ? QStringLiteral("rgba(255,255,255,0.10)")
+                     : NoteChrome::borderSoft().name();
+    const QString hover = QStringLiteral("rgba(59,130,246,0.16)");
     m_list->setStyleSheet(
         QStringLiteral(
             "QListWidget { background: transparent; border: none; outline: 0; color: %1;"
             "  show-decoration-selected: 0; }"
             "QListWidget::item {"
-            "  border: 1px solid %2; border-radius: 8px; padding: 3px;"
+            "  border: 1px solid %2; border-radius: 6px; padding: 3px;"
             "  background: %3; color: %1;"
             "  font-size: 10px; font-weight: 600;"
             "}"
@@ -834,6 +855,22 @@ void PageThumbnailSidebar::showItemContextMenu(const QPoint &pos) {
                      rebuild();
                      emit pagesMutated();
                    }});
+  if (idx > 0) {
+    items.push_back({QStringLiteral("Nach oben"), QIcon(), [this, idx]() {
+                       m_view->movePage(idx, idx - 1);
+                       rebuild();
+                       emit pagesMutated();
+                       emit pageSelected(idx - 1);
+                     }});
+  }
+  if (m_view->pageCount() > idx + 1) {
+    items.push_back({QStringLiteral("Nach unten"), QIcon(), [this, idx]() {
+                       m_view->movePage(idx, idx + 1);
+                       rebuild();
+                       emit pagesMutated();
+                       emit pageSelected(idx + 1);
+                     }});
+  }
   items.push_back({QStringLiteral("90° drehen"), QIcon(), [this, idx]() {
                      m_view->rotatePage(idx, 1);
                      rebuild();

@@ -8,6 +8,15 @@ enum class EraserMode { Pixel, Object };
 enum class LassoMode { Freehand, Rectangle };
 enum class HighlighterTip { Round, Chisel };
 enum class ShapeType { Rectangle, Circle, Triangle, Arrow, Star, Graph };
+/// Pen Studio stroke style (independent of ToolMode Pen vs Pencil).
+enum class PenStrokeStyle {
+  Fountain = 0,   ///< pressure-sensitive
+  Fineliner = 1,  ///< fixed width
+  Pencil = 2,     ///< textured (routes to Pencil feel)
+  Calligraphy = 3,
+  Dashed = 4,
+  Dotted = 5
+};
 
 /// Modus des Formen-Werkzeugs (Aufzieh-Rechteck als Bounds).
 enum class ShapeToolKind {
@@ -18,7 +27,28 @@ enum class ShapeToolKind {
   CoordinateGraph = 4,
   Line = 5,
   Arrow = 6,
-  Ellipse = 7 ///< free ellipse from drag bounds
+  Ellipse = 7, ///< free ellipse from drag bounds
+  DashedLine = 8, ///< construction / dashed helper line
+  DoubleArrow = 9,
+  ElbowConnector = 10,
+  RoundedRect = 11,
+  Triangle = 12,
+  Polyline = 13,
+  Brace = 14,
+  AxesPositive = 15, ///< 1st quadrant only
+  ComplexPlane = 16, ///< Re/Im labels on Axes2D
+  UnitCircle = 17,
+  StampResistor = 18,
+  StampGnd = 19,
+  Axes3D = 20,
+  StampCapacitor = 21,
+  StampInductor = 22,
+  StampVoltageSrc = 23,
+  StampCurrentSrc = 24,
+  StampNode = 25,
+  FlowDecision = 26,
+  FlowProcess = 27,
+  FlowIO = 28
 };
 
 struct GraphFunctionSpec {
@@ -26,12 +56,24 @@ struct GraphFunctionSpec {
     QColor color{QColor(94, 92, 230)};
     bool visible{true};
     bool showDerivative{false};
+    bool showSecondDerivative{false};
     bool showRoots{false};
     bool showExtrema{false};
+    bool showInflection{false};
+    bool showIntersections{false};
+    bool showIntegral{false};
+    double integralA{0.0};
+    double integralB{1.0};
+    QString paramName;
+    double paramValue{1.0};
+    double paramMin{-5.0};
+    double paramMax{5.0};
 };
 
 // NEU: Lineal Einheiten
 enum class RulerUnit { Pixel, Centimeter, Inch };
+
+enum class DimensionKind { Length = 0, Angle3Point = 1, Area = 2 };
 
 struct ToolConfig {
     // --- BASIS EINSTELLUNGEN ---
@@ -42,6 +84,9 @@ struct ToolConfig {
     // 1. PEN
     int smoothing = 0;
     bool pressureSensitivity = true;
+    PenStrokeStyle penStrokeStyle = PenStrokeStyle::Fountain;
+    /// Paper scale for measure tools: one grid cell (5mm) equals this many units.
+    double measureUnitsPerCell = 1.0;
 
     // 2. PENCIL
     int hardness = 50;
@@ -70,19 +115,23 @@ struct ToolConfig {
     // 7. RULER (NEU)
     RulerUnit rulerUnit = RulerUnit::Pixel;
     bool rulerSnap = true;      // Einrasten aktiv?
-    bool compassMode = false;   // Rundes Lineal
+    bool compassMode = false;   // Geodreieck / Protractor
     bool infiniteRuler = false; // Über die ganze Seite
+    DimensionKind dimensionKind = DimensionKind::Length;
 
     // 8. Schnellauswahl-Farben (persistente Slots für Tool-Settings)
+    // Pro-Ink palette (Studio Canvas) — eye-friendly, not neon RGB.
     std::array<QColor, 5> quickColors{
-        QColor(Qt::black), QColor(Qt::white), QColor(Qt::red),
-        QColor(Qt::blue), QColor(0, 200, 0)};
+        QColor(0x1E, 0x29, 0x3B), QColor(0xF8, 0xFA, 0xFC),
+        QColor(0x25, 0x63, 0xEB), QColor(0xE1, 0x1D, 0x48),
+        QColor(0x10, 0xB9, 0x81)};
 
     // 9. Halten → Form (AbstractStrokeTool: Stift, Bleistift, Marker, Radierer)
     int holdShapeSensitivity = 50; ///< 0 = streng, 100 = nachgiebig
     bool holdEnableCircle = true;
     bool holdEnableTriangle = true;
-    int holdStillDelayMs = 360; ///< 200–900 ms für Halte-Erkennung
+    int holdStillDelayMs = 350; ///< 200–900 ms für Halte-Erkennung
+    bool holdEnableLine = true; ///< Tinte zu gerader Linie
 
     // 10. Text / Sticky
     QString fontFamily; ///< Empty = system default; e.g. "Serif", "Mono"

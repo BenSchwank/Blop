@@ -27,6 +27,7 @@
 #include "graphaxissettingsdialog.h"
 #include "graphlegenddock.h"
 #include "graphquickactionpopup.h"
+#include "graphvaluetabledock.h"
 #include "tools/math/MathExpressionParser.h"
 #include "tools/math/NumericAnalysis.h"
 #include "tools/math/MathInkRecognizer.h"
@@ -34,6 +35,7 @@
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QGraphicsRectItem>
+#include <QGraphicsSimpleTextItem>
 #include <QGraphicsTextItem>
 #include <QGraphicsProxyWidget>
 #include <QGraphicsSceneMouseEvent>
@@ -605,6 +607,20 @@ public:
                &NoteSelectionMenu::screenshotRequested);
     addIconBtn(QStringLiteral("selLib"), QStringLiteral("Zur Bibliothek"),
                &NoteSelectionMenu::libraryRequested);
+    auto *mathBtn = new QPushButton(QStringLiteral("Σ"), this);
+    mathBtn->setObjectName(QStringLiteral("selMath"));
+    mathBtn->setToolTip(QStringLiteral("Mathe erkennen"));
+    mathBtn->setFlat(true);
+    connect(mathBtn, &QPushButton::clicked, this, &NoteSelectionMenu::mathRecognizeRequested);
+    m_layout->addWidget(mathBtn);
+    m_iconBtns.append(mathBtn);
+    auto *plotBtn = new QPushButton(QStringLiteral("𝑓"), this);
+    plotBtn->setObjectName(QStringLiteral("selPlot"));
+    plotBtn->setToolTip(QStringLiteral("Plotten"));
+    plotBtn->setFlat(true);
+    connect(plotBtn, &QPushButton::clicked, this, &NoteSelectionMenu::mathPlotRequested);
+    m_layout->addWidget(plotBtn);
+    m_iconBtns.append(plotBtn);
     m_sep = new QFrame(this);
     m_sep->setFrameShape(QFrame::VLine);
     m_layout->addWidget(m_sep);
@@ -661,6 +677,8 @@ signals:
   void screenshotRequested();
   void cropRequested();
   void libraryRequested();
+  void mathRecognizeRequested();
+  void mathPlotRequested();
 
 private:
   QHBoxLayout *m_layout{nullptr};
@@ -1464,7 +1482,7 @@ static int a4hPx() {
   return 1122;
 #endif
 }
-static int pageSpacingPx() { return UiScale::dp(60); }
+static int pageSpacingPx() { return UiScale::dp(24); }
 static int pageTopInsetPx() { return UiScale::dp(88); }
 static float kBottomRevealPull() { return UiScale::dp(100); }
 /// Abstand Seitenunterkante → Panel (Szenenkoordinaten)
@@ -1580,8 +1598,18 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
           [this](AbstractTool *tool) {
             // Wenn Lineal gewählt ist, sicherstellen, dass es existiert
             if (tool && tool->mode() == ToolMode::Ruler) {
+              const QPointF spawn =
+                  mapToScene(viewport()->rect().center());
               RulerTool::ensureRulerExists(&scene_,
-                                           ToolManager::instance().config());
+                                           ToolManager::instance().config(),
+                                           spawn);
+            }
+            // Laser / other overlay tools: keep viewport painting while fading.
+            disconnect(m_toolOverlayConn);
+            if (tool) {
+              m_toolOverlayConn =
+                  connect(tool, &AbstractTool::overlayChanged, this,
+                          [this]() { viewport()->update(); });
             }
             viewport()->update();
           });
@@ -1606,6 +1634,10 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
           &MultiPageNoteView::addSelectionToMarkupLibrary);
   // v3.18.0: Crop war als Button + Signal vorhanden, aber nie verbunden.
   connect(m_selectionMenu, &NoteSelectionMenu::cropRequested, this, &MultiPageNoteView::startCropSession);
+  connect(m_selectionMenu, &NoteSelectionMenu::mathRecognizeRequested, this,
+          &MultiPageNoteView::recognizeSelectionMath);
+  connect(m_selectionMenu, &NoteSelectionMenu::mathPlotRequested, this,
+          &MultiPageNoteView::plotSelectionMath);
 
   // v3.18.6: debounce sticky-note and text-box edits so typing doesn't sync +
   // save on every single keystroke.
@@ -1632,6 +1664,8 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   connect(m_cropMenu, &CropMenu::cancelRequested, this, &MultiPageNoteView::cancelCrop);
   m_graphLegendDock = new GraphLegendDock(this);
   m_graphLegendDock->hide();
+  m_graphValueTableDock = new GraphValueTableDock(this);
+  m_graphValueTableDock->hide();
   m_graphQuickPopup = new GraphQuickActionPopup(this);
   m_graphQuickPopup->hide();
 
@@ -1732,12 +1766,15 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
       d.functions[m_livePreviewIndex].expression = parsed.normalizedInput;
       d.functions[m_livePreviewIndex].color = fixedColor;
+      d.functions[m_livePreviewIndex].paramName =
+          NumericAnalysis::detectFreeParam(parsed.normalizedInput);
       d.selectedFunction = m_livePreviewIndex;
       m_livePreviewIndex = -1;
     } else {
       GraphFunction fn;
       fn.expression = parsed.normalizedInput;
       fn.visible = true;
+      fn.paramName = NumericAnalysis::detectFreeParam(parsed.normalizedInput);
       d.functions.push_back(fn);
       d.selectedFunction = d.functions.size() - 1;
     }
@@ -1808,10 +1845,65 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     }
     else if (what == "roots") d.functions[idx].showRoots = !d.functions[idx].showRoots;
     else if (what == "extrema") d.functions[idx].showExtrema = !d.functions[idx].showExtrema;
+    else if (what == "inflection") d.functions[idx].showInflection = !d.functions[idx].showInflection;
+    else if (what == "intersections") d.functions[idx].showIntersections = !d.functions[idx].showIntersections;
+    else if (what == "derivative") d.functions[idx].showDerivative = !d.functions[idx].showDerivative;
+    else if (what == "second_derivative")
+      d.functions[idx].showSecondDerivative = !d.functions[idx].showSecondDerivative;
+    else if (what == "integral") {
+      d.functions[idx].showIntegral = !d.functions[idx].showIntegral;
+      if (d.functions[idx].showIntegral) {
+        d.functions[idx].integralA = d.xMin * 0.25;
+        d.functions[idx].integralB = d.xMax * 0.25;
+        if (d.functions[idx].integralA == d.functions[idx].integralB) {
+          d.functions[idx].integralA = 0.0;
+          d.functions[idx].integralB = 1.0;
+        }
+      }
+    } else if (what == "view_labels") {
+      d.showAnalysisLabels = !d.showAnalysisLabels;
+    } else if (what == "view_legend") {
+      d.showLegend = !d.showLegend;
+    } else if (what == "view_vtable") {
+      d.showValueTable = !d.showValueTable;
+      if (d.showValueTable) {
+        d.tableX0 = d.xMin;
+        d.tableX1 = d.xMax;
+        if (!(d.tableDx > 1e-9))
+          d.tableDx = 1.0;
+      }
+    } else if (what == "view_grid") {
+      d.showPlotGrid = !d.showPlotGrid;
+    }
     m_selectedGraphItem->fromData(d);
+    if (what == "view_legend") {
+      if (d.showLegend && m_graphPanelExplicitOpen)
+        presentGraphLegendAnimated();
+      else
+        hideGraphLegendQuick();
+    }
     bindGraphChrome(m_selectedGraphItem);
     syncGraphPlusLayout(m_selectedGraphItem);
     syncGraphLegendLayout();
+    syncGraphItemsToNote();
+  });
+  connect(m_graphQuickPopup, &GraphQuickActionPopup::paramValueRequested, this, [this](double val) {
+    if (!m_selectedGraphItem)
+      return;
+    auto d = m_selectedGraphItem->data();
+    if (d.functions.isEmpty())
+      return;
+    const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
+    if (idx < 0 || idx >= d.functions.size())
+      return;
+    auto &f = d.functions[idx];
+    if (f.paramName.isEmpty()) {
+      f.paramName = NumericAnalysis::detectFreeParam(f.expression);
+      if (f.paramName.isEmpty())
+        return;
+    }
+    f.paramValue = val;
+    m_selectedGraphItem->fromData(d);
     syncGraphItemsToNote();
   });
   connect(m_graphQuickPopup, &GraphQuickActionPopup::tangentXRequested, this, [this](double x0) {
@@ -2277,8 +2369,14 @@ void MultiPageNoteView::layoutPages() {
   // Vorhandene Seiten-Items entfernen
   for (auto *item : pageItems_) {
     const QList<QGraphicsItem *> kids = item->childItems();
-    for (QGraphicsItem *c : kids)
+    for (QGraphicsItem *c : kids) {
+      // Page captions are page-local; strokes are reparented onto the scene.
+      if (qgraphicsitem_cast<QGraphicsSimpleTextItem *>(c)) {
+        delete c;
+        continue;
+      }
       c->setParentItem(nullptr);
+    }
     scene_.removeItem(item);
     delete item;
   }
@@ -2308,6 +2406,18 @@ void MultiPageNoteView::layoutPages() {
     scene_.addItem(pageItem);
     pageItem->setPos(0, y);
     pageItems_.push_back(pageItem);
+    // Quiet page index label under the sheet (child of page → auto-cleaned).
+    {
+      auto *lbl = new QGraphicsSimpleTextItem(
+          QStringLiteral("Seite %1 von %2").arg(i + 1).arg(n), pageItem);
+      QFont f = lbl->font();
+      f.setPixelSize(11);
+      lbl->setFont(f);
+      lbl->setBrush(QColor(0x64, 0x74, 0x8B));
+      lbl->setZValue(1);
+      const QRectF br = lbl->boundingRect();
+      lbl->setPos(a4wPx() - br.width(), a4hPx() + UiScale::dp(6));
+    }
     y += a4hPx() + pageSpacingPx();
   }
   const qreal stripW =
@@ -2904,6 +3014,8 @@ void MultiPageNoteView::applyNoteChrome() {
   stylePagesBarCard(m_pagesBarCard);
   if (m_graphLegendDock)
     m_graphLegendDock->refreshChrome();
+  if (m_graphValueTableDock)
+    m_graphValueTableDock->refreshChrome();
   if (m_graphQuickPopup)
     m_graphQuickPopup->refreshChrome();
   if (m_graphEntryBar)
@@ -4398,6 +4510,7 @@ bool MultiPageNoteView::importPdfPages(const QString &pdfPath) {
 }
 
 void MultiPageNoteView::onSelectionChanged() {
+  emit canvasSelectionPresenceChanged(!scene_.selectedItems().isEmpty());
   // v3.18.0: während einer Crop-Session kein Selektionsmenü über dem
   // Resizer aufpoppen lassen (der CropResizer selbst ist selektierbar).
   if (m_cropResizer) {
@@ -4997,6 +5110,107 @@ void showViewToast(QWidget *anchor, const QString &text,
 // v3.18.0: vorher landete der Screenshot nur im Clipboard. Jetzt zusätzlich
 // "Als PNG speichern": Desktop über QFileDialog, Android direkt ins
 // App-Pictures-Verzeichnis mit Toast-Bestätigung.
+namespace {
+QImage selectionInkSnapshot(QGraphicsScene &scene) {
+  const QList<QGraphicsItem *> selected = scene.selectedItems();
+  if (selected.isEmpty())
+    return {};
+  QRectF selRect;
+  for (auto *i : selected)
+    selRect = selRect.united(i->sceneBoundingRect());
+  if (selRect.isEmpty())
+    return {};
+  selRect.adjust(-4, -4, 4, 4);
+  QImage img(selRect.size().toSize().expandedTo(QSize(32, 32)), QImage::Format_ARGB32);
+  img.fill(Qt::white);
+  {
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing);
+    scene.render(&p, QRectF(0, 0, img.width(), img.height()), selRect);
+  }
+  return img;
+}
+
+QString recognizeSelectionExpression(QGraphicsScene &scene) {
+  const QImage snap = selectionInkSnapshot(scene);
+  if (snap.isNull())
+    return {};
+  if (MathInkRecognizer::instance().isAvailable()) {
+    const QString local = MathInkRecognizer::instance().recognize(snap);
+    if (!local.trimmed().isEmpty())
+      return local.trimmed();
+  }
+  return {};
+}
+} // namespace
+
+void MultiPageNoteView::recognizeSelectionMath() {
+  const QString expr = recognizeSelectionExpression(scene_);
+  if (expr.isEmpty()) {
+    showViewToast(this, QStringLiteral("Keine Formel erkannt"));
+    if (m_selectionMenu)
+      m_selectionMenu->hide();
+    return;
+  }
+  QRectF selRect;
+  for (auto *i : scene_.selectedItems())
+    selRect = selRect.united(i->sceneBoundingRect());
+  auto *text = scene_.addText(expr);
+  text->setDefaultTextColor(NoteChrome::textPrimary());
+  QFont f = text->font();
+  f.setPointSize(14);
+  text->setFont(f);
+  text->setPos(selRect.isValid() ? selRect.bottomLeft() + QPointF(0, 8)
+                                 : QPointF(40, 40));
+  text->setZValue(20);
+  text->setFlag(QGraphicsItem::ItemIsSelectable, true);
+  text->setFlag(QGraphicsItem::ItemIsMovable, true);
+  showViewToast(this, QStringLiteral("Erkannt: %1").arg(expr));
+  if (m_selectionMenu)
+    m_selectionMenu->hide();
+  scheduleStrokeSync();
+}
+
+void MultiPageNoteView::plotSelectionMath() {
+  const QString expr = recognizeSelectionExpression(scene_);
+  if (expr.isEmpty()) {
+    showViewToast(this, QStringLiteral("Keine Formel zum Plotten erkannt"));
+    if (m_selectionMenu)
+      m_selectionMenu->hide();
+    return;
+  }
+  const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
+  if (!parsed.ok) {
+    showViewToast(this, QStringLiteral("Ungültiger Ausdruck: %1").arg(expr));
+    if (m_selectionMenu)
+      m_selectionMenu->hide();
+    return;
+  }
+  QRectF selRect;
+  for (auto *i : scene_.selectedItems())
+    selRect = selRect.united(i->sceneBoundingRect());
+  const QPointF origin = selRect.isValid() ? selRect.topRight() + QPointF(24, 0)
+                                           : QPointF(80, 80);
+  const QRectF bb(origin, QSizeF(420, 340));
+  auto *gi = new GraphCanvasItem(bb);
+  GraphObject d;
+  d.rect = bb;
+  GraphFunction fn;
+  fn.expression = parsed.normalizedInput.isEmpty() ? expr : parsed.normalizedInput;
+  fn.visible = true;
+  fn.paramName = NumericAnalysis::detectFreeParam(fn.expression);
+  d.functions = {fn};
+  d.selectedFunction = 0;
+  gi->fromData(d);
+  gi->setZValue(4.0);
+  scene_.addItem(gi);
+  m_selectedGraphItem = gi;
+  syncGraphItemsToNote();
+  showViewToast(this, QStringLiteral("Graph: %1").arg(fn.expression));
+  if (m_selectionMenu)
+    m_selectionMenu->hide();
+}
+
 void MultiPageNoteView::screenshotSelection() {
   const QList<QGraphicsItem *> selected = scene_.selectedItems();
   if (selected.isEmpty())
@@ -5154,8 +5368,27 @@ void MultiPageNoteView::bindGraphChrome(GraphCanvasItem *gi) {
     if (!gd.functions.isEmpty() && gd.selectedFunction < 0)
       gi->setSelectedFunction(0);
   }
-  if (m_graphLegendDock)
-    m_graphLegendDock->bind(gi);
+  if (m_graphLegendDock) {
+    if (gi && gi->data().showLegend)
+      m_graphLegendDock->bind(gi);
+    else {
+      m_graphLegendDock->bind(nullptr);
+      m_graphLegendDock->hide();
+    }
+  }
+  if (m_graphValueTableDock) {
+    if (gi && gi->data().showValueTable) {
+      m_graphValueTableDock->bind(gi);
+      // Dock under legend / near top-right of view.
+      const int x = width() - m_graphValueTableDock->width() - UiScale::dp(16);
+      const int y = UiScale::dp(88);
+      m_graphValueTableDock->move(qMax(8, x), y);
+      m_graphValueTableDock->raise();
+    } else {
+      m_graphValueTableDock->bind(nullptr);
+      m_graphValueTableDock->hide();
+    }
+  }
   if (m_graphQuickPopup)
     m_graphQuickPopup->bind(gi);
 }
@@ -5241,6 +5474,8 @@ void MultiPageNoteView::hideGraphQuickPopup() {
 
 void MultiPageNoteView::hideGraphLegendQuick() {
   hideGraphQuickPopup();
+  if (m_graphValueTableDock)
+    m_graphValueTableDock->hide();
   if (!m_graphLegendDock || !m_graphLegendDock->isVisible()) {
     if (m_graphLegendFadeAnim)
       m_graphLegendFadeAnim->stop();
@@ -5291,6 +5526,10 @@ void MultiPageNoteView::hideGraphEntryBarQuick() {
 void MultiPageNoteView::presentGraphLegendAnimated() {
   if (!m_graphLegendDock)
     return;
+  if (m_selectedGraphItem && !m_selectedGraphItem->data().showLegend) {
+    m_graphLegendDock->hide();
+    return;
+  }
   ensureGraphLegendFadeSetup();
   const bool alreadyVisible = m_graphLegendDock->isVisible();
   if (alreadyVisible && !m_graphLegendOpacityFx) {

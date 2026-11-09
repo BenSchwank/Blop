@@ -155,7 +155,7 @@ QRectF GraphCanvasItem::plusButtonSceneRect() const {
 }
 
 bool GraphCanvasItem::hitPlusButtonAtScene(const QPointF& scenePos) const {
-    if (m_plusSuppressed)
+    if (!isSelected() || m_plusSuppressed)
         return false;
     return plusButtonHitLocalRect().contains(mapFromScene(scenePos));
 }
@@ -182,14 +182,24 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
         p->drawRoundedRect(m_rect.adjusted(-3, -3, 3, 3), 9, 9);
         p->restore();
     }
-    p->setPen(QPen(QColor(98, 98, 104, 1), 1.2));
-    p->setBrush(QColor(188, 190, 198, 120));
-    p->drawRoundedRect(m_rect, 8, 8);
+    const bool cleanPaper = !isSelected() || !m_data.showPlotGrid;
+    if (!cleanPaper) {
+        p->setPen(QPen(QColor(98, 98, 104, 1), 1.2));
+        p->setBrush(QColor(188, 190, 198, 120));
+        p->drawRoundedRect(m_rect, 8, 8);
+    }
 
     const QRectF pr = m_rect.adjusted(10, 10, -10, -10);
-    p->setBrush(QColor(248, 248, 249, 220));
-    p->setPen(QPen(QColor(20, 20, 22), 1.1));
-    p->drawRect(pr);
+    if (m_data.showPlotGrid && isSelected()) {
+        p->setBrush(QColor(248, 248, 249, 220));
+        p->setPen(QPen(QColor(20, 20, 22), 1.1));
+        p->drawRect(pr);
+    } else if (m_data.showPlotGrid) {
+        p->setBrush(QColor(248, 248, 249, 40));
+        p->setPen(QPen(QColor(20, 20, 22, 40), 1.0));
+        p->drawRect(pr);
+    }
+    // else: transparent fill so page paper shows through
 
     auto mapX = [&](double x) { return pr.left() + (x - m_data.xMin) / qMax(1e-6, (m_data.xMax - m_data.xMin)) * pr.width(); };
     auto mapY = [&](double y) { return pr.bottom() - (y - m_data.yMin) / qMax(1e-6, (m_data.yMax - m_data.yMin)) * pr.height(); };
@@ -213,34 +223,35 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
         yStep = niceTickStep(ySpan, c);
     }
 
-    p->setPen(QPen(QColor(72, 72, 77), 1));
-    if (xStep > 0 && std::isfinite(xStep)) {
-        const double xStart = std::ceil(m_data.xMin / xStep - 1e-12) * xStep;
-        for (double xv = xStart; xv <= m_data.xMax + xStep * 1e-9; xv += xStep) {
-            if (xv < m_data.xMin - 1e-12)
-                continue;
-            const qreal px = mapX(xv);
-            if (px < pr.left() || px > pr.right())
-                continue;
-            if (std::abs(xv) > xStep * 1e-9)
-                p->drawLine(QPointF(px, pr.top()), QPointF(px, pr.bottom()));
+    if (m_data.showPlotGrid) {
+        p->setPen(QPen(QColor(72, 72, 77), 1));
+        if (xStep > 0 && std::isfinite(xStep)) {
+            const double xStart = std::ceil(m_data.xMin / xStep - 1e-12) * xStep;
+            for (double xv = xStart; xv <= m_data.xMax + xStep * 1e-9; xv += xStep) {
+                if (xv < m_data.xMin - 1e-12)
+                    continue;
+                const qreal px = mapX(xv);
+                if (px < pr.left() || px > pr.right())
+                    continue;
+                if (std::abs(xv) > xStep * 1e-9)
+                    p->drawLine(QPointF(px, pr.top()), QPointF(px, pr.bottom()));
+            }
         }
-    }
-    if (yStep > 0 && std::isfinite(yStep)) {
-        const double yStart = std::ceil(m_data.yMin / yStep - 1e-12) * yStep;
-        for (double yv = yStart; yv <= m_data.yMax + yStep * 1e-9; yv += yStep) {
-            if (yv < m_data.yMin - 1e-12)
-                continue;
-            const qreal py = mapY(yv);
-            if (py < pr.top() || py > pr.bottom())
-                continue;
-            if (std::abs(yv) > yStep * 1e-9)
-                p->drawLine(QPointF(pr.left(), py), QPointF(pr.right(), py));
+        if (yStep > 0 && std::isfinite(yStep)) {
+            const double yStart = std::ceil(m_data.yMin / yStep - 1e-12) * yStep;
+            for (double yv = yStart; yv <= m_data.yMax + yStep * 1e-9; yv += yStep) {
+                if (yv < m_data.yMin - 1e-12)
+                    continue;
+                const qreal py = mapY(yv);
+                if (py < pr.top() || py > pr.bottom())
+                    continue;
+                if (std::abs(yv) > yStep * 1e-9)
+                    p->drawLine(QPointF(pr.left(), py), QPointF(pr.right(), py));
+            }
         }
+        p->setPen(QPen(QColor(18, 18, 20), 1.1));
+        p->drawRect(pr);
     }
-
-    p->setPen(QPen(QColor(18, 18, 20), 1.1));
-    p->drawRect(pr);
 
     const qreal x0 = mapX(0.0);
     const qreal y0 = mapY(0.0);
@@ -248,7 +259,7 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
     p->drawLine(QPointF(pr.left(), y0), QPointF(pr.right(), y0));
     p->drawLine(QPointF(x0, pr.top()), QPointF(x0, pr.bottom()));
 
-    {
+    if (m_data.showPlotGrid) {
         QFont tickFont = p->font();
         tickFont.setPointSizeF(qMax(6.5, tickFont.pointSizeF() - 1.0));
         p->setFont(tickFont);
@@ -290,20 +301,26 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
                 p->drawText(QRectF(tx, py - th * 0.5, tw, th), Qt::AlignRight | Qt::AlignVCenter, txt);
             }
         }
+        p->setPen(QPen(QColor(12, 12, 12), 1));
+        p->drawText(QPointF(pr.right() - 12, qBound(pr.top() + 12.0, y0 - 5.0, pr.bottom() - 4.0)), QStringLiteral("x"));
+        p->drawText(QPointF(qBound(pr.left() + 4.0, x0 + 4.0, pr.right() - 12.0), pr.top() + 12), QStringLiteral("y"));
     }
-
-    p->setPen(QPen(QColor(12, 12, 12), 1));
-    p->drawText(QPointF(pr.right() - 12, qBound(pr.top() + 12.0, y0 - 5.0, pr.bottom() - 4.0)), QStringLiteral("x"));
-    p->drawText(QPointF(qBound(pr.left() + 4.0, x0 + 4.0, pr.right() - 12.0), pr.top() + 12), QStringLiteral("y"));
 
     p->save();
     p->setClipRect(pr);
+
+    auto resolveExpr = [](const GraphFunction &f) -> ParsedExpression {
+        QString src = f.isDerivativeCurve ? f.sourceExpression : f.expression;
+        if (!f.paramName.isEmpty())
+            src = NumericAnalysis::substituteParam(src, f.paramName, f.paramValue);
+        return MathExpressionParser::parseFunctionExpression(src);
+    };
 
     for (int i = 0; i < m_data.functions.size(); ++i) {
         const auto& f = m_data.functions[i];
         if (!f.visible)
             continue;
-        const ParsedExpression expr = MathExpressionParser::parseFunctionExpression(f.isDerivativeCurve ? f.sourceExpression : f.expression);
+        const ParsedExpression expr = resolveExpr(f);
         if (!expr.ok)
             continue;
         const bool isActiveFn = (i == m_data.selectedFunction);
@@ -332,6 +349,40 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
         p->setPen(QPen(f.color, isActiveFn ? 3.4 : 1.35, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         p->drawPath(path);
 
+        if (f.showIntegral && !f.isDerivativeCurve) {
+            const double a = qBound(m_data.xMin, qMin(f.integralA, f.integralB), m_data.xMax);
+            const double b = qBound(m_data.xMin, qMax(f.integralA, f.integralB), m_data.xMax);
+            if (b > a + 1e-9) {
+                QPainterPath hatch;
+                const QPointF leftBase(mapX(a), mapY(0.0));
+                hatch.moveTo(leftBase);
+                constexpr int Ni = 80;
+                for (int k = 0; k <= Ni; ++k) {
+                    const double x = a + (b - a) * (static_cast<double>(k) / Ni);
+                    const double y = MathEvaluator::evalAt(expr, x);
+                    if (!qIsFinite(y))
+                        continue;
+                    hatch.lineTo(mapX(x), mapY(y));
+                }
+                hatch.lineTo(mapX(b), mapY(0.0));
+                hatch.closeSubpath();
+                QColor fill = f.color;
+                fill.setAlpha(55);
+                p->setPen(Qt::NoPen);
+                p->setBrush(fill);
+                p->drawPath(hatch);
+                const double area = NumericAnalysis::definiteIntegralSimpson(expr, a, b);
+                if (qIsFinite(area)) {
+                    p->setPen(QPen(f.color.darker(120), 1.0));
+                    QFont lf = p->font();
+                    lf.setPointSizeF(7.5);
+                    p->setFont(lf);
+                    p->drawText(QPointF(mapX(0.5 * (a + b)), mapY(0.0) - 6.0),
+                                QStringLiteral("∫=%1").arg(area, 0, 'g', 4));
+                }
+            }
+        }
+
         if (f.showDerivative) {
             p->setPen(QPen(f.color.lighter(145), 1.2, Qt::DashLine));
             QPainterPath dPath;
@@ -348,6 +399,24 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
                 else dPath.lineTo(pt);
             }
             p->drawPath(dPath);
+        }
+
+        if (f.showSecondDerivative) {
+            p->setPen(QPen(f.color.lighter(180), 1.1, Qt::DotLine));
+            QPainterPath d2Path;
+            bool d2Started = false;
+            for (int k = 0; k <= N; ++k) {
+                const double x = m_data.xMin + (m_data.xMax - m_data.xMin) * (static_cast<double>(k) / N);
+                const double y = NumericAnalysis::secondDerivativeCentral(expr, x);
+                if (!qIsFinite(y)) {
+                    d2Started = false;
+                    continue;
+                }
+                const QPointF pt(mapX(x), mapY(y));
+                if (!d2Started) { d2Path.moveTo(pt); d2Started = true; }
+                else d2Path.lineTo(pt);
+            }
+            p->drawPath(d2Path);
         }
 
         if (f.showTangent) {
@@ -376,13 +445,14 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
             }
         }
 
-        if (f.showRoots || i == m_data.selectedFunction) {
+        if (f.showRoots) {
             const QColor rootColor = f.rootMarkerColor;
             const QVector<double> roots = NumericAnalysis::findRootsBisection(expr, m_data.xMin, m_data.xMax, 300);
             const bool selected = (i == m_data.selectedFunction);
+            const bool drawLabels = m_data.showAnalysisLabels && selected;
             for (double rx : roots) {
                 const QPointF c(mapX(rx), mapY(0.0));
-                if (selected) {
+                if (drawLabels) {
                     p->setPen(QPen(QColor(255, 255, 255, 230), 2.0));
                     p->setBrush(rootColor);
                     p->drawEllipse(c, 6.4, 6.4);
@@ -411,13 +481,68 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
                 const double y = MathEvaluator::evalAt(expr, exx);
                 if (!qIsFinite(y))
                     continue;
-                p->drawEllipse(QPointF(mapX(exx), mapY(y)), 2.8, 2.8);
+                const QPointF c(mapX(exx), mapY(y));
+                p->drawEllipse(c, 2.8, 2.8);
+                if (m_data.showAnalysisLabels) {
+                    p->setPen(QPen(QColor(20, 20, 22), 0.8));
+                    QFont rf = p->font();
+                    rf.setPointSizeF(7.0);
+                    p->setFont(rf);
+                    p->drawText(QRectF(c.x() - 24.0, c.y() - 16.0, 48.0, 12.0),
+                                Qt::AlignHCenter | Qt::AlignBottom,
+                                QStringLiteral("(%1|%2)")
+                                    .arg(exx, 0, 'g', 3)
+                                    .arg(y, 0, 'g', 3));
+                }
+            }
+        }
+
+        if (f.showInflection && !f.isDerivativeCurve) {
+            p->setPen(Qt::NoPen);
+            p->setBrush(QColor(168, 85, 247));
+            const QVector<double> wp =
+                NumericAnalysis::findInflectionPoints(expr, m_data.xMin, m_data.xMax, 300);
+            for (double wx : wp) {
+                const double y = MathEvaluator::evalAt(expr, wx);
+                if (!qIsFinite(y))
+                    continue;
+                const QPointF c(mapX(wx), mapY(y));
+                p->drawEllipse(c, 3.2, 3.2);
+                if (m_data.showAnalysisLabels) {
+                    p->setPen(QPen(QColor(20, 20, 22), 0.8));
+                    QFont rf = p->font();
+                    rf.setPointSizeF(7.0);
+                    p->setFont(rf);
+                    p->drawText(QRectF(c.x() - 20.0, c.y() + 6.0, 40.0, 12.0),
+                                Qt::AlignHCenter | Qt::AlignTop,
+                                QString::number(wx, 'g', 3));
+                }
+            }
+        }
+
+        if (f.showIntersections && !f.isDerivativeCurve) {
+            p->setPen(Qt::NoPen);
+            p->setBrush(QColor(14, 165, 233));
+            for (int j = 0; j < m_data.functions.size(); ++j) {
+                if (j == i || !m_data.functions[j].visible || m_data.functions[j].isDerivativeCurve)
+                    continue;
+                const ParsedExpression gExpr = resolveExpr(m_data.functions[j]);
+                if (!gExpr.ok)
+                    continue;
+                const QVector<double> xs =
+                    NumericAnalysis::findIntersections(expr, gExpr, m_data.xMin, m_data.xMax, 300);
+                for (double sx : xs) {
+                    const double y = MathEvaluator::evalAt(expr, sx);
+                    if (!qIsFinite(y))
+                        continue;
+                    p->drawEllipse(QPointF(mapX(sx), mapY(y)), 3.0, 3.0);
+                }
             }
         }
     }
     p->restore();
 
-    if (!m_plusSuppressed) {
+    if (isSelected() && !m_plusSuppressed) {
         const QRectF plusRect = plusButtonLocalRect();
         p->setPen(QPen(QColor(53, 81, 129), 1.1));
         p->setBrush(QColor(220, 231, 249, 245));
@@ -493,7 +618,10 @@ QVector<double> GraphCanvasItem::selectedRoots() const {
     const auto &f = m_data.functions[m_data.selectedFunction];
     if (f.isDerivativeCurve)
         return {};
-    const ParsedExpression expr = MathExpressionParser::parseFunctionExpression(f.expression);
+    QString src = f.expression;
+    if (!f.paramName.isEmpty())
+        src = NumericAnalysis::substituteParam(src, f.paramName, f.paramValue);
+    const ParsedExpression expr = MathExpressionParser::parseFunctionExpression(src);
     if (!expr.ok)
         return {};
     return NumericAnalysis::findRootsBisection(expr, m_data.xMin, m_data.xMax, 360);
@@ -549,7 +677,10 @@ int GraphCanvasItem::nearestFunctionAtScenePos(const QPointF& scenePos, qreal* o
         const auto& f = m_data.functions[i];
         if (!f.visible)
             continue;
-        const ParsedExpression expr = MathExpressionParser::parseFunctionExpression(f.isDerivativeCurve ? f.sourceExpression : f.expression);
+        QString src = f.isDerivativeCurve ? f.sourceExpression : f.expression;
+        if (!f.paramName.isEmpty())
+            src = NumericAnalysis::substituteParam(src, f.paramName, f.paramValue);
+        const ParsedExpression expr = MathExpressionParser::parseFunctionExpression(src);
         if (!expr.ok)
             continue;
         qreal fnBest = 1e9;

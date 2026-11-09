@@ -215,6 +215,13 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       go["yts"] = g.yTickStep;
       go["xtc"] = g.xTickCount;
       go["ytc"] = g.yTickCount;
+      go["plotGrid"] = g.showPlotGrid;
+      go["anLabels"] = g.showAnalysisLabels;
+      go["legend"] = g.showLegend;
+      go["vtable"] = g.showValueTable;
+      go["tx0"] = g.tableX0;
+      go["tx1"] = g.tableX1;
+      go["tdx"] = g.tableDx;
       QJsonArray fnArr;
       for (const auto& fn : g.functions) {
         QJsonObject fo;
@@ -222,14 +229,24 @@ QJsonDocument NoteManager::toJson(const Note &note) {
         fo["color"] = fn.color.name(QColor::HexRgb);
         fo["visible"] = fn.visible;
         fo["der"] = fn.showDerivative;
+        fo["der2"] = fn.showSecondDerivative;
         fo["roots"] = fn.showRoots;
         fo["ext"] = fn.showExtrema;
+        fo["infl"] = fn.showInflection;
+        fo["isect"] = fn.showIntersections;
+        fo["integ"] = fn.showIntegral;
+        fo["inta"] = fn.integralA;
+        fo["intb"] = fn.integralB;
         fo["tan"] = fn.showTangent;
         fo["tanx"] = fn.tangentX;
         fo["isDerCurve"] = fn.isDerivativeCurve;
         fo["srcExpr"] = fn.sourceExpression;
         fo["rootColor"] = fn.rootMarkerColor.name(QColor::HexRgb);
         fo["extColor"] = fn.extremaMarkerColor.name(QColor::HexRgb);
+        fo["pname"] = fn.paramName;
+        fo["pval"] = fn.paramValue;
+        fo["pmin"] = fn.paramMin;
+        fo["pmax"] = fn.paramMax;
         fnArr.append(fo);
       }
       go["fns"] = fnArr;
@@ -430,6 +447,13 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       g.yTickStep = go.value("yts").toDouble(1.0);
       g.xTickCount = go.value("xtc").toInt(8);
       g.yTickCount = go.value("ytc").toInt(8);
+      g.showPlotGrid = go.value("plotGrid").toBool(true);
+      g.showAnalysisLabels = go.value("anLabels").toBool(true);
+      g.showLegend = go.value("legend").toBool(true);
+      g.showValueTable = go.value("vtable").toBool(false);
+      g.tableX0 = go.value("tx0").toDouble(-5.0);
+      g.tableX1 = go.value("tx1").toDouble(5.0);
+      g.tableDx = go.value("tdx").toDouble(1.0);
       g.functions.clear();
       const auto fnArr = go.value("fns").toArray();
       for (const auto& fv : fnArr) {
@@ -439,8 +463,14 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
         fn.color = QColor(fo.value("color").toString("#5e5ce6"));
         fn.visible = fo.value("visible").toBool(true);
         fn.showDerivative = fo.value("der").toBool(false);
+        fn.showSecondDerivative = fo.value("der2").toBool(false);
         fn.showRoots = fo.value("roots").toBool(false);
         fn.showExtrema = fo.value("ext").toBool(false);
+        fn.showInflection = fo.value("infl").toBool(false);
+        fn.showIntersections = fo.value("isect").toBool(false);
+        fn.showIntegral = fo.value("integ").toBool(false);
+        fn.integralA = fo.value("inta").toDouble(0.0);
+        fn.integralB = fo.value("intb").toDouble(1.0);
         fn.showTangent = fo.value("tan").toBool(false);
         fn.tangentX = fo.value("tanx").toDouble(0.0);
         fn.isDerivativeCurve = fo.value("isDerCurve").toBool(false);
@@ -459,6 +489,10 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
         }
         fn.rootMarkerColor = QColor(fo.value("rootColor").toString("#e1585a"));
         fn.extremaMarkerColor = QColor(fo.value("extColor").toString("#46aa66"));
+        fn.paramName = fo.value("pname").toString();
+        fn.paramValue = fo.value("pval").toDouble(1.0);
+        fn.paramMin = fo.value("pmin").toDouble(-5.0);
+        fn.paramMax = fo.value("pmax").toDouble(5.0);
         g.functions.push_back(fn);
       }
       if (g.functions.isEmpty()) {

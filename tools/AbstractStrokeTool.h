@@ -1022,6 +1022,9 @@ protected:
             }
         };
 
+        if (best == HoldShapeKind::Line && !m_config.holdEnableLine)
+            return HoldShapeKind::None;
+
         if (best == HoldShapeKind::Line) {
             addPolyline({pStart, pEnd});
         } else if (best == HoldShapeKind::Rectangle) {

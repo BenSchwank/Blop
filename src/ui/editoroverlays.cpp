@@ -51,7 +51,7 @@ namespace {
 static const QColor kBlopSwatches[] = {
     QColor("#0C0D17"), QColor("#1A1B2E"), QColor("#13141F"), QColor("#1C1D32"),
     QColor("#E6E4FF"), QColor("#FFFFFF"), QColor("#94A3B8"), QColor("#64748B"),
-    QColor("#7C5CFC"), QColor("#4C8BF5"), QColor("#38BDF8"), QColor("#35C48A"),
+    QColor("#5B9DFF"), QColor("#4C8BF5"), QColor("#38BDF8"), QColor("#35C48A"),
     QColor("#FBBF24"), QColor("#F97316"), QColor("#FB7185"), QColor("#A78BFA"),
     QColor("#000000"), QColor("#1E293B"), QColor("#F43F5E"), QColor("#22C55E"),
     QColor("#3B82F6"), QColor("#EAB308"), QColor("#C084FC"), QColor("#06B6D4"),
@@ -558,8 +558,8 @@ static QString a4LayoutCardQss(const QString &objectName, bool noteChrome) {
              "  border-color: rgba(156, 174, 226, 0.62);"
              "}"
              "QToolButton:checked {"
-             "  border: 2px solid #7C5CFC;"
-             "  background: rgba(124, 92, 252, 0.18);"
+             "  border: 2px solid #5B9DFF;"
+             "  background: rgba(91, 157, 255, 0.18);"
              "}"
              "QDialogButtonBox QPushButton {"
              "  min-height: 34px; min-width: 84px; border-radius: 10px; font-weight: 600;"
@@ -623,10 +623,10 @@ static void styleA4ActionButtons(QAbstractButton *cancel, QAbstractButton *ok,
         "QPushButton:hover { color: #B8D4FF; background: rgba(255,255,255,0.06); "
         "border-radius: 10px; }")));
     ok->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "QPushButton { background: #7C5CFC; color: white; border: none; "
+        "QPushButton { background: #5B9DFF; color: white; border: none; "
         "border-radius: 10px; padding: 12px 28px; font-weight: 600; }"
-        "QPushButton:hover { background: #8B70FF; }"
-        "QPushButton:pressed { background: #6A4DE6; }")));
+        "QPushButton:hover { background: #7EB2FF; }"
+        "QPushButton:pressed { background: #4A8AE6; }")));
   }
 }
 

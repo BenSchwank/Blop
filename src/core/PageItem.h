@@ -56,14 +56,21 @@ protected:
 
         const bool light = !BlopTheme::instance().isDark();
 
-        // 1. Schlagschatten
+        // 1. Soft layered shadow (no GraphicsEffect — keeps scene paint cheap).
         painter->setPen(Qt::NoPen);
         if (light) {
-            painter->setBrush(QColor(15, 23, 42, int(0.08 * 255)));
-            painter->drawRect(rect().translated(2, 2));
+            painter->setBrush(QColor(15, 23, 42, int(0.04 * 255)));
+            painter->drawRect(rect().translated(3, 4));
+            painter->setBrush(QColor(15, 23, 42, int(0.07 * 255)));
+            painter->drawRect(rect().translated(1, 2));
         } else {
-            painter->setBrush(QColor(0, 0, 0, 40));
-            painter->drawRect(rect().translated(3, 3));
+            // ~0 10 30 rgba(0,0,0,0.35) as stacked fills.
+            painter->setBrush(QColor(0, 0, 0, 30));
+            painter->drawRect(rect().translated(6, 10));
+            painter->setBrush(QColor(0, 0, 0, 50));
+            painter->drawRect(rect().translated(3, 5));
+            painter->setBrush(QColor(0, 0, 0, 70));
+            painter->drawRect(rect().translated(1, 2));
         }
 
         // 2. Papierblatt
@@ -71,7 +78,7 @@ protected:
         if (light)
             painter->setPen(QPen(QColor(0xCB, 0xD5, 0xE1), 1));
         else
-            painter->setPen(Qt::NoPen);
+            painter->setPen(QPen(QColor(0, 0, 0, 51), 1));
         painter->drawRect(rect());
 
         // 3. Hintergrundbild (z.B. importierte PDF-Seite)
@@ -114,12 +121,40 @@ protected:
                 break;
             }
             case PageBackgroundType::Grid: {
-                painter->setPen(QPen(lineCol, 1));
-                const int spacing = 40;
-                for (qreal x = left + spacing; x < right; x += spacing)
-                    painter->drawLine(QPointF(x, top), QPointF(x, bottom));
-                for (qreal y = top + spacing; y < bottom; y += spacing)
-                    painter->drawLine(QPointF(left, y), QPointF(right, y));
+                // Engineer/millimeter paper: minor + every 5th major.
+                const qreal margin = 24.0;
+                const qreal gl = left + margin;
+                const qreal gr = right - margin;
+                const qreal gt = top + margin;
+                const qreal gb = bottom - margin;
+                if (gr <= gl || gb <= gt)
+                    break;
+                const int spacing = 40; // ~5mm at A4 scale
+                const QColor minor =
+                    L < 130 ? QColor(255, 255, 255, 36) : QColor(0xE2, 0xE8, 0xF0);
+                const QColor major =
+                    L < 130 ? QColor(255, 255, 255, 58) : QColor(0xCB, 0xD5, 0xE1);
+                int ix = 0;
+                for (qreal x = gl; x <= gr + 0.5; x += spacing, ++ix) {
+                    const bool isMajor = (ix % 5) == 0;
+                    QPen pen(isMajor ? major : minor, isMajor ? 1.2 : 0.8);
+                    pen.setCosmetic(true);
+                    painter->setPen(pen);
+                    painter->drawLine(QPointF(x, gt), QPointF(x, gb));
+                }
+                int iy = 0;
+                for (qreal y = gt; y <= gb + 0.5; y += spacing, ++iy) {
+                    const bool isMajor = (iy % 5) == 0;
+                    QPen pen(isMajor ? major : minor, isMajor ? 1.2 : 0.8);
+                    pen.setCosmetic(true);
+                    painter->setPen(pen);
+                    painter->drawLine(QPointF(gl, y), QPointF(gr, y));
+                }
+                // Quiet margin hairline.
+                painter->setPen(QPen(L < 130 ? QColor(255, 255, 255, 28)
+                                             : QColor(0xCB, 0xD5, 0xE1, 120),
+                                    1.0));
+                painter->drawRect(QRectF(QPointF(gl, gt), QPointF(gr, gb)));
                 break;
             }
             case PageBackgroundType::Dotted: {
