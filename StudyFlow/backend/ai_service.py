@@ -274,9 +274,61 @@ def _normalize_markdown_math_layout(text: str) -> str:
     return t
 
 
+_META_CONTINUATION_RE = re.compile(
+    r"\.{0,3}\s*\(\s*seamless continuation from the cut[- ]?off point\s*\)",
+    re.IGNORECASE,
+)
+_FORTSETZUNG_BRACKET_RE = re.compile(r"\[Fortsetzung[^\]]*\]", re.IGNORECASE)
+_ENGLISH_META_LINE_RE = re.compile(
+    r"^(?:"
+    r"This is a series(?: circuit)?\.?"
+    r"|Or two sources\?"
+    r"|Replacing R\d+\.?"
+    r"|I need to (?:think|check|recalculate|continue)\b.*"
+    r"|Let me (?:think|check|recalculate|continue)\b.*"
+    r"|Wait,? .*"
+    r"|Looking at (?:the|this)\b.*"
+    r"|Here(?:'s| is) (?:the )?seamless continuation\b.*"
+    r")\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _strip_elaboration_meta(text: str) -> str:
+    """Remove prompt echoes and leaked English reasoning notes from elaborations."""
+    cleaned = _META_CONTINUATION_RE.sub("", text or "")
+    cleaned = _FORTSETZUNG_BRACKET_RE.sub("", cleaned)
+    cleaned = _ENGLISH_META_LINE_RE.sub("", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _elaboration_looks_incomplete(text: str) -> bool:
+    """Heuristic: truncated mid-task (Gesucht:, open math, trailing colon)."""
+    t = (text or "").rstrip()
+    if not t:
+        return True
+    if re.search(r"(?i)(gegeben|gesucht|ansatz|lösung|lösungsweg)\s*:\s*$", t):
+        return True
+    if t.endswith(":") or t.endswith("\\"):
+        return True
+    # Unclosed inline/display math at the very end
+    if t.count("$$") % 2 == 1:
+        return True
+    # Strip display math then count single $
+    without_display = re.sub(r"\$\$[\s\S]*?\$\$", "", t)
+    if without_display.count("$") % 2 == 1:
+        return True
+    last = t.splitlines()[-1].strip() if t.splitlines() else ""
+    if re.search(r"(?i)^(gegeben|gesucht|ansatz)\s*:\s*$", last):
+        return True
+    return False
+
+
 def _finalize_study_markdown(text: str) -> str:
     """Normalize powers so TipTap/KaTeX never show exponents as juxtaposition."""
     cleaned = _strip_inline_toc_and_empty_bullets((text or "").strip())
+    cleaned = _strip_elaboration_meta(cleaned)
     cleaned = _normalize_markdown_math_layout(cleaned)
     return normalize_math_powers(cleaned)
 
@@ -311,11 +363,13 @@ Setze NAHTLOS im selben Dokument fort (keine Begrüßung; keine Wiederholung von
 Als Nächstes ausdrücklich den REST bearbeiten: fast immer fehlen dann noch Aufgaben, Teilaufgaben oder Projektphasen am **Ende** des Quellen-PDFs — diese jetzt vollständig und ausführlich (Konzepte/Lösungswege wie zuvor).
 
 Wenn Hauptteil und Aufgaben komplett sind, aber die Struktur noch fehlt: ergänze nur die noch fehlenden Abschnitte „## Active Recall“, „## Häufige Stolpersteine“, „## Lösungsstrategien & Formeln“, „## Fazit & Themenzusammenhänge“ — jeweils nur soweit nach deiner bisherigen Ausgabe noch nicht vorhanden."""
-    _ELABORATION_CONTINUATION_PROMPT = """Die Ausarbeitung wurde wegen Ausgabe-Tokenlimit abgeschnitten.
+    _ELABORATION_CONTINUATION_PROMPT = """Die Ausarbeitung wurde abgeschnitten. Setze AUSSCHLIESSLICH auf DEUTSCH den fehlenden fachlichen Text fort.
 
-Setze NAHTLOS fort:
+Regeln:
 - keine neue Einleitung, keine Wiederholung bereits fertiger Abschnitte, KEIN Inhaltsverzeichnis
+- KEINE Meta-Kommentare, KEINE englischen Überlegungen, KEINE Phrasen wie „seamless continuation“
 - zuerst fehlende Themen/Teilaufgaben/Projektphasen am Dokumentende ergänzen
+- für jede Aufgabe: (1) Gegeben & Gesucht, (2) Ansatz & Formeln, (3) Schritt-für-Schritt-Rechenweg mit Zahlen und Einheiten, (4) doppelt unterstrichenes Endergebnis
 - danach ggf. noch fehlende Abschnitte (Praxisbeispiele, Transfer, Fazit) ergänzen
 - bleibe in derselben Struktur und im gleichen Stil
 - schreibe den fachlichen Inhalt vollständig aus (Herleitungen, LaTeX, durchgerechnete Aufgaben)"""
@@ -380,15 +434,26 @@ Setze NAHTLOS fort:
         usage_sum["total_tokens"] += first_usage["total_tokens"]
         finish_reason = response.candidates[0].finish_reason
         follow = 0
-        while finish_reason == genai.protos.Candidate.FinishReason.MAX_TOKENS and follow < max_followups:
+        max_tok = genai.protos.Candidate.FinishReason.MAX_TOKENS
+        while follow < max_followups:
+            joined = "\n\n".join(chunks).strip()
+            needs_more = finish_reason == max_tok or (
+                log_prefix == "Elaboration" and _elaboration_looks_incomplete(joined)
+            )
+            if not needs_more:
+                break
             follow += 1
-            print(f"{log_prefix}: finish_reason=MAX_TOKENS, continuation {follow}/{max_followups}")
+            reason = "MAX_TOKENS" if finish_reason == max_tok else "incomplete_tail"
+            print(f"{log_prefix}: {reason}, continuation {follow}/{max_followups}")
             response = chat.send_message(continuation_prompt, safety_settings=SAFETY_SETTINGS)
             if not response.candidates:
                 break
             piece = AIService._extract_response_text_safe(response)
             if piece:
                 chunks.append(piece)
+            elif finish_reason != max_tok:
+                # Incomplete heuristic but model returned nothing — stop looping.
+                break
             step_usage = _usage_to_dict(getattr(response, "usage_metadata", None))
             usage_sum["prompt_tokens"] += step_usage["prompt_tokens"]
             usage_sum["output_tokens"] += step_usage["output_tokens"]
@@ -419,10 +484,49 @@ Setze NAHTLOS fort:
         }
 
     @staticmethod
+    def _part_is_thought(part: Any) -> bool:
+        if part is None:
+            return False
+        if isinstance(part, dict):
+            kind = str(part.get("type") or "").lower()
+            if kind in ("thinking", "reasoning", "thought"):
+                return True
+            if part.get("thought") is True:
+                return True
+            return False
+        if getattr(part, "thought", False):
+            return True
+        if getattr(part, "thought_signature", None):
+            # Signature-only thought markers still mark non-visible reasoning.
+            if not getattr(part, "text", None):
+                return True
+        kind = str(getattr(part, "type", "") or "").lower()
+        return kind in ("thinking", "reasoning", "thought")
+
+    @staticmethod
     def _extract_response_text_safe(response: Any) -> str:
-        """Return model text without crashing on empty/blocked candidate parts."""
+        """Return visible model text; skip thinking/reasoning parts."""
         if response is None:
             return ""
+
+        candidates = getattr(response, "candidates", None) or []
+        if candidates:
+            content = getattr(candidates[0], "content", None)
+            parts = getattr(content, "parts", None) or []
+            if parts:
+                chunks: List[str] = []
+                for part in parts:
+                    if AIService._part_is_thought(part):
+                        continue
+                    if isinstance(part, dict):
+                        part_text = part.get("text") or part.get("content")
+                    else:
+                        part_text = getattr(part, "text", None)
+                    if part_text:
+                        chunks.append(str(part_text))
+                if chunks:
+                    return "".join(chunks).strip()
+
         try:
             txt = getattr(response, "text", None)
             if txt:
@@ -430,18 +534,7 @@ Setze NAHTLOS fort:
         except Exception:
             # Some SDK variants throw when quick-access text is unavailable.
             pass
-
-        candidates = getattr(response, "candidates", None) or []
-        if not candidates:
-            return ""
-        content = getattr(candidates[0], "content", None)
-        parts = getattr(content, "parts", None) or []
-        chunks: List[str] = []
-        for part in parts:
-            part_text = getattr(part, "text", None)
-            if part_text:
-                chunks.append(str(part_text))
-        return "".join(chunks).strip()
+        return ""
 
     @staticmethod
     def _document_patch_system_instruction() -> str:
@@ -1970,16 +2063,19 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
     ) -> Any:
         """Generates a detailed elaboration/essay based on the material and user instructions."""
         level_key = (detail_level or "Normal").strip()
-        compact = level_key in {"Kurz", "Normal"}
-        max_followups = 1 if compact else (6 if level_key == "Sehr detailliert" else 4)
-        # Reserve fewer tokens up front so low OpenRouter balances do not 402 before generation.
-        initial_cap = 4096 if compact else 8192
+        # UI uses „Ausführlich“; backend historically used „Detailliert“.
+        if level_key == "Ausführlich":
+            level_key = "Detailliert"
+        # Always allow multi-step completion — short token budgets previously left docs mid-„Gesucht:“.
+        max_followups = 6 if level_key == "Sehr detailliert" else 3
+        initial_cap = 16384
         detail_hint = {
             "Kurz": "Kompakt, aber immer noch substanziell. Nicht künstlich in die Länge ziehen.",
             "Normal": "Vollständig und klar, ohne Wiederholungen. Nicht künstlich in die Länge ziehen.",
             "Detailliert": "Sehr detailliert mit vielen Erklärungen, Beispielen und Transfer.",
             "Sehr detailliert": "Maximal ausführlich, mehrseitig und didaktisch aufgebaut.",
         }.get(level_key, f"Vom Nutzer gewünscht: {detail_level}. Interpretiere dies als hohe Detailtiefe.")
+        compact = level_key in {"Kurz", "Normal"}
         umfang = (
             """UMFANG:
 - Arbeite das Material vollständig durch, auch Schlussaufgaben und Anhänge.
@@ -1993,6 +2089,8 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
 
         prompt = f"""
 Du bist ein akademischer Autor und Tutor. Erstelle eine Ausarbeitung auf Deutsch, die als Lern- und Arbeitsdokument taugt.
+
+WICHTIG: Schreibe die gesamte Ausarbeitung ausschließlich auf DEUTSCH. Gib KEINE internen englischen Überlegungen, Entwürfe oder Meta-Kommentare (wie 'seamless continuation') aus! Arbeite JEDE einzelne Aufgabe des hochgeladenen Übungsblatts/Skripts von Anfang bis Ende vollständig durch: Für jede Aufgabe müssen (1) Gegeben & Gesucht, (2) Physikalisch/Mathematischer Ansatz & Formeln, (3) Vollständiger Schritt-für-Schritt-Rechenweg mit eingesetzten Zahlenwerten und Einheiten sowie (4) das doppelt unterstrichene Endergebnis enthalten sein. Kürze NIEMALS Aufgaben ab und höre niemals nach 'Gesucht:' auf!
 
 Detailgrad-Vorgabe: {detail_level}
 Interpretation: {detail_hint}
@@ -2108,6 +2206,12 @@ Hier ist das Quellenmaterial:
                 except Exception as e:
                     smaller = AIService._affordable_output_tokens(e, token_cap)
                     if smaller:
+                        # Prefer keeping at least 8192 when the balance allows.
+                        if smaller >= 8192 or smaller >= token_cap:
+                            print(f"Elaboration {model_name} retry with max_output_tokens={smaller}")
+                            token_cap = smaller
+                            continue
+                        # Still retry with whatever we can afford.
                         print(f"Elaboration {model_name} retry with max_output_tokens={smaller}")
                         token_cap = smaller
                         continue
@@ -2116,6 +2220,92 @@ Hier ist das Quellenmaterial:
                     break
         print(f"Elaboration Error: {last_exc}")
         raise Exception(f"Fehler bei der Ausarbeitung: {last_exc}")
+
+    @staticmethod
+    def continue_elaboration(
+        existing_content: str,
+        folder_material: List[Any],
+        model_preference: str = None,
+        return_meta: bool = False,
+    ) -> Any:
+        """Append a seamless German continuation onto an existing incomplete elaboration."""
+        existing = (existing_content or "").strip()
+        if not existing:
+            raise Exception("Kein bestehender Ausarbeitungstext zum Fortsetzen.")
+
+        tail = existing[-6000:] if len(existing) > 6000 else existing
+        prompt = f"""Du setzt eine unvollständige deutsche Ausarbeitung fort.
+
+WICHTIG: Schreibe AUSSCHLIESSLICH auf DEUTSCH. Gib KEINE englischen Überlegungen, Entwürfe oder Meta-Kommentare aus (kein „seamless continuation“, kein „Replacing …“)!
+Hänge NUR den fehlenden Rest an. Wiederhole keinen bereits vorhandenen Text.
+Für jede noch fehlende Aufgabe: (1) Gegeben & Gesucht, (2) Ansatz & Formeln, (3) vollständiger Rechenweg mit Zahlen/Einheiten, (4) doppelt unterstrichenes Endergebnis.
+Höre niemals nach „Gesucht:“ auf.
+
+Bisheriges Dokumentende (Kontext — NICHT wiederholen):
+---
+{tail}
+---
+
+Quellenmaterial (nur zur Orientierung):
+"""
+        input_parts: List[Any] = [prompt]
+        if isinstance(folder_material, list):
+            input_parts.extend(folder_material)
+        else:
+            input_parts.append(folder_material)
+        input_parts.append(
+            "\n\nSetze jetzt direkt mit dem fehlenden deutschen Fachtext fort (ohne Einleitung, ohne Meta)."
+        )
+
+        primary = model_for_task("elaboration", model_preference)
+        candidates = [primary]
+        for fallback in ("gemini-3.7-flash", "gemini-2.5-flash"):
+            if fallback not in candidates:
+                candidates.append(fallback)
+
+        last_exc: Optional[BaseException] = None
+        for model_name in candidates:
+            token_cap = 16384
+            for _attempt in range(2):
+                try:
+                    model = genai.GenerativeModel(
+                        model_name,
+                        generation_config={
+                            "max_output_tokens": token_cap,
+                            "temperature": 0.4,
+                        },
+                    )
+                    full_result = AIService._generate_with_continuation(
+                        model=model,
+                        input_parts=input_parts,
+                        continuation_prompt=AIService._ELABORATION_CONTINUATION_PROMPT,
+                        max_followups=3,
+                        log_prefix="Elaboration",
+                        return_meta=return_meta,
+                    )
+                    piece = full_result["text"] if return_meta else full_result
+                    cleaned = _finalize_study_markdown(piece or "")
+                    if not cleaned:
+                        raise Exception("Leere Fortsetzung vom Modell erhalten.")
+                    merged = existing + "\n\n" + cleaned
+                    merged = _finalize_study_markdown(merged)
+                    if return_meta:
+                        full_result["text"] = merged
+                        full_result["used_model"] = str(
+                            getattr(model, "model_name", "") or model_name
+                        )
+                        return full_result
+                    return merged
+                except Exception as e:
+                    smaller = AIService._affordable_output_tokens(e, token_cap)
+                    if smaller:
+                        print(f"Elaboration continue {model_name} retry with max_output_tokens={smaller}")
+                        token_cap = smaller
+                        continue
+                    last_exc = e
+                    print(f"Elaboration continue {model_name} failed: {e}")
+                    break
+        raise Exception(f"Fehler bei der Fortsetzung: {last_exc}")
 
     @staticmethod
     def refine_document_with_chat(

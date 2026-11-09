@@ -1972,6 +1972,134 @@ export default function FolderPage() {
         }
     };
 
+    const mapElaborationDetailLevel = (level: string) =>
+        level === "Ausführlich" ? "Detailliert" : level;
+
+    const pollElaborationJob = async (
+        jid: string,
+        username: string,
+        signal: AbortSignal,
+    ): Promise<{ data: Record<string, unknown> | null; lastError?: string }> => {
+        const pollMs = 2000;
+        const maxPolls = 600;
+        let lastError: string | undefined;
+        for (let i = 0; i < maxPolls; i++) {
+            if (signal.aborted) break;
+            await new Promise((r) => setTimeout(r, pollMs));
+            const st = await fetch(
+                `${API_BASE}/ai/elaboration/status/${encodeURIComponent(jid)}?username=${encodeURIComponent(username || "")}`,
+                { signal },
+            );
+            if (!st.ok) {
+                lastError = `HTTP ${st.status}`;
+                try {
+                    const err = await st.json();
+                    lastError = formatFastApiDetail(err.detail) || lastError;
+                } catch {
+                    /* ignore */
+                }
+                return { data: null, lastError };
+            }
+            const j = (await st.json()) as { status: string; detail?: string };
+            if (j.status === "done") {
+                return { data: j as Record<string, unknown> };
+            }
+            if (j.status === "error") {
+                return { data: null, lastError: j.detail || "Fehler bei der Erstellung." };
+            }
+        }
+        return { data: null, lastError: lastError };
+    };
+
+    const handleElaborationContinue = async () => {
+        if (!selectedFile || selectedFile.type !== "elaboration") return;
+        setIsGenerating((prev) => (prev.includes("elaboration") ? prev : [...prev, "elaboration"]));
+        queueStart("elaboration");
+        const jobIdElab = `${folderId}:elaboration-continue`;
+        const acElab = new AbortController();
+        registerAiJobAbort(jobIdElab, acElab);
+        let ok = false;
+        let lastError: string | undefined;
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(aiUrl(`${API_BASE}/ai/elaboration/continue`), {
+                method: "POST",
+                headers: sessionHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    file_id: selectedFile.id,
+                    model_preference: effectiveModelPreference,
+                }),
+                signal: acElab.signal,
+            });
+            if (res.status === 202) {
+                const start = await res.json();
+                const jid = start.job_id as string | undefined;
+                if (!jid) {
+                    lastError = "Keine Job-ID vom Server.";
+                    showToast(`Fortsetzung: ${lastError}`);
+                } else {
+                    const { data, lastError: pollErr } = await pollElaborationJob(jid, username || "", acElab.signal);
+                    if (pollErr) {
+                        lastError = pollErr;
+                        showApiErrorToast(lastError, `Fortsetzung: ${String(lastError)}`);
+                    } else if (data && typeof data.elaboration === "string") {
+                        const elab = (data.elaboration as string).trim();
+                        if (!elab || elab.length < 40) {
+                            lastError = "Die Fortsetzung kam ohne nutzbaren Text zurück.";
+                            showToast(lastError);
+                        } else {
+                            ok = true;
+                            announceUsage(data);
+                            const fid =
+                                typeof data.file_id === "string" ? data.file_id : selectedFile.id;
+                            setSelectedFile({
+                                ...selectedFile,
+                                id: fid,
+                                content: data.elaboration,
+                            });
+                            await fetchFiles();
+                        }
+                    } else if (!acElab.signal.aborted) {
+                        lastError =
+                            "Zeitüberschreitung — die Fortsetzung dauert ungewöhnlich lange. Bitte später prüfen.";
+                        showToast(lastError);
+                    }
+                }
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    const parsed = parseAiApiDetail(err.detail);
+                    errorMsg = parsed.text || errorMsg;
+                    lastError = errorMsg;
+                    showToast(`Fortsetzung-Fehler: ${errorMsg}`, "error", {
+                        linkUrl: parsed.linkUrl,
+                        linkLabel: parsed.linkLabel,
+                    });
+                } catch {
+                    lastError = errorMsg;
+                    showToast(`Fortsetzung-Fehler: ${errorMsg}`);
+                }
+            }
+        } catch (error) {
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error(error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast("Ein Fehler ist aufgetreten.");
+            }
+        } finally {
+            unregisterAiJobAbort(jobIdElab, acElab);
+            setIsGenerating((prev) => prev.filter((t) => t !== "elaboration"));
+            registerAiJobFinished("elaboration", ok);
+            queueFinish("elaboration", ok, ok ? undefined : lastError);
+        }
+    };
+
     const handleElaborationGenerate = async () => {
         setIsElaborationConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('elaboration') ? prev : [...prev, 'elaboration']));
@@ -1989,7 +2117,7 @@ export default function FolderPage() {
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
-                    detail_level: elaborationDetailLevel,
+                    detail_level: mapElaborationDetailLevel(elaborationDetailLevel),
                     custom_rules: elaborationRules,
                     focus: elaborationRules.trim() || undefined,
                     model_preference: effectiveModelPreference
@@ -2004,39 +2132,15 @@ export default function FolderPage() {
                     lastError = "Keine Job-ID vom Server.";
                     showToast(`Ausarbeitung: ${lastError}`);
                 } else {
-                    const pollMs = 2000;
-                    const maxPolls = 600;
-                    let data: Record<string, unknown> | null = null;
-                    for (let i = 0; i < maxPolls; i++) {
-                        if (acElab.signal.aborted) break;
-                        await new Promise((r) => setTimeout(r, pollMs));
-                        const st = await fetch(
-                            `${API_BASE}/ai/elaboration/status/${encodeURIComponent(jid)}?username=${encodeURIComponent(username || "")}`,
-                            { signal: acElab.signal }
-                        );
-                        if (!st.ok) {
-                            lastError = `HTTP ${st.status}`;
-                            try {
-                                const err = await st.json();
-                                lastError = formatFastApiDetail(err.detail) || lastError;
-                            } catch {
-                                /* ignore */
-                            }
-                            showToast(`Ausarbeitung: ${lastError}`);
-                            break;
-                        }
-                        const j = (await st.json()) as { status: string; detail?: string };
-                        if (j.status === "done") {
-                            data = j as Record<string, unknown>;
-                            break;
-                        }
-                        if (j.status === "error") {
-                            lastError = j.detail || "Fehler bei der Erstellung.";
-                            showApiErrorToast(lastError, `Ausarbeitung: ${String(lastError)}`);
-                            break;
-                        }
-                    }
-                    if (data && typeof data.elaboration === "string") {
+                    const { data, lastError: pollErr } = await pollElaborationJob(
+                        jid,
+                        username || "",
+                        acElab.signal,
+                    );
+                    if (pollErr) {
+                        lastError = pollErr;
+                        showApiErrorToast(lastError, `Ausarbeitung: ${String(lastError)}`);
+                    } else if (data && typeof data.elaboration === "string") {
                         const elab = (data.elaboration as string).trim();
                         if (!elab || elab.length < 40) {
                             lastError =
@@ -3748,7 +3852,7 @@ export default function FolderPage() {
                                                 <p className="text-sm text-amber-100">Diese Ausarbeitung scheint unvollständig zu sein.</p>
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleGenerate('elaboration')}
+                                                    onClick={() => void handleElaborationContinue()}
                                                     disabled={isGenerating.includes('elaboration')}
                                                     className="inline-flex items-center gap-2 h-[34px] px-3 rounded-lg text-[13px] font-medium text-white bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50"
                                                 >
@@ -4461,6 +4565,28 @@ export default function FolderPage() {
                                         }
                                     }}
                                     onCreateSubfolder={() => setIsCreateSubfolderOpen(true)}
+                                    onRefine={(f) => handleRefineFile(f as FileData)}
+                                    onDownload={(f) => {
+                                        const raw = (f as FileData).content;
+                                        const text =
+                                            typeof raw === "string"
+                                                ? raw
+                                                : raw != null
+                                                  ? JSON.stringify(raw, null, 2)
+                                                  : "";
+                                        if (!text) {
+                                            showToast("Kein Inhalt zum Herunterladen.", "info");
+                                            return;
+                                        }
+                                        const blob = new Blob([text], {
+                                            type: "text/plain;charset=utf-8",
+                                        });
+                                        const a = document.createElement("a");
+                                        a.href = URL.createObjectURL(blob);
+                                        a.download = f.name || "download.txt";
+                                        a.click();
+                                        URL.revokeObjectURL(a.href);
+                                    }}
                                 />
                             )}
                         </div>

@@ -49,7 +49,7 @@ export default function ClientLayout({
             <CommandMenu />
 
             {/* Sidebar panel (visible on desktop) */}
-            <div className="hidden md:flex">
+            <div className="hidden md:flex shrink-0 ml-0 pl-0">
                 <Sidebar isCollapsed={sidebarCollapsed} onToggle={toggleSidebar} />
             </div>
 
