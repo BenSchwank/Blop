@@ -53,10 +53,25 @@ protected:
     QPen createPen() const override {
         QColor c = m_config.penColor;
         c.setAlphaF(m_config.opacity);
-        QPen pen(c, m_config.penWidth);
-        pen.setCapStyle(Qt::RoundCap);
+        qreal w = m_config.penWidth;
+        if (m_config.penStrokeStyle == PenStrokeStyle::Fineliner)
+            w = qMax(0.5, w); // fixed width — pressure ignored in stroke tool
+        QPen pen(c, w);
+        pen.setCapStyle(m_config.penStrokeStyle == PenStrokeStyle::Calligraphy
+                            ? Qt::FlatCap
+                            : Qt::RoundCap);
         pen.setJoinStyle(Qt::RoundJoin);
-        pen.setStyle(Qt::SolidLine);
+        switch (m_config.penStrokeStyle) {
+        case PenStrokeStyle::Dashed:
+            pen.setStyle(Qt::DashLine);
+            break;
+        case PenStrokeStyle::Dotted:
+            pen.setStyle(Qt::DotLine);
+            break;
+        default:
+            pen.setStyle(Qt::SolidLine);
+            break;
+        }
         return pen;
     }
     qreal getZValue() const override { return 10; }

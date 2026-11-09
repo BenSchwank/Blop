@@ -3,6 +3,7 @@
 #include "MathExpressionParser.h"
 
 #include <QRegularExpression>
+#include <QSet>
 #include <QtMath>
 
 namespace {
@@ -34,6 +35,15 @@ double NumericAnalysis::derivativeCentral(const ParsedExpression& expr, double x
     if (!qIsFinite(f1) || !qIsFinite(f0))
         return qQNaN();
     return (f1 - f0) / (2.0 * h);
+}
+
+double NumericAnalysis::secondDerivativeCentral(const ParsedExpression& expr, double x, double h) {
+    const double f1 = MathEvaluator::evalAt(expr, x + h);
+    const double f0 = MathEvaluator::evalAt(expr, x);
+    const double fm = MathEvaluator::evalAt(expr, x - h);
+    if (!qIsFinite(f1) || !qIsFinite(f0) || !qIsFinite(fm))
+        return qQNaN();
+    return (f1 - 2.0 * f0 + fm) / (h * h);
 }
 
 QVector<double> NumericAnalysis::findRootsBisection(const ParsedExpression& expr, double xmin, double xmax, int samples) {
@@ -68,6 +78,87 @@ QVector<double> NumericAnalysis::findExtrema(const ParsedExpression& expr, doubl
     dExpr.fn = [&](double x) { return derivativeCentral(expr, x, 1e-3); };
     ex = findRootsBisection(dExpr, xmin, xmax, samples);
     return ex;
+}
+
+QVector<double> NumericAnalysis::findInflectionPoints(const ParsedExpression& expr, double xmin, double xmax, int samples) {
+    QVector<double> pts;
+    if (samples < 8 || xmax <= xmin)
+        return pts;
+    ParsedExpression d2;
+    d2.ok = true;
+    d2.fn = [&](double x) { return secondDerivativeCentral(expr, x, 1e-3); };
+    return findRootsBisection(d2, xmin, xmax, samples);
+}
+
+QVector<double> NumericAnalysis::findIntersections(const ParsedExpression& f, const ParsedExpression& g,
+                                                   double xmin, double xmax, int samples) {
+    ParsedExpression diff;
+    diff.ok = true;
+    diff.fn = [&](double x) {
+        const double a = MathEvaluator::evalAt(f, x);
+        const double b = MathEvaluator::evalAt(g, x);
+        if (!qIsFinite(a) || !qIsFinite(b))
+            return qQNaN();
+        return a - b;
+    };
+    return findRootsBisection(diff, xmin, xmax, samples);
+}
+
+double NumericAnalysis::definiteIntegralSimpson(const ParsedExpression& expr, double a, double b, int n) {
+    if (!qIsFinite(a) || !qIsFinite(b) || b <= a)
+        return qQNaN();
+    n = qMax(2, n);
+    if (n % 2)
+        ++n;
+    const double h = (b - a) / static_cast<double>(n);
+    double sum = MathEvaluator::evalAt(expr, a) + MathEvaluator::evalAt(expr, b);
+    if (!qIsFinite(sum))
+        return qQNaN();
+    for (int i = 1; i < n; ++i) {
+        const double y = MathEvaluator::evalAt(expr, a + h * i);
+        if (!qIsFinite(y))
+            return qQNaN();
+        sum += (i % 2 == 0) ? 2.0 * y : 4.0 * y;
+    }
+    return sum * h / 3.0;
+}
+
+QString NumericAnalysis::detectFreeParam(const QString &expression) {
+    static const QSet<QString> kReserved = {
+        QStringLiteral("x"), QStringLiteral("e"), QStringLiteral("pi"), QStringLiteral("π"),
+        QStringLiteral("sin"), QStringLiteral("cos"), QStringLiteral("tan"),
+        QStringLiteral("asin"), QStringLiteral("acos"), QStringLiteral("atan"),
+        QStringLiteral("sinh"), QStringLiteral("cosh"), QStringLiteral("tanh"),
+        QStringLiteral("log"), QStringLiteral("ln"), QStringLiteral("lg"),
+        QStringLiteral("exp"), QStringLiteral("sqrt"), QStringLiteral("abs"),
+        QStringLiteral("floor"), QStringLiteral("ceil"), QStringLiteral("round"),
+        QStringLiteral("min"), QStringLiteral("max"), QStringLiteral("pow"),
+        QStringLiteral("y"), QStringLiteral("f"), QStringLiteral("g"),
+    };
+    QString rhs = expression.trimmed();
+    const int eq = rhs.indexOf(QLatin1Char('='));
+    if (eq >= 0)
+        rhs = rhs.mid(eq + 1);
+    static const QRegularExpression idRe(QStringLiteral(R"([A-Za-zπ][A-Za-z0-9_]*)"));
+    auto it = idRe.globalMatch(rhs);
+    while (it.hasNext()) {
+        const QString id = it.next().captured();
+        if (!kReserved.contains(id.toLower()) && id != QStringLiteral("π"))
+            return id;
+    }
+    return {};
+}
+
+QString NumericAnalysis::substituteParam(const QString &expression, const QString &paramName,
+                                         double value) {
+    if (paramName.isEmpty())
+        return expression;
+    QString out = expression;
+    const QString lit = QStringLiteral("(%1)").arg(QString::number(value, 'g', 8));
+    const QRegularExpression re(
+        QStringLiteral(R"((?<![A-Za-z0-9_])%1(?![A-Za-z0-9_]))").arg(QRegularExpression::escape(paramName)));
+    out.replace(re, lit);
+    return out;
 }
 
 namespace {

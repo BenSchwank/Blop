@@ -133,6 +133,8 @@ qt_add_executable(Blop
     src/ui/graphaxissettingsdialog.h
     src/ui/graphlegenddock.cpp
     src/ui/graphlegenddock.h
+    src/ui/graphvaluetabledock.cpp
+    src/ui/graphvaluetabledock.h
     src/ui/graphquickactionpopup.cpp
     src/ui/graphquickactionpopup.h
     src/ui/newnotedialog.h
@@ -145,6 +147,7 @@ qt_add_executable(Blop
     src/ui/strukturnoteeditor.h
     src/ui/notetoolbars.cpp
     src/ui/penstudiopopover.cpp
+    src/ui/shapescatalogpopover.cpp
     src/ui/notetoolbars.h
     src/ui/moderntoolbar.cpp
     src/ui/moderntoolbar.h

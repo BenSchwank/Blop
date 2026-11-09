@@ -243,7 +243,7 @@ private:
   bool m_longFired{false};
   double m_animScale{1.0};
   double m_holdProgress{0.0};
-  QColor m_accent{QColor("#7C5CFC")};
+  QColor m_accent{QColor("#5B9DFF")};
   QTimer m_holdTimer;
 };
 

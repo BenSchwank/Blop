@@ -298,10 +298,11 @@ void ToolOptionsStrip::setEditingResolver(
 }
 
 void ToolOptionsStrip::refreshTheme() {
+  // Light: toolbarFill joins active document tabs; hairline uses borderSoft.
   const QColor bar = NoteChrome::isDark() ? NoteChrome::canvasBg()
                                           : NoteChrome::toolbarFill();
   const QColor edge = NoteChrome::isDark() ? QColor(0x8B, 0x93, 0xA3)
-                                           : NoteChrome::border();
+                                           : NoteChrome::borderSoft();
   setStyleSheet(QStringLiteral(
                     "QWidget#ToolOptionsStrip { background: %1;"
                     " border-bottom: 1px solid %2; }"
@@ -313,11 +314,12 @@ void ToolOptionsStrip::refreshTheme() {
                     "  border: 1px solid %2; border-radius: 4px; background: %4;"
                     "}"
                     "QCheckBox::indicator:checked {"
-                    "  background: #5B9DFF; border-color: #5B9DFF;"
+                    "  background: %5; border-color: %5;"
                     "}")
                     .arg(bar.name(QColor::HexRgb), edge.name(QColor::HexRgb),
                          NoteChrome::textPrimary().name(QColor::HexRgb),
-                         NoteChrome::panelBg().name(QColor::HexRgb)));
+                         NoteChrome::panelBg().name(QColor::HexRgb),
+                         NoteChrome::accent().name(QColor::HexRgb)));
   if (m_scroll && m_scroll->viewport())
     m_scroll->viewport()->setStyleSheet(QStringLiteral("background: transparent;"));
   rebuild();

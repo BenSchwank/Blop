@@ -28,14 +28,25 @@ struct GraphFunction {
     QColor color{QColor(94, 92, 230)};
     bool visible{true};
     bool showDerivative{false};
+    bool showSecondDerivative{false};
     bool showRoots{false};
     bool showExtrema{false};
+    bool showInflection{false};
+    bool showIntersections{false};
+    bool showIntegral{false};
+    double integralA{0.0};
+    double integralB{1.0};
     bool showTangent{false};
     double tangentX{0.0};
     bool isDerivativeCurve{false};
     QString sourceExpression;
     QColor rootMarkerColor{QColor(225, 88, 90)};
     QColor extremaMarkerColor{QColor(70, 170, 102)};
+    /// Free parameter slider (e.g. a in a*x^2); empty = none.
+    QString paramName;
+    double paramValue{1.0};
+    double paramMin{-5.0};
+    double paramMax{5.0};
 };
 
 struct GraphObject {
@@ -53,6 +64,14 @@ struct GraphObject {
     double yTickStep{1.0};
     int xTickCount{8};
     int yTickCount{8};
+    /// Clean-paper / Kurvendiskussion view flags (Pass B).
+    bool showPlotGrid{true};
+    bool showAnalysisLabels{true};
+    bool showLegend{true};
+    bool showValueTable{false};
+    double tableX0{-5.0};
+    double tableX1{5.0};
+    double tableDx{1.0};
 };
 
 struct StickyNoteObject {

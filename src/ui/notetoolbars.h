@@ -23,6 +23,9 @@ NoteToolbarStyle noteToolbarStyle();
 void setNoteToolbarStyle(NoteToolbarStyle style);
 QString noteToolbarStyleLabel(NoteToolbarStyle style);
 
+bool noteMintToolsVisible();
+void setNoteMintToolsVisible(bool on);
+
 void noteActivateTool(ToolMode mode, int shapeKind = -1);
 void noteApplyPenColor(const QColor &color);
 void noteApplyPenWidth(int width);
@@ -115,15 +118,27 @@ public:
   explicit NoteFloatToolbar(QWidget *parent = nullptr);
   /// Bottom-left of the width chip (fallback: pen tile), in global coords.
   QPoint studioAnchorGlobal() const;
+  void refreshTiles() {
+    rebuildTiles();
+    updateGeometry();
+    update();
+  }
 
 protected:
   void rebuildTiles() override;
   void paintSkin(QPainter &p) override;
   void paintTile(QPainter &p, const NoteToolTile &t, int index) override;
+  void mousePressEvent(QMouseEvent *event) override;
   QColor activeFill() const override;
   QColor activeGlyph() const override;
   QColor idleGlyph() const override;
   QColor hoverFill() const override;
+
+private:
+  void showEraserPopover(const QPoint &globalAnchor);
+  void showShapesPopover(const QPoint &globalAnchor);
+  void showMeasurePopover(const QPoint &globalAnchor);
+  int widthPresetAt(const NoteToolTile &t, const QPointF &local) const;
 };
 
 /// Quarter bloom anchored bottom-right: center disc + two segmented rings.

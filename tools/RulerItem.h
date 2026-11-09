@@ -43,13 +43,12 @@ public:
     QPainterPath shape() const override {
         QPainterPath path;
         if (m_config.compassMode) {
+            // Geodreieck: semicircle disc (0–180°) with hypotenuse edge.
             const QPointF c = transformOriginPoint();
-            const qreal rOuter = qMin(m_width, m_height) * 0.42 + 10.0;
-            const qreal rInner = qMin(m_width, m_height) * 0.42 - 26.0;
-            path.addEllipse(c, rOuter, rOuter);
-            QPainterPath inner;
-            inner.addEllipse(c, rInner, rInner);
-            path = path.subtracted(inner);
+            const qreal r = qMin(m_width, m_height) * 0.42 + 10.0;
+            path.moveTo(c);
+            path.arcTo(QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r), 0, 180);
+            path.closeSubpath();
             return path;
         }
         // Enge Hitbox: sichtbarer Körper + kleine Endgriffe.
@@ -67,7 +66,7 @@ public:
     void applyRotationDelta(qreal deltaDeg) {
         qreal a = rotation() + deltaDeg;
         if (m_config.rulerSnap)
-            a = snapToLocalGrid(a, 15.0);
+            a = snapPreferredAngle(a);
         setRotation(normalizeAngle(a));
     }
 
@@ -176,7 +175,7 @@ public:
         const double dir = (event->delta() > 0) ? -1.0 : 1.0;
         currentAngle += dir * baseStep;
         if (m_config.rulerSnap)
-            currentAngle = snapToLocalGrid(currentAngle, 15.0);
+            currentAngle = snapPreferredAngle(currentAngle);
         setRotation(normalizeAngle(currentAngle));
         event->accept();
     }
@@ -318,7 +317,7 @@ public:
                     }
                     double a = rotation() - rotDelta;
                     if (m_config.rulerSnap)
-                        a = snapToLocalGrid(a, 15.0);
+                        a = snapPreferredAngle(a);
                     setRotation(a);
                 }
             }
@@ -360,6 +359,27 @@ private:
         return normalizeAngle(ref + snappedRel);
     }
 
+    /// Prefer common geodreieck angles, then fall back to 15° grid.
+    qreal snapPreferredAngle(qreal absoluteAngle) const {
+        const qreal ref = m_zeroAngleReference;
+        const qreal rel = normalizeAngle(absoluteAngle - ref);
+        static const qreal prefs[] = {0, 30, 45, 60, 90, 120, 135, 150, 180,
+                                      210, 225, 240, 270, 300, 315, 330};
+        qreal best = rel;
+        qreal bestD = 1e9;
+        for (qreal p : prefs) {
+            const qreal d = qAbs(rel - p);
+            const qreal d2 = qMin(d, 360.0 - d);
+            if (d2 < bestD) {
+                bestD = d2;
+                best = p;
+            }
+        }
+        if (bestD <= 7.5)
+            return normalizeAngle(ref + best);
+        return snapToLocalGrid(absoluteAngle, 15.0);
+    }
+
     QRectF resetButtonRectLocal() const {
         return QRectF(m_width * 0.5 - 10.0, m_height * 0.5 - 10.0, 20.0, 20.0);
     }
@@ -374,8 +394,8 @@ private:
             const QPointF c = transformOriginPoint();
             const qreal r = QLineF(c, local).length();
             const qreal rOuter = qMin(m_width, m_height) * 0.42 + 10.0;
-            const qreal rInner = qMin(m_width, m_height) * 0.42 - 26.0;
-            return (r >= rInner && r <= rOuter);
+            // Upper semicircle (local y decreases upward in item coords after rotation).
+            return r <= rOuter && local.y() <= c.y() + 8.0;
         }
         if (isLocalPointOnResetButton(local))
             return true;
@@ -444,43 +464,64 @@ private:
     }
 
     void paintCircularRuler(QPainter* p) {
+        // Geodreieck / protractor: filled semicircle 0°–180° + hypotenuse mm edge.
         const QPointF c = transformOriginPoint();
         const qreal radius = qMin(m_width, m_height) * 0.42;
 
-        // Outer ring
-        p->setBrush(QColor(40, 40, 40, 220));
+        QPainterPath semi;
+        semi.moveTo(c);
+        semi.arcTo(QRectF(c.x() - radius, c.y() - radius, 2 * radius, 2 * radius), 0, 180);
+        semi.closeSubpath();
+        p->setBrush(QColor(40, 40, 40, 210));
         p->setPen(QPen(QColor(90, 90, 90), 1.2));
-        p->drawEllipse(c, radius, radius);
+        p->drawPath(semi);
 
-        // Inner cutout to visualize a ring ruler
-        p->setBrush(QColor(18, 18, 26, 220));
-        p->setPen(Qt::NoPen);
-        p->drawEllipse(c, radius - 18, radius - 18);
+        // Hypotenuse baseline
+        p->setPen(QPen(QColor(220, 220, 220), 1.6));
+        p->drawLine(QPointF(c.x() - radius, c.y()), QPointF(c.x() + radius, c.y()));
 
-        // Degree / unit ticks around the ring
+        // Degree ticks 0–180 (Qt angles: 0 = east, CCW; draw from baseline up)
         p->setBrush(Qt::NoBrush);
-        for (int deg = 0; deg < 360; deg += 2) {
+        for (int deg = 0; deg <= 180; deg += 1) {
             const bool major = (deg % 30 == 0);
             const bool mid = (!major && deg % 10 == 0);
-            const qreal a = qDegreesToRadians((qreal)deg - 90.0);
-            const qreal len = major ? 14.0 : (mid ? 9.0 : 5.0);
-
+            if (!major && !mid && deg % 5 != 0)
+                continue;
+            const qreal a = qDegreesToRadians(qreal(deg));
+            const qreal len = major ? 16.0 : (mid ? 10.0 : 5.0);
             const QPointF p1(c.x() + (radius - len) * std::cos(a),
-                             c.y() + (radius - len) * std::sin(a));
+                             c.y() - (radius - len) * std::sin(a));
             const QPointF p2(c.x() + radius * std::cos(a),
-                             c.y() + radius * std::sin(a));
-
+                             c.y() - radius * std::sin(a));
             p->setPen(QPen(major ? QColor(235, 235, 235) : QColor(170, 170, 170),
                            major ? 1.8 : 1.0));
             p->drawLine(p1, p2);
+            if (major) {
+                p->setPen(QColor(230, 230, 235));
+                QFont f = p->font();
+                f.setPointSizeF(8.0);
+                p->setFont(f);
+                const QPointF lbl(c.x() + (radius - 28) * std::cos(a),
+                                  c.y() - (radius - 28) * std::sin(a));
+                p->drawText(QRectF(lbl.x() - 14, lbl.y() - 8, 28, 16),
+                            Qt::AlignCenter, QString::number(deg));
+            }
         }
 
-        // Center indicator (for snapping radius)
+        // mm ticks along hypotenuse (approx 37.8 px/cm)
+        const qreal pxPerMm = 37.795 / 10.0;
+        p->setPen(QPen(QColor(180, 180, 190), 1.0));
+        for (qreal x = c.x() - radius; x <= c.x() + radius + 0.5; x += pxPerMm) {
+            const bool cm = (qRound((x - (c.x() - radius)) / pxPerMm) % 10 == 0);
+            const qreal h = cm ? 10.0 : 5.0;
+            p->drawLine(QPointF(x, c.y()), QPointF(x, c.y() - h));
+        }
+
+        // Apex / origin
         p->setPen(QPen(NoteChrome::accent(), 2));
         p->setBrush(Qt::NoBrush);
         p->drawEllipse(c, 6, 6);
-        p->drawLine(c.x() - 4, c.y(), c.x() + 4, c.y());
-        p->drawLine(c.x(), c.y() - 4, c.x(), c.y() + 4);
+        paintOverlayInfo(p);
     }
 
     void paintOverlayInfo(QPainter* p) {

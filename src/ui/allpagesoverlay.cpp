@@ -280,10 +280,10 @@ void AllPagesOverlay::refreshChrome() {
       "}"
       "QPushButton:hover { background: %4; }");
   if (m_btnAdd) {
-    m_btnAdd->setStyleSheet(pill.arg(QStringLiteral("#2563EB"),
+    m_btnAdd->setStyleSheet(pill.arg(QStringLiteral("#5B9DFF"),
                                      QStringLiteral("#FFFFFF"),
-                                     QStringLiteral("#2563EB"),
-                                     QStringLiteral("#1D4ED8")));
+                                     QStringLiteral("#5B9DFF"),
+                                     QStringLiteral("#7EB2FF")));
   }
   if (m_btnDup)
     m_btnDup->setStyleSheet(pill.arg(quietBg, ink, quietBorder, quietHover));

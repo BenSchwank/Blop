@@ -65,7 +65,7 @@ private:
   QHBoxLayout *m_tabsLayout{nullptr};
   QList<DocumentTab *> m_tabs;
   int m_currentIndex{-1};
-  QColor m_accentColor{QColor(QStringLiteral("#7C5CFC"))};
+  QColor m_accentColor{QColor(QStringLiteral("#5B9DFF"))};
   bool m_noteChromeMode{false};
   bool m_readingMarkMode{false};
 
@@ -116,7 +116,7 @@ private:
 
   QString m_title;
   QString m_iconName;
-  QColor m_accentColor{QColor(QStringLiteral("#7C5CFC"))};
+  QColor m_accentColor{QColor(QStringLiteral("#5B9DFF"))};
   bool m_active{false};
   bool m_hovered{false};
   bool m_closable{true};

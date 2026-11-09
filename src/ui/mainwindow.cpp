@@ -85,10 +85,13 @@
 #include "tools/LassoTool.h"
 #include "tools/RulerTool.h"
 #include "tools/ShapeTool.h"
+#include "tools/FormulaTool.h"
+#include "tools/DimensionTool.h"
 #include "tools/TextTool.h" // Neu: TextTool
 #include "tools/StickyNoteTool.h"
 #include "tools/HandTool.h"
 #include "tools/WritingTools.h" // Enthält PenTool, PencilTool, HighlighterTool
+#include "tools/LaserTool.h"
 // -------------------------------------
 
 #include <QApplication>
@@ -3385,9 +3388,12 @@ void MainWindow::setupTools() {
     m_toolManager->registerTool(new RulerTool());
     m_toolManager->registerTool(new ImageTool());
     m_toolManager->registerTool(new ShapeTool());
+    m_toolManager->registerTool(new FormulaTool());
+    m_toolManager->registerTool(new DimensionTool());
     m_toolManager->registerTool(new TextTool()); // <--- TextTool Registrierung
     m_toolManager->registerTool(new StickyNoteTool());
     m_toolManager->registerTool(new HandTool());
+    m_toolManager->registerTool(new LaserTool());
 
     m_toolManager->selectTool(ToolMode::Pen);
   }
@@ -4873,6 +4879,20 @@ void MainWindow::setupTitleBar() {
 // Window Dragging Implementation
 bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
 #ifndef Q_OS_ANDROID
+  if (obj == m_lblZoomHud && event->type() == QEvent::MouseButtonRelease) {
+    auto *me = static_cast<QMouseEvent *>(event);
+    if (me->button() == Qt::LeftButton) {
+      if (auto *view = currentNoteView())
+        view->setZoomFactor(1.0);
+      else if (CanvasView *cv = getCurrentCanvas()) {
+        const qreal s = cv->transform().m11();
+        if (s > 1e-6)
+          cv->scale(1.0 / s, 1.0 / s);
+      }
+      updateNoteBottomChrome();
+      return true;
+    }
+  }
   if (obj == m_sidebarSearch &&
       (event->type() == QEvent::Resize || event->type() == QEvent::Show)) {
     // no-op (shortcut chip removed)
@@ -6034,8 +6054,8 @@ void MainWindow::syncWindowsDwmChrome() {
   if (m_authNavigationLocked) {
     titleBg = BlopStyle::obsidianNav();
   } else if (noteChrome) {
-    titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianNav()
-                                             : NoteChrome::toolbarFill();
+    // Match painted charcoal title bar in Light — not white toolbarFill.
+    titleBg = BlopStyle::libraryTitleBar();
   } else if (notesMode || onDashboard) {
     // Title/caption stays on dark desk; content pane uses obsidianContent.
     titleBg = BlopTheme::instance().isDark() ? BlopStyle::obsidianDesk()
@@ -9279,7 +9299,7 @@ void MainWindow::setupUi() {
       "}"
       "QTabBar::tab:selected {"
       "  color: #F4F5FB;"
-      "  border-bottom: 2px solid #7C5CFC;"
+      "  border-bottom: 2px solid #5B9DFF;"
       "}"
       "QTabBar::tab:hover { color: #ccc; }"
       "QTabWidget::pane { border: none; }"));
@@ -9509,59 +9529,115 @@ void MainWindow::setupUi() {
     return hud;
   };
   m_pageHud = makeHud(QStringLiteral("PageHud"));
+  m_pageHud->setFixedHeight(UiScale::dp(36));
   auto *pageLay = new QHBoxLayout(m_pageHud);
-  pageLay->setContentsMargins(8, 0, 8, 0);
-  pageLay->setSpacing(6);
-  m_lblPageHud = new QLabel(QStringLiteral("1 / 1"), m_pageHud);
-  pageLay->addWidget(m_lblPageHud);
-  auto *pagesBtn = new QPushButton(QStringLiteral("⊞ Seiten"), m_pageHud);
+  pageLay->setContentsMargins(UiScale::dp(6), 0, UiScale::dp(6), 0);
+  pageLay->setSpacing(UiScale::dp(4));
+  auto *pagesBtn = new QPushButton(m_pageHud);
+  pagesBtn->setObjectName(QStringLiteral("PageHudToggle"));
   pagesBtn->setCursor(Qt::PointingHandCursor);
   pagesBtn->setFocusPolicy(Qt::NoFocus);
   pagesBtn->setFlat(true);
+  pagesBtn->setToolTip(QStringLiteral("Seiten-Vorschau"));
+  pagesBtn->setMinimumWidth(UiScale::dp(110));
+  pagesBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+  pagesBtn->setStyleSheet(
+      QStringLiteral("QPushButton#PageHudToggle { padding: 0 %1px; }")
+          .arg(UiScale::dp(12)));
+  m_lblPageHud = new QLabel(QStringLiteral("Seite 1 / 1"), pagesBtn);
+  m_lblPageHud->setObjectName(QStringLiteral("PageHudLabel"));
+  m_lblPageHud->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+  {
+    QFontMetrics fm(m_lblPageHud->font());
+    m_lblPageHud->setMinimumWidth(
+        fm.horizontalAdvance(QStringLiteral("Seite 99 / 99")) + 4);
+  }
+  auto *pagesBtnLay = new QHBoxLayout(pagesBtn);
+  pagesBtnLay->setContentsMargins(UiScale::dp(12), 0, UiScale::dp(12), 0);
+  pagesBtnLay->setSpacing(UiScale::dp(6));
+  auto *pagesIcon = new QLabel(pagesBtn);
+  pagesIcon->setObjectName(QStringLiteral("PageHudIcon"));
+  pagesIcon->setFixedSize(UiScale::dp(16), UiScale::dp(16));
+  pagesIcon->setPixmap(
+      createModernIcon(QStringLiteral("pages"), NoteChrome::textSecondary())
+          .pixmap(UiScale::dp(16), UiScale::dp(16)));
+  pagesBtnLay->addWidget(pagesIcon);
+  pagesBtnLay->addWidget(m_lblPageHud, 1);
   connect(pagesBtn, &QPushButton::clicked, this, [this]() {
-    if (!m_allPagesOverlay || !m_editorCenterWidget)
+    if (!m_pageThumbnailSidebar)
       return;
-    m_allPagesOverlay->setNoteView(currentNoteView());
-    m_allPagesOverlay->setGeometry(0, 0, m_editorCenterWidget->width(),
-                                   m_editorCenterWidget->height());
-    m_allPagesOverlay->present();
+    const bool open = m_pageThumbnailSidebar->isCollapsed() ||
+                      !m_pageThumbnailSidebar->isVisible();
+    if (open) {
+      if (auto *view = currentNoteView())
+        m_pageThumbnailSidebar->setNoteView(view);
+      m_pageThumbnailSidebar->setCollapsed(false);
+      m_pageThumbnailSidebar->show();
+      m_pageThumbnailSidebar->rebuild();
+      m_pageThumbnailSidebar->raise();
+    } else {
+      m_pageThumbnailSidebar->setCollapsed(true);
+      m_pageThumbnailSidebar->hide();
+    }
+    positionNoteChrome();
   });
   pageLay->addWidget(pagesBtn);
+  auto *pageSep = new QFrame(m_pageHud);
+  pageSep->setObjectName(QStringLiteral("PageHudSep"));
+  pageSep->setFrameShape(QFrame::VLine);
+  pageSep->setFixedSize(1, UiScale::dp(18));
+  pageLay->addWidget(pageSep);
   auto *addPageBtn = new QPushButton(QStringLiteral("+"), m_pageHud);
+  addPageBtn->setObjectName(QStringLiteral("PageHudAdd"));
   addPageBtn->setCursor(Qt::PointingHandCursor);
   addPageBtn->setFocusPolicy(Qt::NoFocus);
-  addPageBtn->setFixedSize(28, 28);
+  addPageBtn->setFixedSize(UiScale::dp(28), UiScale::dp(28));
   addPageBtn->setFlat(true);
+  addPageBtn->setToolTip(QStringLiteral("Neue Seite"));
   connect(addPageBtn, &QPushButton::clicked, this, [this]() {
     if (auto *view = currentNoteView()) {
       view->addNewPage();
       updateNoteBottomChrome();
+      if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible())
+        m_pageThumbnailSidebar->rebuild();
     }
   });
   pageLay->addWidget(addPageBtn);
 
   m_zoomHud = makeHud(QStringLiteral("ZoomHud"));
-  m_zoomHud->setFixedHeight(UiScale::dp(36));
+  m_zoomHud->setFixedHeight(UiScale::dp(34));
   auto *zoomLay = new QHBoxLayout(m_zoomHud);
   zoomLay->setContentsMargins(6, 0, 6, 0);
   zoomLay->setSpacing(2);
-  m_btnZoomHudUndo = new QPushButton(QStringLiteral("↶"), m_zoomHud);
-  m_btnZoomHudRedo = new QPushButton(QStringLiteral("↷"), m_zoomHud);
+  m_btnZoomHudUndo = new QPushButton(m_zoomHud);
+  m_btnZoomHudRedo = new QPushButton(m_zoomHud);
+  m_btnZoomHudUndo->setObjectName(QStringLiteral("ZoomHudUndo"));
+  m_btnZoomHudRedo->setObjectName(QStringLiteral("ZoomHudRedo"));
   m_btnZoomHudUndo->setToolTip(QStringLiteral("Rückgängig"));
   m_btnZoomHudRedo->setToolTip(QStringLiteral("Wiederholen"));
-  auto *zoomOut = new QPushButton(QStringLiteral("−"), m_zoomHud);
-  auto *zoomIn = new QPushButton(QStringLiteral("+"), m_zoomHud);
+  auto *zoomOut = new QPushButton(m_zoomHud);
+  auto *zoomIn = new QPushButton(m_zoomHud);
+  zoomOut->setObjectName(QStringLiteral("ZoomHudOut"));
+  zoomIn->setObjectName(QStringLiteral("ZoomHudIn"));
   m_lblZoomHud = new QLabel(QStringLiteral("100%"), m_zoomHud);
+  m_lblZoomHud->setObjectName(QStringLiteral("ZoomHudPercent"));
   m_lblZoomHud->setAlignment(Qt::AlignCenter);
   m_lblZoomHud->setMinimumWidth(40);
-  auto *fitBtn = new QPushButton(QStringLiteral("⛶"), m_zoomHud);
-  fitBtn->setToolTip(QStringLiteral("Auf Seitenbreite anpassen"));
-  for (QPushButton *b :
-       {m_btnZoomHudUndo, m_btnZoomHudRedo, zoomOut, zoomIn, fitBtn}) {
+  m_lblZoomHud->setCursor(Qt::PointingHandCursor);
+  m_lblZoomHud->setToolTip(QStringLiteral("Zoom auf 100%"));
+  auto *fitWidthBtn = new QPushButton(m_zoomHud);
+  fitWidthBtn->setObjectName(QStringLiteral("ZoomHudFit"));
+  fitWidthBtn->setToolTip(QStringLiteral("Auf Seitenbreite anpassen"));
+  auto *fitPageBtn = new QPushButton(m_zoomHud);
+  fitPageBtn->setObjectName(QStringLiteral("ZoomHudFitPage"));
+  fitPageBtn->setToolTip(QStringLiteral("Ganze Seite"));
+  for (QPushButton *b : {m_btnZoomHudUndo, m_btnZoomHudRedo, zoomOut, zoomIn,
+                         fitWidthBtn, fitPageBtn}) {
     b->setCursor(Qt::PointingHandCursor);
     b->setFocusPolicy(Qt::NoFocus);
     b->setFlat(true);
     b->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+    b->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
   }
   connect(m_btnZoomHudUndo, &QPushButton::clicked, this, &MainWindow::onUndo);
   connect(m_btnZoomHudRedo, &QPushButton::clicked, this, &MainWindow::onRedo);
@@ -9579,29 +9655,38 @@ void MainWindow::setupUi() {
       cv->scale(1.1, 1.1);
     updateNoteBottomChrome();
   });
-  connect(fitBtn, &QPushButton::clicked, this, [this]() {
+  m_lblZoomHud->installEventFilter(this);
+  connect(fitWidthBtn, &QPushButton::clicked, this, [this]() {
     if (auto *view = currentNoteView())
       view->fitToWidth();
     else if (CanvasView *cv = getCurrentCanvas())
       cv->fitToWidth();
     updateNoteBottomChrome();
   });
+  connect(fitPageBtn, &QPushButton::clicked, this, [this]() {
+    if (auto *view = currentNoteView())
+      view->fitPage();
+    else if (CanvasView *cv = getCurrentCanvas())
+      cv->fitPage();
+    updateNoteBottomChrome();
+  });
   zoomLay->addWidget(m_btnZoomHudUndo);
   zoomLay->addWidget(m_btnZoomHudRedo);
   auto *sep = new QFrame(m_zoomHud);
+  sep->setObjectName(QStringLiteral("ZoomHudUndoSep"));
   sep->setFrameShape(QFrame::VLine);
   sep->setFixedWidth(1);
-  sep->setStyleSheet(QStringLiteral("background: #CBD5E1; border: none;"));
   zoomLay->addWidget(sep);
   zoomLay->addWidget(zoomOut);
   zoomLay->addWidget(m_lblZoomHud);
   zoomLay->addWidget(zoomIn);
   auto *sep2 = new QFrame(m_zoomHud);
+  sep2->setObjectName(QStringLiteral("ZoomHudSep"));
   sep2->setFrameShape(QFrame::VLine);
   sep2->setFixedWidth(1);
-  sep2->setStyleSheet(QStringLiteral("background: #CBD5E1; border: none;"));
   zoomLay->addWidget(sep2);
-  zoomLay->addWidget(fitBtn);
+  zoomLay->addWidget(fitWidthBtn);
+  zoomLay->addWidget(fitPageBtn);
 #endif
 
   refreshNoteChromeStyle();
@@ -9725,48 +9810,28 @@ void MainWindow::setupUi() {
 #endif
   m_pageThumbnailSidebar->setAccentColor(NoteChrome::accent());
 #ifndef Q_OS_ANDROID
-  // Desktop pages live in the register-tab rail; the thumbnail panel stays
-  // hidden (overview = AllPagesOverlay).
+  // Desktop: Studio page pill + thumbnail drawer. Bookmark rail retired.
   m_pageThumbnailSidebar->setCollapsed(true);
+  m_pageThumbnailSidebar->setFloatingMode(true);
+  m_pageBookmarkRailPref = false;
   m_pageBookmarkRail = new PageBookmarkRail(m_editorCenterWidget);
-  {
-    QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-    m_pageBookmarkRailPref =
-        pageUi.value(QStringLiteral("ui/pageBookmarkRail"), true).toBool();
-  }
-  connect(m_pageBookmarkRail, &PageBookmarkRail::pageActivated, this,
-          [this](int) { updateNoteBottomChrome(); });
-  connect(m_pageBookmarkRail, &PageBookmarkRail::pagesMutated, this,
-          [this]() {
-            updateNoteBottomChrome();
-            positionNoteChrome();
-            if (m_allPagesOverlay && m_allPagesOverlay->isVisible())
-              m_allPagesOverlay->setNoteView(currentNoteView());
-          });
-  connect(m_pageBookmarkRail, &PageBookmarkRail::allPagesRequested, this,
-          [this]() {
-            if (!m_allPagesOverlay || !m_editorCenterWidget)
-              return;
-            m_allPagesOverlay->setNoteView(currentNoteView());
-            m_allPagesOverlay->setGeometry(0, 0, m_editorCenterWidget->width(),
-                                           m_editorCenterWidget->height());
-            m_allPagesOverlay->present();
-          });
-  // Digits 1–9 jump to pages while an A4 note is open, even if the rail
-  // itself does not have keyboard focus (canvas / toolbars often do).
+  m_pageBookmarkRail->hide();
+  // Digits 1–9 jump to pages while an A4 note is open.
   for (int d = 1; d <= 9; ++d) {
     auto *sc = new QShortcut(QKeySequence(Qt::Key_0 + d), m_editorCenterWidget);
     sc->setContext(Qt::WidgetWithChildrenShortcut);
     connect(sc, &QShortcut::activated, this, [this, d]() {
-      if (!m_pageBookmarkRail || !m_pageBookmarkRail->isVisible())
-        return;
       QWidget *fw = QApplication::focusWidget();
       if (qobject_cast<QLineEdit *>(fw) || qobject_cast<QTextEdit *>(fw) ||
           qobject_cast<QPlainTextEdit *>(fw))
         return;
-      if (auto *view = m_pageBookmarkRail->noteView()) {
-        if (d - 1 < view->pageCount())
-          m_pageBookmarkRail->jumpToPage(d - 1);
+      if (auto *view = currentNoteView()) {
+        if (d - 1 < view->pageCount()) {
+          view->scrollToPage(d - 1, true);
+          updateNoteBottomChrome();
+          if (m_pageThumbnailSidebar)
+            m_pageThumbnailSidebar->onCurrentPageChanged(d - 1);
+        }
       }
     });
   }
@@ -10699,10 +10764,12 @@ void MainWindow::applyModeChange(int index) {
       ;
   const int mainStackIdx = (index <= 0) ? 0 : 1;
 
-  // Keep icon-rail in sync: Study must not leave "calendar" highlighted.
+  // Keep icon-rail in sync: Dashboard → Home, Notes app → library, Study → apps.
   if (m_libraryIconRail) {
     if (mainStackIdx == 1)
       m_libraryIconRail->setActiveId(QStringLiteral("apps"));
+    else if (m_shellStack && m_shellStack->currentIndex() == 0)
+      m_libraryIconRail->setActiveId(QStringLiteral("home"));
     else if (!m_authNavigationLocked)
       m_libraryIconRail->setActiveId(QStringLiteral("library"));
   }
@@ -16911,14 +16978,19 @@ void MainWindow::updateSidebarState() {
   }
   if (m_pageThumbnailSidebar) {
 #ifndef Q_OS_ANDROID
+    // Studio drawer: only visible when the user opens it via the page pill.
     const bool wantPages = inNotesMode && isEditor && hasA4Pages;
-    m_pageThumbnailSidebar->setVisible(false);
-    if (m_pageBookmarkRail) {
-      m_pageBookmarkRail->setVisible(wantPages && m_pageBookmarkRailPref);
-      if (m_pageBookmarkRail->isVisible()) {
-        m_pageBookmarkRail->rebuild();
-        m_pageBookmarkRail->syncCurrentPage();
-      }
+    if (m_pageBookmarkRail)
+      m_pageBookmarkRail->hide();
+    if (!wantPages) {
+      m_pageThumbnailSidebar->hide();
+    } else if (!m_pageThumbnailSidebar->isCollapsed() &&
+               m_pageThumbnailSidebar->isVisible()) {
+      if (auto *view = currentNoteView())
+        m_pageThumbnailSidebar->setNoteView(view);
+      m_pageThumbnailSidebar->rebuild();
+    } else {
+      m_pageThumbnailSidebar->hide();
     }
 #else
     const bool pagesWantedByRail =
@@ -18236,12 +18308,14 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
       connect(noteBtn, &QPushButton::clicked, this, [this, canvas, capPath](){
           QMenu *menu = new QMenu(this);
           menu->setAttribute(Qt::WA_DeleteOnClose);
-          menu->setStyleSheet(BlopTheme::themed(
-              "QMenu { background: #1E1E2E; border: 1px solid #3A3550;"
+          menu->setStyleSheet(QStringLiteral(
+              "QMenu { background: #FFFFFF; border: 1px solid #E2E8F0;"
               "  border-radius: 10px; padding: 6px; }"
-              "QMenu::item { color: #E0E0E0; padding: 10px 20px;"
+              "QMenu::item { color: #1E293B; padding: 10px 20px;"
               "  border-radius: 6px; font-size: 13px; }"
-              "QMenu::item:selected { background: #7C5CFC; color: white; }"));
+              "QMenu::item:selected { background: %1; color: white; }")
+                                  .arg(NoteChrome::accent().name(
+                                      QColor::HexRgb)));
           auto *actLayout = menu->addAction("Seitenlayout...");
           auto *actOptions = menu->addAction("Optionen && Tags...");
           menu->addSeparator();
@@ -20500,34 +20574,45 @@ void MainWindow::refreshNoteChromeStyle() {
                                              NoteChrome::borderSoft().name(
                                                  QColor::HexRgb)));
 #ifndef Q_OS_ANDROID
-  const bool darkHud = NoteChrome::isDark();
-  const auto hudQss = [darkHud](const QString &name) {
+  const bool darkHud = true; // Studio HUDs stay dark glass on charcoal canvas.
+  const auto hudQss = [](const QString &name) {
     return QStringLiteral(
-               "QWidget#%1 { background: %2; border: 1px solid %3; border-radius: 8px; }"
-               "QLabel { background: transparent; color: %4; font-size: 12px; font-weight: 600; }"
-               "QPushButton { background: transparent; color: %4; border: none;"
-               " border-radius: 6px; font-size: 13px; font-weight: 600; padding: 0 4px; }"
-               "QPushButton:hover { background: rgba(127,127,127,0.18); }"
-               "QPushButton:disabled { color: rgba(127,127,127,0.35); }")
-        .arg(name,
-             darkHud ? QStringLiteral("#181B22") : QStringLiteral("#FFFFFF"),
-             darkHud ? QStringLiteral("rgba(255,255,255,0.10)")
-                     : QStringLiteral("#CBD5E1"),
-             NoteChrome::textPrimary().name(QColor::HexRgb));
+               "QWidget#%1 {"
+               "  background: rgba(24, 27, 34, 0.92);"
+               "  border: 1px solid rgba(255,255,255,0.12);"
+               "  border-radius: 10px;"
+               "}"
+               "QLabel { background: transparent; color: #F8FAFC;"
+               "  font-size: 12px; font-weight: 600; }"
+               "QPushButton { background: transparent; color: #E2E8F0; border: none;"
+               " border-radius: 6px; font-size: 14px; font-weight: 600; padding: 0 4px; }"
+               "QPushButton:hover { background: rgba(255,255,255,0.10); }"
+               "QPushButton:disabled { color: rgba(255,255,255,0.28); }"
+               "QFrame#PageHudSep, QFrame#ZoomHudSep, QFrame#ZoomHudUndoSep {"
+               "  background: rgba(255,255,255,0.14); border: none; max-width: 1px;"
+               "}")
+        .arg(name);
   };
-  if (m_pageHud)
+  if (m_pageHud) {
     m_pageHud->setStyleSheet(hudQss(QStringLiteral("PageHud")));
+    if (!m_pageHud->graphicsEffect()) {
+      auto *shadow = new QGraphicsDropShadowEffect(m_pageHud);
+      shadow->setBlurRadius(16);
+      shadow->setOffset(0, 4);
+      shadow->setColor(QColor(0, 0, 0, 64));
+      m_pageHud->setGraphicsEffect(shadow);
+    }
+  }
   if (m_zoomHud) {
     m_zoomHud->setStyleSheet(hudQss(QStringLiteral("ZoomHud")));
-    if (!darkHud && !m_zoomHud->graphicsEffect()) {
+    if (!m_zoomHud->graphicsEffect()) {
       auto *shadow = new QGraphicsDropShadowEffect(m_zoomHud);
-      shadow->setBlurRadius(12);
+      shadow->setBlurRadius(16);
       shadow->setOffset(0, 4);
-      shadow->setColor(QColor(0, 0, 0, 20));
+      shadow->setColor(QColor(0, 0, 0, 64));
       m_zoomHud->setGraphicsEffect(shadow);
-    } else if (darkHud) {
-      m_zoomHud->setGraphicsEffect(nullptr);
     }
+    Q_UNUSED(darkHud);
   }
 #endif
 }
@@ -20679,21 +20764,38 @@ void MainWindow::positionNoteChrome() {
   positionNoteToolbars();
   if (m_pageHud && m_pageHud->isVisible()) {
     m_pageHud->adjustSize();
-    int y = 16;
-    if (noteToolbarsActive()) {
-      const QRect tb = m_noteToolbars->activeRect();
-      if (tb.isValid())
-        y = tb.bottom() + 8;
-    }
-    m_pageHud->move(16, y);
+    // Studio page pill: fixed top-left inset (independent of dock).
+    m_pageHud->move(UiScale::dp(16), UiScale::dp(16));
     m_pageHud->raise();
   }
+  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
+      !m_pageThumbnailSidebar->isCollapsed()) {
+    const int drawerW = qMax(m_pageThumbnailSidebar->width(), UiScale::dp(190));
+    int top = UiScale::dp(16);
+    if (m_pageHud && m_pageHud->isVisible())
+      top = m_pageHud->geometry().bottom() + UiScale::dp(10);
+    const int bottomPad = UiScale::dp(16);
+    const int h = qMax(UiScale::dp(200), H - top - bottomPad);
+    m_pageThumbnailSidebar->setFixedWidth(drawerW);
+    m_pageThumbnailSidebar->setGeometry(UiScale::dp(16), top, drawerW, h);
+    m_pageThumbnailSidebar->raise();
+  }
   if (m_zoomHud && m_zoomHud->isVisible()) {
+    const bool radiantUndo =
+        noteToolbarsActive() &&
+        m_noteToolbars->style() == NoteToolbarStyle::Radiant;
+    if (m_btnZoomHudUndo)
+      m_btnZoomHudUndo->setVisible(radiantUndo);
+    if (m_btnZoomHudRedo)
+      m_btnZoomHudRedo->setVisible(radiantUndo);
+    if (auto *undoSep = m_zoomHud->findChild<QFrame *>(
+            QStringLiteral("ZoomHudUndoSep")))
+      undoSep->setVisible(radiantUndo);
     m_zoomHud->adjustSize();
     // Prefer intrinsic size; fall back so a zero-size layout still paints.
     if (m_zoomHud->width() < 40 || m_zoomHud->height() < 20)
       m_zoomHud->resize(qMax(m_zoomHud->sizeHint().width(), 200),
-                        UiScale::dp(36));
+                        UiScale::dp(34));
     int zx = qMax(16, W - m_zoomHud->width() - 16);
     int zy = qMax(16, H - m_zoomHud->height() - 16);
     if (noteToolbarsActive()) {
@@ -20718,7 +20820,20 @@ void MainWindow::positionNoteChrome() {
   }
 
   // Tool options float as a light card — beside the J rail or above the K pill.
-  if (m_toolPropertiesPanel && m_toolPropertiesVisible) {
+  // Hide on empty canvas selection so a clipped phantom panel never sticks around.
+  bool propsHasSelection = false;
+  if (MultiPageNoteView *nv = currentNoteView()) {
+    if (QGraphicsScene *sc = nv->scene())
+      propsHasSelection = !sc->selectedItems().isEmpty();
+  } else if (CanvasView *cv = getCurrentCanvas()) {
+    if (QGraphicsScene *sc = cv->scene())
+      propsHasSelection = !sc->selectedItems().isEmpty();
+  }
+  if (m_toolPropertiesPanel && m_toolPropertiesVisible && !propsHasSelection) {
+    m_toolPropertiesVisible = false;
+    m_toolPropertiesPanel->hide();
+  }
+  if (m_toolPropertiesPanel && m_toolPropertiesVisible && propsHasSelection) {
     m_toolPropertiesPanel->show();
     m_toolPropertiesPanel->syncFromToolManager();
     const int propsW = m_toolPropertiesPanel->preferredWidth();
@@ -20760,8 +20875,19 @@ void MainWindow::positionNoteChrome() {
           x = qMin(x, rightX - propsW - propsGap);
       }
       y = noteHeaderHeight() + propsGap + topClear;
-      const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
+      const int maxH = qMax(0, H - y - bottomH - margin);
       panelH = qMin(propsH, maxH);
+    } else if (noteToolbarsActive()) {
+      // Desktop float/bar: pin bottom-right inside the editor surface.
+      const int bottomClear = UiScale::dp(64) + bottomH;
+      panelH = qMin(propsH, qMax(0, H - margin - bottomClear - topClear));
+      x = W - propsW - UiScale::dp(16) - noteChromeClearanceRight();
+      y = H - panelH - bottomClear;
+      if (pagesOnRight)
+        x = qMin(x, rightX - propsW - propsGap);
+      x = qBound(margin + noteChromeClearanceLeft(), x,
+                 W - propsW - margin - noteChromeClearanceRight());
+      y = qBound(margin + topClear, y, H - panelH - margin);
     } else {
       int railW = UiScale::dp(64);
       bool railLeft = false;
@@ -20778,21 +20904,19 @@ void MainWindow::positionNoteChrome() {
           x = qMin(x, rightX - propsW - propsGap);
       }
       y = noteHeaderHeight() + propsGap + topClear;
-      // Keep clear of the desktop note toolbars.
-      if (noteToolbarsActive()) {
-        const QRect tbRect = m_noteToolbars->activeRect();
-        const NoteToolbarStyle st = m_noteToolbars->style();
-        if (st == NoteToolbarStyle::Bar || st == NoteToolbarStyle::Floating)
-          y = qMax(y, tbRect.bottom() + propsGap);
-        else if (st == NoteToolbarStyle::Science)
-          x = qMax(margin, tbRect.left() - propsW - propsGap);
-      }
-      const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
+      const int maxH = qMax(0, H - y - bottomH - margin);
       panelH = qMin(propsH, maxH);
+      y = qBound(margin + topClear, y, H - panelH - margin);
     }
 
-    m_toolPropertiesPanel->setGeometry(x, y, propsW, panelH);
-    m_toolPropertiesPanel->raise();
+    if (panelH < UiScale::dp(80)) {
+      m_toolPropertiesPanel->hide();
+    } else {
+      m_toolPropertiesPanel->setGeometry(x, y, propsW, panelH);
+      m_toolPropertiesPanel->raise();
+      NoteChrome::clampWidgetToParent(m_toolPropertiesPanel,
+                                      m_editorCenterWidget, margin);
+    }
   } else if (m_toolPropertiesPanel) {
     m_toolPropertiesPanel->hide();
   }
@@ -20976,8 +21100,12 @@ void MainWindow::updateNoteBottomChrome() {
     if (m_lblNoteZoom)
       m_lblNoteZoom->setText(
           QStringLiteral("%1%").arg(qRound(view->zoomFactor() * 100.0)));
-    if (m_lblPageHud)
-      m_lblPageHud->setText(QStringLiteral("%1 / %2").arg(cur).arg(pages));
+    if (m_lblPageHud) {
+      m_lblPageHud->setText(
+          QStringLiteral("Seite %1 / %2").arg(cur).arg(pages));
+      if (m_pageHud)
+        m_pageHud->adjustSize();
+    }
     if (m_lblZoomHud)
       m_lblZoomHud->setText(
           QStringLiteral("%1%").arg(qRound(view->zoomFactor() * 100.0)));
@@ -21583,6 +21711,32 @@ void MainWindow::refreshNoteBottomChromeIcons() {
   apply(m_btnNoteFitWidth, QStringLiteral("fit_width"));
   apply(m_btnNoteFitPage, QStringLiteral("fit_page"));
   apply(m_btnNoteChromeGrip, QStringLiteral("more_vert"));
+
+  // Zoom HUD floating chrome — vector icons, no emoji glyphs.
+  const QSize hudSz(UiScale::dp(16), UiScale::dp(16));
+  auto applyHud = [&](QPushButton *btn, const QString &name) {
+    if (!btn)
+      return;
+    btn->setText(QString());
+    btn->setIcon(createModernIcon(name, ic));
+    btn->setIconSize(hudSz);
+  };
+  applyHud(m_btnZoomHudUndo, QStringLiteral("undo"));
+  applyHud(m_btnZoomHudRedo, QStringLiteral("redo"));
+  if (m_zoomHud) {
+    if (auto *out = m_zoomHud->findChild<QPushButton *>(
+            QStringLiteral("ZoomHudOut")))
+      applyHud(out, QStringLiteral("zoom_out"));
+    if (auto *in =
+            m_zoomHud->findChild<QPushButton *>(QStringLiteral("ZoomHudIn")))
+      applyHud(in, QStringLiteral("zoom_in"));
+    if (auto *fit = m_zoomHud->findChild<QPushButton *>(
+            QStringLiteral("ZoomHudFit")))
+      applyHud(fit, QStringLiteral("fit_width"));
+    if (auto *fitPage = m_zoomHud->findChild<QPushButton *>(
+            QStringLiteral("ZoomHudFitPage")))
+      applyHud(fitPage, QStringLiteral("fit_page"));
+  }
 #endif
 }
 
@@ -22346,38 +22500,21 @@ void MainWindow::positionNoteToolbars() {
 }
 
 void MainWindow::positionPageBookmarkRail() {
-  if (!m_pageBookmarkRail || !m_editorCenterWidget ||
-      !m_pageBookmarkRail->isVisible())
-    return;
-  // Floating card inset from the editor edge.
-  const int gap = UiScale::dp(16);
-  const int x = gap;
-  int top = noteHeaderHeight() + gap;
-  if (m_strukturBackPill && m_strukturBackPill->isVisible())
-    top = qMax(top, m_strukturBackPill->geometry().bottom() + gap);
-  // Keep clear of a toolbar that occupies the left column (bar/floating).
-  if (m_noteToolbars && m_noteToolbars->isVisible()) {
-    const QRect tb = m_noteToolbars->activeRect();
-    const QRect column(x, top, UiScale::dp(60), UiScale::dp(40));
-    if (tb.isValid() && tb.intersects(column))
-      top = tb.bottom() + gap;
-  }
-  const int bottom =
-      m_editorCenterWidget->height() - noteBottomChromeHeight() - gap;
-  m_pageBookmarkRail->placeIn(x, top, bottom);
-  m_pageBookmarkRail->raise();
+  // Studio Canvas: vertical bookmark rail retired — page pill + drawer only.
+  if (m_pageBookmarkRail)
+    m_pageBookmarkRail->hide();
 }
 
 void MainWindow::setPageBookmarkRailPref(bool on) {
+  // Pref now means "page drawer available"; the old register rail stays off.
   m_pageBookmarkRailPref = on;
   QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
       .setValue(QStringLiteral("ui/pageBookmarkRail"), on);
-  if (m_pageBookmarkRail) {
-    m_pageBookmarkRail->setVisible(on && currentNoteView() != nullptr);
-    if (m_pageBookmarkRail->isVisible()) {
-      m_pageBookmarkRail->rebuild();
-      m_pageBookmarkRail->syncCurrentPage();
-    }
+  if (m_pageBookmarkRail)
+    m_pageBookmarkRail->hide();
+  if (!on && m_pageThumbnailSidebar) {
+    m_pageThumbnailSidebar->setCollapsed(true);
+    m_pageThumbnailSidebar->hide();
   }
   positionNoteChrome();
 }
@@ -22565,6 +22702,13 @@ void MainWindow::onTabChanged(int index) {
     m_pageBookmarkRail->setVisible(editor && editor->view() &&
                                    m_pageBookmarkRailPref);
     positionPageBookmarkRail();
+  }
+  if (m_noteSelChromeConn)
+    disconnect(m_noteSelChromeConn);
+  if (editor && editor->view()) {
+    m_noteSelChromeConn = connect(
+        editor->view(), &MultiPageNoteView::canvasSelectionPresenceChanged, this,
+        [this](bool) { positionNoteChrome(); });
   }
   if (m_pageThumbnailSidebar) {
     if (editor && editor->view()) {

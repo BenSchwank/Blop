@@ -41,24 +41,10 @@ QFont nameFont() {
   return f;
 }
 
-/// Side tab morphing into the note well: flush left, concave ears on the right.
-QPainterPath registerTabPath(const QRectF &r, qreal /*radius*/) {
-  const qreal er = qMin(qreal(earR()), qMin(r.width() * 0.35, r.height() * 0.4));
-  const qreal top = r.top() + er;
-  const qreal bottom = r.bottom() - er;
+/// Inset pill inside the floating rail card (no register ears / well morph).
+QPainterPath registerTabPath(const QRectF &r, qreal radius) {
   QPainterPath path;
-  // Flush against the L-frame / editor left edge.
-  path.moveTo(r.left(), r.top());
-  path.lineTo(r.right() - er, r.top());
-  // Top concave ear into the well.
-  path.cubicTo(r.right() - er * 0.15, r.top(), r.right(), top - er * 0.05,
-               r.right(), top);
-  path.lineTo(r.right(), bottom);
-  // Bottom concave ear.
-  path.cubicTo(r.right(), bottom + er * 0.05, r.right() - er * 0.15, r.bottom(),
-               r.right() - er, r.bottom());
-  path.lineTo(r.left(), r.bottom());
-  path.closeSubpath();
+  path.addRoundedRect(r.adjusted(1, 1, -1, -1), radius, radius);
   return path;
 }
 
@@ -343,9 +329,10 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
   }
   const QColor accent = NoteChrome::accent();
   const QColor well = NoteChrome::canvasBg();
-  const QColor idleBg = light ? QColor(0, 0, 0, 10) : QColor(255, 255, 255, 16);
+  // Light idle needs readable contrast on the white card (not near-invisible).
+  const QColor idleBg = light ? QColor(0xF1, 0xF5, 0xF9) : QColor(255, 255, 255, 16);
   const QColor hoverBg =
-      light ? QColor(0, 0, 0, 18) : QColor(255, 255, 255, 28);
+      light ? QColor(0xE2, 0xE8, 0xF0) : QColor(255, 255, 255, 28);
   const QColor activeFill =
       light ? QColor(0xEF, 0xF6, 0xFF) : well;
   const QColor activeStroke =
@@ -367,7 +354,8 @@ void PageBookmarkRail::paintEvent(QPaintEvent *) {
       continue;
     const bool hovered = (i == m_hover) && !m_dragging;
     const bool active = (t.kind == TabKind::Page && t.page == m_current);
-    const QRectF rf = QRectF(r);
+    // Inset from card edge so pills sit fully inside the floating card.
+    const QRectF rf = QRectF(r).adjusted(UiScale::dp(2), 0, -UiScale::dp(2), 0);
     const QPainterPath path = registerTabPath(rf, tabRadius());
 
     if (t.kind == TabKind::Add || t.kind == TabKind::AllPages) {
