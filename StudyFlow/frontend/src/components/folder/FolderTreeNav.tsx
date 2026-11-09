@@ -1,11 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, Folder } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, Star } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import { getSessionId, sessionHeaders } from "@/lib/session";
+import {
+    isLegacyOrYearFolder,
+    loadPinnedFolderIds,
+    partitionFolders,
+    type SortableFolder,
+} from "@/lib/folderSort";
 
 export type FolderTreeNode = {
     id: string;
@@ -38,9 +44,10 @@ function TreeNode({
         data: { type: "tree-folder", folderId: node.id, name: node.name },
     });
 
-    const activeCls = active || isOver
-        ? "bg-[rgba(59,130,246,0.14)] text-[#60A5FA] border-l-2 border-[#3B82F6]"
-        : "text-[#B8BEC9] hover:bg-white/[0.06] hover:text-white border-l-2 border-transparent";
+    const activeCls =
+        active || isOver
+            ? "bg-[rgba(59,130,246,0.14)] text-[#60A5FA] border-l-2 border-[#3B82F6]"
+            : "text-[#B8BEC9] hover:bg-white/[0.06] hover:text-white border-l-2 border-transparent";
 
     if (isCollapsedSidebar) {
         return (
@@ -49,7 +56,9 @@ function TreeNode({
                     href={`/folder/${node.id}`}
                     title={node.name}
                     className={`flex items-center justify-center py-2 rounded-[10px] ${
-                        active || isOver ? "bg-[rgba(59,130,246,0.14)] text-[#60A5FA]" : "text-[#B8BEC9] hover:bg-white/[0.06]"
+                        active || isOver
+                            ? "bg-[rgba(59,130,246,0.14)] text-[#60A5FA]"
+                            : "text-[#B8BEC9] hover:bg-white/[0.06]"
                     }`}
                 >
                     <Folder size={16} className={active ? "text-[#60A5FA]" : ""} />
@@ -74,13 +83,13 @@ function TreeNode({
     return (
         <div ref={setNodeRef}>
             <div
-                className={`flex items-center gap-1 rounded-r-lg pr-1 ${activeCls}`}
-                style={{ paddingLeft: 8 + depth * 16 }}
+                className={`flex items-center gap-1 rounded-r-lg pr-1 min-w-0 ${activeCls}`}
+                style={{ paddingLeft: 8 + Math.min(depth, 3) * 12 }}
             >
                 {hasKids ? (
                     <button
                         type="button"
-                        className="h-6 w-6 flex items-center justify-center shrink-0 text-gray-500 hover:text-white"
+                        className="!h-6 !w-6 !min-h-0 !p-0 flex items-center justify-center shrink-0 text-gray-500 hover:text-white"
                         onClick={() => toggle(node.id)}
                         aria-label={isOpen ? "Zuklappen" : "Aufklappen"}
                     >
@@ -95,8 +104,10 @@ function TreeNode({
                     title={node.name}
                 >
                     <Folder size={13} className={`shrink-0 ${active ? "text-[#60A5FA]" : ""}`} />
-                    <span className="truncate">{node.name}</span>
-                    <span className="ml-auto shrink-0 text-[10px] text-gray-500">{node.file_count ?? 0}</span>
+                    <span className="truncate min-w-0">{node.name}</span>
+                    <span className="ml-auto shrink-0 text-[10px] text-gray-500">
+                        {node.file_count ?? 0}
+                    </span>
                 </Link>
             </div>
             {hasKids && isOpen
@@ -124,9 +135,10 @@ export default function FolderTreeNav({ isCollapsedSidebar }: Props) {
     const pathname = usePathname();
     const router = useRouter();
     const [tree, setTree] = useState<FolderTreeNode[]>([]);
-    /** Only ids listed here are expanded (default: all collapsed). */
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-    const [sectionOpen, setSectionOpen] = useState(true);
+    const [modulesOpen, setModulesOpen] = useState(true);
+    const [legacyOpen, setLegacyOpen] = useState(false);
+    const [pinned, setPinned] = useState<Set<string>>(() => new Set());
 
     const activeId = pathname?.startsWith("/folder/") ? pathname.split("/")[2] || null : null;
 
@@ -137,7 +149,7 @@ export default function FolderTreeNav({ isCollapsedSidebar }: Props) {
         try {
             const res = await fetch(
                 `/api/folders/tree?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`,
-                { cache: "no-store", headers: sessionHeaders() }
+                { cache: "no-store", headers: sessionHeaders() },
             );
             if (!res.ok) return;
             const data = await res.json();
@@ -148,13 +160,16 @@ export default function FolderTreeNav({ isCollapsedSidebar }: Props) {
     }, []);
 
     useEffect(() => {
+        setPinned(loadPinnedFolderIds());
         void loadTree();
-        const onChanged = () => void loadTree();
+        const onChanged = () => {
+            setPinned(loadPinnedFolderIds());
+            void loadTree();
+        };
         window.addEventListener("blop_folders_changed", onChanged);
         return () => window.removeEventListener("blop_folders_changed", onChanged);
     }, [loadTree]);
 
-    // Expand only ancestors of the active folder
     useEffect(() => {
         if (!activeId || tree.length === 0) return;
         const ancestors: string[] = [];
@@ -175,54 +190,95 @@ export default function FolderTreeNav({ isCollapsedSidebar }: Props) {
                 for (const id of ancestors) next[id] = true;
                 return next;
             });
+            // Open legacy section if active path lives there
+            const rootId = ancestors[0] || activeId;
+            const root = tree.find((n) => n.id === rootId);
+            if (root && isLegacyOrYearFolder(root as SortableFolder) && !pinned.has(root.id)) {
+                setLegacyOpen(true);
+            }
         }
-    }, [activeId, tree]);
+    }, [activeId, tree, pinned]);
+
+    const { modules, legacy } = useMemo(() => {
+        return partitionFolders(tree as SortableFolder[], pinned) as {
+            modules: FolderTreeNode[];
+            legacy: FolderTreeNode[];
+        };
+    }, [tree, pinned]);
 
     const toggle = (id: string) =>
         setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
     if (tree.length === 0 && isCollapsedSidebar) return null;
 
+    const renderList = (nodes: FolderTreeNode[]) =>
+        nodes.map((n) => (
+            <TreeNode
+                key={n.id}
+                node={n}
+                depth={0}
+                expanded={expanded}
+                toggle={toggle}
+                activeId={activeId}
+                isCollapsedSidebar={isCollapsedSidebar}
+            />
+        ));
+
     return (
-        <div className="mt-3 pt-3 border-t border-white/10">
+        <div className="mt-3 pt-3 border-t border-white/10 min-w-0">
             {!isCollapsedSidebar ? (
-                <button
-                    type="button"
-                    onClick={() => setSectionOpen((v) => !v)}
-                    className="w-full flex items-center justify-between px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-300"
-                >
-                    <span>Meine Module &amp; Ordner</span>
-                    {sectionOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                </button>
-            ) : null}
-            {(sectionOpen || isCollapsedSidebar) && (
-                <div className="space-y-0.5 max-h-[40vh] overflow-y-auto custom-scrollbar">
-                    {tree.length === 0 ? (
-                        !isCollapsedSidebar ? (
-                            <p className="px-3 py-2 text-[11px] text-gray-600">Noch keine Ordner</p>
-                        ) : null
-                    ) : (
-                        tree.map((n) => (
-                            <TreeNode
-                                key={n.id}
-                                node={n}
-                                depth={0}
-                                expanded={expanded}
-                                toggle={toggle}
-                                activeId={activeId}
-                                isCollapsedSidebar={isCollapsedSidebar}
-                            />
-                        ))
-                    )}
-                    {!isCollapsedSidebar ? (
-                        <button
-                            type="button"
-                            onClick={() => router.push("/")}
-                            className="w-full text-left px-3 py-1.5 text-[11px] text-[#93C5FD] hover:text-white"
-                        >
-                            Zum Dashboard
-                        </button>
+                <>
+                    <button
+                        type="button"
+                        onClick={() => setModulesOpen((v) => !v)}
+                        className="w-full flex items-center justify-between px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-300 !min-h-0 !py-1 !px-2"
+                    >
+                        <span className="flex items-center gap-1 truncate">
+                            <Star size={10} className="text-amber-400 shrink-0" /> MEINE MODULE
+                        </span>
+                        {modulesOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    </button>
+                    {modulesOpen ? (
+                        <div className="space-y-0.5 mb-2 max-h-[28vh] overflow-y-auto custom-scrollbar">
+                            {modules.length === 0 ? (
+                                <p className="px-3 py-2 text-[11px] text-gray-600">Noch keine Module</p>
+                            ) : (
+                                renderList(modules)
+                            )}
+                        </div>
                     ) : null}
+
+                    {legacy.length > 0 ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => setLegacyOpen((v) => !v)}
+                                className="w-full flex items-center justify-between px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-300 !min-h-0 !py-1 !px-2"
+                            >
+                                <span className="truncate">
+                                    WEITERE / ALTE ORDNER ({legacy.length})
+                                </span>
+                                {legacyOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                            </button>
+                            {legacyOpen ? (
+                                <div className="space-y-0.5 max-h-[20vh] overflow-y-auto custom-scrollbar">
+                                    {renderList(legacy)}
+                                </div>
+                            ) : null}
+                        </>
+                    ) : null}
+
+                    <button
+                        type="button"
+                        onClick={() => router.push("/")}
+                        className="w-full text-left px-3 py-1.5 text-[11px] text-[#93C5FD] hover:text-white !min-h-0"
+                    >
+                        Zum Dashboard
+                    </button>
+                </>
+            ) : (
+                <div className="space-y-0.5 max-h-[40vh] overflow-y-auto custom-scrollbar">
+                    {renderList([...modules, ...legacy])}
                 </div>
             )}
         </div>

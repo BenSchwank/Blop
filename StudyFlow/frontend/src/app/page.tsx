@@ -1,11 +1,18 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit, MoreVertical } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit, MoreVertical, Star, CheckSquare } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { hydrateNativeSession } from '@/lib/nativeSession';
 import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
+import {
+  fileCount,
+  isRootFolder,
+  loadPinnedFolderIds,
+  sortFoldersSmart,
+  togglePinnedFolder,
+} from '@/lib/folderSort';
 
 declare global {
   interface Window {
@@ -18,13 +25,17 @@ interface FolderData {
   name: string;
   files?: unknown[];
   file_count?: number;
+  parent_id?: string | null;
+  parentId?: string | null;
+  parent_folder_id?: string | null;
+  parentFolderId?: string | null;
 }
 
 function FolderCardMenu({ onRename, onDelete }: { onRename: (e: React.MouseEvent) => void, onDelete: (e: React.MouseEvent) => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div
-      className="absolute top-1.5 right-1.5 z-20"
+      className="relative z-20 shrink-0"
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
@@ -36,12 +47,12 @@ function FolderCardMenu({ onRename, onDelete }: { onRename: (e: React.MouseEvent
           e.stopPropagation();
           setOpen((value) => !value);
         }}
-        className="min-h-10 min-w-10 flex items-center justify-center text-gray-300 hover:text-white rounded-lg hover:bg-[#45484F]"
+        className="!h-8 !w-8 !min-h-0 !p-0 flex items-center justify-center text-[#9CA3AF] hover:text-[#F8FAFC] rounded-md hover:bg-white/[0.08]"
       >
-        <MoreVertical size={18} />
+        <MoreVertical size={16} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-44 bg-[#23252A] border border-[#45484F] rounded-[10px] shadow-2xl overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 w-44 bg-[#23252A] border border-[#45484F] rounded-[10px] shadow-2xl z-50 overflow-visible">
           <button
             type="button"
             onClick={(e) => {
@@ -72,15 +83,123 @@ function FolderCardMenu({ onRename, onDelete }: { onRename: (e: React.MouseEvent
   );
 }
 
-function DraggableFolder({ folder, onClick, onRename, onDelete }: { folder: FolderData, onClick: () => void, onRename: (e: React.MouseEvent) => void, onDelete: (e: React.MouseEvent) => void }) {
+function CompactFolderCard({
+  folder,
+  onClick,
+  onRename,
+  onDelete,
+  onTogglePin,
+  pinned,
+  cleanupMode,
+  cleanupChecked,
+  onCleanupToggle,
+  dragListeners,
+  dragAttributes,
+  setNodeRef,
+  isDragging,
+  isOver,
+}: {
+  folder: FolderData;
+  onClick: () => void;
+  onRename: (e: React.MouseEvent) => void;
+  onDelete: (e: React.MouseEvent) => void;
+  onTogglePin: (e: React.MouseEvent) => void;
+  pinned: boolean;
+  cleanupMode: boolean;
+  cleanupChecked: boolean;
+  onCleanupToggle: (e: React.MouseEvent) => void;
+  dragListeners?: Record<string, unknown>;
+  dragAttributes?: Record<string, unknown>;
+  setNodeRef?: (node: HTMLElement | null) => void;
+  isDragging?: boolean;
+  isOver?: boolean;
+}) {
+  const count = fileCount(folder);
+  return (
+    <motion.div
+      layout
+      ref={setNodeRef}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: isDragging ? 0.35 : 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.18 }}
+      {...(dragAttributes || {})}
+      {...(dragListeners || {})}
+      onClick={cleanupMode ? onCleanupToggle : onClick}
+      className={`group relative h-[84px] bg-[#353840] border rounded-[10px] px-3 transition-all cursor-pointer shadow-sm flex flex-row items-center gap-3 overflow-visible
+        ${isOver ? 'border-[#5B9DFF] bg-[#3A3D45] shadow-lg shadow-[#5B9DFF]/20' : 'border-[#45484F] hover:bg-[#3A3D45] hover:border-[#5B9DFF]/50'}
+        ${cleanupChecked ? 'ring-2 ring-[#2563EB]/60' : ''}
+      `}
+    >
+      {cleanupMode ? (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={cleanupChecked}
+          onClick={onCleanupToggle}
+          className={`shrink-0 flex !h-[18px] !w-[18px] !min-h-0 !p-0 items-center justify-center rounded-[5px] border-[1.5px] ${
+            cleanupChecked
+              ? 'border-[#2563EB] bg-[#2563EB] text-white'
+              : 'border-[#4B5563] bg-transparent'
+          }`}
+        >
+          {cleanupChecked ? <CheckSquare size={12} className="text-white" /> : null}
+        </button>
+      ) : null}
+      <div className="h-11 w-11 rounded-xl bg-[#23252A] group-hover:bg-[#5B9DFF]/10 flex items-center justify-center shrink-0">
+        <Folder size={22} className="text-gray-400 group-hover:text-[#5B9DFF]" fill="currentColor" fillOpacity={isOver ? 0.3 : 0.12} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <h3 className="text-sm font-semibold text-white truncate">{folder.name}</h3>
+        <p className="text-[11px] text-gray-500">{count} Dateien</p>
+      </div>
+      <div className="flex items-center gap-0.5 shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          title={pinned ? 'Loslösen' : 'Anpinnen'}
+          onClick={onTogglePin}
+          className={`!h-8 !w-8 !min-h-0 !p-0 flex items-center justify-center rounded-md ${
+            pinned ? 'text-amber-400' : 'text-[#9CA3AF] hover:text-amber-300'
+          } hover:bg-white/[0.08]`}
+        >
+          <Star size={15} fill={pinned ? 'currentColor' : 'none'} />
+        </button>
+        <FolderCardMenu onRename={onRename} onDelete={onDelete} />
+      </div>
+    </motion.div>
+  );
+}
+
+function DraggableFolder({
+  folder,
+  onClick,
+  onRename,
+  onDelete,
+  onTogglePin,
+  pinned,
+  cleanupMode,
+  cleanupChecked,
+  onCleanupToggle,
+}: {
+  folder: FolderData;
+  onClick: () => void;
+  onRename: (e: React.MouseEvent) => void;
+  onDelete: (e: React.MouseEvent) => void;
+  onTogglePin: (e: React.MouseEvent) => void;
+  pinned: boolean;
+  cleanupMode: boolean;
+  cleanupChecked: boolean;
+  onCleanupToggle: (e: React.MouseEvent) => void;
+}) {
   const { attributes, listeners, setNodeRef: setDraggableRef, isDragging } = useDraggable({
     id: `drag-${folder.id}`,
-    data: { type: 'folder', folder }
+    data: { type: 'folder', folder },
+    disabled: cleanupMode,
   });
 
   const { isOver, setNodeRef: setDroppableRef } = useDroppable({
     id: `drop-${folder.id}`,
-    data: { type: 'folder', folder }
+    data: { type: 'folder', folder },
   });
 
   const setNodeRef = (node: HTMLElement | null) => {
@@ -89,31 +208,22 @@ function DraggableFolder({ folder, onClick, onRename, onDelete }: { folder: Fold
   };
 
   return (
-    <motion.div
-      layout
-      ref={setNodeRef}
-      initial={{ opacity: 0, scale: 0.9, y: 10 }}
-      animate={{ opacity: isDragging ? 0.3 : 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.9, y: 10 }}
-      transition={{ duration: 0.2, type: "spring", bounce: 0.3 }}
-      {...attributes}
-      {...listeners}
+    <CompactFolderCard
+      folder={folder}
       onClick={onClick}
-      className={`group relative bg-[#353840] border rounded-[10px] p-5 transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center gap-3 min-h-[150px] text-center
-        ${isOver ? 'border-[#5B9DFF] bg-[#3A3D45] shadow-lg shadow-[#5B9DFF]/20 scale-105' : 'border-[#45484F] hover:bg-[#3A3D45] hover:border-[#5B9DFF]/50 hover:shadow-lg hover:shadow-[#5B9DFF]/10'}
-      `}
-    >
-      <FolderCardMenu onRename={onRename} onDelete={onDelete} />
-
-      <div className="p-3.5 bg-[#23252A] group-hover:bg-[#5B9DFF]/10 rounded-full transition-colors duration-300">
-        <Folder size={40} className="text-gray-400 group-hover:text-[#5B9DFF] transition-colors" fill="currentColor" fillOpacity={isOver ? 0.3 : 0.1} />
-      </div>
-
-      <div className="w-full px-2">
-        <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{folder.name}</h3>
-        <p className="text-[11px] text-gray-500">{folder.file_count ?? folder.files?.length ?? 0} Dateien</p>
-      </div>
-    </motion.div>
+      onRename={onRename}
+      onDelete={onDelete}
+      onTogglePin={onTogglePin}
+      pinned={pinned}
+      cleanupMode={cleanupMode}
+      cleanupChecked={cleanupChecked}
+      onCleanupToggle={onCleanupToggle}
+      dragListeners={cleanupMode ? undefined : (listeners as unknown as Record<string, unknown>)}
+      dragAttributes={cleanupMode ? undefined : (attributes as unknown as Record<string, unknown>)}
+      setNodeRef={setNodeRef}
+      isDragging={isDragging}
+      isOver={isOver}
+    />
   );
 }
 
@@ -141,6 +251,13 @@ export default function Dashboard() {
 
   // Drag & Drop State
   const [activeDragFolder, setActiveDragFolder] = useState<FolderData | null>(null);
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => new Set());
+  const [cleanupMode, setCleanupMode] = useState(false);
+  const [cleanupSelected, setCleanupSelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setPinnedIds(loadPinnedFolderIds());
+  }, []);
 
   useEffect(() => {
     // In Android WebViews, dnd-kit TouchSensor can occasionally "stick" after the first touch
@@ -175,7 +292,8 @@ export default function Dashboard() {
       );
       if (res.ok) {
         const data = await res.json();
-        setFolders(data);
+        const list = Array.isArray(data) ? data : [];
+        setFolders(list.filter((f: FolderData) => isRootFolder(f)));
         setError("");
       } else if (res.status === 401) {
         // Confirmed after retry — only then treat as expired session.
@@ -311,9 +429,34 @@ export default function Dashboard() {
     router.push(`/folder/${folderId}`);
   };
 
-  const filteredFolders = folders.filter(f =>
-    f.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredFolders = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    const searched = folders.filter((f) => f.name.toLowerCase().includes(q));
+    return sortFoldersSmart(searched, pinnedIds);
+  }, [folders, searchQuery, pinnedIds]);
+
+  const handleTogglePin = (folderId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPinnedIds(togglePinnedFolder(folderId));
+    window.dispatchEvent(new Event("blop_folders_changed"));
+  };
+
+  const handleBulkCleanupDelete = async () => {
+    if (cleanupSelected.size === 0) return;
+    if (
+      !confirm(
+        `${cleanupSelected.size} Ordner wirklich löschen? Alle Inhalte gehen verloren.`,
+      )
+    ) {
+      return;
+    }
+    for (const id of [...cleanupSelected]) {
+      const fakeEvent = { stopPropagation() {} } as React.MouseEvent;
+      await handleDeleteFolder(id, fakeEvent);
+    }
+    setCleanupSelected(new Set());
+    setCleanupMode(false);
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
@@ -341,7 +484,7 @@ export default function Dashboard() {
       const res = await fetch(`${API_BASE}/folders/${sourceFolder.id}/move?session_id=${encodeURIComponent(sid)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "X-Session-Id": sid },
-        body: JSON.stringify({ parent_id: targetFolder.id, username }),
+        body: JSON.stringify({ new_parent_id: targetFolder.id, username }),
       });
 
       if (res.ok) {
@@ -414,7 +557,21 @@ export default function Dashboard() {
           </div>
 
           {/* Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3 xl:justify-end h-full">
+          <div className="flex flex-col sm:flex-row gap-3 xl:justify-end h-full flex-wrap">
+            <button
+              onClick={() => {
+                setCleanupMode((v) => !v);
+                setCleanupSelected(new Set());
+              }}
+              className={`h-10 sm:h-full flex items-center justify-center gap-2 px-4 sm:px-5 rounded-[10px] text-[13px] sm:text-sm font-semibold transition-all border ${
+                cleanupMode
+                  ? 'bg-[#2563EB]/20 border-[#2563EB] text-[#93C5FD]'
+                  : 'bg-[#353840] border-white/10 text-[#F4F5F7] hover:bg-[#3A3D45]'
+              }`}
+            >
+              <CheckSquare size={16} />
+              <span>Ordner aufräumen</span>
+            </button>
             <button
               onClick={() => setIsSummaryOpen(true)}
               className="h-10 sm:h-full flex items-center justify-center gap-2 bg-[#5B9DFF] hover:bg-[#7EB2FF] text-white px-4 sm:px-5 rounded-[10px] text-[13px] sm:text-sm font-semibold transition-all min-w-[120px] sm:min-w-[140px]"
@@ -433,10 +590,36 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {cleanupMode ? (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#2563EB]/30 bg-[#2563EB]/10 px-4 py-3">
+            <span className="text-sm text-[#93C5FD]">
+              {cleanupSelected.size} Ordner ausgewählt
+            </span>
+            <button
+              type="button"
+              disabled={cleanupSelected.size === 0}
+              onClick={() => void handleBulkCleanupDelete()}
+              className="inline-flex items-center gap-2 h-9 px-3 rounded-lg text-sm font-medium bg-red-500/20 text-[#F87171] hover:bg-red-500/30 disabled:opacity-40"
+            >
+              <Trash2 size={14} /> Ausgewählte löschen
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCleanupMode(false);
+                setCleanupSelected(new Set());
+              }}
+              className="text-sm text-gray-400 hover:text-white"
+            >
+              Abbrechen
+            </button>
+          </div>
+        ) : null}
+
         {/* Folders Section */}
         <div>
           <h2 className="text-xs font-bold text-gray-500 mb-4 uppercase tracking-wider pl-1">
-            Meine Ordner
+            Meine Module &amp; Ordner
           </h2>
 
           {loading ? (
@@ -485,7 +668,7 @@ export default function Dashboard() {
                 onDragEnd={handleDragEnd}
                 collisionDetection={closestCenter}
               >
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 lg:gap-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
                   <AnimatePresence mode='popLayout'>
                     {filteredFolders.map((folder) => (
                       <DraggableFolder
@@ -499,6 +682,19 @@ export default function Dashboard() {
                           setIsRenameOpen(true);
                         }}
                         onDelete={(e) => handleDeleteFolder(folder.id, e)}
+                        onTogglePin={(e) => handleTogglePin(folder.id, e)}
+                        pinned={pinnedIds.has(folder.id)}
+                        cleanupMode={cleanupMode}
+                        cleanupChecked={cleanupSelected.has(folder.id)}
+                        onCleanupToggle={(e) => {
+                          e.stopPropagation();
+                          setCleanupSelected((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(folder.id)) next.delete(folder.id);
+                            else next.add(folder.id);
+                            return next;
+                          });
+                        }}
                       />
                     ))}
                   </AnimatePresence>
@@ -506,49 +702,47 @@ export default function Dashboard() {
 
                 <DragOverlay dropAnimation={{ duration: 250, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
                   {activeDragFolder ? (
-                    <div className="bg-[#3A3D45] border border-[#5B9DFF] rounded-[10px] p-5 shadow-2xl flex flex-col items-center justify-center gap-3 min-h-[150px] text-center opacity-90 scale-105">
-                      <div className="p-3.5 bg-[#23252A] rounded-full">
-                        <Folder size={40} className="text-[#5B9DFF]" fill="currentColor" fillOpacity={0.2} />
+                    <div className="h-[84px] bg-[#3A3D45] border border-[#5B9DFF] rounded-[10px] px-3 shadow-2xl flex flex-row items-center gap-3 opacity-95">
+                      <div className="h-11 w-11 rounded-xl bg-[#23252A] flex items-center justify-center">
+                        <Folder size={22} className="text-[#5B9DFF]" fill="currentColor" fillOpacity={0.2} />
                       </div>
-                      <div className="w-full px-2">
-                        <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{activeDragFolder.name}</h3>
-                        <p className="text-[11px] text-gray-500">{activeDragFolder.file_count ?? activeDragFolder.files?.length ?? 0} Dateien</p>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-white truncate">{activeDragFolder.name}</h3>
+                        <p className="text-[11px] text-gray-500">{fileCount(activeDragFolder)} Dateien</p>
                       </div>
                     </div>
                   ) : null}
                 </DragOverlay>
               </DndContext>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 lg:gap-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
                 <AnimatePresence mode='popLayout'>
                   {filteredFolders.map((folder) => (
-                    <motion.div
+                    <CompactFolderCard
                       key={folder.id}
-                      layout
-                      initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                      transition={{ duration: 0.2, type: "spring", bounce: 0.3 }}
+                      folder={folder}
                       onClick={() => router.push(`/folder/${folder.id}`)}
-                      className="group relative bg-[#353840] border rounded-[10px] p-5 transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center gap-3 min-h-[150px] text-center border-[#45484F] hover:bg-[#3A3D45] hover:border-[#5B9DFF]/50 hover:shadow-lg hover:shadow-[#5B9DFF]/10"
-                    >
-                      <FolderCardMenu
-                        onRename={(e) => {
-                          e.stopPropagation();
-                          setFolderToRename(folder);
-                          setRenameValue(folder.name);
-                          setIsRenameOpen(true);
-                        }}
-                        onDelete={(e) => handleDeleteFolder(folder.id, e)}
-                      />
-                      <div className="p-3.5 bg-[#23252A] group-hover:bg-[#5B9DFF]/10 rounded-full transition-colors duration-300">
-                        <Folder size={40} className="text-gray-400 group-hover:text-[#5B9DFF] transition-colors" fill="currentColor" fillOpacity={0.1} />
-                      </div>
-                      <div className="w-full px-2">
-                        <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{folder.name}</h3>
-                        <p className="text-[11px] text-gray-500">{folder.file_count ?? folder.files?.length ?? 0} Dateien</p>
-                      </div>
-                    </motion.div>
+                      onRename={(e) => {
+                        e.stopPropagation();
+                        setFolderToRename(folder);
+                        setRenameValue(folder.name);
+                        setIsRenameOpen(true);
+                      }}
+                      onDelete={(e) => handleDeleteFolder(folder.id, e)}
+                      onTogglePin={(e) => handleTogglePin(folder.id, e)}
+                      pinned={pinnedIds.has(folder.id)}
+                      cleanupMode={cleanupMode}
+                      cleanupChecked={cleanupSelected.has(folder.id)}
+                      onCleanupToggle={(e) => {
+                        e.stopPropagation();
+                        setCleanupSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(folder.id)) next.delete(folder.id);
+                          else next.add(folder.id);
+                          return next;
+                        });
+                      }}
+                    />
                   ))}
                 </AnimatePresence>
               </div>

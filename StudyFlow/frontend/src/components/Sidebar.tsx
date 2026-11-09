@@ -72,7 +72,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
 
     return (
         <aside
-            className="h-screen bg-[#1A1916] border-r border-white/10 flex flex-col sticky top-0 shrink-0 transition-all duration-300 overflow-hidden"
+            className="h-screen bg-[#1A1916] border-r border-white/10 flex flex-col sticky top-0 shrink-0 transition-all duration-300 overflow-x-visible overflow-y-hidden ml-0 pl-0"
             style={{ width: isCollapsed ? '64px' : '220px' }}
         >
             {/* Header */}
@@ -98,7 +98,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 p-2 space-y-1 overflow-y-auto overflow-x-hidden">
+            <nav className="flex-1 p-2 pl-3 space-y-1 overflow-y-auto overflow-x-hidden min-w-0">
                 {navItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = pathname === item.href;
@@ -108,7 +108,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                             href={item.href}
                             title={isCollapsed ? item.label : undefined}
                             className={`
-                                flex items-center gap-3 py-2.5 rounded-[10px] text-[14px] transition-all relative overflow-hidden group
+                                flex items-center gap-3 py-2.5 rounded-[10px] text-[14px] transition-all relative min-w-0 group
                                 ${isCollapsed ? 'justify-center px-0' : 'px-3'}
                                 ${isActive
                                     ? 'bg-[#5B9DFF]/18 text-white font-medium'
@@ -121,7 +121,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                                 strokeWidth={isActive ? 2.5 : 2}
                                 className={`${isActive ? 'text-[#5B9DFF]' : 'text-[#B8BEC9]'} relative z-10 shrink-0`}
                             />
-                            {!isCollapsed && <span className="relative z-10 whitespace-nowrap">{item.label}</span>}
+                            {!isCollapsed && <span className="relative z-10 min-w-0 truncate">{item.label}</span>}
                         </Link>
                     );
                 })}
@@ -132,7 +132,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                     href="/pricing"
                     title={isCollapsed ? 'Abos' : undefined}
                     className={`
-                        flex items-center gap-3 py-2.5 rounded-[10px] text-[14px] transition-all relative overflow-hidden group
+                        flex items-center gap-3 py-2.5 rounded-[10px] text-[14px] transition-all relative min-w-0 group
                         ${isCollapsed ? 'justify-center px-0' : 'px-3'}
                         ${pathname === '/pricing'
                             ? 'bg-[#5B9DFF]/18 text-white font-medium'
@@ -145,7 +145,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                         strokeWidth={pathname === '/pricing' ? 2.5 : 2}
                         className={`${pathname === '/pricing' ? 'text-[#5B9DFF]' : 'text-[#B8BEC9]'} relative z-10 shrink-0`}
                     />
-                    {!isCollapsed && <span className="relative z-10 whitespace-nowrap">Abos</span>}
+                    {!isCollapsed && <span className="relative z-10 min-w-0 truncate">Abos</span>}
                 </Link>
 
                 {/* Admin Panel */}
@@ -155,7 +155,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                             href="/admin"
                             title={isCollapsed ? 'Admin Panel' : undefined}
                             className={`
-                                flex items-center gap-3 py-2.5 rounded-[10px] text-[14px] transition-all relative overflow-hidden group
+                                flex items-center gap-3 py-2.5 rounded-[10px] text-[14px] transition-all relative min-w-0 group
                                 ${isCollapsed ? 'justify-center px-0' : 'px-3'}
                                 ${pathname === '/admin'
                                     ? 'bg-red-500/15 text-white font-medium'
@@ -174,7 +174,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                             href="/admin/subscriptions"
                             title={isCollapsed ? 'Admin-Abos' : undefined}
                             className={`
-                                flex items-center gap-3 py-2 rounded-[10px] text-[14px] transition-all relative overflow-hidden group
+                                flex items-center gap-3 py-2 rounded-[10px] text-[14px] transition-all relative min-w-0 group
                                 ${isCollapsed ? 'justify-center px-0' : 'pl-9 pr-3'}
                                 ${pathname === '/admin/subscriptions'
                                     ? 'bg-[#5B9DFF]/18 text-white font-medium'

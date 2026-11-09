@@ -44,6 +44,8 @@ type Props = {
     onBulkMove: (targetFolderId: string) => void;
     onMoveFile: (fileId: string, targetFolderId: string) => void;
     onCreateSubfolder: () => void;
+    onRefine?: (file: FolderFile) => void;
+    onDownload?: (file: FolderFile) => void;
     emptyHint?: string;
 };
 
@@ -80,6 +82,8 @@ export default function FolderFileManager({
     onBulkMove,
     onMoveFile,
     onCreateSubfolder,
+    onRefine,
+    onDownload,
     emptyHint,
 }: Props) {
     const [query, setQuery] = useState("");
@@ -230,7 +234,7 @@ export default function FolderFileManager({
                 </button>
             </div>
 
-            <div className="rounded-xl border border-[#45484F] bg-[#1A1916] overflow-hidden">
+            <div className="rounded-xl border border-[#45484F] bg-[#1A1916] overflow-visible">
                 {filtered.length === 0 ? (
                     <p className="px-4 py-10 text-center text-sm text-gray-500">
                         {emptyHint || "Keine Dateien in dieser Ansicht."}
@@ -260,7 +264,7 @@ export default function FolderFileManager({
                                                 type="button"
                                                 role="checkbox"
                                                 aria-checked={allAi}
-                                                className={`shrink-0 flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border-[1.5px] ${
+                                                className={`shrink-0 flex !h-[18px] !w-[18px] !min-h-0 !p-0 items-center justify-center rounded-[5px] border-[1.5px] ${
                                                     allAi
                                                         ? "border-[#2563EB] bg-[#2563EB] text-white"
                                                         : someAi
@@ -280,7 +284,7 @@ export default function FolderFileManager({
                                                 }}
                                                 title="KI-Quellen dieser Gruppe"
                                             >
-                                                <Check size={12} strokeWidth={3} />
+                                                {allAi || someAi ? <Check size={12} strokeWidth={3} className="text-white" /> : null}
                                             </button>
                                         ) : null}
                                         <span className="text-[12px] font-medium text-gray-300">
@@ -311,6 +315,8 @@ export default function FolderFileManager({
                                               canRename={file.type !== "pdf"}
                                               youtubeId={youtubeIdFor(file)}
                                               onOpenYoutube={onOpenYoutube}
+                                              onRefine={onRefine}
+                                              onDownload={onDownload}
                                           />
                                       ))
                                     : null}

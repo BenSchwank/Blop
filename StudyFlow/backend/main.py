@@ -336,6 +336,87 @@ def _elaboration_job_worker(
         _elaboration_job_fail(job_id, sanitize_ai_provider_detail(e, username=username))
 
 
+def _elaboration_continue_job_worker(
+    job_id: str,
+    username: str,
+    folder_id: str,
+    file_id: str,
+    model_preference: Optional[str],
+) -> None:
+    from ai_service import AIService
+
+    try:
+        _configure_genai()
+        model_pref = resolve_model_preference(username, model_preference)
+        target = DataManager.get_file(username, file_id)
+        if not target:
+            _elaboration_job_fail(job_id, "Datei für Fortsetzung nicht gefunden.")
+            return
+        if (target.get("type") or "").lower() != "elaboration":
+            _elaboration_job_fail(job_id, "Nur Ausarbeitungen können fortgesetzt werden.")
+            return
+        existing = target.get("content") or ""
+        if isinstance(existing, (dict, list)):
+            existing = json.dumps(existing, ensure_ascii=False)
+        existing = str(existing).strip()
+        if not existing:
+            _elaboration_job_fail(job_id, "Die Ausarbeitung hat keinen Inhalt zum Fortsetzen.")
+            return
+        context, debug_log = _get_folder_context(username, folder_id)
+        if not context:
+            context = []
+            print(f"Elaboration continue: no folder context ({'; '.join(debug_log)})")
+        continued = AIService.continue_elaboration(
+            existing_content=existing,
+            folder_material=context,
+            model_preference=model_pref,
+            return_meta=True,
+        )
+        full_text = continued["text"]
+        if not DataManager.update_file_content(username, folder_id, file_id, full_text):
+            _elaboration_job_fail(job_id, "Fortgesetzte Ausarbeitung konnte nicht gespeichert werden.")
+            return
+        try_notify_document_ready(username, folder_id, "Ausarbeitung")
+        charge = deduct_tokens_by_usage(
+            username,
+            "elaboration",
+            continued.get("used_model", model_pref or ""),
+            continued.get("usage"),
+        )
+        with _ELABORATION_JOBS_LOCK:
+            if job_id in _ELABORATION_JOBS:
+                _ELABORATION_JOBS[job_id].update(
+                    {
+                        "status": "done",
+                        "finished_at": time.time(),
+                        "elaboration": full_text,
+                        "file_id": file_id,
+                        "used_model": continued.get("used_model", model_pref or ""),
+                        "usage": continued.get("usage", {}),
+                        **charge,
+                    }
+                )
+        DataManager.save_background_job(
+            job_id,
+            "elaboration",
+            username,
+            "done",
+            result={
+                "elaboration": full_text,
+                "file_id": file_id,
+                "used_model": continued.get("used_model", model_pref or ""),
+                "usage": continued.get("usage", {}),
+                **charge,
+            },
+        )
+    except HTTPException as e:
+        detail = ai_detail_to_string(e.detail, username=username)
+        _elaboration_job_fail(job_id, detail)
+    except Exception as e:
+        print(f"Elaboration continue job error: {e}")
+        _elaboration_job_fail(job_id, sanitize_ai_provider_detail(e, username=username))
+
+
 def _podcast_job_worker(
     job_id: str,
     username: str,
@@ -2894,6 +2975,12 @@ class ElaborationRequest(BaseModel):
     focus: str = ""
     model_preference: str = None
 
+class ElaborationContinueRequest(BaseModel):
+    username: str
+    folder_id: str
+    file_id: str
+    model_preference: str = None
+
 class ElaborationRefineRequest(BaseModel):
     username: str
     folder_id: str
@@ -3746,6 +3833,44 @@ def create_elaboration(request: ElaborationRequest):
             request.folder_id,
             request.detail_level,
             combined_rules,
+            request.model_preference,
+        ),
+        daemon=True,
+    )
+    thread.start()
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "job_id": job_id,
+        },
+    )
+
+
+@app.post("/api/ai/elaboration/continue")
+def continue_elaboration(request: ElaborationContinueRequest):
+    """Append onto an existing incomplete elaboration (same file_id)."""
+    try:
+        SubscriptionManager.ensure_feature(request.username, "elaboration")
+        ensure_minimum_tokens(request.username, 2)
+    except HTTPException:
+        raise
+    job_id = str(uuid.uuid4())
+    with _ELABORATION_JOBS_LOCK:
+        _elaboration_prune_jobs_locked()
+        _ELABORATION_JOBS[job_id] = {
+            "status": "pending",
+            "username": request.username,
+            "created_at": time.time(),
+        }
+    DataManager.save_background_job(job_id, "elaboration", request.username, "pending")
+    thread = threading.Thread(
+        target=_elaboration_continue_job_worker,
+        args=(
+            job_id,
+            request.username,
+            request.folder_id,
+            request.file_id,
             request.model_preference,
         ),
         daemon=True,
