@@ -4,6 +4,7 @@
 #include "notechrome.h"
 #include "uiscale.h"
 
+#include <QAbstractButton>
 #include <QButtonGroup>
 #include <QGraphicsDropShadowEffect>
 #include <QGridLayout>
@@ -179,29 +180,6 @@ void paintPreview(QPainter *p, ShapeToolKind kind, const QRectF &r) {
   }
 }
 
-QString tabButtonStyle() {
-  return QStringLiteral(
-      "QPushButton {"
-      "  background: transparent;"
-      "  border: none;"
-      "  border-bottom: 2px solid transparent;"
-      "  border-radius: 0;"
-      "  color: #94A3B8;"
-      "  padding: 6px 10px;"
-      "  font-size: 11px;"
-      "  font-weight: 600;"
-      "}"
-      "QPushButton:checked {"
-      "  background: transparent;"
-      "  border: none;"
-      "  border-bottom: 2px solid #3B82F6;"
-      "  color: #F8FAFC;"
-      "}"
-      "QPushButton:hover {"
-      "  color: #E2E8F0;"
-      "}");
-}
-
 } // namespace
 
 ShapesCatalogPopover::ShapesCatalogPopover(QWidget *parent) : QWidget(parent) {
@@ -228,20 +206,20 @@ ShapesCatalogPopover::ShapesCatalogPopover(QWidget *parent) : QWidget(parent) {
   m_tabGroup = new QButtonGroup(this);
   m_tabGroup->setExclusive(true);
 
-  auto makeTab = [&](const QString &title) {
+  auto makeTab = [&](const QString &title, int id) {
     auto *b = new QPushButton(title, this);
+    b->setObjectName(QStringLiteral("ShapesCatTab"));
     b->setCheckable(true);
     b->setCursor(Qt::PointingHandCursor);
     b->setFocusPolicy(Qt::NoFocus);
     b->setFlat(true);
-    b->setStyleSheet(tabButtonStyle());
-    m_tabGroup->addButton(b);
+    m_tabGroup->addButton(b, id);
     m_tabLay->addWidget(b);
     return b;
   };
-  m_tabFormen = makeTab(QStringLiteral("Formen"));
-  m_tabKoordinaten = makeTab(QStringLiteral("Koordinaten"));
-  m_tabET = makeTab(QStringLiteral("ET-Symbole"));
+  m_tabFormen = makeTab(QStringLiteral("Formen"), 0);
+  m_tabKoordinaten = makeTab(QStringLiteral("Koordinaten"), 1);
+  m_tabET = makeTab(QStringLiteral("ET-Symbole"), 2);
   m_tabLay->addStretch(1);
   root->addLayout(m_tabLay);
 
@@ -249,10 +227,8 @@ ShapesCatalogPopover::ShapesCatalogPopover(QWidget *parent) : QWidget(parent) {
   m_stack->setObjectName(QStringLiteral("ShapesCatalogStack"));
   root->addWidget(m_stack, 1);
 
-  connect(m_tabFormen, &QPushButton::clicked, this, [this]() { selectTab(0); });
-  connect(m_tabKoordinaten, &QPushButton::clicked, this,
-          [this]() { selectTab(1); });
-  connect(m_tabET, &QPushButton::clicked, this, [this]() { selectTab(2); });
+  connect(m_tabGroup, &QButtonGroup::idClicked, this,
+          &ShapesCatalogPopover::selectTab);
 }
 
 QIcon ShapesCatalogPopover::shapePreviewIcon(int kind, int px) {
@@ -268,13 +244,32 @@ void ShapesCatalogPopover::selectTab(int index) {
   if (!m_stack)
     return;
   const int clamped = qBound(0, index, qMax(0, m_stack->count() - 1));
+  for (int i = 0; i < m_stack->count(); ++i) {
+    if (QWidget *w = m_stack->widget(i))
+      w->setVisible(i == clamped);
+  }
   m_stack->setCurrentIndex(clamped);
-  if (m_tabFormen)
-    m_tabFormen->setChecked(clamped == 0);
-  if (m_tabKoordinaten)
-    m_tabKoordinaten->setChecked(clamped == 1);
-  if (m_tabET)
-    m_tabET->setChecked(clamped == 2);
+  if (m_tabGroup) {
+    const auto buttons = m_tabGroup->buttons();
+    for (QAbstractButton *b : buttons) {
+      if (!b)
+        continue;
+      const bool on = (m_tabGroup->id(b) == clamped);
+      if (b->isChecked() != on)
+        b->setChecked(on);
+    }
+  }
+  if (isVisible()) {
+    adjustSize();
+    reclampToHost();
+  }
+}
+
+void ShapesCatalogPopover::reclampToHost() {
+  NoteChrome::clampPopupToHost(this, m_anchorGlobal + QPoint(0, 8),
+                               m_clampHost ? m_clampHost
+                                           : (parentWidget() ? parentWidget()
+                                                             : window()));
 }
 
 QGridLayout *ShapesCatalogPopover::addPage(QPushButton *tab,
@@ -282,6 +277,8 @@ QGridLayout *ShapesCatalogPopover::addPage(QPushButton *tab,
   Q_UNUSED(title);
   auto *page = new QWidget; // no parent until addWidget
   page->setObjectName(QStringLiteral("ShapesCatalogPage"));
+  page->setAttribute(Qt::WA_StyledBackground, true);
+  page->setAutoFillBackground(true);
   auto *grid = new QGridLayout(page);
   grid->setContentsMargins(0, UiScale::dp(4), 0, 0);
   grid->setHorizontalSpacing(UiScale::dp(8));
@@ -391,10 +388,11 @@ void ShapesCatalogPopover::addShapeButton(QWidget *page, QGridLayout *grid,
 }
 
 void ShapesCatalogPopover::present(const QPoint &globalAnchor, bool mintTools) {
+  m_anchorGlobal = globalAnchor;
+  m_clampHost = parentWidget() ? parentWidget() : window();
   rebuild(mintTools);
   adjustSize();
-  NoteChrome::clampPopupToHost(this, globalAnchor + QPoint(0, 8),
-                               parentWidget() ? parentWidget() : window());
+  reclampToHost();
   show();
   raise();
 }

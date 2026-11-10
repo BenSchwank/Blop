@@ -26,6 +26,7 @@ private:
   void addShapeButton(QWidget *page, QGridLayout *grid, const QString &label,
                       int kind);
   void selectTab(int index);
+  void reclampToHost();
   static QIcon shapePreviewIcon(int kind, int px);
 
   QHBoxLayout *m_tabLay{nullptr};
@@ -34,4 +35,6 @@ private:
   QPushButton *m_tabKoordinaten{nullptr};
   QPushButton *m_tabET{nullptr};
   QStackedWidget *m_stack{nullptr};
+  QPoint m_anchorGlobal;
+  QWidget *m_clampHost{nullptr};
 };

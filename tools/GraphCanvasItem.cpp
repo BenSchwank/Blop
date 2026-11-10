@@ -35,7 +35,9 @@ QString formatAxisTick(double v) {
     const double av = std::abs(v);
     if (!std::isfinite(v))
         return QString();
-    if (av >= 10000.0 || (av > 0.0 && av < 1e-4))
+    if (av < 1e-12)
+        return QStringLiteral("0");
+    if (av >= 10000.0 || av < 1e-4)
         return QString::number(v, 'g', 4);
     if (av < 0.01)
         return QString::number(v, 'f', 4);
@@ -275,6 +277,9 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
                 if (px < pr.left() || px > pr.right())
                     continue;
                 p->drawLine(QPointF(px, pr.bottom()), QPointF(px, pr.bottom() + kTick));
+                // Skip axis-origin zero — drawn once near (x0,y0) below.
+                if (std::abs(xv) <= xStep * 1e-9)
+                    continue;
                 const QString txt = formatAxisTick(xv);
                 const qreal tw = fm.horizontalAdvance(txt);
                 qreal tx = px - tw * 0.5;
@@ -293,6 +298,9 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
                 if (py < pr.top() || py > pr.bottom())
                     continue;
                 p->drawLine(QPointF(pr.left() - kTick, py), QPointF(pr.left(), py));
+                // Skip Y zero so it does not stack on the X-axis zero label.
+                if (std::abs(yv) <= yStep * 1e-9)
+                    continue;
                 const QString txt = formatAxisTick(yv);
                 const qreal tw = fm.horizontalAdvance(txt);
                 qreal tx = pr.left() - kTick - tw - 3.0;
@@ -300,6 +308,18 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
                 const qreal th = fm.height();
                 p->drawText(QRectF(tx, py - th * 0.5, tw, th), Qt::AlignRight | Qt::AlignVCenter, txt);
             }
+        }
+        // Single origin label, offset left/down from the axis cross.
+        if (x0 >= pr.left() - 2.0 && x0 <= pr.right() + 2.0 &&
+            y0 >= pr.top() - 2.0 && y0 <= pr.bottom() + 2.0) {
+            const QString origin = QStringLiteral("0");
+            const qreal tw = fm.horizontalAdvance(origin);
+            const qreal ox = qBound(m_rect.left() + 2.0, x0 - tw - 4.0,
+                                  m_rect.right() - tw - 2.0);
+            const qreal oy = qBound(m_rect.top() + fm.ascent() + 2.0,
+                                  y0 + fm.ascent() + 4.0,
+                                  m_rect.bottom() - 2.0);
+            p->drawText(QPointF(ox, oy), origin);
         }
         p->setPen(QPen(QColor(12, 12, 12), 1));
         p->drawText(QPointF(pr.right() - 12, qBound(pr.top() + 12.0, y0 - 5.0, pr.bottom() - 4.0)), QStringLiteral("x"));

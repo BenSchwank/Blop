@@ -646,10 +646,10 @@ void NoteFloatToolbar::rebuildTiles() {
   const int maxDockW = qMax(UiScale::dp(320), surfaceW - hudReserve);
 
   // Shrink horizontal spacing when the dock would clip the surface.
-  qreal gap = UiScale::dp(4);
+  qreal gap = UiScale::dp(3);
   qreal swatchGap = UiScale::dp(8);
   qreal sep = UiScale::dp(12);
-  qreal padX = UiScale::dp(10);
+  qreal padX = UiScale::dp(6);
   const qreal padY = UiScale::dp(6);
   const bool mintOn = noteMintToolsVisible();
 
@@ -772,7 +772,8 @@ void NoteFloatToolbar::rebuildTiles() {
   if (width() != w || height() != h)
     setFixedSize(w, h);
   if (QWidget *p = parentWidget()) {
-    const int nx = qMax(0, (p->width() - w) / 2);
+    const int maxX = qMax(0, p->width() - w);
+    const int nx = qBound(0, (p->width() - w) / 2, maxX);
     if (QWidget::x() != nx)
       move(nx, QWidget::y());
   }
@@ -916,9 +917,11 @@ void NoteFloatToolbar::mousePressEvent(QMouseEvent *event) {
 }
 
 void NoteFloatToolbar::showEraserPopover(const QPoint &globalAnchor) {
-  auto *pop = new QFrame(window(), Qt::Popup | Qt::FramelessWindowHint);
+  QWidget *host = parentWidget() ? parentWidget() : window();
+  auto *pop = new QFrame(host, Qt::Popup | Qt::FramelessWindowHint);
   pop->setAttribute(Qt::WA_DeleteOnClose);
   pop->setObjectName(QStringLiteral("StudioEraserPopover"));
+  pop->setFixedWidth(UiScale::dp(280));
   pop->setStyleSheet(NoteChrome::studioPopoverStyle(
       QStringLiteral("StudioEraserPopover")));
   auto *shadow = new QGraphicsDropShadowEffect(pop);
@@ -932,6 +935,7 @@ void NoteFloatToolbar::showEraserPopover(const QPoint &globalAnchor) {
   auto *stroke = new QRadioButton(QStringLiteral("Strich-Radierer (Objekt)"), pop);
   auto *pixel = new QRadioButton(QStringLiteral("Pixel-Radierer"), pop);
   auto *grp = new QButtonGroup(pop);
+  grp->setExclusive(true);
   grp->addButton(stroke);
   grp->addButton(pixel);
   const ToolConfig cfg = ToolManager::instance().configFor(ToolMode::Eraser);
@@ -1024,13 +1028,13 @@ void NoteFloatToolbar::showEraserPopover(const QPoint &globalAnchor) {
   });
 
   pop->adjustSize();
-  NoteChrome::clampPopupToHost(pop, globalAnchor + QPoint(0, 6),
-                               parentWidget() ? parentWidget() : window());
+  NoteChrome::clampPopupToHost(pop, globalAnchor + QPoint(0, 6), host);
   pop->show();
 }
 
 void NoteFloatToolbar::showShapesPopover(const QPoint &globalAnchor) {
-  auto *pop = new ShapesCatalogPopover(window());
+  QWidget *host = parentWidget() ? parentWidget() : window();
+  auto *pop = new ShapesCatalogPopover(host);
   connect(pop, &ShapesCatalogPopover::shapeChosen, pop, [](int kind) {
     noteActivateTool(ToolMode::Shape, kind);
   });
@@ -1038,7 +1042,8 @@ void NoteFloatToolbar::showShapesPopover(const QPoint &globalAnchor) {
 }
 
 void NoteFloatToolbar::showMeasurePopover(const QPoint &globalAnchor) {
-  auto *pop = new QFrame(window(), Qt::Popup | Qt::FramelessWindowHint);
+  QWidget *host = parentWidget() ? parentWidget() : window();
+  auto *pop = new QFrame(host, Qt::Popup | Qt::FramelessWindowHint);
   pop->setAttribute(Qt::WA_DeleteOnClose);
   pop->setObjectName(QStringLiteral("StudioMeasurePopover"));
   pop->setStyleSheet(NoteChrome::studioPopoverStyle(
@@ -1175,8 +1180,7 @@ void NoteFloatToolbar::showMeasurePopover(const QPoint &globalAnchor) {
   lay->addLayout(presets);
   pop->setFixedWidth(UiScale::dp(280));
   pop->adjustSize();
-  NoteChrome::clampPopupToHost(pop, globalAnchor + QPoint(0, 6),
-                               parentWidget() ? parentWidget() : window());
+  NoteChrome::clampPopupToHost(pop, globalAnchor + QPoint(0, 6), host);
   pop->show();
 }
 
@@ -1556,8 +1560,12 @@ void NoteToolbarHost::relayout(int topInset) {
   const int W = m_surface->width();
   const int H = m_surface->height();
   const int m = UiScale::dp(12);
-  m_bar->move((W - m_bar->width()) / 2, topInset + m);
-  m_float->move((W - m_float->width()) / 2, topInset + m);
+  auto clampCenteredX = [W](int dockW) {
+    const int maxX = qMax(0, W - dockW);
+    return qBound(0, (W - dockW) / 2, maxX);
+  };
+  m_bar->move(clampCenteredX(m_bar->width()), topInset + m);
+  m_float->move(clampCenteredX(m_float->width()), topInset + m);
   m_radiant->move(W - m_radiant->width(), H - m_radiant->height());
   m_science->move(W - m_science->width() - m, topInset + m);
   m_chip->move(W - m_chip->width() - m, H - m_chip->height() - m);
