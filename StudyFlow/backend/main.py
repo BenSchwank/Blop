@@ -261,13 +261,16 @@ def _elaboration_job_worker(
     detail_level: str,
     custom_rules: str,
     model_preference: Optional[str],
+    included_file_ids: Optional[List[str]] = None,
 ) -> None:
     from ai_service import AIService
 
     try:
         _configure_genai()
         model_pref = resolve_model_preference(username, model_preference)
-        context, debug_log = _get_folder_context(username, folder_id)
+        context, debug_log = _get_folder_context(
+            username, folder_id, included_file_ids=included_file_ids
+        )
         if not context:
             _elaboration_job_fail(
                 job_id,
@@ -425,6 +428,7 @@ def _podcast_job_worker(
     tts_voice: Optional[str] = None,
     tts_voice_b: Optional[str] = None,
     focus: str = "",
+    included_file_ids: Optional[List[str]] = None,
 ) -> None:
     from ai_service import AIService
     from media_pipeline import synthesize_podcast_dialogue
@@ -433,7 +437,9 @@ def _podcast_job_worker(
     try:
         _configure_genai()
         model_pref = resolve_model_preference(username, model_preference)
-        context, debug_log = _get_folder_context(username, folder_id)
+        context, debug_log = _get_folder_context(
+            username, folder_id, included_file_ids=included_file_ids
+        )
         if not context:
             _podcast_job_fail(
                 job_id,
@@ -555,6 +561,7 @@ def _learning_video_job_worker(
     folder_id: str,
     model_preference: Optional[str],
     lv_opts: Optional[dict] = None,
+    included_file_ids: Optional[List[str]] = None,
 ) -> None:
     from ai_service import AIService
     from media_pipeline import (
@@ -571,7 +578,9 @@ def _learning_video_job_worker(
     try:
         _configure_genai()
         model_pref = resolve_model_preference(username, model_preference)
-        context, debug_log = _get_folder_context(username, folder_id)
+        context, debug_log = _get_folder_context(
+            username, folder_id, included_file_ids=included_file_ids
+        )
         if not context:
             _learning_video_job_fail(
                 job_id,
@@ -1823,12 +1832,23 @@ def put_folder_ai_context(http_request: Request, folder_id: str, body: FolderAiC
         if not DataManager.set_ai_context_file_ids(user, folder_id, []):
             raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
         return {"status": "success", "included_file_ids": []}
+    # Soft-validate: drop unknown/stale IDs instead of 400 (race after new AI files).
+    valid_str = {str(x) for x in valid_ids if x is not None}
+    kept: List[str] = []
+    dropped: List[str] = []
     for fid in body.included_file_ids:
-        if fid not in valid_ids:
-            raise HTTPException(status_code=400, detail=f"Unbekannte Datei-ID: {fid}")
-    if not DataManager.set_ai_context_file_ids(user, folder_id, body.included_file_ids):
+        s = str(fid).strip()
+        if not s:
+            continue
+        if s in valid_str:
+            kept.append(s)
+        else:
+            dropped.append(s)
+    if dropped:
+        print(f"put_folder_ai_context: dropping unknown ids {dropped}")
+    if not DataManager.set_ai_context_file_ids(user, folder_id, kept):
         raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
-    return {"status": "success", "included_file_ids": body.included_file_ids}
+    return {"status": "success", "included_file_ids": kept}
 
 
 @app.post("/api/folders")
@@ -2958,6 +2978,7 @@ class GenRequest(BaseModel):
     flashcards_count: Optional[int] = None
     flashcards_max_text: Optional[int] = None
     focus: str = ""
+    included_file_ids: Optional[List[str]] = None
 
 class SummaryRequest(BaseModel):
     username: str
@@ -2966,6 +2987,7 @@ class SummaryRequest(BaseModel):
     model_preference: str = None
     learning_mode: str = "normal"
     focus: str = ""
+    included_file_ids: Optional[List[str]] = None
 
 class ElaborationRequest(BaseModel):
     username: str
@@ -2974,6 +2996,7 @@ class ElaborationRequest(BaseModel):
     custom_rules: str = ""
     focus: str = ""
     model_preference: str = None
+    included_file_ids: Optional[List[str]] = None
 
 class ElaborationContinueRequest(BaseModel):
     username: str
@@ -2997,6 +3020,7 @@ class RepetitionRequest(BaseModel):
     focus: str = ""
     model_preference: str = None
     learning_mode: str = "normal"
+    included_file_ids: Optional[List[str]] = None
 
 class PlanRequest(BaseModel):
     username: str
@@ -3008,6 +3032,7 @@ class PlanRequest(BaseModel):
     learning_mode: str = "normal"
     focus: str = ""
     exam_date: str = ""
+    included_file_ids: Optional[List[str]] = None
 
 class SmartLearningRequest(BaseModel):
     username: str
@@ -3015,6 +3040,7 @@ class SmartLearningRequest(BaseModel):
     focus: str = ""
     exam_date: str = ""
     model_preference: str = None
+    included_file_ids: Optional[List[str]] = None
 
 class SmartLearningProgressRequest(BaseModel):
     username: str
@@ -3062,6 +3088,7 @@ class PodcastRequest(BaseModel):
     tts_voice: Optional[str] = None
     tts_voice_b: Optional[str] = None
     focus: str = ""
+    included_file_ids: Optional[List[str]] = None
 
 
 class LearningVideoRequest(BaseModel):
@@ -3077,6 +3104,7 @@ class LearningVideoRequest(BaseModel):
     slide_motion: Optional[bool] = None
     slide_crossfade: Optional[bool] = None
     focus: str = ""
+    included_file_ids: Optional[List[str]] = None
 
 
 class MathInkRecognizeRequest(BaseModel):
@@ -3203,7 +3231,11 @@ def create_study_plan(request: PlanRequest):
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
         
-        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        context, debug_log = _get_folder_context(
+            request.username,
+            request.folder_id,
+            included_file_ids=request.included_file_ids,
+        )
 
         if not context:
             error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
@@ -3255,7 +3287,11 @@ def create_smart_learning(request: SmartLearningRequest):
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
 
-        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        context, debug_log = _get_folder_context(
+            request.username,
+            request.folder_id,
+            included_file_ids=request.included_file_ids,
+        )
         if not context:
             error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
             print(error_msg)
@@ -3485,10 +3521,24 @@ def _truncate_for_learning_video_context(parts: List[Any]) -> List[Any]:
     return out if out else parts
 
 
+def _file_matches_ai_context(f: dict, context_set: set) -> bool:
+    """Tolerant match: compare against common id-ish fields (string-normalized)."""
+    if not context_set:
+        return False
+    for key in ("id", "file_id", "_id", "storage_id", "name"):
+        val = f.get(key)
+        if val is None:
+            continue
+        if str(val).strip() in context_set:
+            return True
+    return False
+
+
 def _get_folder_context(username: str, folder_id: str, included_file_ids: Optional[List[str]] = None):
     """
     Aggregates material from the folder.
-    If included_file_ids is None, loads saved folder filter from DB; empty/null filter uses all files.
+    If included_file_ids is passed, prefer it over DB. None = load DB filter.
+    null DB filter = default pdf/transcript; [] = explicitly none; non-empty = explicit IDs.
     Returns (content_parts, debug_log)
 
     Loads metadata first, applies AI-context filter, then fetches content only for
@@ -3514,6 +3564,7 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
     # Default (no saved selection): source materials only. Creations are included
     # only when the user explicitly checks them. [] = explicitly no sources.
     SOURCE_TYPES = ("pdf", "transcript")
+    all_non_archived = list(files)
     ids_filter = included_file_ids
     if ids_filter is None:
         ids_filter = DataManager.get_ai_context_file_ids(username, folder_id)
@@ -3522,9 +3573,21 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
             files = []
             debug_log.append("Explicit empty AI context — no source files")
         else:
-            idset = set(ids_filter)
-            files = [f for f in files if f.get("id") in idset]
-            debug_log.append(f"Filtered to {len(files)} files by ai_context_file_ids")
+            context_set = {str(x).strip() for x in ids_filter if x is not None and str(x).strip()}
+            matched = [f for f in files if _file_matches_ai_context(f, context_set)]
+            debug_log.append(f"Filtered to {len(matched)} files by ai_context_file_ids")
+            if not matched:
+                # Smart fallback: stale/mismatched IDs must not abort generation.
+                source_fallback = [f for f in all_non_archived if f.get("type") in SOURCE_TYPES]
+                if source_fallback:
+                    debug_log.append(
+                        f"AI context IDs matched 0 files — falling back to {len(source_fallback)} source materials"
+                    )
+                    files = source_fallback
+                else:
+                    files = []
+            else:
+                files = matched
     else:
         files = [f for f in files if f.get("type") in SOURCE_TYPES]
         debug_log.append("Using source materials only (pdf, transcript)")
@@ -3611,8 +3674,12 @@ def _get_chat_context(username: str, folder_id: str):
 
     ids_filter = DataManager.get_ai_context_file_ids(username, folder_id)
     if ids_filter:
-        idset = set(ids_filter)
-        files = [f for f in files if f.get("id") in idset]
+        context_set = {str(x).strip() for x in ids_filter if x is not None and str(x).strip()}
+        matched = [f for f in files if _file_matches_ai_context(f, context_set)]
+        if matched:
+            files = matched
+        else:
+            files = [f for f in files if f.get("type") in ("pdf", "transcript", "summary")]
     else:
         files = [f for f in files if f.get("type") in ("pdf", "transcript", "summary")]
 
@@ -3653,7 +3720,11 @@ def create_quiz(request: GenRequest):
         from ai_service import AIService
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
-        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        context, debug_log = _get_folder_context(
+            request.username,
+            request.folder_id,
+            included_file_ids=request.included_file_ids,
+        )
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         quiz_count = max(3, min(30, int(request.quiz_question_count or 10)))
@@ -3705,7 +3776,11 @@ def create_flashcards(request: GenRequest):
         from ai_service import AIService
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
-        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        context, debug_log = _get_folder_context(
+            request.username,
+            request.folder_id,
+            included_file_ids=request.included_file_ids,
+        )
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         cards_count = max(5, min(60, int(request.flashcards_count or 20)))
@@ -3775,7 +3850,11 @@ def create_summary(
         from ai_service import AIService
         _configure_genai()
         model_pref = resolve_model_preference(user, request.model_preference)
-        context, debug_log = _get_folder_context(user, request.folder_id)
+        context, debug_log = _get_folder_context(
+            user,
+            request.folder_id,
+            included_file_ids=request.included_file_ids,
+        )
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         summary_result = AIService.generate_summary(
@@ -3834,6 +3913,7 @@ def create_elaboration(request: ElaborationRequest):
             request.detail_level,
             combined_rules,
             request.model_preference,
+            request.included_file_ids,
         ),
         daemon=True,
     )
@@ -4099,7 +4179,11 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
         ensure_minimum_tokens(request.username, 2)
         _configure_genai()
         model_pref = resolve_model_preference(request.username, request.model_preference)
-        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        context, debug_log = _get_folder_context(
+            request.username,
+            request.folder_id,
+            included_file_ids=request.included_file_ids,
+        )
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         
@@ -4409,7 +4493,16 @@ def create_podcast(request: PodcastRequest):
     )
     thread = threading.Thread(
         target=_podcast_job_worker,
-        args=(job_id, request.username, request.folder_id, request.model_preference, request.tts_voice, request.tts_voice_b, request.focus or ""),
+        args=(
+            job_id,
+            request.username,
+            request.folder_id,
+            request.model_preference,
+            request.tts_voice,
+            request.tts_voice_b,
+            request.focus or "",
+            request.included_file_ids,
+        ),
         daemon=True,
     )
     thread.start()
@@ -4493,7 +4586,14 @@ def create_learning_video(request: LearningVideoRequest):
     )
     thread = threading.Thread(
         target=_learning_video_job_worker,
-        args=(job_id, request.username, request.folder_id, request.model_preference, lv_opts),
+        args=(
+            job_id,
+            request.username,
+            request.folder_id,
+            request.model_preference,
+            lv_opts,
+            request.included_file_ids,
+        ),
         daemon=True,
     )
     thread.start()

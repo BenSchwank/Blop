@@ -46,6 +46,8 @@ type Props = {
     onCreateSubfolder: () => void;
     onRefine?: (file: FolderFile) => void;
     onDownload?: (file: FolderFile) => void;
+    /** Hide bulk actions while a modal / viewer / chat overlay is open. */
+    suppressBulkActions?: boolean;
     emptyHint?: string;
 };
 
@@ -84,6 +86,7 @@ export default function FolderFileManager({
     onCreateSubfolder,
     onRefine,
     onDownload,
+    suppressBulkActions = false,
     emptyHint,
 }: Props) {
     const [query, setQuery] = useState("");
@@ -112,6 +115,23 @@ export default function FolderFileManager({
 
     const selectionCount = selectedIds.size;
 
+    /** One AI-context write for many IDs — avoids concurrent PUT last-write-wins. */
+    const applyAiSources = (ids: string[], mode: "replace" | "add" | "remove") => {
+        const eligible = new Set(files.filter(isAiContextEligible).map((f) => f.id));
+        const wanted = ids.filter((id) => eligible.has(id));
+        if (mode === "replace") {
+            onSetGroupAsAiSources(wanted);
+            return;
+        }
+        const current = new Set(activeIds);
+        if (mode === "add") {
+            for (const id of wanted) current.add(id);
+        } else {
+            for (const id of wanted) current.delete(id);
+        }
+        onSetGroupAsAiSources([...current]);
+    };
+
     const applyToggle = (id: string, checked: boolean, ev?: React.MouseEvent | React.ChangeEvent) => {
         const idx = flatVisible.findIndex((f) => f.id === id);
         const shift = !!(ev && "shiftKey" in ev && ev.shiftKey);
@@ -120,14 +140,11 @@ export default function FolderFileManager({
             const b = Math.max(lastIndexRef.current, idx);
             const range = flatVisible.slice(a, b + 1).map((f) => f.id);
             onSelectMany(range, checked);
-            for (const fid of range) {
-                const f = files.find((x) => x.id === fid);
-                if (f && isAiContextEligible(f)) onToggleAi(fid, checked);
-            }
+            applyAiSources(range, checked ? "add" : "remove");
         } else {
             onToggleSelect(id, checked);
             const f = files.find((x) => x.id === id);
-            if (f && isAiContextEligible(f)) onToggleAi(id, checked);
+            if (f && isAiContextEligible(f)) applyAiSources([id], checked ? "add" : "remove");
         }
         if (idx >= 0) lastIndexRef.current = idx;
     };
@@ -135,16 +152,17 @@ export default function FolderFileManager({
     const selectAllVisible = () => {
         const ids = flatVisible.map((f) => f.id);
         onSelectMany(ids, true);
-        for (const f of flatVisible) {
-            if (isAiContextEligible(f)) onToggleAi(f.id, true);
-        }
+        applyAiSources(
+            flatVisible.filter(isAiContextEligible).map((f) => f.id),
+            "replace",
+        );
     };
 
     const selectScripts = () => {
         const ids = flatVisible.filter((f) => SOURCE_SCRIPT_TYPES.has(f.type)).map((f) => f.id);
         onClearSelection();
         onSelectMany(ids, true);
-        for (const id of ids) onToggleAi(id, true);
+        applyAiSources(ids, "replace");
     };
 
     const selectNewest = () => {
@@ -152,9 +170,10 @@ export default function FolderFileManager({
         const ids = sorted.map((f) => f.id);
         onClearSelection();
         onSelectMany(ids, true);
-        for (const f of sorted) {
-            if (isAiContextEligible(f)) onToggleAi(f.id, true);
-        }
+        applyAiSources(
+            sorted.filter(isAiContextEligible).map((f) => f.id),
+            "replace",
+        );
     };
 
     const quickBtn =
@@ -216,7 +235,7 @@ export default function FolderFileManager({
                 })}
             </div>
 
-            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-white/[0.06] bg-[#1A1916] px-1.5 py-1">
+            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-white/[0.06] bg-[#1A1916] px-1.5 py-1 relative z-40">
                 <button type="button" className={quickBtn} onClick={selectAllVisible}>
                     <Check size={12} /> Alle auswählen
                 </button>
@@ -232,6 +251,75 @@ export default function FolderFileManager({
                 <button type="button" className={quickBtn} onClick={onClearSelection}>
                     Auswahl leeren
                 </button>
+                {!suppressBulkActions && selectionCount > 0 ? (
+                    <>
+                        <span className="text-gray-700 ml-auto">|</span>
+                        <span className="text-[11px] text-gray-400 px-1">{selectionCount} ausgewählt</span>
+                        <button
+                            type="button"
+                            onClick={onBulkUseAsAi}
+                            className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8]"
+                        >
+                            <Target size={12} /> Als KI-Quelle
+                        </button>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                onClick={() => setMoveOpen((v) => !v)}
+                                className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium bg-[#353840] border border-[#45484F] text-gray-200"
+                            >
+                                <FolderInput size={12} /> Verschieben
+                                <ChevronDown size={11} />
+                            </button>
+                            {moveOpen && !rowMoveFile ? (
+                                <div className="absolute right-0 top-full mt-1 w-56 rounded-xl border border-[#45484F] bg-[#23252A] shadow-2xl overflow-hidden z-50">
+                                    {subfolders.length === 0 ? (
+                                        <p className="px-3 py-2 text-xs text-gray-500">Keine Unterordner</p>
+                                    ) : (
+                                        subfolders.map((sf) => (
+                                            <button
+                                                key={sf.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    setMoveOpen(false);
+                                                    onBulkMove(sf.id);
+                                                }}
+                                                className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-[#3A3D45] truncate"
+                                            >
+                                                {sf.name}
+                                            </button>
+                                        ))
+                                    )}
+                                    <div className="h-px bg-[#3A3D45]" />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setMoveOpen(false);
+                                            onCreateSubfolder();
+                                        }}
+                                        className="w-full text-left px-3 py-2 text-sm text-[#93C5FD] hover:bg-[#3A3D45]"
+                                    >
+                                        + Neuer Unterordner
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={onBulkArchive}
+                            className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium bg-[#353840] border border-[#45484F] text-gray-200"
+                        >
+                            <Archive size={12} /> Archivieren
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onBulkDelete}
+                            className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium bg-red-500/10 border border-red-500/25 text-red-300"
+                        >
+                            <Trash2 size={12} /> Löschen
+                        </button>
+                    </>
+                ) : null}
             </div>
 
             <div className="rounded-xl border border-[#45484F] bg-[#1A1916] overflow-visible">
@@ -326,84 +414,8 @@ export default function FolderFileManager({
                 )}
             </div>
 
-            {selectionCount > 0 ? (
-                <div className="fixed bottom-24 left-1/2 z-[90] -translate-x-1/2 flex flex-wrap items-center gap-2 rounded-2xl border border-[#45484F] bg-[#1A1916]/95 px-3 py-2.5 shadow-2xl backdrop-blur-md max-w-[min(96vw,42rem)]">
-                    <span className="text-[12px] text-gray-300 px-1">{selectionCount} ausgewählt</span>
-                    <button
-                        type="button"
-                        onClick={onBulkUseAsAi}
-                        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[12px] font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8]"
-                    >
-                        <Target size={13} /> Nur diese {selectionCount} als KI-Quelle nutzen
-                    </button>
-                    <div className="relative">
-                        <button
-                            type="button"
-                            onClick={() => setMoveOpen((v) => !v)}
-                            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[12px] font-medium bg-[#353840] border border-[#45484F] text-gray-200"
-                        >
-                            <FolderInput size={13} /> In Unterordner verschieben
-                            <ChevronDown size={12} />
-                        </button>
-                        {moveOpen && !rowMoveFile ? (
-                            <div className="absolute bottom-full mb-1 left-0 w-56 rounded-xl border border-[#45484F] bg-[#23252A] shadow-2xl overflow-hidden z-50">
-                                {subfolders.length === 0 ? (
-                                    <p className="px-3 py-2 text-xs text-gray-500">Keine Unterordner</p>
-                                ) : (
-                                    subfolders.map((sf) => (
-                                        <button
-                                            key={sf.id}
-                                            type="button"
-                                            onClick={() => {
-                                                setMoveOpen(false);
-                                                onBulkMove(sf.id);
-                                            }}
-                                            className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-[#3A3D45] truncate"
-                                        >
-                                            {sf.name}
-                                        </button>
-                                    ))
-                                )}
-                                <div className="h-px bg-[#3A3D45]" />
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setMoveOpen(false);
-                                        onCreateSubfolder();
-                                    }}
-                                    className="w-full text-left px-3 py-2 text-sm text-[#93C5FD] hover:bg-[#3A3D45]"
-                                >
-                                    + Neuer Unterordner
-                                </button>
-                            </div>
-                        ) : null}
-                    </div>
-                    <button
-                        type="button"
-                        onClick={onBulkArchive}
-                        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[12px] font-medium bg-[#353840] border border-[#45484F] text-gray-200"
-                    >
-                        <Archive size={13} /> Archivieren
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onBulkDelete}
-                        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[12px] font-medium bg-red-500/10 border border-red-500/25 text-red-300"
-                    >
-                        <Trash2 size={13} /> Löschen
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onClearSelection}
-                        className="text-[11px] text-gray-500 hover:text-white px-1"
-                    >
-                        Abwählen
-                    </button>
-                </div>
-            ) : null}
-
             {rowMoveFile ? (
-                <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center bg-black/50 p-4" onClick={() => setRowMoveFile(null)}>
+                <div className="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center bg-black/50 p-4" onClick={() => setRowMoveFile(null)}>
                     <div
                         className="w-full max-w-sm rounded-2xl border border-[#45484F] bg-[#23252A] shadow-2xl overflow-hidden"
                         onClick={(e) => e.stopPropagation()}

@@ -404,7 +404,9 @@ export default function FolderPage() {
     /** null = all context-source files included */
     const [aiContextIncludedIds, setAiContextIncludedIds] = useState<string[] | null>(null);
     const [savingAiContext, setSavingAiContext] = useState(false);
-    const [completedAiJobs, setCompletedAiJobs] = useState<{ id: string; jobKey: string; label: string; ok: boolean }[]>([]);
+    const [completedAiJobs, setCompletedAiJobs] = useState<
+        { id: string; jobKey: string; label: string; ok: boolean; fileId?: string }[]
+    >([]);
     const [aiJobsPanelExpanded, setAiJobsPanelExpanded] = useState(true);
     const [queueNow, setQueueNow] = useState(() => Date.now());
     const [isEditingFile, setIsEditingFile] = useState(false);
@@ -432,13 +434,13 @@ export default function FolderPage() {
         });
     };
 
-    const registerAiJobFinished = useCallback((jobKey: string, ok: boolean) => {
+    const registerAiJobFinished = useCallback((jobKey: string, ok: boolean, fileId?: string) => {
         const label = AI_JOB_LABELS[jobKey] || jobKey;
         const id = `${jobKey}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-        setCompletedAiJobs((prev) => [{ id, jobKey, label, ok }, ...prev].slice(0, 12));
+        setCompletedAiJobs((prev) => [{ id, jobKey, label, ok, fileId }, ...prev].slice(0, 12));
         window.setTimeout(() => {
             setCompletedAiJobs((prev) => prev.filter((j) => j.id !== id));
-        }, 12000);
+        }, 45000);
     }, []);
 
     const upsertGeneratedFile = (file: FileData) => {
@@ -741,7 +743,7 @@ export default function FolderPage() {
 
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
-    const [, setChatDockOpen] = useState(false);
+    const [chatDockOpen, setChatDockOpen] = useState(false);
     const [, setChatDockExpanded] = useState(false);
     const [printMarkdownJob, setPrintMarkdownJob] = useState<{ md: string; title: string } | null>(null);
     const [documentUndoStack, setDocumentUndoStack] = useState<Record<string, string[]>>({});
@@ -1003,11 +1005,23 @@ export default function FolderPage() {
         return () => document.removeEventListener('pointerdown', onPointerDown, true);
     }, [readSelectionOpen, readSelectionBusy, closeReadSelectionPanel]);
 
+    const collapseAiContextToDefault = (ids: string[] | null): string[] | null => {
+        if (ids === null) return null;
+        const sourceIds = defaultAiContextIds(files);
+        const sourceSet = new Set(sourceIds);
+        const isDefault =
+            ids.length === sourceIds.length &&
+            ids.every((id) => sourceSet.has(id)) &&
+            sourceIds.every((id) => ids.includes(id));
+        return isDefault ? null : ids;
+    };
+
     const persistAiContext = async (next: string[] | null) => {
         const username = localStorage.getItem("username");
         if (!username) return;
+        const payload = collapseAiContextToDefault(next);
         // Optimistic UI — apply immediately, persist in background.
-        setAiContextIncludedIds(next);
+        setAiContextIncludedIds(payload);
         setSavingAiContext(true);
         try {
             const res = await fetch(`${API_BASE}/folders/${folderId}/ai-context`, {
@@ -1015,7 +1029,7 @@ export default function FolderPage() {
                 headers: sessionHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     username,
-                    included_file_ids: next,
+                    included_file_ids: payload,
                 }),
             });
             if (res.ok) {
@@ -1038,6 +1052,15 @@ export default function FolderPage() {
         }
     };
 
+    const resolveAiSourceIds = () => activeAiContextIds(files, aiContextIncludedIds);
+
+    /** Persist current UI selection, then return IDs for the generate POST body. */
+    const syncAiContextBeforeGenerate = async (): Promise<string[]> => {
+        const ids = resolveAiSourceIds();
+        await persistAiContext(ids);
+        return ids;
+    };
+
     const toggleAiContextFile = (fileId: string, wantChecked: boolean) => {
         const target = files.find((f) => f.id === fileId);
         if (!target || !isAiContextEligible(target)) return;
@@ -1047,12 +1070,7 @@ export default function FolderPage() {
         const next = wantChecked
             ? [...new Set([...current, fileId])]
             : current.filter((id) => id !== fileId);
-        const sourceSet = new Set(sourceIds);
-        const isDefault =
-            next.length === sourceIds.length &&
-            next.every((id) => sourceSet.has(id)) &&
-            sourceIds.every((id) => next.includes(id));
-        void persistAiContext(isDefault ? null : next);
+        void persistAiContext(next);
     };
 
     const isFileInAiContext = (file: Pick<FileData, "id" | "type" | "archived">) => {
@@ -1161,6 +1179,40 @@ export default function FolderPage() {
             console.error("Failed to hydrate file content:", err);
         }
     }, []);
+
+    const openCompletedJobFile = useCallback(
+        async (fileId?: string) => {
+            if (!fileId) {
+                await fetchFiles();
+                return;
+            }
+            const local = files.find((f) => f.id === fileId);
+            if (local) {
+                await selectFileWithContent(local as FileData);
+                return;
+            }
+            await fetchFiles();
+            try {
+                const username = localStorage.getItem("username") || "";
+                const sid = getSessionId();
+                const res = await fetch(
+                    `${API_BASE}/files/item/${encodeURIComponent(fileId)}?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`,
+                    { headers: sessionHeaders() },
+                );
+                if (!res.ok) {
+                    showToast(`Datei nicht gefunden: ${fileId}`, "info");
+                    setCompletedAiJobs((prev) => prev.filter((j) => j.fileId !== fileId));
+                    return;
+                }
+                const full = (await res.json()) as FileData;
+                upsertGeneratedFile(full);
+                await selectFileWithContent(full);
+            } catch {
+                showToast(`Datei nicht gefunden: ${fileId}`, "info");
+            }
+        },
+        [files, fetchFiles, selectFileWithContent],
+    );
 
     useEffect(() => {
         const practice = practiceIntentRef.current;
@@ -1605,11 +1657,27 @@ export default function FolderPage() {
     };
 
     const ensureAiSourcesOrToast = (): boolean => {
-        const n = activeAiContextIds(files, aiContextIncludedIds).length;
+        const n = resolveAiSourceIds().length;
         if (n > 0) return true;
         showToast("Bitte wähle unten mindestens eine Datei als KI-Quelle aus.", "info");
         return false;
     };
+
+    const overlayBlocksBulkBar =
+        Boolean(selectedFile) ||
+        chatDockOpen ||
+        isElaborationConfigOpen ||
+        isPlanConfigOpen ||
+        isQuizConfigOpen ||
+        isFlashcardsConfigOpen ||
+        isSummaryConfigOpen ||
+        isRepetitionConfigOpen ||
+        isSmartLearningConfigOpen ||
+        isPodcastConfigOpen ||
+        isLearningVideoConfigOpen ||
+        isUploadOpen ||
+        isRefineModalOpen ||
+        isCreateSubfolderOpen;
 
     const handleGenerate = async (type: 'plan' | 'quiz' | 'flashcards' | 'summary' | 'elaboration' | 'repetition') => {
         if (!ensureAiSourcesOrToast()) return;
@@ -1765,6 +1833,7 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
+            const included_file_ids = await syncAiContextBeforeGenerate();
             const res = await fetch(aiUrl(`${API_BASE}/ai/quiz`), {
                 method: "POST",
                 headers: sessionHeaders({ "Content-Type": "application/json" }),
@@ -1775,6 +1844,7 @@ export default function FolderPage() {
                     quiz_question_count: quizQuestionCount,
                     quiz_difficulty: quizDifficulty,
                     focus: quizFocus.trim() || undefined,
+                    included_file_ids,
                 }),
                 signal: ac.signal,
             });
@@ -1839,6 +1909,7 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
+            const included_file_ids = await syncAiContextBeforeGenerate();
             const res = await fetch(aiUrl(`${API_BASE}/ai/flashcards`), {
                 method: "POST",
                 headers: sessionHeaders({ "Content-Type": "application/json" }),
@@ -1849,6 +1920,7 @@ export default function FolderPage() {
                     flashcards_count: flashcardsCount,
                     flashcards_max_text: flashcardsMaxText,
                     focus: flashcardsFocus.trim() || undefined,
+                    included_file_ids,
                 }),
                 signal: acFc.signal,
             });
@@ -1916,6 +1988,7 @@ export default function FolderPage() {
         // I will add `detail_level` to the POST body.)
         try {
             const username = localStorage.getItem("username");
+            const included_file_ids = await syncAiContextBeforeGenerate();
             const res = await fetch(aiUrl(`${API_BASE}/ai/summary`), aiFetchInit({
                     username,
                     folder_id: folderId,
@@ -1923,6 +1996,7 @@ export default function FolderPage() {
                     model_preference: effectiveModelPreference,
                     learning_mode: learningMode,
                     focus: summaryFocus.trim() || undefined,
+                    included_file_ids,
             }, acSum.signal));
 
             const data = await readGeneratedAiPayload(res, username || "", acSum.signal);
@@ -2109,8 +2183,10 @@ export default function FolderPage() {
         registerAiJobAbort(jobIdElab, acElab);
         let ok = false;
         let lastError: string | undefined;
+        let resultFileId: string | undefined;
         try {
             const username = localStorage.getItem("username");
+            const included_file_ids = await syncAiContextBeforeGenerate();
             const res = await fetch(aiUrl(`${API_BASE}/ai/elaboration`), {
                 method: "POST",
                 headers: sessionHeaders({ "Content-Type": "application/json" }),
@@ -2120,7 +2196,8 @@ export default function FolderPage() {
                     detail_level: mapElaborationDetailLevel(elaborationDetailLevel),
                     custom_rules: elaborationRules,
                     focus: elaborationRules.trim() || undefined,
-                    model_preference: effectiveModelPreference
+                    model_preference: effectiveModelPreference,
+                    included_file_ids,
                 }),
                 signal: acElab.signal,
             });
@@ -2146,21 +2223,27 @@ export default function FolderPage() {
                             lastError =
                                 "Die Ausarbeitung kam ohne nutzbaren Text zurück. Bitte erneut versuchen oder Material prüfen.";
                             showToast(lastError);
+                        } else if (typeof data.file_id !== "string" || !data.file_id) {
+                            lastError = "Server lieferte keine Datei-ID für die Ausarbeitung.";
+                            showToast(lastError);
                         } else {
                             ok = true;
                             announceUsage(data);
-                            const fid =
-                                typeof data.file_id === "string"
-                                    ? data.file_id
-                                    : `elaboration_${Date.now()}`;
-                            setSelectedFile({
-                                id: fid,
+                            resultFileId = data.file_id;
+                            const generated: FileData = {
+                                id: data.file_id,
                                 name: "Ausarbeitung",
                                 type: "elaboration",
                                 created_at: new Date().toISOString(),
                                 content: data.elaboration,
-                            });
+                            };
+                            upsertGeneratedFile(generated);
+                            setSelectedFile(generated);
                             await fetchFiles();
+                            setSelectedFile((prev) => {
+                                if (!prev || prev.id === data.file_id) return prev;
+                                return { ...prev, id: data.file_id as string };
+                            });
                         }
                     } else if (!lastError && !acElab.signal.aborted) {
                         lastError =
@@ -2169,17 +2252,25 @@ export default function FolderPage() {
                     }
                 }
             } else if (res.ok) {
-                ok = true;
                 const data = await res.json();
-                announceUsage(data);
-                setSelectedFile({
-                    id: `elaboration_${Date.now()}`,
-                    name: 'Ausarbeitung',
-                    type: 'elaboration',
-                    created_at: new Date().toISOString(),
-                    content: data.elaboration
-                });
-                fetchFiles();
+                if (typeof data.file_id === "string" && data.file_id && typeof data.elaboration === "string") {
+                    ok = true;
+                    announceUsage(data);
+                    resultFileId = data.file_id;
+                    const generated: FileData = {
+                        id: data.file_id,
+                        name: "Ausarbeitung",
+                        type: "elaboration",
+                        created_at: new Date().toISOString(),
+                        content: data.elaboration,
+                    };
+                    upsertGeneratedFile(generated);
+                    setSelectedFile(generated);
+                    await fetchFiles();
+                } else {
+                    lastError = "Server lieferte keine gültige Ausarbeitung.";
+                    showToast(lastError);
+                }
             } else {
                 let errorMsg = `HTTP ${res.status}`;
                 try {
@@ -2210,7 +2301,7 @@ export default function FolderPage() {
         } finally {
             unregisterAiJobAbort(jobIdElab, acElab);
             setIsGenerating((prev) => prev.filter((t) => t !== 'elaboration'));
-            registerAiJobFinished('elaboration', ok);
+            registerAiJobFinished('elaboration', ok, resultFileId);
             queueFinish('elaboration', ok, ok ? undefined : lastError);
         }
     };
@@ -2226,6 +2317,7 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
+            const included_file_ids = await syncAiContextBeforeGenerate();
             const res = await fetch(aiUrl(`${API_BASE}/ai/repetition`), {
                 method: "POST",
                 headers: sessionHeaders({ "Content-Type": "application/json" }),
@@ -2235,7 +2327,8 @@ export default function FolderPage() {
                     custom_rules: repetitionRules,
                     focus: repetitionRules.trim() || undefined,
                     model_preference: effectiveModelPreference,
-                    learning_mode: learningMode
+                    learning_mode: learningMode,
+                    included_file_ids,
                 }),
                 signal: acRep.signal,
             });
@@ -2309,6 +2402,7 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
+            const included_file_ids = await syncAiContextBeforeGenerate();
             const res = await fetch(aiUrl(`${API_BASE}/ai/podcast`), {
                 method: "POST",
                 headers: sessionHeaders({ "Content-Type": "application/json" }),
@@ -2319,6 +2413,7 @@ export default function FolderPage() {
                     tts_voice: podcastTtsVoice,
                     tts_voice_b: podcastTtsVoiceB,
                     focus: podcastFocus.trim() || undefined,
+                    included_file_ids,
                 }),
                 signal: ac.signal,
             });
@@ -2462,6 +2557,7 @@ export default function FolderPage() {
         let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
+            const included_file_ids = await syncAiContextBeforeGenerate();
             const res = await fetch(aiUrl(`${API_BASE}/ai/learning-video`), {
                 method: "POST",
                 headers: sessionHeaders({ "Content-Type": "application/json" }),
@@ -2477,6 +2573,7 @@ export default function FolderPage() {
                     slide_crossfade: lvSlideCrossfade,
                     tts_voice: lvTtsVoice,
                     focus: lvFocus.trim() || undefined,
+                    included_file_ids,
                 }),
                 signal: ac.signal,
             });
@@ -2613,6 +2710,7 @@ export default function FolderPage() {
 
         try {
             const username = localStorage.getItem("username");
+            const included_file_ids = await syncAiContextBeforeGenerate();
             const res = await fetch(aiUrl(`${API_BASE}/ai/plan`), {
                 method: "POST",
                 headers: sessionHeaders({ "Content-Type": "application/json" }),
@@ -2626,6 +2724,7 @@ export default function FolderPage() {
                     learning_mode: learningMode,
                     focus: planFocus.trim() || undefined,
                     exam_date: planUseDate && planEndDate ? planEndDate : undefined,
+                    included_file_ids,
                 }),
                 signal: acPlan.signal,
             });
@@ -2689,6 +2788,7 @@ export default function FolderPage() {
         try {
             const username = localStorage.getItem("username");
             const sid = getSessionId();
+            const included_file_ids = await syncAiContextBeforeGenerate();
             const res = await fetch(
                 `${API_BASE}/ai/smart-learning?session_id=${encodeURIComponent(sid)}`,
                 {
@@ -2700,6 +2800,7 @@ export default function FolderPage() {
                     focus: smartLearningFocus.trim() || undefined,
                     exam_date: smartLearningExamDate || undefined,
                     model_preference: effectiveModelPreference,
+                    included_file_ids,
                 }),
                 signal: ac.signal,
             });
@@ -4565,6 +4666,7 @@ export default function FolderPage() {
                                         }
                                     }}
                                     onCreateSubfolder={() => setIsCreateSubfolderOpen(true)}
+                                    suppressBulkActions={overlayBlocksBulkBar}
                                     onRefine={(f) => handleRefineFile(f as FileData)}
                                     onDownload={(f) => {
                                         const raw = (f as FileData).content;
@@ -4609,7 +4711,7 @@ export default function FolderPage() {
 
                 {/* Upload Modal */}
                 {isUploadOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-3xl p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="text-lg font-semibold text-white">Material hinzufügen</h3>
@@ -4741,7 +4843,7 @@ export default function FolderPage() {
 
                 {/* Quiz Config Modal */}
                 {isQuizConfigOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
@@ -4822,7 +4924,7 @@ export default function FolderPage() {
 
                 {/* Flashcards Config Modal */}
                 {isFlashcardsConfigOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
@@ -4904,7 +5006,7 @@ export default function FolderPage() {
 
                 {/* Podcast config */}
                 {isPodcastConfigOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F] shrink-0">
                                 <div className="flex items-center gap-3">
@@ -5021,7 +5123,7 @@ export default function FolderPage() {
 
                 {/* Learning video config */}
                 {isLearningVideoConfigOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F] shrink-0">
                                 <div className="flex items-center gap-3">
@@ -5252,7 +5354,7 @@ export default function FolderPage() {
 
                 {/* Smart Learning Config Modal */}
                 {isSmartLearningConfigOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
@@ -5310,7 +5412,7 @@ export default function FolderPage() {
 
                 {/* Plan Config Modal */}
                 {isPlanConfigOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
@@ -5544,7 +5646,7 @@ export default function FolderPage() {
 
                 {/* Summary Config Modal */}
                 {isSummaryConfigOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
@@ -5650,7 +5752,7 @@ export default function FolderPage() {
 
                 {/* Elaboration (Ausarbeitung) Config Modal */}
                 {isElaborationConfigOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
@@ -5729,7 +5831,7 @@ export default function FolderPage() {
 
                 {/* Repetition (Wiederholung) Config Modal */}
                 {isRepetitionConfigOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
@@ -6173,7 +6275,7 @@ export default function FolderPage() {
 
                 {/* Rename File Modal */}
                 {isRenameFileOpen && fileToRename && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
@@ -6216,7 +6318,7 @@ export default function FolderPage() {
 
                 {/* Create Subfolder Modal */}
                 {isCreateSubfolderOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <div className="flex items-center gap-3">
@@ -6275,7 +6377,7 @@ export default function FolderPage() {
                 )}
 
                 {isRenameSubfolderOpen && subfolderToRename && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-sm shadow-2xl">
                             <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
                                 <h3 className="text-base font-semibold text-white">Unterordner umbenennen</h3>
@@ -6310,7 +6412,7 @@ export default function FolderPage() {
                 )}
 
                 {isDeleteSubfolderOpen && subfolderToDelete && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
                         <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-sm shadow-2xl">
                             <div className="p-5 border-b border-[#45484F]">
                                 <h3 className="text-base font-semibold text-white">Unterordner löschen?</h3>
@@ -6449,16 +6551,31 @@ export default function FolderPage() {
                                     )}
                                     {completedAiJobs.length > 0 && (
                                         <div>
-                                            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Zuletzt abgeschlossen</div>
+                                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                                                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Zuletzt abgeschlossen</div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCompletedAiJobs([])}
+                                                    className="text-[10px] text-gray-500 hover:text-white !min-h-0 !px-1.5 !py-0.5"
+                                                    title="Liste leeren"
+                                                >
+                                                    ✕ Leeren
+                                                </button>
+                                            </div>
                                             <ul className="space-y-1.5">
                                                 {completedAiJobs.map((j) => (
-                                                    <li
-                                                        key={j.id}
-                                                        className={`flex items-center gap-2 rounded-lg px-2.5 py-2 border ${j.ok ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200' : 'bg-red-500/10 border-red-500/25 text-red-200'}`}
-                                                    >
-                                                        {j.ok ? <CheckCircle2 size={14} className="shrink-0" /> : <XCircle size={14} className="shrink-0" />}
-                                                        <span>{j.label}</span>
-                                                        <span className="text-[10px] opacity-80 ml-auto">{j.ok ? 'Fertig' : 'Fehler'}</span>
+                                                    <li key={j.id}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (j.ok) void openCompletedJobFile(j.fileId);
+                                                            }}
+                                                            className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 border text-left !min-h-0 ${j.ok ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200 hover:bg-emerald-500/20 cursor-pointer' : 'bg-red-500/10 border-red-500/25 text-red-200 cursor-default'}`}
+                                                        >
+                                                            {j.ok ? <CheckCircle2 size={14} className="shrink-0" /> : <XCircle size={14} className="shrink-0" />}
+                                                            <span className="truncate flex-1">{j.label}</span>
+                                                            <span className="text-[10px] opacity-80 shrink-0">{j.ok ? 'Fertig · Öffnen' : 'Fehler'}</span>
+                                                        </button>
                                                     </li>
                                                 ))}
                                             </ul>
