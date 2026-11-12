@@ -8,6 +8,7 @@
 #include "moderntoolbar.h"
 #include "notechrome.h"
 #include "shapescatalogpopover.h"
+#include "tools/RulerTool.h"
 #include "tools/ToolManager.h"
 #include "tools/ToolUIBridge.h"
 #include "uiscale.h"
@@ -161,8 +162,11 @@ void noteActivateTool(ToolMode mode, int shapeKind) {
     mode = ToolMode::Shape;
   }
   // selectTool() is a no-op when the tool instance is unchanged; bounce via
-  // Hand so Shape Line -> Shape Circle still re-applies the config.
-  if (mgr.activeTool() && mgr.activeToolMode() == mode && mode == ToolMode::Shape)
+  // Hand so Shape Line -> Shape Circle still re-applies the config, and so
+  // a re-picked ruler tool fires toolChanged -> ensureRulerExists (the
+  // scene ruler may have been cleared with the note).
+  if (mgr.activeTool() && mgr.activeToolMode() == mode &&
+      (mode == ToolMode::Shape || mode == ToolMode::Ruler))
     mgr.selectTool(ToolMode::Hand);
   mgr.selectTool(mode);
   if (mgr.activeTool())
@@ -226,6 +230,23 @@ void NoteToolbarBase::setUndoRedoAvailable(bool canUndo, bool canRedo) {
 }
 
 void NoteToolbarBase::refreshActive() { update(); }
+
+bool NoteToolbarBase::debugClickTool(ToolMode mode) {
+  for (const NoteToolTile &t : m_tiles) {
+    if (t.action != NoteToolTile::Tool || t.mode != mode || !t.hittable)
+      continue;
+    const QPointF c = t.path.isEmpty() ? t.rect.center() : t.iconCenter;
+    const QPointF g = mapToGlobal(c);
+    QMouseEvent press(QEvent::MouseButtonPress, c, g, Qt::LeftButton,
+                      Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(this, &press);
+    QMouseEvent release(QEvent::MouseButtonRelease, c, g, Qt::LeftButton,
+                        Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(this, &release);
+    return true;
+  }
+  return false;
+}
 
 QColor NoteToolbarBase::activeFill() const { return kAccent; }
 QColor NoteToolbarBase::activeGlyph() const { return QColor(255, 255, 255); }
@@ -334,18 +355,12 @@ void NoteToolbarBase::paintGlyphAt(QPainter &p, const QString &icon,
     drawDotsH(p, center, size, color);
     return;
   }
-  // The shared 64px glyphs use ~3px strokes, which shrink to ~1px at 22px and
-  // look washed out on the dark skins. Overdraw with sub-pixel offsets so the
-  // outline reads as a crisp ~2px stroke.
-  const QPointF offsets[] = {QPointF(0, 0), QPointF(0.55, 0), QPointF(-0.55, 0),
-                             QPointF(0, 0.55), QPointF(0, -0.55)};
-  for (const QPointF &o : offsets) {
-    p.save();
-    p.translate(center.x() - size / 2.0 + o.x(), center.y() - size / 2.0 + o.y());
-    p.scale(size / 64.0, size / 64.0);
-    blopDrawToolbarGlyph64(&p, icon, color);
-    p.restore();
-  }
+  // Glyphs are authored at 64px with ~4.8px strokes (~1.5px at 20px tiles).
+  p.save();
+  p.translate(center.x() - size / 2.0, center.y() - size / 2.0);
+  p.scale(size / 64.0, size / 64.0);
+  blopDrawToolbarGlyph64(&p, icon, color);
+  p.restore();
 }
 
 void NoteToolbarBase::paintTileContent(QPainter &p, const NoteToolTile &t,
@@ -603,14 +618,16 @@ NoteFloatToolbar::NoteFloatToolbar(QWidget *parent) : NoteToolbarBase(parent) {
           });
 }
 
-QColor NoteFloatToolbar::activeFill() const { return QColor(91, 157, 255, 52); }
-QColor NoteFloatToolbar::activeGlyph() const { return kAccent; }
+QColor NoteFloatToolbar::activeFill() const {
+  return QColor(0x25, 0x63, 0xEB, 72); // #2563EB soft fill
+}
+QColor NoteFloatToolbar::activeGlyph() const { return QColor(0xF8, 0xFA, 0xFC); }
 QColor NoteFloatToolbar::idleGlyph() const {
-  return BlopTheme::instance().isDark() ? kGlyph : BlopStyle::paperInk();
+  // The pill plate is dark in every theme -> glyphs must stay light.
+  return kGlyph;
 }
 QColor NoteFloatToolbar::hoverFill() const {
-  return BlopTheme::instance().isDark() ? QColor(255, 255, 255, 16)
-                                        : BlopStyle::paperHover();
+  return QColor(255, 255, 255, 16);
 }
 
 QPoint NoteFloatToolbar::studioAnchorGlobal() const {
@@ -865,7 +882,13 @@ void NoteFloatToolbar::paintTile(QPainter &p, const NoteToolTile &t, int index) 
     return;
   }
   NoteToolbarBase::paintTile(p, t, index);
-  if (t.action == NoteToolTile::Tool && t.icon == QLatin1String("pen")) {
+  if (t.action == NoteToolTile::Tool && tileActive(t)) {
+    // Active indicator bar under the tile (NoteChrome blue).
+    p.setPen(Qt::NoPen);
+    p.setBrush(kAccent);
+    const QRectF bar(t.rect.center().x() - 8, t.rect.bottom() - 4, 16, 3);
+    p.drawRoundedRect(bar, 1.5, 1.5);
+  } else if (t.action == NoteToolTile::Tool && t.icon == QLatin1String("pen")) {
     const ToolConfig cfg = ToolManager::instance().configFor(ToolMode::Pen);
     const QColor ink = cfg.penColor.isValid() ? cfg.penColor : QColor(Qt::black);
     p.setPen(Qt::NoPen);
@@ -1148,6 +1171,25 @@ void NoteFloatToolbar::showMeasurePopover(const QPoint &globalAnchor) {
   }
 
   lay->addLayout(modeLay);
+
+  auto *hideRulerBtn =
+      makeModeBtn(QStringLiteral("✕  Lineal ausblenden"), false);
+  connect(hideRulerBtn, &QPushButton::clicked, pop, [pop]() {
+    // The ruler is a persistent drawing aid — hiding is an explicit action,
+    // then fall back to the pen so no hidden tool stays "active".
+    for (QWidget *tl : QApplication::topLevelWidgets()) {
+      const auto views = tl->findChildren<QGraphicsView *>();
+      for (QGraphicsView *view : views) {
+        if (RulerItem *r = findActiveRuler(view->scene())) {
+          r->setVisible(false);
+          view->viewport()->update();
+        }
+      }
+    }
+    noteActivateTool(ToolMode::Pen);
+    pop->close();
+  });
+  lay->addWidget(hideRulerBtn);
 
   auto *scaleLbl = new QLabel(QStringLiteral("Maßstab: 1 Kästchen ="), pop);
   lay->addWidget(scaleLbl);

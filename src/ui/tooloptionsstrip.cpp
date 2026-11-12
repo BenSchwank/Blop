@@ -752,8 +752,39 @@ void ToolOptionsStrip::rebuild() {
     addHint(QStringLiteral("Ziehen verschiebt die Seite. Leertaste hält das Schwenken."));
     break;
   case ToolMode::Formula:
-    addHint(QStringLiteral("Formel: die Zeichenfläche folgt später."));
+    addHint(QStringLiteral(
+        "Klicken = Standardgröße, Ziehen = eigene Größe. "
+        "Funktionen bearbeitest du im Graph-Panel."));
     break;
+  case ToolMode::Dimension: {
+    auto addKind = [this, &cfg](const QString &label, DimensionKind k) {
+      auto *b = chip(label, m_row);
+      b->setCheckable(true);
+      b->setChecked(cfg.dimensionKind == k);
+      connect(b, &QPushButton::clicked, this, [this, k]() {
+        ToolConfig next = ToolManager::instance().config();
+        next.dimensionKind = k;
+        publish(next);
+      });
+      m_rowLay->addWidget(b);
+    };
+    addKind(QStringLiteral("Länge"), DimensionKind::Length);
+    addKind(QStringLiteral("Winkel"), DimensionKind::Angle3Point);
+    addKind(QStringLiteral("Fläche"), DimensionKind::Area);
+    auto *lbl = new QLabel(QStringLiteral("Maßstab/Kästchen"), m_row);
+    auto *s = widthSlider(1, 100,
+                          qBound(1, int(qRound(cfg.measureUnitsPerCell * 10.0)),
+                                 100),
+                          m_row);
+    connect(s, &QSlider::valueChanged, this, [this](int v) {
+      ToolConfig next = ToolManager::instance().config();
+      next.measureUnitsPerCell = v / 10.0;
+      publish(next);
+    });
+    m_rowLay->addWidget(lbl);
+    m_rowLay->addWidget(s);
+    break;
+  }
   case ToolMode::Molecule:
     addHint(QStringLiteral("Molekül: die Zeichenfläche folgt später."));
     break;

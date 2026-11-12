@@ -2749,6 +2749,50 @@ MainWindow::MainWindow(QWidget *parent)
     });
   });
 
+  // Dev-Hook fuer headless UI-Verifikation: BLOP_UI_SNAPSHOT=<Notizpfad>
+  // oeffnet die Notiz, rendert die Seitenende-Zustaende nach
+  // BLOP_UI_SNAPSHOT_DIR und beendet die App.
+  if (qEnvironmentVariableIsSet("BLOP_UI_SNAPSHOT")) {
+    const QString dir =
+        qEnvironmentVariable("BLOP_UI_SNAPSHOT_DIR", QDir::tempPath());
+    auto log = [dir](const QString &msg) {
+      QFile f(QDir(dir).filePath(QStringLiteral("snapshot.log")));
+      if (f.open(QIODevice::Append | QIODevice::Text))
+        f.write((msg + QLatin1Char('\n')).toUtf8());
+    };
+    QTimer::singleShot(2000, this, [this, dir, log]() {
+      log(QStringLiteral("open: authLocked=%1 onboarding=%2")
+              .arg(m_authNavigationLocked)
+              .arg(m_onboardingOpen));
+      // Frische 2-seitige A4-Notiz (Kariert) — keine Nutzerdatei anfassen.
+      Note snapNote;
+      snapNote.ensurePage(1);
+      openLoadedA4Note(qEnvironmentVariable("BLOP_UI_SNAPSHOT"),
+                       QStringLiteral("SnapTest"), std::move(snapNote));
+      auto *poll = new QTimer(this);
+      auto tries = std::make_shared<int>(0);
+      connect(poll, &QTimer::timeout, this, [this, poll, tries, dir, log]() {
+        MultiPageNoteView *v = currentNoteView();
+        if (!v && ++*tries < 30)
+          return;
+        poll->stop();
+        poll->deleteLater();
+        log(QStringLiteral("view=%1 tries=%2").arg(v != nullptr).arg(*tries));
+        if (v) {
+          QTimer::singleShot(1200, v, [v, dir, log]() {
+            v->debugSnapshotTools(dir);
+            v->debugSnapshotPagesBar(dir);
+            log(QStringLiteral("snapshot done"));
+            QTimer::singleShot(300, qApp, &QCoreApplication::quit);
+          });
+        } else {
+          QTimer::singleShot(300, qApp, &QCoreApplication::quit);
+        }
+      });
+      poll->start(500);
+    });
+  }
+
   auto failOAuthFlow = [this](const QString &reason) {
 #ifdef Q_OS_ANDROID
     dismissAndroidOAuthOverlay();
@@ -9911,19 +9955,36 @@ void MainWindow::setupUi() {
       case ToolMode::Hand: type = CanvasView::ToolType::Hand; break;
       default: type = CanvasView::ToolType::Pen; break;
     }
-    setActiveTool(type);
+    // Formel/Bemassung/Laser haben keinen CanvasView::ToolType — ueber
+    // setActiveTool() wuerden sie sofort auf den Kuli zurueckfallen.
+    if (m == ToolMode::Formula || m == ToolMode::Dimension ||
+        m == ToolMode::Laser) {
+      if (m_toolManager)
+        m_toolManager->selectTool(m);
+    } else {
+      setActiveTool(type);
+    }
     // The phone toolbar has no separate rulerToggled signal; reproduce the
     // ModernToolbar behavior so the on-screen ruler appears/disappears too.
+    // The ruler stays visible as a drawing aid when other tools are picked
+    // — it is only hidden explicitly (measure popover), never implicitly.
     const bool rulerActive = (m == ToolMode::Ruler);
-    if (CanvasView *cv = getCurrentCanvas())
-      cv->toggleRuler(rulerActive);
+    if (rulerActive) {
+      if (CanvasView *cv = getCurrentCanvas())
+        cv->toggleRuler(true);
+      if (m_editorTabs) {
+        if (auto *activeEditor =
+                qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+          if (auto *view = activeEditor->findChild<MultiPageNoteView *>())
+            view->toggleRuler(true);
+        }
+      }
+    }
     if (m_editorTabs) {
       if (auto *activeEditor =
               qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
-        if (auto *view = activeEditor->findChild<MultiPageNoteView *>()) {
+        if (auto *view = activeEditor->findChild<MultiPageNoteView *>())
           view->setToolMode(m);
-          view->toggleRuler(rulerActive);
-        }
       }
     }
   };
@@ -9961,13 +10022,17 @@ void MainWindow::setupUi() {
             });
 
     connect(topToolbar, &ModernToolbar::rulerToggled, [this](bool active) {
+        // The signal fires on every mode change; only the explicit "ruler
+        // on" case shows it — deselecting the ruler tool keeps it visible.
+        if (!active)
+            return;
         if (CanvasView *cv = getCurrentCanvas()) {
-            cv->toggleRuler(active);
+            cv->toggleRuler(true);
         }
         auto* activeEditor = qobject_cast<NoteEditor*>(m_editorTabs->currentWidget());
         if (activeEditor) {
             if (auto* view = activeEditor->findChild<MultiPageNoteView*>()) {
-                view->toggleRuler(active);
+                view->toggleRuler(true);
             }
         }
     });

@@ -155,6 +155,16 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       tagsArr.append(t);
     root["tags"] = tagsArr;
   }
+  if (note.ruler.placed) {
+    QJsonObject ro;
+    ro["x"] = note.ruler.pos.x();
+    ro["y"] = note.ruler.pos.y();
+    ro["rot"] = note.ruler.rotation;
+    ro["compass"] = note.ruler.compassMode;
+    ro["w"] = note.ruler.width;
+    ro["h"] = note.ruler.height;
+    root["ruler"] = ro;
+  }
   QJsonArray pagesArr;
   for (const auto &p : note.pages) {
     QJsonArray strokesArr;
@@ -164,10 +174,16 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       so["c"] = s.color.name(QColor::HexArgb);
       so["e"] = s.isEraser;
       so["h"] = s.isHighlighter;
-      if (s.filled) {
-        // Filled remnant of a pixel-erased stroke: serialise path elements
-        // as [type, x, y] triples (0=move, 1=line, 2=curve, 3=curve data).
-        so["f"] = true;
+      if (s.filled || s.shape) {
+        // Filled remnant / shape stroke: serialise path elements as
+        // [type, x, y] triples (0=move, 1=line, 2=curve, 3=curve data).
+        so["f"] = s.filled;
+        if (s.shape) {
+          so["sh"] = true;
+          so["ps"] = s.penStyle;
+          if (s.fillColor.isValid())
+            so["fc"] = s.fillColor.name(QColor::HexArgb);
+        }
         so["fr"] = static_cast<int>(s.path.fillRule());
         QJsonArray els;
         for (int i = 0; i < s.path.elementCount(); ++i) {
@@ -333,6 +349,19 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
   out.tags.clear();
   for (const auto &tv : root.value("tags").toArray())
     out.tags.append(tv.toString());
+  out.ruler = RulerState{};
+  {
+    const QJsonObject ro = root.value("ruler").toObject();
+    if (!ro.isEmpty()) {
+      out.ruler.placed = true;
+      out.ruler.pos = QPointF(ro.value("x").toDouble(),
+                              ro.value("y").toDouble());
+      out.ruler.rotation = ro.value("rot").toDouble();
+      out.ruler.compassMode = ro.value("compass").toBool(false);
+      out.ruler.width = ro.value("w").toDouble(0.0);
+      out.ruler.height = ro.value("h").toDouble(0.0);
+    }
+  }
   out.pages.clear();
   auto pagesArr = root.value("pages").toArray();
   out.pages.resize(pagesArr.size());
@@ -365,8 +394,11 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       s.color = QColor(so.value("c").toString("#000000"));
       s.isEraser = so.value("e").toBool(false);
       s.isHighlighter = so.value("h").toBool(false);
-      if (so.value("f").toBool(false)) {
-        s.filled = true;
+      if (so.value("f").toBool(false) || so.value("sh").toBool(false)) {
+        s.filled = so.value("f").toBool(false);
+        s.shape = so.value("sh").toBool(false);
+        s.penStyle = so.value("ps").toInt(1);
+        s.fillColor = QColor(so.value("fc").toString());
         QPainterPath fp;
         fp.setFillRule(so.value("fr").toInt(0) == 1 ? Qt::WindingFill
                                                     : Qt::OddEvenFill);

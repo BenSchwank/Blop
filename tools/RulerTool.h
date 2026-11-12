@@ -101,21 +101,33 @@ public:
 
         RulerItem* ruler = findActiveRuler(scene);
 
+        // Zielpunkt ist die Lineal-MITTE (nicht die linke obere Ecke), sonst
+        // liegt das Lineal zur Haelfte neben dem Blatt.
+        bool recenter = false;
+        QPointF centerTarget;
         if (!ruler) {
             ruler = new RulerItem();
-            ruler->setPos(spawnFallback());
             ruler->setZValue(1000);
             scene->addItem(ruler);
             rememberActiveRuler(scene, ruler);
-        } else if (havePreferred && !visibleInAnyView(ruler)) {
-            // Re-center into the current viewport when the cached ruler is off-screen
-            // (common after a prior create at tall sceneRect().center()).
-            ruler->setPos(preferredScenePos);
+            recenter = true;
+            centerTarget = spawnFallback();
+        } else if (havePreferred) {
+            // Always re-center into the current viewport on tool activate.
+            recenter = true;
+            centerTarget = preferredScenePos;
+        } else if (!visibleInAnyView(ruler)) {
+            recenter = true;
+            centerTarget = spawnFallback();
         }
 
         ruler->setVisible(true);
         ruler->setZValue(1000);
         ruler->setConfig(config);
+        if (recenter) {
+            const QSizeF bs = ruler->bodySize();
+            ruler->setPos(centerTarget - QPointF(bs.width() / 2.0, bs.height() / 2.0));
+        }
         for (QGraphicsView *v : scene->views()) {
             if (v && v->viewport())
                 v->viewport()->update();

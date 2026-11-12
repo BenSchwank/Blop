@@ -24,7 +24,7 @@ public:
         setAcceptHoverEvents(true);
         setAcceptedMouseButtons(Qt::LeftButton);
         setAcceptTouchEvents(true);
-        m_width = 1200; // Längeres Standard-Lineal
+        m_width = 700; // passt auf eine A4-Seite (793 px)
         m_height = 80;
         setTransformOriginPoint(m_width/2, m_height/2); // Drehung um die Mitte
         m_tapTimer.start();
@@ -68,12 +68,22 @@ public:
         if (m_config.rulerSnap)
             a = snapPreferredAngle(a);
         setRotation(normalizeAngle(a));
+        emit changed();
     }
 
+    /// Mausrad: Shift = 1° frei; mit Einrasten 15°-Raster (ein 5°-Schritt
+    /// wuerde sofort auf den alten Winkel zurueckschnappen); sonst 5° frei.
     void applyWheelDelta(int wheelDeltaY, Qt::KeyboardModifiers modifiers) {
-        const qreal baseStep = (modifiers & Qt::ShiftModifier) ? 1.0 : 5.0;
         const qreal dir = (wheelDeltaY > 0) ? -1.0 : 1.0;
-        applyRotationDelta(dir * baseStep);
+        qreal a;
+        if (modifiers & Qt::ShiftModifier)
+            a = rotation() + dir * 1.0;
+        else if (m_config.rulerSnap)
+            a = snapToLocalGrid(rotation() + dir * 15.0, 15.0);
+        else
+            a = rotation() + dir * 5.0;
+        setRotation(normalizeAngle(a));
+        emit changed();
     }
 
     void setConfig(const ToolConfig& c) {
@@ -85,9 +95,50 @@ public:
         const QPointF newCenterScene = mapToScene(transformOriginPoint());
         setPos(pos() + (oldCenterScene - newCenterScene));
         update();
+        emit changed();
     }
 
-    // Berechnet den Einrast-Punkt (Snapping)
+    const ToolConfig& config() const { return m_config; }
+    QSizeF bodySize() const { return QSizeF(m_width, m_height); }
+
+    /// Restore a persisted body size, keeping the current center.
+    void setBodySizeKeepingCenter(qreal w, qreal h) {
+        if (w <= 0 || h <= 0)
+            return;
+        const QPointF oldCenterScene = mapToScene(transformOriginPoint());
+        prepareGeometryChange();
+        m_width = w;
+        m_height = h;
+        setTransformOriginPoint(m_width / 2, m_height / 2);
+        const QPointF newCenterScene = mapToScene(transformOriginPoint());
+        setPos(pos() + (oldCenterScene - newCenterScene));
+        update();
+    }
+
+    QVariant itemChange(GraphicsItemChange change,
+                        const QVariant &value) override {
+        if (change == ItemPositionHasChanged)
+            emit changed();
+        return QGraphicsObject::itemChange(change, value);
+    }
+
+    /// True when scenePos is within `threshold` scene-px of a snap edge.
+    bool isNearSnapEdge(QPointF scenePos, qreal threshold = 28.0) const {
+        if (m_config.compassMode) {
+            const QPointF c = mapToScene(transformOriginPoint());
+            const qreal r = qMin(m_width, m_height) * 0.42;
+            const qreal d = QLineF(c, scenePos).length();
+            return std::abs(d - r) <= threshold;
+        }
+        const QPointF localPos = sceneTransform().inverted().map(scenePos);
+        const qreal dTop = std::abs(localPos.y() - 0.0);
+        const qreal dBot = std::abs(localPos.y() - m_height);
+        if (localPos.x() < -threshold || localPos.x() > m_width + threshold)
+            return false;
+        return qMin(dTop, dBot) <= threshold;
+    }
+
+    // Berechnet den Einrast-Punkt (Snapping). Returns scenePos unchanged when far.
     QPointF snapPoint(QPointF scenePos, QPointF strokeStart = QPointF()) const {
         if (m_config.compassMode) {
             // Kompass-Modus: Einrasten auf den Kreisradius relativ zum Lineal-Ursprung
@@ -115,12 +166,15 @@ public:
                     localPos.setY(yBottom);
                 }
             } else {
-                // Initial snap
-                if (std::abs(localPos.y() - yTop) < std::abs(localPos.y() - yBottom)) {
+                // Magnet: only snap when near an edge
+                const qreal dTop = std::abs(localPos.y() - yTop);
+                const qreal dBot = std::abs(localPos.y() - yBottom);
+                if (qMin(dTop, dBot) > 28.0)
+                    return scenePos;
+                if (dTop < dBot)
                     localPos.setY(yTop);
-                } else {
+                else
                     localPos.setY(yBottom);
-                }
             }
 
             return sceneTransform().map(localPos);
@@ -170,13 +224,7 @@ public:
 
     void wheelEvent(QGraphicsSceneWheelEvent* event) override {
         // Mausrad dreht das Lineal in sinnvollen Schritten und snapt auf 15°.
-        double currentAngle = rotation();
-        const double baseStep = (event->modifiers() & Qt::ShiftModifier) ? 1.0 : 5.0;
-        const double dir = (event->delta() > 0) ? -1.0 : 1.0;
-        currentAngle += dir * baseStep;
-        if (m_config.rulerSnap)
-            currentAngle = snapPreferredAngle(currentAngle);
-        setRotation(normalizeAngle(currentAngle));
+        applyWheelDelta(event->delta(), event->modifiers());
         event->accept();
     }
 
@@ -226,6 +274,8 @@ public:
         m_dragReady = true;
         m_draggingBody = true;
         m_dragOffsetScene = event->scenePos() - pos();
+        m_dragStartScene = event->scenePos();
+        m_dragStartRotation = rotation();
         event->accept();
         return;
 
@@ -234,7 +284,19 @@ public:
 
     void mouseMoveEvent(QGraphicsSceneMouseEvent* event) override {
         if (m_draggingBody) {
-            setPos(event->scenePos() - m_dragOffsetScene);
+            // Alt+drag rotates around the center (mouse-friendly rotate).
+            if (event->modifiers() & Qt::AltModifier) {
+                const QPointF c = mapToScene(transformOriginPoint());
+                const qreal a0 = QLineF(c, m_dragStartScene).angle();
+                const qreal a1 = QLineF(c, event->scenePos()).angle();
+                qreal a = m_dragStartRotation + (a0 - a1);
+                if (m_config.rulerSnap)
+                    a = snapPreferredAngle(a);
+                setRotation(normalizeAngle(a));
+                emit changed();
+            } else {
+                setPos(event->scenePos() - m_dragOffsetScene);
+            }
             event->accept();
             return;
         }
@@ -319,6 +381,7 @@ public:
                     if (m_config.rulerSnap)
                         a = snapPreferredAngle(a);
                     setRotation(a);
+                    emit changed();
                 }
             }
 
@@ -327,6 +390,10 @@ public:
         }
         return QGraphicsObject::sceneEvent(event);
     }
+
+signals:
+    /// Geometry/config changed — views debounce this into note persistence.
+    void changed();
 
 private:
     qreal m_width;
@@ -338,6 +405,8 @@ private:
     bool m_resizingRight{false};
     QPointF m_dragOffsetScene;
     QPointF m_anchorScene;
+    QPointF m_dragStartScene;
+    qreal m_dragStartRotation{0.0};
     QElapsedTimer m_tapTimer;
     QPointF m_lastTapScenePos;
     bool m_touchActive{false};
@@ -456,8 +525,8 @@ private:
             m_width = qBound<qreal>(1800.0, sw * 2.0, 6000.0);
             m_height = 80;
         } else {
-            // Longer normal ruler than before.
-            m_width = 1200;
+            // Passt auf eine A4-Seite (793 px breit).
+            m_width = 700;
             m_height = 80;
         }
         setTransformOriginPoint(m_width / 2, m_height / 2);

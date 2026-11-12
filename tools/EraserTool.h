@@ -2,173 +2,238 @@
 #include "AbstractStrokeTool.h"
 #include "StrokeItem.h"
 #include "UIStyles.h"
-#include <QGraphicsScene>
+
 #include <QGraphicsItem>
+#include <QGraphicsPathItem>
+#include <QGraphicsScene>
+#include <QGraphicsTextItem>
+#include <QPainter>
 #include <QPainterPath>
 #include <QPainterPathStroker>
 #include <QPointer>
 #include <QSet>
 
 class EraserTool : public AbstractStrokeTool {
-    Q_OBJECT
+  Q_OBJECT
 public:
-    using AbstractStrokeTool::AbstractStrokeTool;
-    ToolMode mode() const override { return ToolMode::Eraser; }
-    QString name() const override { return "Radierer"; }
-    QString iconName() const override { return "eraser"; }
+  using AbstractStrokeTool::AbstractStrokeTool;
+  ToolMode mode() const override { return ToolMode::Eraser; }
+  QString name() const override { return QStringLiteral("Radierer"); }
+  QString iconName() const override { return QStringLiteral("eraser"); }
 
-    // --- MAUS-PRESS ---
-    bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        if (!scene) return false;
-        eraseAt(event->scenePos(), scene);
-        return true;
-    }
+  bool handleMousePress(QGraphicsSceneMouseEvent *event,
+                        QGraphicsScene *scene) override {
+    if (!scene)
+      return false;
+    m_previewPos = event->scenePos();
+    m_previewActive = true;
+    emit overlayChanged();
+    eraseAt(event->scenePos(), scene);
+    return true;
+  }
 
-    // --- MAUS-MOVE ---
-    bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        eraseAt(event->scenePos(), scene);
-        return true;
-    }
+  bool handleMouseMove(QGraphicsSceneMouseEvent *event,
+                       QGraphicsScene *scene) override {
+    if (!scene)
+      return false;
+    m_previewPos = event->scenePos();
+    m_previewActive = true;
+    emit overlayChanged();
+    if (event->buttons() & Qt::LeftButton)
+      eraseAt(event->scenePos(), scene);
+    return true;
+  }
 
-    // --- MAUS-RELEASE ---
-    bool handleMouseRelease(QGraphicsSceneMouseEvent*, QGraphicsScene*) override {
-        return true;
-    }
+  bool handleMouseRelease(QGraphicsSceneMouseEvent *,
+                          QGraphicsScene *) override {
+    m_previewActive = false;
+    emit overlayChanged();
+    return true;
+  }
 
-    // --- TABLET ---
-    bool handleTabletEvent(QTabletEvent* event, const QPointF& scenePos) override {
-        Q_UNUSED(event);
-        if (m_sceneRef)
-            eraseAt(scenePos, m_sceneRef);
-        return true;
+  bool handleTabletEvent(QTabletEvent *event,
+                         const QPointF &scenePos) override {
+    if (!m_sceneRef)
+      return false;
+    m_previewPos = scenePos;
+    if (event->type() == QEvent::TabletRelease) {
+      m_previewActive = false;
+      emit overlayChanged();
+      return true;
     }
+    m_previewActive = true;
+    emit overlayChanged();
+    eraseAt(scenePos, m_sceneRef);
+    return true;
+  }
+
+  void onDeactivated() override {
+    m_previewActive = false;
+    emit overlayChanged();
+  }
+
+  void drawOverlay(QPainter *painter, const QRectF &rect) override {
+    Q_UNUSED(rect);
+    if (!m_previewActive || m_config.eraserMode != EraserMode::Pixel)
+      return;
+    const qreal r = eraserRadius();
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    QColor fill(0xEF, 0x44, 0x44, 40);
+    QPen pen(QColor(0xEF, 0x44, 0x44, 200), 1.5, Qt::SolidLine, Qt::RoundCap);
+    pen.setCosmetic(true);
+    painter->setPen(pen);
+    painter->setBrush(fill);
+    painter->drawEllipse(m_previewPos, r, r);
+    painter->restore();
+  }
 
 protected:
-    QPen createPen() const override { return QPen(Qt::white, m_config.penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin); }
-    StrokeItem::StrokeStyle strokeStyle() const override { return StrokeItem::Eraser; }
+  QPen createPen() const override {
+    return QPen(Qt::white, m_config.penWidth, Qt::SolidLine, Qt::RoundCap,
+                Qt::RoundJoin);
+  }
+  StrokeItem::StrokeStyle strokeStyle() const override {
+    return StrokeItem::Eraser;
+  }
 
 private:
-    void eraseAt(QPointF pos, QGraphicsScene* scene) {
-        if (!scene) return;
+  qreal eraserRadius() const {
+    double r = m_config.penWidth / 2.0;
+    if (r < 1.0)
+      r = 1.0;
+    return r;
+  }
 
-        // Radius follows the pen width in both modes.
-        double r = m_config.penWidth / 2.0;
-        if (r < 1.0)
-            r = 1.0;
+  static bool isTextItem(QGraphicsItem *item) {
+    if (!item)
+      return false;
+    if (qgraphicsitem_cast<QGraphicsTextItem *>(item))
+      return true;
+    return item->data(0).toString() == QLatin1String("text_item");
+  }
 
-        // Bereich um die Maus
-        QRectF rect(pos.x() - r, pos.y() - r, 2*r, 2*r);
+  static bool isErasableGraphic(QGraphicsItem *item) {
+    if (!item)
+      return false;
+    if (dynamic_cast<QGraphicsPathItem *>(item))
+      return true;
+    if (isTextItem(item))
+      return true;
+    return false;
+  }
 
-        // v119 perf: bbox prefilter first (cheap O(log N) tree query),
-        // then the precise IntersectsItemShape test only on the
-        // candidates. On dense scenes the difference adds up - the
-        // shape test allocates a QPainterPath per item.
-        QList<QGraphicsItem*> items = scene->items(rect, Qt::IntersectsItemBoundingRect);
+  void eraseAt(QPointF pos, QGraphicsScene *scene) {
+    if (!scene)
+      return;
 
-        // Radierer-Form (Kreis)
-        QPainterPath eraserShape;
-        eraserShape.addEllipse(pos, r, r);
+    const double r = eraserRadius();
+    QRectF rect(pos.x() - r, pos.y() - r, 2 * r, 2 * r);
+    QList<QGraphicsItem *> items =
+        scene->items(rect, Qt::IntersectsItemBoundingRect);
 
-        // Items die komplett gelöscht werden sollen – NACH der Schleife löschen,
-        // nie während der Iteration (verhindert use-after-free / Absturz).
-        // QSet for O(1) "already queued" lookup; the original QList::contains
-        // was O(N) and dominated for large erase sweeps.
-        QList<QGraphicsItem*> toDelete;
-        QSet<QGraphicsItem*> toDeleteSet;
+    QPainterPath eraserShape;
+    eraserShape.addEllipse(pos, r, r);
 
-        for (QGraphicsItem* item : items) {
-            // Wir bearbeiten nur GraphicsPathItems (unsere Striche)
-            QGraphicsPathItem* pathItem = dynamic_cast<QGraphicsPathItem*>(item);
-            if (!pathItem) continue;
+    QList<QGraphicsItem *> toDelete;
+    QSet<QGraphicsItem *> toDeleteSet;
+    bool mutated = false;
 
-            // Verhindere, dass der Radierer seinen eigenen visuellen Pfad löscht
-            if (m_currentItem && pathItem == m_currentItem) continue;
+    for (QGraphicsItem *item : items) {
+      if (!isErasableGraphic(item))
+        continue;
+      if (m_currentItem && item == m_currentItem)
+        continue;
+      if (toDeleteSet.contains(item))
+        continue;
 
-            // Bereits zum Löschen vorgemerkt – überspringen
-            if (toDeleteSet.contains(item)) continue;
+      const QPainterPath eraserInItem = item->mapFromScene(eraserShape);
+      if (!item->shape().intersects(eraserInItem))
+        continue;
 
-            // Precise hit test in item coordinates so a moved stroke
-            // is cut where it is drawn.
-            const QPainterPath eraserInItem = item->mapFromScene(eraserShape);
-            if (!item->shape().intersects(eraserInItem)) continue;
-
-            // FEATURE: "Nur Textmarker löschen"
-            if (m_config.eraserKeepInk) {
-                auto *si = dynamic_cast<StrokeItem *>(pathItem);
-                if (si && si->strokeStyle() != StrokeItem::Highlighter)
-                    continue;
-                if (!si && pathItem->zValue() >= 1.0)
-                    continue;
-            }
-
-            // --- MODUS 1: OBJEKT RADIERER (Ganzes Item weg) ---
-            if (m_config.eraserMode == EraserMode::Object) {
-                toDelete.append(item);
-                toDeleteSet.insert(item);
-            }
-
-            // --- MODUS 2: PIXEL RADIERER (Schneiden) ---
-            else {
-                QPainterPath currentPath = pathItem->path();
-                if (auto *si = dynamic_cast<StrokeItem *>(pathItem)) {
-                    const auto pts = si->points();
-                    if (pts.size() > 1 && pathItem->pen().style() != Qt::NoPen) {
-                        QVector<QPointF> center;
-                        center.reserve(pts.size());
-                        for (const StrokePoint &sp : pts)
-                            center.append(sp.pos);
-                        currentPath = smoothStrokePath(center);
-                    }
-                }
-
-                // FIX: "Linie wird zur Form"-Problem beheben
-                // Wenn das Item noch ein Strich ist (hat einen Pen), müssen wir es
-                // zuerst in eine Fläche (Outline) umwandeln.
-                if (pathItem->pen().style() != Qt::NoPen) {
-                    QPainterPathStroker stroker;
-                    stroker.setWidth(pathItem->pen().widthF());
-                    stroker.setCapStyle(pathItem->pen().capStyle());
-                    stroker.setJoinStyle(pathItem->pen().joinStyle());
-                    stroker.setMiterLimit(pathItem->pen().miterLimit());
-
-                    // Erstelle die Umriss-Form des Striches
-                    QPainterPath outline = stroker.createStroke(currentPath);
-
-                    // Jetzt subtrahieren wir den Radierer von der Fläche
-                    QPainterPath newPath = outline.subtracted(eraserInItem);
-
-                    // Das Item ist jetzt eine Fläche, kein Strich mehr!
-                    pathItem->setPath(newPath);
-
-                    // WICHTIG: Stift entfernen, dafür Pinsel setzen (mit der Farbe des alten Stifts)
-                    pathItem->setBrush(pathItem->pen().brush());
-                    pathItem->setPen(Qt::NoPen);
-                    if (auto *strokeItem = dynamic_cast<StrokeItem *>(pathItem))
-                        strokeItem->setPoints({});
-                }
-                else {
-                    // Das Item ist bereits eine Fläche (wurde schonmal radiert)
-                    // Einfach weiter subtrahieren
-                    QPainterPath newPath = currentPath.subtracted(eraserInItem);
-                    pathItem->setPath(newPath);
-                }
-
-                // Wenn nichts mehr übrig ist -> Item zum Löschen vormerken
-                if (pathItem->path().isEmpty()) {
-                    // Pressure-Punkte erst leeren wenn wir es wirklich löschen
-                    StrokeItem* strokeItem = dynamic_cast<StrokeItem*>(pathItem);
-                    if (strokeItem) strokeItem->setPoints({});
-                    toDelete.append(item);
-                    toDeleteSet.insert(item);
-                }
-            }
+      // „Nur Textmarker löschen“ — skip ink, shapes, and text.
+      if (m_config.eraserKeepInk) {
+        if (isTextItem(item))
+          continue;
+        auto *si = dynamic_cast<StrokeItem *>(item);
+        if (si) {
+          if (si->strokeStyle() != StrokeItem::Highlighter)
+            continue;
+        } else if (auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item)) {
+          // Non-Stroke path shapes (geometry) are not highlighter ink.
+          Q_UNUSED(pathItem);
+          continue;
+        } else {
+          continue;
         }
+      }
 
-        // Erst NACH der Schleife löschen – verhindert Absturz durch Zugriff auf
-        // bereits gelöschte Pointer während der Iteration.
-        for (QGraphicsItem* item : toDelete) {
-            scene->removeItem(item);
-            delete item;
+      // Object eraser: delete whole element (stroke, shape, text).
+      if (m_config.eraserMode == EraserMode::Object) {
+        toDelete.append(item);
+        toDeleteSet.insert(item);
+        continue;
+      }
+
+      // Pixel eraser: only path strokes (not text).
+      auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item);
+      if (!pathItem || isTextItem(item))
+        continue;
+
+      QPainterPath currentPath = pathItem->path();
+      if (auto *si = dynamic_cast<StrokeItem *>(pathItem)) {
+        const auto pts = si->points();
+        if (pts.size() > 1 && pathItem->pen().style() != Qt::NoPen) {
+          QVector<QPointF> center;
+          center.reserve(pts.size());
+          for (const StrokePoint &sp : pts)
+            center.append(sp.pos);
+          currentPath = smoothStrokePath(center);
         }
+      }
+
+      if (pathItem->pen().style() != Qt::NoPen) {
+        QPainterPathStroker stroker;
+        stroker.setWidth(pathItem->pen().widthF());
+        stroker.setCapStyle(pathItem->pen().capStyle());
+        stroker.setJoinStyle(pathItem->pen().joinStyle());
+        stroker.setMiterLimit(pathItem->pen().miterLimit());
+        QPainterPath outline = stroker.createStroke(currentPath);
+        QPainterPath newPath = outline.subtracted(eraserInItem);
+        pathItem->setPath(newPath);
+        pathItem->setBrush(pathItem->pen().brush());
+        pathItem->setPen(Qt::NoPen);
+        if (auto *strokeItem = dynamic_cast<StrokeItem *>(pathItem))
+          strokeItem->setPoints({});
+        // Drop stale Stroke snap (MultiPageNoteView kStrokeSnapKey = 0x5301)
+        // so harvest uses the subtracted filled outline, not the old polyline.
+        pathItem->setData(0x5301, QVariant());
+        mutated = true;
+      } else {
+        QPainterPath newPath = currentPath.subtracted(eraserInItem);
+        if (newPath != currentPath) {
+          pathItem->setPath(newPath);
+          mutated = true;
+        }
+      }
+
+      if (pathItem->path().isEmpty()) {
+        if (auto *strokeItem = dynamic_cast<StrokeItem *>(pathItem))
+          strokeItem->setPoints({});
+        toDelete.append(item);
+        toDeleteSet.insert(item);
+      }
     }
+
+    for (QGraphicsItem *item : toDelete) {
+      scene->removeItem(item);
+      delete item;
+      mutated = true;
+    }
+    if (mutated)
+      emit contentModified();
+  }
+
+  QPointF m_previewPos;
+  bool m_previewActive{false};
 };

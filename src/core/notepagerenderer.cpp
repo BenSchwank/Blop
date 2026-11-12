@@ -42,7 +42,7 @@ QImage renderFullPage(const NotePage &page, int pageW, int pageH) {
   } else {
     const int L = paper.lightness();
     const QColor lineCol =
-        L < 130 ? QColor(255, 255, 255, 50) : QColor(190, 190, 210, 110);
+        L < 130 ? QColor(255, 255, 255, 60) : QColor(150, 160, 190, 150);
     const auto type = static_cast<PageBackgroundType>(page.backgroundType);
     switch (type) {
     case PageBackgroundType::Blank:
@@ -59,7 +59,9 @@ QImage renderFullPage(const NotePage &page, int pageW, int pageH) {
       break;
     }
     case PageBackgroundType::Grid: {
-      p.setPen(QPen(lineCol, 1));
+      const QColor gridCol =
+          L < 130 ? QColor(255, 255, 255, 60) : QColor(150, 160, 190, 180);
+      p.setPen(QPen(gridCol, 1));
       for (int x = 40; x < pageW; x += 40)
         p.drawLine(x, 0, x, pageH);
       for (int y = 40; y < pageH; y += 40)
@@ -84,6 +86,13 @@ QImage renderFullPage(const NotePage &page, int pageW, int pageH) {
     if (s.filled) {
       p.setPen(Qt::NoPen);
       p.setBrush(c);
+      p.drawPath(s.path);
+      continue;
+    }
+    if (s.shape) {
+      p.setPen(QPen(c, s.width, static_cast<Qt::PenStyle>(s.penStyle),
+                    Qt::RoundCap, Qt::RoundJoin));
+      p.setBrush(s.fillColor.isValid() ? QBrush(s.fillColor) : Qt::NoBrush);
       p.drawPath(s.path);
       continue;
     }

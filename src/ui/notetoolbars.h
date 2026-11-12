@@ -55,6 +55,8 @@ public:
   explicit NoteToolbarBase(QWidget *parent = nullptr);
   void setUndoRedoAvailable(bool canUndo, bool canRedo);
   void refreshActive();
+  /// Dev (BLOP_UI_SNAPSHOT): echter Press/Release auf dem Tile des Tools.
+  bool debugClickTool(ToolMode mode);
 
 signals:
   void undoRequested();

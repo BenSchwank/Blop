@@ -103,8 +103,11 @@ public:
       Q_UNUSED(widget);
       
       painter->save();
-      painter->setPen(QPen(QColor(108, 92, 231, 255), 2, Qt::DashLine));
-      painter->setBrush(QColor(108, 92, 231, 20));
+      // NoteChrome-Akzent (#5B9DFF), kosmetisch = zoom-unabhaengige Staerke.
+      QPen framePen(QColor(91, 157, 255), 1.5, Qt::DashLine);
+      framePen.setCosmetic(true);
+      painter->setPen(framePen);
+      painter->setBrush(QColor(91, 157, 255, 20));
       
       QRectF r = m_target->boundingRect();
       painter->drawRect(r);
@@ -138,10 +141,10 @@ public:
       qreal rotateDist = 60.0 / scaleBase;
       QPointF rotHandle(r.center().x(), r.top() - rotateDist);
       
-      painter->setPen(QPen(QColor(108, 92, 231, 255), 2.0 / scaleBase, Qt::SolidLine));
+      painter->setPen(QPen(QColor(91, 157, 255), 2.0 / scaleBase, Qt::SolidLine));
       painter->drawLine(QPointF(r.center().x(), r.top()), rotHandle);
       
-      painter->setBrush(QColor(108, 92, 231, 255));
+      painter->setBrush(QColor(91, 157, 255));
       painter->setPen(QPen(Qt::white, 1.5 / scaleBase));
       painter->drawEllipse(rotHandle, handleRadius * 1.2, handleRadius * 1.2);
       
@@ -149,11 +152,13 @@ public:
   }
   void sync() {
     prepareGeometryChange();
-    setPos(m_target->pos());
-    setRotation(m_target->rotation());
-    setScale(m_target->scale());
-    setTransform(m_target->transform());
-    setTransformOriginPoint(m_target->transformOriginPoint());
+    // Overlay ist ein Top-Level-Item, das Ziel haengt oft an einer Seite
+    // (Parent-Offset). Nur die Szenen-Transformation deckt beides ab.
+    setPos(0, 0);
+    setRotation(0);
+    setScale(1.0);
+    setTransformOriginPoint(0, 0);
+    setTransform(m_target->sceneTransform());
     update();
     emit transformChanged();
   }

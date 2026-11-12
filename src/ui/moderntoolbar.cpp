@@ -91,10 +91,11 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
   QColor accentSoft = tip;
   accentSoft.setAlpha(120);
 
-  const QPen primaryPen(primary, 3.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-  const QPen primaryThin(primary, 2.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-  const QPen accentPen(accent, 3.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-  const QPen accentThick(accent, 5.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  // 64px design grid → ~20px dock tiles: 4.8px ≈ 1.5px on-screen stroke.
+  const QPen primaryPen(primary, 4.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  const QPen primaryThin(primary, 3.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  const QPen accentPen(accent, 4.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  const QPen accentThick(accent, 6.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
 
   auto drawAccentDot = [&](qreal x, qreal y, qreal r) {
 #ifndef Q_OS_ANDROID
@@ -244,22 +245,22 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     return;
   }
   if (name == QLatin1String("highlighter")) {
-    // Drawboard chisel highlighter — wide tip in tip color (default lime).
-    const QColor hi = color.isValid() ? tip : QColor(90, 220, 70);
+    // Marker body + soft chisel tip (reads at 20px without overdraw).
+    const QColor hi = color.isValid() ? tip : QColor(245, 197, 24);
     QPainterPath body;
-    body.moveTo(16, 42);
-    body.lineTo(34, 18);
-    body.lineTo(48, 30);
+    body.moveTo(18, 44);
+    body.lineTo(34, 20);
+    body.lineTo(46, 30);
     body.lineTo(30, 54);
     body.closeSubpath();
     p->setPen(primaryPen);
     p->setBrush(Qt::NoBrush);
     p->drawPath(body);
     QPainterPath chisel;
-    chisel.moveTo(34, 18);
-    chisel.lineTo(42, 12);
-    chisel.lineTo(56, 26);
-    chisel.lineTo(48, 30);
+    chisel.moveTo(34, 20);
+    chisel.lineTo(40, 14);
+    chisel.lineTo(52, 26);
+    chisel.lineTo(46, 30);
     chisel.closeSubpath();
     p->setPen(Qt::NoPen);
     p->setBrush(hi);
@@ -267,7 +268,6 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     return;
   }
   if (name == QLatin1String("eraser")) {
-    // Drawboard eraser block (angled).
     QTransform t;
     t.translate(32, 32);
     t.rotate(-28);
@@ -276,30 +276,28 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->setTransform(t, true);
     p->setPen(primaryPen);
     p->setBrush(Qt::NoBrush);
-    p->drawRoundedRect(QRectF(16, 22, 32, 20), 4, 4);
+    p->drawRoundedRect(QRectF(17, 23, 30, 18), 5, 5);
     p->setPen(primaryThin);
-    p->drawLine(16, 32, 48, 32);
+    p->drawLine(17, 32, 47, 32);
     p->restore();
     return;
   }
   if (name == QLatin1String("select") || name == QLatin1String("lasso")) {
-    // Drawboard rectangle-select: dashed marquee + cursor.
-    QPen dash(primary, 2.6, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin);
-    dash.setDashPattern({3.5, 2.8});
+    QPen dash(primary, 4.0, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin);
+    dash.setDashPattern({4.0, 3.0});
     p->setPen(dash);
     p->setBrush(Qt::NoBrush);
-    p->drawRoundedRect(QRectF(12, 12, 30, 28), 3, 3);
-    // Cursor arrow
+    p->drawRoundedRect(QRectF(13, 13, 28, 26), 4, 4);
     QPainterPath cursor;
-    cursor.moveTo(34, 30);
-    cursor.lineTo(34, 52);
-    cursor.lineTo(40, 46);
+    cursor.moveTo(36, 32);
+    cursor.lineTo(36, 52);
+    cursor.lineTo(41, 47);
     cursor.lineTo(46, 56);
     cursor.lineTo(50, 54);
-    cursor.lineTo(44, 44);
-    cursor.lineTo(52, 44);
+    cursor.lineTo(45, 45);
+    cursor.lineTo(52, 45);
     cursor.closeSubpath();
-    p->setPen(QPen(primary, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->setPen(QPen(primary, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p->setBrush(primary);
     p->drawPath(cursor);
     return;
@@ -313,15 +311,14 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     return;
   }
   if (name == QLatin1String("ruler") || name == QLatin1String("measure")) {
-    // Drawboard measure: dimension line with end ticks (red when tipped).
-    const QColor mcol = color.isValid() ? tip : QColor(235, 70, 70);
-    QPen mp(mcol, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    const QColor mcol = color.isValid() ? tip : primary;
+    QPen mp(mcol, 4.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     p->setPen(mp);
-    p->drawLine(14, 40, 50, 22);
-    p->drawLine(14, 40, 14, 48);
+    p->drawLine(14, 42, 50, 22);
+    p->drawLine(14, 42, 14, 50);
     p->drawLine(50, 22, 50, 30);
-    p->drawLine(14, 40, 20, 34);
-    p->drawLine(14, 40, 20, 46);
+    p->drawLine(14, 42, 20, 36);
+    p->drawLine(14, 42, 20, 48);
     p->drawLine(50, 22, 44, 16);
     p->drawLine(50, 22, 44, 28);
     return;
@@ -329,7 +326,7 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
   if (name == QLatin1String("rect") || name == QLatin1String("shape")) {
     p->setPen(primaryPen);
     p->setBrush(Qt::NoBrush);
-    p->drawRect(QRectF(16, 16, 32, 32));
+    p->drawRoundedRect(QRectF(16, 16, 32, 32), 4, 4);
     return;
   }
   if (name == QLatin1String("ellipse") || name == QLatin1String("circle")) {
@@ -351,11 +348,15 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     return;
   }
   if (name == QLatin1String("laser")) {
-    p->setPen(QPen(primary, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->setPen(QPen(primary, 4.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p->drawLine(18, 46, 40, 24);
-    p->setBrush(primary);
     p->setPen(Qt::NoPen);
-    p->drawEllipse(QPointF(44, 20), 5.5, 5.5);
+    QColor glow = primary;
+    glow.setAlpha(90);
+    p->setBrush(glow);
+    p->drawEllipse(QPointF(44, 20), 11.0, 11.0);
+    p->setBrush(primary);
+    p->drawEllipse(QPointF(44, 20), 6.0, 6.0);
     return;
   }
   if (name == QLatin1String("axes") || name == QLatin1String("axes2d")) {
@@ -2867,12 +2868,11 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnImage = new ToolbarBtn("image", this);
   btnHand = new ToolbarBtn("hand", this);
   btnFormula = new ToolbarBtn("pi", this);
-  btnFormula->setToolTip(tr("Formel — demnächst"));
+  btnFormula->setToolTip(tr("Formel/Graph — Klicken oder Ziehen"));
   btnMolecule = new ToolbarBtn("molecule", this);
   btnMolecule->setToolTip(tr("Molekül — demnächst"));
-  // Formula / Molecule are not implemented (no canvas behaviour): never show
-  // them, so no user-facing control promises a non-working tool.
-  btnFormula->hide();
+  // Molecule is a stub (no canvas behaviour): never show it, so no
+  // user-facing control promises a non-working tool.
   btnMolecule->hide();
   btnUndo = new ToolbarBtn("undo", this);
   btnUndo->setToolTip(tr("Rückgängig"));
@@ -2958,18 +2958,14 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   loadRailTools();
 
   auto handleToolClick = [this](ToolMode m) {
-    if (m == ToolMode::Formula || m == ToolMode::Molecule) {
+    if (m == ToolMode::Molecule) {
       ToolbarBtn *btn = getButtonForMode(m);
       const QPoint tipPos =
           btn ? btn->mapToGlobal(QPoint(btn->width() / 2, 0))
               : QCursor::pos();
-      QToolTip::showText(
-          tipPos,
-          m == ToolMode::Formula
-              ? QStringLiteral("Formel — demnächst verfügbar")
-              : QStringLiteral("Molekül — demnächst verfügbar"),
-          this);
-      // Stubs: do not select / highlight a non-working canvas tool.
+      QToolTip::showText(tipPos,
+                         QStringLiteral("Molekül — demnächst verfügbar"), this);
+      // Stub: do not select / highlight a non-working canvas tool.
       return;
     }
     if (mode_ == m) {
@@ -3924,16 +3920,11 @@ void ModernToolbar::showToolPicker() {
     already.insert(s.mode);
   ToolPickerOverlay::present(
       host, m_accentColor, already, [this](ToolMode mode) {
-        if (mode == ToolMode::Formula || mode == ToolMode::Molecule) {
+        if (mode == ToolMode::Molecule) {
           BlopDialogs::notify(
               window() ? window() : this, QStringLiteral("Demnächst"),
-              mode == ToolMode::Formula
-                  ? QStringLiteral(
-                        "Formel-Werkzeug folgt später — noch nicht auf der "
-                        "Werkzeugleiste verfügbar.")
-                  : QStringLiteral(
-                        "Molekül-Werkzeug folgt später — noch nicht auf der "
-                        "Werkzeugleiste verfügbar."));
+              QStringLiteral("Molekül-Werkzeug folgt später — noch nicht auf "
+                             "der Werkzeugleiste verfügbar."));
           return;
         }
         // Hand is unique; other tools may appear multiple times as presets.
@@ -5933,10 +5924,11 @@ void ModernToolbar::loadRailTools() {
     case ToolMode::StickyNote:
     case ToolMode::Text:
     case ToolMode::Hand:
-      // Formel/Molekül: stubs — never on the default Favorites rail.
-      return true;
     case ToolMode::Formula:
+      // Works (places a graph frame) — allowed on the Favorites rail.
+      return true;
     case ToolMode::Molecule:
+      // Stub — never on the default Favorites rail.
       return false;
     }
     return false;
@@ -6369,7 +6361,7 @@ void ModernToolbar::addCurrentToolAsRailSlot() {
 }
 
 void ModernToolbar::addToolToRail(ToolMode mode) {
-  if (mode == ToolMode::Formula || mode == ToolMode::Molecule)
+  if (mode == ToolMode::Molecule)
     return;
   if (!getButtonForMode(mode) && mode != ToolMode::Hand)
     return;

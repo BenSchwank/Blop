@@ -135,6 +135,13 @@ public:
     /// Dialog wie „Neue Seite von Vorlage“ für die aktuell sichtbare Seite (Farbe + Muster)
     void openPageLayoutForVisiblePage();
 
+    /// Dev: rendert Seitenende-/Pull-Zustaende als PNGs nach `dir`
+    /// (BLOP_UI_SNAPSHOT). Committet keine Seite.
+    void debugSnapshotPagesBar(const QString &dir);
+    /// Dev: faehrt alle Notiz-Tools mit synthetischen Maus-Events durch die
+    /// echte View (Screenshots + tools.log nach `dir`).
+    void debugSnapshotTools(const QString &dir);
+
 public slots:
     void onSelectionChanged();
     void deleteSelection();
@@ -185,6 +192,8 @@ public:
 
     // WICHTIG: Gesten kommen hier an
     bool viewportEvent(QEvent* e) override;
+    /// Reicht Wheel-Events des Bottom-Sheets an die Pull/Scroll-Logik weiter.
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
     void drawForeground(QPainter* painter, const QRectF& rect) override;
 
@@ -263,12 +272,20 @@ private:
     void ensureSceneRectCoversViewport();
     QGraphicsPathItem *createStrokeGraphicsItem(const Stroke &s);
     void pushStrokeUndoCommand(int pageIdx, Stroke stroke);
+    /// Persisted ruler: restore hidden item at saved pos and wire its
+    /// changed() signal into the debounced note sync.
+    void restoreRulerFromNote();
+    void bindRulerSignals();
     // void ensureOverscrollPage(); // Entfernt/Ersetzt durch Pull-Logik
     int pageAt(const QPointF& scenePos) const;
     int pageAtNearest(const QPointF& scenePos) const;
     QRectF pageRect(int idx) const;
 
     void addNewPageWithLayout(int backgroundType, const QColor &paperColor);
+    /// Gemeinsame Pull-Logik (Wheel + Pan + Bottom-Sheet): sammelt
+    /// Widerstand, zeigt den Indikator, committet am Threshold eine Seite.
+    void accumulateBottomPull(float delta);
+    void cancelBottomPull();
     void applyLayoutToPage(int pageIndex, int backgroundType, const QColor &paperColor);
     int visiblePageIndex() const;
     void showBottomSheetFromPull();
@@ -359,6 +376,9 @@ private:
     QTimer* m_stickySyncTimer{nullptr};
     QTimer* m_strokeSyncTimer{nullptr};
     QMetaObject::Connection m_toolOverlayConn;
+    QMetaObject::Connection m_toolContentConn;
+    QMetaObject::Connection m_rulerConn;
+    QMetaObject::Connection m_rulerToolConn;
     bool m_rebuildingScene{false};
     int m_contentRevision{0};
     bool m_syncingTexts{false};

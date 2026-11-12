@@ -103,7 +103,7 @@ struct ToolConfig {
     bool eraserKeepInk = false;
 
     // 5. LASSO
-    LassoMode lassoMode = LassoMode::Freehand;
+    LassoMode lassoMode = LassoMode::Rectangle;
     bool aspectLock = true;
 
     // 6. IMAGE, SHAPES

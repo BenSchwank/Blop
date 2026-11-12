@@ -134,6 +134,7 @@ protected:
 private:
     QGraphicsScene *m_scene;
     ToolManager *m_toolManager; // Pointer zum Manager
+    QMetaObject::Connection m_rulerToolConn;
 
     QGraphicsPathItem *m_currentItem;
     QPainterPath m_currentPath;

@@ -122,18 +122,20 @@ public:
     QString iconName() const override { return "highlighter"; }
 
     StrokeItem::StrokeStyle strokeStyle() const override {
-        return m_config.drawBehind ? StrokeItem::Highlighter : StrokeItem::Normal;
+        // Always Highlighter so StrokeItem paints with Multiply.
+        return StrokeItem::Highlighter;
     }
 
 protected:
     QPen createPen() const override {
         QColor c = m_config.penColor;
-        c.setAlphaF(0.4 * m_config.opacity);
+        // Clean-sheet: fixed readability under black ink.
+        const qreal alpha = m_config.opacity > 0.01 ? m_config.opacity : 0.35;
+        c.setAlphaF(qBound(0.05, alpha, 1.0));
 
-        int width = std::max(10, m_config.penWidth * 3);
+        const int width = qMax(14, m_config.penWidth > 0 ? m_config.penWidth : 14);
         QPen pen(c, width);
 
-        // Kanten-Logik (Chisel)
         if (m_config.tipType == HighlighterTip::Chisel) {
             pen.setCapStyle(Qt::FlatCap);
             pen.setJoinStyle(Qt::MiterJoin);
@@ -145,6 +147,9 @@ protected:
         return pen;
     }
     qreal getZValue() const override {
-        return m_config.drawBehind ? -10 : 5;
+        // Live stroke must sit ABOVE the page item while drawing — negative
+        // z hides the preview under the page. On commit the recreated item
+        // lives inside the page at z 0.5 (below ink, above paper).
+        return 10.0;
     }
 };

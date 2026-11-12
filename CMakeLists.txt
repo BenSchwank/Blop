@@ -317,6 +317,8 @@ qt_add_executable(Blop
     tools/AbstractTool.h
     tools/ToolManager.h
     tools/ToolManager.cpp
+    tools/ToolEngine.h
+    tools/ToolEngine.cpp
     tools/ToolUIBridge.h
     tools/StrokeItem.h
     tools/AbstractStrokeTool.h
