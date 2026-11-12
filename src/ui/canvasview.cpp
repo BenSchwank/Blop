@@ -14,6 +14,7 @@
 #include "tools/AbstractStrokeTool.h"
 #include "tools/RulerTool.h" // Wichtig: RulerTool Header
 #include "tools/StrokeItem.h"
+#include "tools/ToolEngine.h"
 #include "tools/ToolManager.h"
 #include "tools/GraphCanvasItem.h"
 #include "graphaxissettingsdialog.h"
@@ -386,6 +387,16 @@ void CanvasView::setToolManager(ToolManager *manager) {
                     mapToScene(viewport()->rect().center());
                 RulerTool::ensureRulerExists(m_scene, m_toolManager->config(),
                                              spawn);
+              }
+              // Ruler config changes (compass toggle, units, snap) must
+              // reach the scene item live.
+              disconnect(m_rulerToolConn);
+              if (auto *rt = qobject_cast<RulerTool *>(tool)) {
+                m_rulerToolConn =
+                    connect(rt, &RulerTool::requestUpdate, this, [this]() {
+                      RulerTool::ensureRulerExists(m_scene,
+                                                   m_toolManager->config());
+                    });
               }
               viewport()->update();
             });
@@ -1497,17 +1508,16 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
         }
     }
 
-    if (m_toolManager && m_toolManager->activeTool() && m_interactionMode == InteractionMode::None) {
-        m_toolManager->activeTool()->setStrokeSceneForTablet(m_scene);
-
-        if (m_toolManager->activeTool()->handleTabletEvent(event, scenePos)) {
+    if (m_toolManager && m_toolManager->activeTool() &&
+        m_interactionMode == InteractionMode::None) {
+        if (ToolEngine::tablet(m_scene, event, scenePos)) {
             if (event->type() == QEvent::TabletPress) {
                 m_isDrawing = true;
             } else if (event->type() == QEvent::TabletRelease) {
                 m_isDrawing = false;
-                if (auto* item = m_toolManager->activeTool()->lastCompletedItem()) {
+                if (auto *item = m_toolManager->activeTool()->lastCompletedItem()) {
                     m_undoStack->push(new AddItemCommand(m_scene, item));
-                    if (auto* gi = qgraphicsitem_cast<GraphCanvasItem*>(item)) {
+                    if (auto *gi = qgraphicsitem_cast<GraphCanvasItem *>(item)) {
                         GraphAxisSettingsDialog dlg(gi, window());
                         BlopModal::execBlocking(window(), &dlg);
                     }
@@ -1632,12 +1642,7 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
   // Wir nutzen m_toolManager, NICHT instance(), um sicherzugehen
   if (m_toolManager && m_toolManager->activeTool() &&
       event->button() == Qt::LeftButton) {
-    QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMousePress);
-    QPointF scenePos = mapToScene(event->pos());
-    scEvent.setScenePos(scenePos);
-    scEvent.setButton(event->button());
-    scEvent.setButtons(event->buttons());
-    scEvent.setModifiers(event->modifiers());
+    const QPointF scenePos = mapToScene(event->pos());
 
     // NOTE: removed the previous full-scene snapshot used for the
     // "items added during this stroke" diff. Every concrete tool now
@@ -1651,7 +1656,13 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
       m_scene->setProperty("wordPageHeight",
                            m_isInfinite ? 0.0 : double(pageHeightPx()));
     }
-    if (m_toolManager->activeTool()->handleMousePress(&scEvent, m_scene)) {
+    ToolEngine::Pointer ptr;
+    ptr.scenePos = scenePos;
+    ptr.button = event->button();
+    ptr.buttons = event->buttons();
+    ptr.modifiers = event->modifiers();
+    ptr.device = ToolEngine::Device::Mouse;
+    if (ToolEngine::begin(m_scene, ptr)) {
       m_isDrawing = true;
       if (m_toolManager->activeTool()->mode() == ToolMode::Text) {
         if (auto *ti = qgraphicsitem_cast<QGraphicsTextItem *>(
@@ -1742,18 +1753,16 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
     return;
   }
 
-  // TOOL MANAGER DELEGATION
+  // ToolEngine
   if (m_toolManager && m_toolManager->activeTool() &&
       m_interactionMode == InteractionMode::None) {
-    // Auch ohne Drawing senden wir Move Events (für Hover/Cursor oder
-    // Lineal-Verschieben)
-    QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseMove);
-    QPointF scenePos = mapToScene(event->pos());
-    scEvent.setScenePos(scenePos);
-    scEvent.setButtons(event->buttons());
-    scEvent.setModifiers(event->modifiers());
-
-    if (m_toolManager->activeTool()->handleMouseMove(&scEvent, m_scene)) {
+    ToolEngine::Pointer ptr;
+    ptr.scenePos = mapToScene(event->pos());
+    ptr.button = event->button();
+    ptr.buttons = event->buttons();
+    ptr.modifiers = event->modifiers();
+    ptr.device = ToolEngine::Device::Mouse;
+    if (ToolEngine::move(m_scene, ptr)) {
       event->accept();
       return;
     }
@@ -1819,31 +1828,26 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
     return;
   }
 
-  // TOOL MANAGER DELEGATION
+  // ToolEngine
   if (m_toolManager && m_toolManager->activeTool() &&
       m_interactionMode == InteractionMode::None) {
-    QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseRelease);
-    QPointF scenePos = mapToScene(event->pos());
-    scEvent.setScenePos(scenePos);
-    scEvent.setButton(event->button());
-
-    if (m_toolManager->activeTool()->handleMouseRelease(&scEvent, m_scene)) {
+    ToolEngine::Pointer ptr;
+    ptr.scenePos = mapToScene(event->pos());
+    ptr.button = event->button();
+    ptr.buttons = event->buttons();
+    ptr.modifiers = event->modifiers();
+    ptr.device = ToolEngine::Device::Mouse;
+    if (ToolEngine::end(m_scene, ptr)) {
       m_isDrawing = false;
-      if (auto* item = m_toolManager->activeTool()->lastCompletedItem()) {
-          m_undoStack->push(new AddItemCommand(m_scene, item));
-          if (auto* gi = qgraphicsitem_cast<GraphCanvasItem*>(item)) {
-            GraphAxisSettingsDialog dlg(gi, window());
-            BlopModal::execBlocking(window(), &dlg);
-          }
-          m_toolManager->activeTool()->clearLastCompletedItem();
+      if (auto *item = m_toolManager->activeTool()->lastCompletedItem()) {
+        m_undoStack->push(new AddItemCommand(m_scene, item));
+        if (auto *gi = qgraphicsitem_cast<GraphCanvasItem *>(item)) {
+          GraphAxisSettingsDialog dlg(gi, window());
+          BlopModal::execBlocking(window(), &dlg);
+        }
+        m_toolManager->activeTool()->clearLastCompletedItem();
       }
       emit contentModified();
-
-      // NOTE: the prior O(N) "diff scene against m_preStrokeItems
-      // snapshot" loop was redundant - every concrete tool already
-      // reports its single newly-created item via lastCompletedItem()
-      // above. Removed here as part of the v119 perf pass.
-
       if (m_toolManager->activeTool()->mode() == ToolMode::Lasso) {
         finishLasso();
       }

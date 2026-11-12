@@ -13,9 +13,11 @@ ToolManager::ToolManager(QObject* parent) : QObject(parent) {
 
     // Pre-populate some mode-specific defaults
     ToolConfig highlighterCfg;
-    highlighterCfg.penWidth = 15;
-    highlighterCfg.opacity = 0.5;
+    highlighterCfg.penWidth = 14;
+    highlighterCfg.opacity = 0.35;
     highlighterCfg.penColor = Qt::yellow;
+    highlighterCfg.drawBehind = true;
+    highlighterCfg.tipType = HighlighterTip::Round;
     m_configs[ToolMode::Highlighter] = highlighterCfg;
 
     ToolConfig eraserCfg;

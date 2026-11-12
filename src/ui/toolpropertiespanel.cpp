@@ -371,11 +371,10 @@ void ToolPropertiesPanel::setAccentColor(const QColor &c) {
 
 void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
   m_mode = mode;
-  const bool stub =
-      (mode == ToolMode::Formula || mode == ToolMode::Molecule);
+  const bool stub = (mode == ToolMode::Molecule);
   if (m_title) {
     if (mode == ToolMode::Formula)
-      m_title->setText(QStringLiteral("Formel — demnächst"));
+      m_title->setText(QStringLiteral("Formel/Graph"));
     else if (mode == ToolMode::Molecule)
       m_title->setText(QStringLiteral("Molekül — demnächst"));
     else

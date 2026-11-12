@@ -17,10 +17,17 @@
 #include "overlayscrollindicator.h"
 #include "uiscale.h"
 #include "notepagerenderer.h"
+#include "notetoolbars.h"
+#include "NoteManager.h"
+#include <QApplication>
+#include <QTextCursor>
+#include <QWheelEvent>
+#include <functional>
 #include "wordtextframe.h"
 #include "tools/AbstractTool.h"
 #include "tools/AbstractStrokeTool.h"
 #include "tools/RulerTool.h" // NEU: Lineal-Werkzeug
+#include "tools/ToolEngine.h"
 #include "tools/ToolManager.h"
 #include "tools/StrokeItem.h"
 #include "tools/GraphCanvasItem.h"
@@ -143,7 +150,9 @@ bool strokesEqual(const QVector<Stroke> &a, const QVector<Stroke> &b) {
     const Stroke &y = b[i];
     if (!qFuzzyCompare(x.width + 1.0, y.width + 1.0) || x.color != y.color ||
         x.isEraser != y.isEraser || x.isHighlighter != y.isHighlighter ||
-        x.filled != y.filled || x.points != y.points ||
+        x.filled != y.filled || x.shape != y.shape ||
+        x.fillColor != y.fillColor || x.penStyle != y.penStyle ||
+        x.points != y.points ||
         x.pressures != y.pressures || !(x.path == y.path))
       return false;
   }
@@ -169,6 +178,10 @@ bool isInkGraphicsItem(QGraphicsItem *item) {
     return false;
   if (t == StrokeItem::Type)
     return true;
+  // Formen bleiben Tinte, auch wenn der Pixel-Radierer ihren Snapshot
+  // verworfen hat.
+  if (kind == QLatin1String("shape_item"))
+    return true;
   return item->data(kStrokeSnapKey).isValid();
 }
 
@@ -178,6 +191,8 @@ Stroke harvestStrokeFromItem(QGraphicsItem *item, int pageIdx,
   if (item->data(kStrokeSnapKey).canConvert<Stroke>())
     s = item->data(kStrokeSnapKey).value<Stroke>();
   s.pageIndex = pageIdx;
+  if (item->data(0).toString() == QLatin1String("shape_item"))
+    s.shape = true;
 
   auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item);
   if (!pathItem)
@@ -192,7 +207,10 @@ Stroke harvestStrokeFromItem(QGraphicsItem *item, int pageIdx,
   }
 
   if (pathItem->pen().style() == Qt::NoPen) {
+    // Pixel-radierter Rest (auch von Formen): gefuellte Kontur, keine Form mehr.
     s.filled = true;
+    s.shape = false;
+    s.fillColor = QColor();
     const QColor br = pathItem->brush().color();
     if (br.isValid())
       s.color = br;
@@ -203,9 +221,12 @@ Stroke harvestStrokeFromItem(QGraphicsItem *item, int pageIdx,
 
   s.filled = false;
   s.width = pathItem->pen().widthF();
+  s.penStyle = static_cast<int>(pathItem->pen().style());
   if (!s.isEraser)
     s.color = pathItem->pen().color();
-  if (si) {
+  if (si && si->points().isEmpty() && !s.points.isEmpty()) {
+    // Item ohne eigene Punkte: Snapshot-Punkte behalten statt sie zu leeren.
+  } else if (si) {
     const auto pts = si->points();
     s.points.clear();
     s.pressures.clear();
@@ -231,8 +252,12 @@ Stroke harvestStrokeFromItem(QGraphicsItem *item, int pageIdx,
     }
     if (pathItem->brush().style() != Qt::NoBrush &&
         pathItem->brush().color().alpha() > 0) {
-      s.filled = true;
-      s.color = pathItem->brush().color();
+      if (s.shape) {
+        s.fillColor = pathItem->brush().color();
+      } else {
+        s.filled = true;
+        s.color = pathItem->brush().color();
+      }
     }
   }
   return s;
@@ -395,56 +420,43 @@ bool isHudSelectableItem(QGraphicsItem *item) {
 void stylePagesBarCard(QFrame *card) {
   if (!card)
     return;
-  // Inline document-flow CTA: dashed primary border, hover primary-light,
-  // outlined secondary chips (Vorlagen / Importieren / Mehr).
+  // Kompakte Papier-Karte: einzeilige CTA (dashed accent) + drei Chips.
+  // Keine Mindesthoehen > Layout, sonst quetscht das Sheet die Labels
+  // ueber die Chips.
   const QString accent = NoteChrome::accent().name(QColor::HexRgb);
   const QString primaryLight = BlopStyle::paperPrimaryLight().name(QColor::HexRgb);
+  const QString surface = BlopStyle::paperSurface().name(QColor::HexRgb);
   const QString text = BlopStyle::paperInk().name(QColor::HexRgb);
-  const QString muted = BlopStyle::paperInkMuted().name(QColor::HexRgb);
   const QString border = BlopStyle::paperBorder().name(QColor::HexRgb);
   const int radLg = UiScale::dp(BlopStyle::radiusLgDp());
   const int radMd = UiScale::dp(BlopStyle::radiusMdDp());
   card->setStyleSheet(QStringLiteral(
       "#PagesBarStrip {"
-      "  background: transparent; border: none;"
+      "  background: %2; border: 1px solid %5; border-radius: %6px;"
       "}"
       "#PagesBarStrip QPushButton#PagesBarPrimary {"
       "  background-color: transparent;"
-      "  border: 2px dashed %1;"
-      "  border-radius: %2px;"
-      "  padding: 20px 16px; min-height: 120px; max-height: 160px;"
+      "  border: 1.5px dashed %1;"
+      "  border-radius: %7px;"
+      "  padding: 8px 16px;"
+      "  color: %1; font-size: 14px; font-weight: 600; letter-spacing: 0.2px;"
       "  text-align: center;"
       "}"
       "#PagesBarStrip QPushButton#PagesBarPrimary:hover {"
-      "  background-color: %3;"
-      "  border-color: %1;"
+      "  background-color: %3; border-style: solid;"
       "}"
-      "#PagesBarStrip QLabel#PagesBarPrimaryIcon,"
-      "#PagesBarStrip QLabel#PagesBarPrimaryCaption {"
-      "  color: %1; background: transparent;"
-      "}"
-      "#PagesBarStrip QLabel#PagesBarPrimaryIcon {"
-      "  font-size: 36px; font-weight: 600;"
-      "}"
-      "#PagesBarStrip QLabel#PagesBarPrimaryCaption {"
-      "  font-size: 15px; font-weight: 600; letter-spacing: 0.15px;"
-      "  color: %4;"
-      "}"
-      "#PagesBarStrip QPushButton#PagesBarPrimary:hover"
-      " QLabel#PagesBarPrimaryCaption { color: %1; }"
       "#PagesBarStrip QPushButton, #PagesBarStrip QToolButton {"
       "  background-color: transparent;"
       "  border: 1px solid %5;"
-      "  border-radius: %6px;"
+      "  border-radius: %7px;"
       "  color: %4; font-size: 12px; font-weight: 600;"
-      "  padding: 10px 8px; min-height: 40px; max-height: 48px;"
+      "  padding: 8px 10px;"
       "}"
       "#PagesBarStrip QPushButton:hover, #PagesBarStrip QToolButton:hover {"
       "  background-color: %3; border-color: %1; color: %1;"
       "}")
-      .arg(accent, QString::number(radLg), primaryLight, text, border,
-           QString::number(radMd)));
-  Q_UNUSED(muted);
+      .arg(accent, surface, primaryLight, text, border,
+           QString::number(radLg), QString::number(radMd)));
 }
 } // namespace
 
@@ -1514,19 +1526,13 @@ static int kBottomSheetViewportBottomInset() {
     inset += UiScale::dp(44) + UiScale::dp(16);
   return inset;
 }
-/// Leichter seitlicher Luftabstand zum Viewport-Rand (schwebende Karte)
-static int kBottomSheetViewportSideInset() { return UiScale::dp(10); }
-/// Zielhöhe des Panels (wirkt beim Scrollen stabil, nicht „zusammengedrückt“)
-static int kBottomSheetPreferredHeight() {
-  if (UiScale::isAndroidPhoneUi())
-    return UiScale::dp(132);
-  return UiScale::dp(220);
-}
 /// Unter dieser Höhe zwischen letzter Seite und unterem Rand lieber ausblenden
 static int kBottomSheetMinVisibleHeight() {
   if (UiScale::isAndroidPhoneUi())
     return UiScale::dp(96);
-  return UiScale::dp(160);
+  // Inhalt braucht ~135dp (CTA 52 + Chips 38 + Margins/Spacing) — darunter
+  // wuerde das Layout die Labels ueber die Chips schieben.
+  return UiScale::dp(140);
 }
 
 #ifdef Q_OS_ANDROID
@@ -1598,18 +1604,41 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
           [this](AbstractTool *tool) {
             // Wenn Lineal gewählt ist, sicherstellen, dass es existiert
             if (tool && tool->mode() == ToolMode::Ruler) {
-              const QPointF spawn =
-                  mapToScene(viewport()->rect().center());
-              RulerTool::ensureRulerExists(&scene_,
-                                           ToolManager::instance().config(),
-                                           spawn);
+              // Keep a persisted/restored ruler where it is; only a fresh
+              // one spawns in the current viewport.
+              if (findActiveRuler(&scene_)) {
+                RulerTool::ensureRulerExists(&scene_,
+                                             ToolManager::instance().config());
+              } else {
+                const QPointF spawn =
+                    mapToScene(viewport()->rect().center());
+                RulerTool::ensureRulerExists(&scene_,
+                                             ToolManager::instance().config(),
+                                             spawn);
+              }
             }
             // Laser / other overlay tools: keep viewport painting while fading.
             disconnect(m_toolOverlayConn);
+            disconnect(m_toolContentConn);
             if (tool) {
               m_toolOverlayConn =
                   connect(tool, &AbstractTool::overlayChanged, this,
                           [this]() { viewport()->update(); });
+              // Eraser (and others) mutate scene items without a completed
+              // stroke item — debounce into the note model.
+              m_toolContentConn =
+                  connect(tool, &AbstractTool::contentModified, this,
+                          [this]() { scheduleStrokeSync(); });
+              // Ruler config changes (compass toggle, units, snap) must
+              // reach the scene item live.
+              disconnect(m_rulerToolConn);
+              if (auto *rt = qobject_cast<RulerTool *>(tool)) {
+                m_rulerToolConn =
+                    connect(rt, &RulerTool::requestUpdate, this, [this]() {
+                      RulerTool::ensureRulerExists(
+                          &scene_, ToolManager::instance().config());
+                    });
+              }
             }
             viewport()->update();
           });
@@ -2046,6 +2075,9 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   // Overlay über der Skeleton-Fläche — muss Maus-Events fangen (kein
   // WA_TransparentForMouseEvents, sonst gehen Klicks zur QGraphicsView durch).
   m_bottomSheet = new QWidget(this);
+  // Wheel-Events des Sheets an die View weiterreichen, sonst ist der Pull
+  // ueber der Menue-Flaeche tot.
+  m_bottomSheet->installEventFilter(this);
 
   m_pagesBarCard = new QFrame(m_bottomSheet);
   m_pagesBarCard->setObjectName(QStringLiteral("PagesBarStrip"));
@@ -2058,39 +2090,27 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   outerLay->addWidget(m_pagesBarCard, 1);
 
   auto *stripLay = new QVBoxLayout(m_pagesBarCard);
-  stripLay->setContentsMargins(18, 16, 18, 16);
-  stripLay->setSpacing(14);
+  stripLay->setContentsMargins(UiScale::dp(14), UiScale::dp(14),
+                               UiScale::dp(14), UiScale::dp(14));
+  stripLay->setSpacing(UiScale::dp(10));
 
-  auto *primaryBtn = new QPushButton(m_pagesBarCard);
+  // Kompakte einzeilige CTA — kein inneres Label-Layout mehr, das bei
+  // kleiner Sheet-Hoehe ueber die Chips gemalt wurde.
+  auto *primaryBtn = new QPushButton(
+      QStringLiteral("＋  Neue Seite"), m_pagesBarCard);
   primaryBtn->setObjectName(QStringLiteral("PagesBarPrimary"));
   primaryBtn->setCursor(Qt::PointingHandCursor);
   primaryBtn->setToolTip(QStringLiteral("Neue Seite"));
   primaryBtn->setAutoDefault(false);
   primaryBtn->setDefault(false);
   primaryBtn->setFocusPolicy(Qt::NoFocus);
-  primaryBtn->setMinimumHeight(120);
-  primaryBtn->setMaximumHeight(160);
-  primaryBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-  auto *primaryLay = new QVBoxLayout(primaryBtn);
-  primaryLay->setContentsMargins(0, 0, 0, 0);
-  primaryLay->setSpacing(6);
-  primaryLay->setAlignment(Qt::AlignCenter);
-
-  auto *lblPlus = new QLabel(QStringLiteral("＋"), primaryBtn);
-  lblPlus->setObjectName(QStringLiteral("PagesBarPrimaryIcon"));
-  lblPlus->setAlignment(Qt::AlignCenter);
-  lblPlus->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-  auto *lblCaption = new QLabel(QStringLiteral("Neue Seite"), primaryBtn);
-  lblCaption->setObjectName(QStringLiteral("PagesBarPrimaryCaption"));
-  lblCaption->setAlignment(Qt::AlignCenter);
-  lblCaption->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-  primaryLay->addWidget(lblPlus, 0, Qt::AlignHCenter);
-  primaryLay->addWidget(lblCaption, 0, Qt::AlignHCenter);
-  stripLay->addStretch(1);
-  stripLay->addWidget(primaryBtn, 0);
+  primaryBtn->setMinimumHeight(UiScale::dp(52));
+  // Fuellt die Karte wie der gestrichelte Bereich der Pull-Karte.
+  primaryBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  stripLay->addWidget(primaryBtn, 1);
 
   auto *bottomRow = new QHBoxLayout();
-  bottomRow->setSpacing(10);
+  bottomRow->setSpacing(UiScale::dp(10));
   auto *btnTpl = new QPushButton(QStringLiteral("Vorlagen"), m_pagesBarCard);
   btnTpl->setToolTip(QStringLiteral("Vorlagen"));
   auto *btnImport = new QPushButton(QStringLiteral("Importieren"), m_pagesBarCard);
@@ -2110,6 +2130,10 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   btnMore->setToolTip(QStringLiteral("Mehr"));
   btnTpl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   btnMore->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  const int chipH = UiScale::dp(38);
+  btnTpl->setMinimumHeight(chipH);
+  btnImport->setMinimumHeight(chipH);
+  btnMore->setMinimumHeight(chipH);
   bottomRow->addWidget(btnTpl, 1);
   bottomRow->addWidget(btnImport, 1);
   bottomRow->addWidget(btnMore, 1);
@@ -2136,48 +2160,9 @@ void MultiPageNoteView::hydratePageContent(int i) {
 
   bool wasBlocked = scene_.blockSignals(true);
   for (const auto &s : note_->pages[i].strokes) {
-    StrokeItem::StrokeStyle type = StrokeItem::Normal;
-    QPen pen;
-    if (s.isEraser) {
-      pen = QPen(UIStyles::PageBackground, s.width);
-      type = StrokeItem::Eraser;
-    } else if (s.isHighlighter) {
-      QColor c = s.color;
-      if (c.alpha() == 255)
-        c.setAlpha(80);
-      pen = QPen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-      type = StrokeItem::Highlighter;
-    } else {
-      pen = QPen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-      type = StrokeItem::Normal;
-    }
-
-    QVector<StrokePoint> strokePts;
-    if (type == StrokeItem::Normal && s.pressures.size() == s.points.size()) {
-      strokePts.reserve(s.points.size());
-      for (int k = 0; k < s.points.size(); ++k)
-        strokePts.append({s.points[k], s.pressures[k]});
-    }
-    QGraphicsPathItem *item = nullptr;
-    if (s.filled) {
-      item = new QGraphicsPathItem(s.path);
-      item->setPen(Qt::NoPen);
-      item->setBrush(s.color);
-    } else {
-      item = new StrokeItem(s.path, pen, strokePts, type);
-    }
-
-    if (s.isHighlighter) {
-        item->setZValue(0.5);
-    } else {
-        item->setZValue(1.0);
-    }
-
-    item->setFlag(QGraphicsItem::ItemIsSelectable, true);
-    item->setFlag(QGraphicsItem::ItemIsMovable, true);
+    QGraphicsPathItem *item = createStrokeGraphicsItem(s);
     item->setParentItem(pageItems_[i]);
     item->setPos(0, 0);
-    tagStrokeItem(item, s);
   }
   for (const auto& g : note_->pages[i].graphs) {
     auto* gi = new GraphCanvasItem(g.rect);
@@ -2229,6 +2214,10 @@ void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
   note_ = note;
   cancelCrop(); // v3.18.0: offene Crop-Session beenden, bevor scene_.clear()
                 // den Resizer löschen würde (dangling pointer).
+  // Gleiches fuer eine offene Lasso-Transform-Session (scene_.clear() loescht
+  // Overlay + Gruppe).
+  m_transformOverlay = nullptr;
+  m_transformGroup = nullptr;
   m_rebuildingScene = true;
   if (clearUndoStack) {
     if (m_undoStack)
@@ -2245,8 +2234,14 @@ void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
 
   layoutPages();
 
+  if (note_)
+    restoreRulerFromNote();
   if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
-    RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
+    if (findActiveRuler(&scene_))
+      RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
+    else
+      RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config(),
+                                   mapToScene(viewport()->rect().center()));
   }
 
   if (!note_) {
@@ -2268,6 +2263,19 @@ void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
 }
 
 QGraphicsPathItem *MultiPageNoteView::createStrokeGraphicsItem(const Stroke &s) {
+  if (s.shape) {
+    auto *item = new QGraphicsPathItem(s.path);
+    item->setPen(QPen(s.color, s.width, static_cast<Qt::PenStyle>(s.penStyle),
+                      Qt::RoundCap, Qt::RoundJoin));
+    if (s.fillColor.isValid())
+      item->setBrush(s.fillColor);
+    item->setFlag(QGraphicsItem::ItemIsSelectable, true);
+    item->setFlag(QGraphicsItem::ItemIsMovable, true);
+    item->setZValue(5.0);
+    item->setData(0, QStringLiteral("shape_item"));
+    tagStrokeItem(item, s);
+    return item;
+  }
   if (s.filled) {
     auto *item = new QGraphicsPathItem(s.path);
     item->setPen(Qt::NoPen);
@@ -2281,7 +2289,7 @@ QGraphicsPathItem *MultiPageNoteView::createStrokeGraphicsItem(const Stroke &s) 
   QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
   StrokeItem::StrokeStyle type = StrokeItem::Normal;
   if (s.isEraser) {
-    pen.setColor(Qt::white);
+    pen.setColor(UIStyles::PageBackground);
     pen.setWidthF(s.width);
     type = StrokeItem::Eraser;
   } else if (s.isHighlighter) {
@@ -2291,12 +2299,13 @@ QGraphicsPathItem *MultiPageNoteView::createStrokeGraphicsItem(const Stroke &s) 
     pen.setColor(c);
     type = StrokeItem::Highlighter;
   }
+  // Punkte immer mitgeben: ohne Druckwerte (Maus = gleichmaessig) gilt 1.0.
+  // Sonst hat das Item keine Punkte und der naechste Harvest leert das Modell.
   QVector<StrokePoint> strokePts;
-  if (s.pressures.size() == s.points.size() && !s.points.isEmpty()) {
-    strokePts.reserve(s.points.size());
-    for (int k = 0; k < s.points.size(); ++k)
-      strokePts.append({s.points[k], s.pressures[k]});
-  }
+  const bool hasPressure = s.pressures.size() == s.points.size();
+  strokePts.reserve(s.points.size());
+  for (int k = 0; k < s.points.size(); ++k)
+    strokePts.append({s.points[k], hasPressure ? s.pressures[k] : 1.0});
   auto *pathItem = new StrokeItem(s.path, pen, strokePts, type);
   pathItem->setFlag(QGraphicsItem::ItemIsSelectable, true);
   pathItem->setFlag(QGraphicsItem::ItemIsMovable, true);
@@ -2435,6 +2444,32 @@ void MultiPageNoteView::layoutPages() {
   syncPagesBarVisibility();
 }
 
+void MultiPageNoteView::bindRulerSignals() {
+  RulerItem *ruler = findActiveRuler(&scene_);
+  disconnect(m_rulerConn);
+  if (ruler) {
+    m_rulerConn = connect(ruler, &RulerItem::changed, this,
+                          [this]() { scheduleStrokeSync(); });
+  }
+}
+
+void MultiPageNoteView::restoreRulerFromNote() {
+  if (!note_ || !note_->ruler.placed || findActiveRuler(&scene_))
+    return;
+  auto *r = new RulerItem();
+  ToolConfig rc = ToolManager::instance().configFor(ToolMode::Ruler);
+  rc.compassMode = note_->ruler.compassMode;
+  r->setConfig(rc);
+  if (note_->ruler.width > 0 && note_->ruler.height > 0)
+    r->setBodySizeKeepingCenter(note_->ruler.width, note_->ruler.height);
+  r->setPos(note_->ruler.pos);
+  r->setRotation(note_->ruler.rotation);
+  r->setZValue(1000);
+  r->setVisible(false);
+  scene_.addItem(r);
+  rememberActiveRuler(&scene_, r);
+}
+
 void MultiPageNoteView::toggleRuler(bool active) {
     if (active) {
         ToolConfig config = ToolManager::instance().config();
@@ -2510,6 +2545,611 @@ void MultiPageNoteView::addNewPageWithLayout(int backgroundType,
   pushPageSnapshotCommand(before, tr("Add page with layout"));
 }
 
+void MultiPageNoteView::accumulateBottomPull(float delta) {
+  m_pullDistance += delta;
+  const double prog =
+      qMin(1.0, double(m_pullDistance) / double(kBottomRevealPull()));
+  if (m_pagesBarAnchorStrip)
+    m_pagesBarAnchorStrip->setPullProgress(prog);
+  // Waehrend des Pulls weicht das Sheet dem Indikator (syncPagesBarVisibility).
+  syncPagesBarVisibility();
+  if (m_pullDistance >= kBottomRevealPull()) {
+    cancelBottomPull();
+    addNewPage();
+    if (note_)
+      scrollToPage(note_->pages.size() - 1);
+  }
+}
+
+void MultiPageNoteView::debugSnapshotPagesBar(const QString &dir) {
+  QWidget *win = window();
+  QDir().mkpath(dir);
+  auto shot = [&](const QString &name) {
+    for (int i = 0; i < 3; ++i)
+      QCoreApplication::processEvents();
+    win->grab().save(QDir(dir).filePath(name));
+  };
+  QScrollBar *vb = verticalScrollBar();
+  vb->setValue(vb->maximum());
+  syncPagesBarVisibility();
+  shot(QStringLiteral("pagesbar_bottom.png"));
+  vb->setValue(qMax(vb->minimum(), vb->maximum() - UiScale::dp(160)));
+  syncPagesBarVisibility();
+  shot(QStringLiteral("pagesbar_entering.png"));
+  vb->setValue(vb->maximum());
+  accumulateBottomPull(float(kBottomRevealPull()) * 0.4f);
+  shot(QStringLiteral("pagesbar_pull40.png"));
+  accumulateBottomPull(float(kBottomRevealPull()) * 0.4f);
+  shot(QStringLiteral("pagesbar_pull80.png"));
+  cancelBottomPull();
+  shot(QStringLiteral("pagesbar_cancel.png"));
+}
+
+void MultiPageNoteView::debugSnapshotTools(const QString &dir) {
+  if (!note_ || pageItems_.isEmpty())
+    return;
+  QWidget *win = window();
+  QDir().mkpath(dir);
+  auto &mgr = ToolManager::instance();
+  auto log = [dir](const QString &msg) {
+    QFile f(QDir(dir).filePath(QStringLiteral("tools.log")));
+    if (f.open(QIODevice::Append | QIODevice::Text))
+      f.write((msg + QLatin1Char('\n')).toUtf8());
+  };
+  auto wait = [](int ms) {
+    QEventLoop loop;
+    QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+    loop.exec();
+  };
+  // Fenster + sichtbare Popups (eigene Top-Level-Fenster) in ein Bild.
+  auto shot = [&](const QString &name) {
+    wait(120);
+    QPixmap pm = win->grab();
+    QPainter p(&pm);
+    for (QWidget *w : QApplication::topLevelWidgets()) {
+      if (w == win || !w->isVisible() || !(w->windowFlags() & Qt::Popup))
+        continue;
+      p.drawPixmap(win->mapFromGlobal(w->mapToGlobal(QPoint(0, 0))), w->grab());
+    }
+    p.end();
+    pm.save(QDir(dir).filePath(name));
+  };
+  const QPointF origin = pageItems_[0]->scenePos();
+  auto vp = [&](const QPointF &pageLocal) {
+    return mapFromScene(origin + pageLocal);
+  };
+  auto send = [&](QEvent::Type t, const QPoint &pos) {
+    const bool rel = t == QEvent::MouseButtonRelease;
+    QMouseEvent e(t, QPointF(pos), QPointF(viewport()->mapToGlobal(pos)),
+                  t == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton,
+                  rel ? Qt::NoButton : Qt::LeftButton, Qt::NoModifier);
+    if (t == QEvent::MouseButtonPress)
+      mousePressEvent(&e);
+    else if (t == QEvent::MouseMove)
+      mouseMoveEvent(&e);
+    else
+      mouseReleaseEvent(&e);
+  };
+  // Stroke aus Seiten-Koordinaten; `holdMs` = Stillhalten vor dem Loslassen;
+  // `midShot` = Screenshot bei gedrueckter Taste (Live-Preview).
+  auto drag = [&](const QVector<QPointF> &pts, int holdMs = 0,
+                  const QString &midShot = QString()) {
+    send(QEvent::MouseButtonPress, vp(pts.first()));
+    for (int i = 1; i < pts.size(); ++i)
+      send(QEvent::MouseMove, vp(pts[i]));
+    if (!midShot.isEmpty())
+      shot(midShot);
+    if (holdMs > 0)
+      wait(holdMs);
+    send(QEvent::MouseButtonRelease, vp(pts.last()));
+    wait(60);
+  };
+  auto line = [](QPointF a, QPointF b, int n = 24, qreal wobble = 0.0) {
+    QVector<QPointF> v;
+    for (int i = 0; i <= n; ++i) {
+      const qreal t = qreal(i) / n;
+      QPointF p = a + (b - a) * t;
+      p.ry() += wobble * std::sin(t * 12.0);
+      v.append(p);
+    }
+    return v;
+  };
+  auto stats = [&](const QString &label) {
+    syncStrokesToNote();
+    syncStickyNotesToNote();
+    const NotePage &pg = note_->pages[0];
+    int shapes = 0, hl = 0, filled = 0, noPts = 0;
+    for (const Stroke &s : pg.strokes) {
+      shapes += s.shape;
+      hl += s.isHighlighter;
+      filled += s.filled;
+      noPts += (!s.shape && !s.filled && s.points.isEmpty());
+    }
+    RulerItem *r = findActiveRuler(&scene_);
+    log(QStringLiteral("%1 | strokes=%2 shapes=%3 hl=%4 filled=%5(noPts=%14) "
+                       "graphs=%6 stickies=%7 texts=%8 sel=%9 sceneItems=%10 "
+                       "undo=%11 ruler=%12 tool=%13")
+            .arg(label, -28)
+            .arg(pg.strokes.size())
+            .arg(shapes)
+            .arg(hl)
+            .arg(filled)
+            .arg(pg.graphs.size())
+            .arg(pg.stickies.size())
+            .arg(pg.texts.size())
+            .arg(scene_.selectedItems().size())
+            .arg(scene_.items().size())
+            .arg(undoDepth())
+            .arg(r ? (r->isVisible() ? QStringLiteral("vis@%1deg")
+                                           .arg(r->rotation())
+                                     : QStringLiteral("hidden"))
+                   : QStringLiteral("none"))
+            .arg(int(mgr.activeToolMode()))
+            .arg(noPts));
+  };
+  // Speichern -> Laden -> Vergleich (Temp-Datei), an mehreren Stellen.
+  auto roundtrip = [&](const QString &label, bool exportPng) {
+    syncStrokesToNote();
+    syncStickyNotesToNote();
+    const QString path = QDir(dir).filePath(QStringLiteral("roundtrip.blop"));
+    Note back;
+    const bool saved = NoteManager::saveNote(*note_, path);
+    const bool loaded = saved && NoteManager::loadNote(path, back);
+    if (!loaded || back.pages.isEmpty()) {
+      log(QStringLiteral("%1 roundtrip FAILED saved=%2 loaded=%3")
+              .arg(label)
+              .arg(saved)
+              .arg(loaded));
+      return;
+    }
+    const NotePage &a = note_->pages[0];
+    const NotePage &b = back.pages[0];
+    int mism = 0, lostInk = 0;
+    const int n = qMin(a.strokes.size(), b.strokes.size());
+    for (int i = 0; i < n; ++i) {
+      const Stroke &x = a.strokes[i];
+      const Stroke &y = b.strokes[i];
+      const QRectF bx = x.path.boundingRect(), by = y.path.boundingRect();
+      const bool same =
+          x.shape == y.shape && x.filled == y.filled &&
+          x.isHighlighter == y.isHighlighter && x.penStyle == y.penStyle &&
+          x.color == y.color && x.fillColor == y.fillColor &&
+          qAbs(x.width - y.width) < 0.01 &&
+          x.points.size() == y.points.size() &&
+          qAbs(bx.width() - by.width()) < 1.0 &&
+          qAbs(bx.height() - by.height()) < 1.0;
+      if (y.path.isEmpty() && !x.path.isEmpty())
+        ++lostInk;
+      if (!same) {
+        ++mism;
+        log(QStringLiteral("   %1 MISMATCH stroke %2: shape %3/%4 filled %5/%6 "
+                           "hl %7/%8 pts %9/%10 bbox %11x%12 / %13x%14")
+                .arg(label)
+                .arg(i)
+                .arg(x.shape)
+                .arg(y.shape)
+                .arg(x.filled)
+                .arg(y.filled)
+                .arg(x.isHighlighter)
+                .arg(y.isHighlighter)
+                .arg(x.points.size())
+                .arg(y.points.size())
+                .arg(bx.width(), 0, 'f', 1)
+                .arg(bx.height(), 0, 'f', 1)
+                .arg(by.width(), 0, 'f', 1)
+                .arg(by.height(), 0, 'f', 1));
+      }
+    }
+    log(QStringLiteral("%1 roundtrip strokes %2/%3 mismatches=%4 "
+                       "inkLostOnReload=%5 graphs %6/%7 stickies %8/%9 texts "
+                       "%10/%11 ruler placed %12/%13")
+            .arg(label)
+            .arg(a.strokes.size())
+            .arg(b.strokes.size())
+            .arg(mism)
+            .arg(lostInk)
+            .arg(a.graphs.size())
+            .arg(b.graphs.size())
+            .arg(a.stickies.size())
+            .arg(b.stickies.size())
+            .arg(a.texts.size())
+            .arg(b.texts.size())
+            .arg(note_->ruler.placed)
+            .arg(back.ruler.placed));
+    if (exportPng)
+      NotePageRenderer::renderFullPage(b).save(
+          QDir(dir).filePath(QStringLiteral("t14_export_page1.png")));
+  };
+  auto lastStrokeBox = [&]() {
+    const auto &st = note_->pages[0].strokes;
+    return st.isEmpty() ? QRectF() : st.last().path.boundingRect();
+  };
+  auto setCfg = [&](ToolMode m, const std::function<void(ToolConfig &)> &fn) {
+    ToolConfig c = mgr.configFor(m);
+    fn(c);
+    mgr.configFor(m) = c;
+  };
+
+  verticalScrollBar()->setValue(verticalScrollBar()->minimum());
+  wait(200);
+  log(QStringLiteral("zoom=%1 viewport=%2x%3")
+          .arg(zoom_)
+          .arg(viewport()->width())
+          .arg(viewport()->height()));
+  stats(QStringLiteral("00 start"));
+
+  // 1 Kuli: Welle, ohne Pause -> muss Freihand bleiben.
+  noteActivateTool(ToolMode::Pen);
+  drag(line({80, 140}, {380, 140}, 40, 22.0));
+  stats(QStringLiteral("01 pen wave"));
+
+  // 2 Bleistift
+  noteActivateTool(ToolMode::Pencil);
+  drag(line({80, 225}, {380, 232}, 30, 3.0));
+  stats(QStringLiteral("02 pencil"));
+
+  // 3 Marker ueber die Kuli-Welle; Live-Screenshot bei gedrueckter Taste.
+  noteActivateTool(ToolMode::Highlighter);
+  drag(line({70, 140}, {390, 140}, 30), 0, QStringLiteral("t03_marker_live.png"));
+  stats(QStringLiteral("03 highlighter"));
+  shot(QStringLiteral("t03_marker_done.png"));
+
+  // 4 Tinte-zu-Form: Rechteck + 500 ms halten.
+  noteActivateTool(ToolMode::Pen);
+  {
+    QVector<QPointF> r;
+    r += line({450, 120}, {700, 118}, 14);
+    r += line({700, 118}, {702, 260}, 10);
+    r += line({702, 260}, {448, 262}, 14);
+    r += line({448, 262}, {450, 120}, 10);
+    drag(r, 500);
+    stats(QStringLiteral("04 ink2shape rect+hold"));
+    // Kontrolle: gleicher Kreis-Zug ohne Halten bleibt Freihand.
+    QVector<QPointF> c;
+    for (int i = 0; i <= 40; ++i) {
+      const qreal a = i / 40.0 * 6.2832;
+      c.append(QPointF(600 + 60 * std::cos(a), 360 + 60 * std::sin(a)));
+    }
+    drag(c, 0);
+    stats(QStringLiteral("04b circle no hold"));
+  }
+  shot(QStringLiteral("t04_ink2shape.png"));
+
+  // 5 Formen-Tool: Rechteck, Ellipse, Pfeil.
+  noteActivateTool(ToolMode::Shape, int(ShapeToolKind::Rectangle));
+  drag(line({80, 300}, {250, 410}, 10));
+  noteActivateTool(ToolMode::Shape, int(ShapeToolKind::Ellipse));
+  drag(line({280, 300}, {440, 410}, 10));
+  noteActivateTool(ToolMode::Shape, int(ShapeToolKind::Arrow));
+  drag(line({80, 450}, {300, 450}, 10));
+  stats(QStringLiteral("05 shapes x3"));
+  shot(QStringLiteral("t05_shapes.png"));
+
+  // 6 Radierer: Pixel quer durch die Kuli-Welle, Objekt auf Bleistift.
+  setCfg(ToolMode::Eraser, [](ToolConfig &c) {
+    c.eraserMode = EraserMode::Pixel;
+    c.penWidth = 24;
+  });
+  noteActivateTool(ToolMode::Eraser);
+  drag(line({230, 95}, {230, 185}, 12), 0,
+       QStringLiteral("t06_eraser_live.png"));
+  stats(QStringLiteral("06 eraser pixel"));
+  setCfg(ToolMode::Eraser,
+         [](ToolConfig &c) { c.eraserMode = EraserMode::Object; });
+  noteActivateTool(ToolMode::Hand);
+  noteActivateTool(ToolMode::Eraser);
+  drag(line({200, 205}, {200, 250}, 8));
+  stats(QStringLiteral("06b eraser object"));
+  // 6c: Pixel-Radierer auf normalem Marker (ohne Halten) und auf einer Form.
+  noteActivateTool(ToolMode::Highlighter);
+  drag(line({330, 485}, {520, 485}, 20, 2.0));
+  stats(QStringLiteral("06c plain marker added"));
+  setCfg(ToolMode::Eraser,
+         [](ToolConfig &c) { c.eraserMode = EraserMode::Pixel; });
+  noteActivateTool(ToolMode::Hand);
+  noteActivateTool(ToolMode::Eraser);
+  drag(line({420, 462}, {420, 508}, 8));
+  stats(QStringLiteral("06d pixel on plain marker"));
+  drag(line({360, 285}, {360, 325}, 8));
+  stats(QStringLiteral("06e pixel on ellipse shape"));
+  shot(QStringLiteral("t06_eraser.png"));
+  roundtrip(QStringLiteral("R1 after eraser"), false);
+
+  // 7 Lasso: erst EIN Objekt (Kreis), dann zwei (Rechteck + Pfeil).
+  setCfg(ToolMode::Lasso,
+         [](ToolConfig &c) { c.lassoMode = LassoMode::Rectangle; });
+  noteActivateTool(ToolMode::Lasso);
+  const int itemsBeforeLasso = scene_.items().size();
+  auto lassoState = [&](const QString &label) {
+    log(QStringLiteral("   lasso %1: selected=%2 overlay=%3 group=%4 "
+                       "menuVisible=%5 extraItems=%6")
+            .arg(label)
+            .arg(scene_.selectedItems().size())
+            .arg(m_transformOverlay != nullptr)
+            .arg(m_transformGroup != nullptr)
+            .arg(m_selectionMenu && m_selectionMenu->isVisible())
+            .arg(scene_.items().size() - itemsBeforeLasso));
+  };
+  drag(line({525, 285}, {675, 435}, 10));
+  wait(250);
+  lassoState(QStringLiteral("single (circle) after release"));
+  shot(QStringLiteral("t07_lasso_single.png"));
+  send(QEvent::MouseButtonPress, vp({620, 700}));
+  send(QEvent::MouseButtonRelease, vp({620, 700}));
+  wait(250);
+  lassoState(QStringLiteral("single after click empty"));
+  drag(line({60, 285}, {265, 425}, 10), 0,
+       QStringLiteral("t07_lasso_live.png"));
+  wait(250);
+  lassoState(QStringLiteral("multi (rect+arrow) after release"));
+  stats(QStringLiteral("07 lasso select"));
+  shot(QStringLiteral("t07_lasso_selected.png"));
+  log(QStringLiteral("   lasso: overlay=%1 hudItems(delta)=%2")
+          .arg(m_transformOverlay != nullptr)
+          .arg(scene_.items().size() - itemsBeforeLasso));
+  drag(line({160, 355}, {160, 395}, 8)); // in der Auswahl ziehen
+  wait(150);
+  stats(QStringLiteral("07b lasso drag inside"));
+  shot(QStringLiteral("t07_lasso_dragged.png"));
+  send(QEvent::MouseButtonPress, vp({620, 700}));
+  send(QEvent::MouseButtonRelease, vp({620, 700}));
+  wait(250);
+  stats(QStringLiteral("07c lasso click empty"));
+  lassoState(QStringLiteral("multi after click empty"));
+  {
+    int ghost = 0;
+    for (QGraphicsItem *it : scene_.items())
+      ghost += it->isSelected() ||
+               (it->flags() & QGraphicsItem::ItemIsSelectable &&
+                it->group() != nullptr);
+    log(QStringLiteral("   lasso: items still flagged selected/grouped=%1")
+            .arg(ghost));
+  }
+  // Leeres Lasso: darf nichts auswaehlen und nichts hinterlassen.
+  drag(line({560, 640}, {700, 740}, 8));
+  wait(250);
+  stats(QStringLiteral("07d lasso empty area"));
+  log(QStringLiteral("   lasso: leftover items=%1 overlay=%2")
+          .arg(scene_.items().size() - itemsBeforeLasso)
+          .arg(m_transformOverlay != nullptr));
+  shot(QStringLiteral("t07_lasso_cleared.png"));
+
+  // 8 Lineal: erscheinen, drehen, Toolwechsel, Snap, Re-Aktivierung.
+  noteActivateTool(ToolMode::Ruler);
+  wait(200);
+  stats(QStringLiteral("08 ruler activate"));
+  if (RulerItem *r = findActiveRuler(&scene_)) {
+    log(QStringLiteral("   ruler: size=%1x%2 scenePos=%3,%4 page=%5x%6")
+            .arg(r->bodySize().width())
+            .arg(r->bodySize().height())
+            .arg(r->scenePos().x())
+            .arg(r->scenePos().y())
+            .arg(a4wPx())
+            .arg(a4hPx()));
+    shot(QStringLiteral("t08_ruler.png"));
+    // Punkt auf dem Koerper, neben dem Reset-Knopf in der Mitte.
+    const QPointF centerScene =
+        r->mapToScene(r->transformOriginPoint() + QPointF(-150, 0));
+    const QPoint cvp = mapFromScene(centerScene);
+    {
+      const qreal a0 = r->rotation();
+      r->applyWheelDelta(-120, Qt::NoModifier);
+      const qreal a1 = r->rotation();
+      r->applyWheelDelta(-120, Qt::ShiftModifier);
+      const qreal a2 = r->rotation();
+      log(QStringLiteral("   ruler: rulerSnap=%1 hitOnBody=%2 direct "
+                         "applyWheelDelta: %3 -> %4 (5deg-Schritt), Shift: -> %5")
+              .arg(r->config().rulerSnap)
+              .arg(r->canStartInteractionAtScenePos(centerScene))
+              .arg(a0)
+              .arg(a1)
+              .arg(a2));
+      r->setRotation(0);
+    }
+    const qreal rot0 = r->rotation();
+    QWheelEvent we(QPointF(cvp), QPointF(viewport()->mapToGlobal(cvp)),
+                   QPoint(), QPoint(0, -360), Qt::NoButton, Qt::NoModifier,
+                   Qt::NoScrollPhase, false);
+    wheelEvent(&we);
+    log(QStringLiteral("   ruler: wheel on body rot %1 -> %2 (tool=ruler)")
+            .arg(rot0)
+            .arg(r->rotation()));
+    noteActivateTool(ToolMode::Pen);
+    const qreal rot1 = r->rotation();
+    QWheelEvent we2(QPointF(cvp), QPointF(viewport()->mapToGlobal(cvp)),
+                    QPoint(), QPoint(0, 360), Qt::NoButton, Qt::NoModifier,
+                    Qt::NoScrollPhase, false);
+    wheelEvent(&we2);
+    log(QStringLiteral("   ruler: wheel on body rot %1 -> %2 (tool=pen) "
+                       "visibleAfterToolSwitch=%3")
+            .arg(rot1)
+            .arg(r->rotation())
+            .arg(r->isVisible()));
+    shot(QStringLiteral("t08_ruler_rotated.png"));
+    // Snap: waagerecht legen, wackeligen Strich 8px ueber der Kante.
+    r->setRotation(0);
+    const QPointF tl = r->scenePos() - origin; // Seiten-lokal
+    const qreal x0 = qMax<qreal>(60, tl.x() + 40);
+    const qreal x1 = qMin<qreal>(a4wPx() - 60, tl.x() + r->bodySize().width() - 40);
+    drag(line({x0, tl.y() - 8}, {x1, tl.y() - 8}, 30, 5.0));
+    syncStrokesToNote();
+    const QRectF nearBox = lastStrokeBox();
+    drag(line({x0, tl.y() - 140}, {x1, tl.y() - 140}, 30, 5.0));
+    syncStrokesToNote();
+    const QRectF farBox = lastStrokeBox();
+    log(QStringLiteral("   ruler: stroke near edge bboxH=%1 (snap => ~0), "
+                       "far stroke bboxH=%2 (frei => ~10), edgeY=%3 nearY=%4")
+            .arg(nearBox.height())
+            .arg(farBox.height())
+            .arg(tl.y())
+            .arg(nearBox.center().y()));
+    shot(QStringLiteral("t08_ruler_snap.png"));
+    // Re-Aktivierung: versteckt -> Tool erneut waehlen.
+    r->setVisible(false);
+    noteActivateTool(ToolMode::Ruler);
+    wait(150);
+    log(QStringLiteral("   ruler: reactivate from pen -> visible=%1")
+            .arg(r->isVisible()));
+    r->setVisible(false);
+    noteActivateTool(ToolMode::Ruler); // Tool ist bereits aktiv
+    wait(150);
+    log(QStringLiteral("   ruler: reactivate while active -> visible=%1")
+            .arg(r->isVisible()));
+    stats(QStringLiteral("08b ruler done"));
+    r->setVisible(false);
+  } else {
+    log(QStringLiteral("   ruler: NOT CREATED"));
+  }
+
+  // 9 Bemassung (Laenge per Drag)
+  setCfg(ToolMode::Dimension,
+         [](ToolConfig &c) { c.dimensionKind = DimensionKind::Length; });
+  noteActivateTool(ToolMode::Dimension);
+  drag(line({80, 520}, {380, 520}, 10));
+  stats(QStringLiteral("09 dimension length"));
+
+  // 10 Formel/Graph per Drag
+  noteActivateTool(ToolMode::Formula);
+  drag(line({80, 580}, {360, 780}, 10));
+  wait(300);
+  stats(QStringLiteral("10 formula graph"));
+
+  // 11 Sticky
+  noteActivateTool(ToolMode::StickyNote);
+  send(QEvent::MouseButtonPress, vp({470, 560}));
+  send(QEvent::MouseButtonRelease, vp({470, 560}));
+  wait(200);
+  stats(QStringLiteral("11 sticky"));
+  roundtrip(QStringLiteral("R2 before text"), false);
+
+  // 12 Text
+  noteActivateTool(ToolMode::Text);
+  send(QEvent::MouseButtonPress, vp({420, 820}));
+  send(QEvent::MouseButtonRelease, vp({420, 820}));
+  wait(200);
+  if (m_activeTextItem) {
+    QTextCursor tc = m_activeTextItem->textCursor();
+    tc.insertText(QStringLiteral("Testtext 123"));
+    m_activeTextItem->setTextCursor(tc);
+  }
+  shot(QStringLiteral("t12_text_editing.png"));
+  commitTextEditSession();
+  wait(150);
+  stats(QStringLiteral("12 text"));
+  noteActivateTool(ToolMode::Pen);
+  shot(QStringLiteral("t13_all_tools.png"));
+
+  // 13 Undo/Redo
+  const int strokesBeforeUndo = note_->pages[0].strokes.size();
+  for (int i = 0; i < 3; ++i)
+    undo();
+  wait(150);
+  stats(QStringLiteral("13 undo x3"));
+  for (int i = 0; i < 3; ++i)
+    redo();
+  wait(150);
+  stats(QStringLiteral("13b redo x3"));
+  log(QStringLiteral("   undo: strokes before=%1 afterRedo=%2")
+          .arg(strokesBeforeUndo)
+          .arg(note_->pages[0].strokes.size()));
+
+  // 14 Persistenz-Roundtrip (Temp-Datei) + Export-Renderer
+  roundtrip(QStringLiteral("R3 final"), true);
+
+  // 15 Toolbar-Popover: echte Klicks auf die Tiles.
+  NoteToolbarBase *tb = nullptr;
+  for (NoteToolbarBase *c : win->findChildren<NoteToolbarBase *>())
+    if (c->isVisible())
+      tb = c;
+  if (!tb) {
+    log(QStringLiteral("15 toolbar: none visible"));
+  } else {
+    const QRect tbGeo(tb->mapToGlobal(QPoint(0, 0)), tb->size());
+    log(QStringLiteral("15 toolbar %1 global=%2,%3 %4x%5")
+            .arg(QString::fromLatin1(tb->metaObject()->className()))
+            .arg(tbGeo.x())
+            .arg(tbGeo.y())
+            .arg(tbGeo.width())
+            .arg(tbGeo.height()));
+    auto popups = [&](const QString &label) {
+      bool any = false;
+      for (QWidget *w : QApplication::topLevelWidgets()) {
+        if (w == win || !w->isVisible())
+          continue;
+        any = true;
+        const QRect g(w->mapToGlobal(QPoint(0, 0)), w->size());
+        log(QStringLiteral("   %1: toplevel %2 '%3' at %4,%5 %6x%7 "
+                           "gapBelowToolbar=%8 flags=%9")
+                .arg(label, QString::fromLatin1(w->metaObject()->className()),
+                     w->objectName())
+                .arg(g.x())
+                .arg(g.y())
+                .arg(g.width())
+                .arg(g.height())
+                .arg(g.top() - tbGeo.bottom())
+                .arg(int(w->windowFlags() & Qt::WindowType_Mask), 0, 16));
+      }
+      for (QWidget *w : win->findChildren<QWidget *>()) {
+        const QString cn = QString::fromLatin1(w->metaObject()->className());
+        if (!w->isVisible() || !(cn.contains(QLatin1String("Popover")) ||
+                                 cn.contains(QLatin1String("PropertiesPanel"))))
+          continue;
+        any = true;
+        const QRect g(w->mapToGlobal(QPoint(0, 0)), w->size());
+        log(QStringLiteral("   %1: child %2 at %3,%4 %5x%6 gapBelowToolbar=%7")
+                .arg(label, cn)
+                .arg(g.x())
+                .arg(g.y())
+                .arg(g.width())
+                .arg(g.height())
+                .arg(g.top() - tbGeo.bottom()));
+      }
+      if (!any)
+        log(QStringLiteral("   %1: NO popover visible").arg(label));
+    };
+    auto closePopups = [&]() {
+      for (QWidget *w : QApplication::topLevelWidgets())
+        if (w != win && w->isVisible() && (w->windowFlags() & Qt::Popup))
+          w->close();
+      wait(120);
+    };
+    struct P {
+      ToolMode mode;
+      const char *name;
+    };
+    for (const P &p : {P{ToolMode::Pen, "pen"}, P{ToolMode::Highlighter, "marker"},
+                       P{ToolMode::Eraser, "eraser"}, P{ToolMode::Shape, "shape"},
+                       P{ToolMode::Ruler, "ruler"}, P{ToolMode::Lasso, "lasso"}}) {
+      noteActivateTool(ToolMode::Hand);
+      const bool c1 = tb->debugClickTool(p.mode); // aktivieren
+      wait(150);
+      const bool active = mgr.activeToolMode() == p.mode;
+      tb->debugClickTool(p.mode); // zweiter Klick = Einstellungen
+      wait(350);
+      log(QStringLiteral("15 %1: tile=%2 activeAfterClick=%3")
+              .arg(QString::fromLatin1(p.name))
+              .arg(c1)
+              .arg(active));
+      popups(QString::fromLatin1(p.name));
+      shot(QStringLiteral("t15_popover_%1.png").arg(QString::fromLatin1(p.name)));
+      closePopups();
+    }
+    if (RulerItem *r = findActiveRuler(&scene_))
+      r->setVisible(false);
+  }
+  noteActivateTool(ToolMode::Pen);
+  log(QStringLiteral("tools snapshot done"));
+}
+
+void MultiPageNoteView::cancelBottomPull() {
+  if (m_pullDistance <= 0.f)
+    return;
+  m_pullDistance = 0.f;
+  if (m_pagesBarAnchorStrip)
+    m_pagesBarAnchorStrip->setPullProgress(0.0);
+  syncPagesBarVisibility();
+}
+
 void MultiPageNoteView::showBottomSheetFromPull() {
   m_pullDistance = 0.f;
   syncPagesBarVisibility();
@@ -2555,6 +3195,14 @@ void MultiPageNoteView::syncPagesBarVisibility() {
     m_pullDistance = 0.f;
     return;
   }
+  // Waehrend eines aktiven Pulls zeigt die Strip den Fortschritts-Indikator —
+  // das Sheet darf ihn nicht verdecken, sonst ist der Pull blind.
+  if (m_pullDistance > 0.f) {
+    m_bottomSheet->hide();
+    if (m_pagesBarAnchorStrip)
+      m_pagesBarAnchorStrip->setVisible(true);
+    return;
+  }
   if (m_pagesBarAnchorStrip)
     m_pagesBarAnchorStrip->setVisible(false);
   m_bottomSheet->show();
@@ -2596,10 +3244,10 @@ void MultiPageNoteView::updateBottomSheetGeometry() {
                          QPointF(a4wPx() * 0.5, lastPageBottomSceneY()))
                          .y();
 
-  int x = skView.left() + kBottomSheetViewportSideInset();
-  int w = skView.width() - 2 * kBottomSheetViewportSideInset();
-  x = qBound(0, x, qMax(0, width() - 1));
-  w = qMin(qMax(w, 0), width() - x);
+  // Sheet belegt exakt den Rahmen der Plus-Karte (SkeletonPageItem), damit
+  // Ruhezustand und Pull-Indikator nicht gegeneinander springen.
+  int x = qBound(0, skView.left(), qMax(0, width() - 1));
+  int w = qMin(qMax(skView.width(), 0), width() - x);
 
   const int maxBottomY = height() - kBottomSheetViewportBottomInset();
   const int bottom = qMin(skView.bottom(), maxBottomY);
@@ -2612,9 +3260,7 @@ void MultiPageNoteView::updateBottomSheetGeometry() {
     return;
   }
 
-  const int h = qMin(kBottomSheetPreferredHeight(), availableBelowPage);
-  int y = bottom - h;
-  y = qMax(y, floorY);
+  int y = qMax(skView.top(), floorY);
   y = qMax(y, 0);
   const int hClamped = bottom - y;
   if (hClamped < kBottomSheetMinVisibleHeight()) {
@@ -3102,7 +3748,9 @@ void MultiPageNoteView::zoomBy(qreal factor) {
 }
 
 void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
-  if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+  // Wheel over a visible ruler rotates it — with any tool (the ruler is a
+  // drawing aid, not tied to the ruler tool). Ctrl stays zoom.
+  if (!(e->modifiers() & Qt::ControlModifier)) {
     const QPointF scenePos = mapToScene(e->position().toPoint());
     RulerItem *ruler = findActiveRuler(&scene_);
     if (ruler && ruler->isVisible() &&
@@ -3121,35 +3769,40 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
   } else {
     QScrollBar *vb = verticalScrollBar();
     if (vb->value() >= vb->maximum() && e->angleDelta().y() < 0) {
-      m_pullDistance += std::abs(e->angleDelta().y()) * 0.5f;
-      // v3.16.1: visual pull-progress on the Plus-Card (SkeletonPageItem).
-      const double prog =
-          qMin(1.0, double(m_pullDistance) / double(kBottomRevealPull()));
-      if (m_pagesBarAnchorStrip)
-        m_pagesBarAnchorStrip->setPullProgress(prog);
-      if (m_pullDistance >= kBottomRevealPull()) {
-        // v3.16.1: pull-up beyond threshold commits a NEW page directly
-        // instead of just scrolling the bottom sheet into view. The PagesBar
-        // QWidget remains accessible at note-end for templates/import/etc.
-        m_pullDistance = 0.f;
-        if (m_pagesBarAnchorStrip)
-          m_pagesBarAnchorStrip->setPullProgress(0.0);
-        addNewPage();
-        if (note_)
-          scrollToPage(note_->pages.size() - 1);
-      }
+      // Pull-up beyond the bottom: Widerstand -> Indikator -> neue Seite.
+      accumulateBottomPull(std::abs(e->angleDelta().y()) * 0.5f);
       e->accept();
       return;
     }
 
-    if (m_pullDistance > 0.f && e->angleDelta().y() > 0) {
-      m_pullDistance = 0.f;
-      if (m_pagesBarAnchorStrip)
-        m_pagesBarAnchorStrip->setPullProgress(0.0);
-    }
+    if (e->angleDelta().y() > 0)
+      cancelBottomPull();
 
     QGraphicsView::wheelEvent(e);
   }
+}
+
+bool MultiPageNoteView::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == m_bottomSheet && event->type() == QEvent::Wheel) {
+    auto *we = static_cast<QWheelEvent *>(event);
+    if (we->modifiers() & Qt::ControlModifier) {
+      zoomBy(we->angleDelta().y() > 0 ? 1.1 : 0.9);
+      return true;
+    }
+    QScrollBar *vb = verticalScrollBar();
+    if (vb->value() >= vb->maximum() && we->angleDelta().y() < 0) {
+      accumulateBottomPull(std::abs(we->angleDelta().y()) * 0.5f);
+      return true;
+    }
+    if (we->angleDelta().y() > 0)
+      cancelBottomPull();
+    // Normales Scrollen wie QAbstractScrollArea::wheelEvent.
+    if (QScrollBar *hb = horizontalScrollBar())
+      hb->setValue(hb->value() - we->angleDelta().x());
+    vb->setValue(vb->value() - we->angleDelta().y());
+    return true;
+  }
+  return QGraphicsView::eventFilter(watched, event);
 }
 
 bool MultiPageNoteView::viewportEvent(QEvent *ev) {
@@ -3266,7 +3919,7 @@ void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
   if (gesture->state() == Qt::GestureStarted) {
     m_isZooming = true;
     m_isPanning = false;
-    m_pullDistance = 0;
+    cancelBottomPull();
     viewport()->update();
   }
 
@@ -3468,17 +4121,16 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
     return;
   }
 
-  // --- ToolManager & Ruler Logic ---
-  AbstractTool *tool = ToolManager::instance().activeTool();
+  // --- ToolEngine (single mouse funnel; no Mouse→Tablet double path) ---
+  AbstractTool *tool = ToolEngine::activeTool();
   if (tool && e->button() == Qt::LeftButton) {
-    QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMousePress);
-    scEvent.setScenePos(mapToScene(e->pos()));
-    scEvent.setButton(e->button());
-    scEvent.setButtons(e->buttons());
-    scEvent.setModifiers(e->modifiers());
-
-    // An scene_ weiterleiten, damit Lineal-Tool Events bekommt
-    if (tool->handleMousePress(&scEvent, &scene_)) {
+    ToolEngine::Pointer ptr;
+    ptr.scenePos = mapToScene(e->pos());
+    ptr.button = e->button();
+    ptr.buttons = e->buttons();
+    ptr.modifiers = e->modifiers();
+    ptr.device = ToolEngine::Device::Mouse;
+    if (ToolEngine::begin(&scene_, ptr)) {
       if (tool->mode() == ToolMode::StickyNote)
         syncStickyNotesToNote();
       e->accept();
@@ -3486,17 +4138,7 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
     }
   }
 
-  if (e->button() == Qt::LeftButton && tool &&
-     (tool->mode() == ToolMode::Pen || tool->mode() == ToolMode::Eraser ||
-      tool->mode() == ToolMode::Highlighter || tool->mode() == ToolMode::Pencil)) {
-    QTabletEvent fake(QEvent::TabletPress,
-                      QPointingDevice::primaryPointingDevice(), e->position(),
-                      e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(),
-                      e->button(), e->buttons());
-    tabletEvent(&fake);
-  } else {
-    QGraphicsView::mousePressEvent(e);
-  }
+  QGraphicsView::mousePressEvent(e);
 }
 
 void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
@@ -3517,31 +4159,12 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
 
     QScrollBar *vb = verticalScrollBar();
     if (vb->value() >= vb->maximum() && delta.y() < 0) {
-      m_pullDistance += std::abs(delta.y()) * 0.5f;
-      // v3.16.1: drive the Plus-Card visual feedback during touch pull-up.
-      const double prog =
-          qMin(1.0, double(m_pullDistance) / double(kBottomRevealPull()));
-      if (m_pagesBarAnchorStrip)
-        m_pagesBarAnchorStrip->setPullProgress(prog);
-      if (m_pullDistance >= kBottomRevealPull()) {
-        // v3.16.1: threshold commits a new page directly instead of just
-        // surfacing the existing PagesBar sheet.
-        m_pullDistance = 0.f;
-        if (m_pagesBarAnchorStrip)
-          m_pagesBarAnchorStrip->setPullProgress(0.0);
-        addNewPage();
-        if (note_)
-          scrollToPage(note_->pages.size() - 1);
-      }
+      accumulateBottomPull(std::abs(delta.y()) * 0.5f);
     } else {
       horizontalScrollBar()->setValue(horizontalScrollBar()->value() -
                                       delta.x());
       verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
-      if (m_pullDistance > 0.f) {
-        m_pullDistance = 0.f;
-        if (m_pagesBarAnchorStrip)
-          m_pagesBarAnchorStrip->setPullProgress(0.0);
-      }
+      cancelBottomPull();
     }
 
     e->accept();
@@ -3558,30 +4181,21 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
     return;
   }
 
-  // --- ToolManager Logic ---
-  AbstractTool *tool = ToolManager::instance().activeTool();
-  if (tool) {
-    QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseMove);
-    scEvent.setScenePos(mapToScene(e->pos()));
-    scEvent.setButtons(e->buttons());
-    scEvent.setModifiers(e->modifiers());
-
-    if (tool->handleMouseMove(&scEvent, &scene_)) {
+  // --- ToolEngine ---
+  if (ToolEngine::activeTool()) {
+    ToolEngine::Pointer ptr;
+    ptr.scenePos = mapToScene(e->pos());
+    ptr.button = e->button();
+    ptr.buttons = e->buttons();
+    ptr.modifiers = e->modifiers();
+    ptr.device = ToolEngine::Device::Mouse;
+    if (ToolEngine::move(&scene_, ptr)) {
       e->accept();
       return;
     }
   }
-  // -----------------------------------
 
-  if (e->buttons() & Qt::LeftButton && drawing_) {
-    QTabletEvent fake(QEvent::TabletMove,
-                      QPointingDevice::primaryPointingDevice(), e->position(),
-                      e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(),
-                      e->button(), e->buttons());
-    tabletEvent(&fake);
-  } else {
-    QGraphicsView::mouseMoveEvent(e);
-  }
+  QGraphicsView::mouseMoveEvent(e);
 }
 
 void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
@@ -3677,8 +4291,7 @@ void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
 }
 
 void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
-  if (m_pullDistance > 0.f)
-    m_pullDistance = 0.f;
+  cancelBottomPull();
 
   if (m_cropResizer && e->button() == Qt::LeftButton) {
     QGraphicsView::mouseReleaseEvent(e);
@@ -3710,21 +4323,22 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
     return;
   }
 
-  // --- ToolManager Logic ---
-  AbstractTool *tool = ToolManager::instance().activeTool();
+  // --- ToolEngine ---
+  AbstractTool *tool = ToolEngine::activeTool();
   if (tool && e->button() == Qt::LeftButton) {
-    QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseRelease);
-    scEvent.setScenePos(mapToScene(e->pos()));
-    scEvent.setButton(e->button());
-
-    if (tool->handleMouseRelease(&scEvent, &scene_)) {
-      GraphCanvasItem *newGraph = qgraphicsitem_cast<GraphCanvasItem *>(tool->lastCompletedItem());
+    ToolEngine::Pointer ptr;
+    ptr.scenePos = mapToScene(e->pos());
+    ptr.button = e->button();
+    ptr.buttons = e->buttons();
+    ptr.modifiers = e->modifiers();
+    ptr.device = ToolEngine::Device::Mouse;
+    if (ToolEngine::end(&scene_, ptr)) {
+      GraphCanvasItem *newGraph =
+          qgraphicsitem_cast<GraphCanvasItem *>(tool->lastCompletedItem());
       commitPendingStrokeItemsToNote(tool);
       syncGraphItemsToNote();
       syncStickyNotesToNote();
       if (newGraph) {
-        // v3.17.2: see comment in GraphQuickActionPopup connect site --
-        // BlopModal::execBlocking avoids top-level QWindow on Android.
         auto *dlg = new GraphAxisSettingsDialog(newGraph, window());
         BlopModal::execBlocking(window(), dlg);
         dlg->deleteLater();
@@ -3735,37 +4349,27 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
       return;
     }
   }
-  // --------------------------------------
 
-  if (drawing_) {
-    QTabletEvent fake(QEvent::TabletRelease,
-                      QPointingDevice::primaryPointingDevice(), e->position(),
-                      e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(),
-                      e->button(), e->buttons());
-    tabletEvent(&fake);
-  } else {
-    bool objectInPlay = false;
-    for (QGraphicsItem *it : scene_.selectedItems()) {
-      if (!it)
-        continue;
-      const QString kind = it->data(0).toString();
-      if (kind == QLatin1String("sticky_note") ||
-          kind == QLatin1String("text_item") ||
-          kind == QLatin1String("image_item") ||
-          (it->parentItem() &&
-           it->parentItem()->data(0).toString() ==
-               QLatin1String("sticky_note"))) {
-        objectInPlay = true;
-        break;
-      }
+  bool objectInPlay = false;
+  for (QGraphicsItem *it : scene_.selectedItems()) {
+    if (!it)
+      continue;
+    const QString kind = it->data(0).toString();
+    if (kind == QLatin1String("sticky_note") ||
+        kind == QLatin1String("text_item") ||
+        kind == QLatin1String("image_item") ||
+        (it->parentItem() && it->parentItem()->data(0).toString() ==
+                                 QLatin1String("sticky_note"))) {
+      objectInPlay = true;
+      break;
     }
-    QGraphicsView::mouseReleaseEvent(e);
-    if (e->button() == Qt::LeftButton &&
-        (objectInPlay || mode_ == ToolMode::Image)) {
-      syncStickyNotesToNote();
-      syncTextItemsToNote();
-      scheduleStrokeSync();
-    }
+  }
+  QGraphicsView::mouseReleaseEvent(e);
+  if (e->button() == Qt::LeftButton &&
+      (objectInPlay || mode_ == ToolMode::Image)) {
+    syncStickyNotesToNote();
+    syncTextItemsToNote();
+    scheduleStrokeSync();
   }
 }
 
@@ -3856,7 +4460,7 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
     }
   }
 
-  AbstractTool *tool = ToolManager::instance().activeTool();
+  AbstractTool *tool = ToolEngine::activeTool();
 
   // ── Live eraser → formula zone ────────────────────────────────────
   // Formula zone strokes are NOT QGraphicsScene items — the EraserTool's
@@ -3876,11 +4480,11 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
   }
 
   if (tool && note_ && mode_ != ToolMode::Lasso) {
-    tool->setStrokeSceneForTablet(&scene_);
-    if (tool->handleTabletEvent(e, scenePos)) {
+    if (ToolEngine::tablet(&scene_, e, scenePos)) {
       e->accept();
       if (e->type() == QEvent::TabletRelease) {
-        GraphCanvasItem *newGraph = qgraphicsitem_cast<GraphCanvasItem *>(tool->lastCompletedItem());
+        GraphCanvasItem *newGraph =
+            qgraphicsitem_cast<GraphCanvasItem *>(tool->lastCompletedItem());
         commitPendingStrokeItemsToNote(tool);
         syncGraphItemsToNote();
         syncStickyNotesToNote();
@@ -4931,7 +5535,13 @@ void MultiPageNoteView::changeSelectionColor() {
 }
 
 void MultiPageNoteView::startTransformSession() {
-  QList<QGraphicsItem *> items = scene_.selectedItems();
+  // Die Gruppe selbst zaehlt nicht als Auswahl-Inhalt (und wird gleich
+  // zerstoert) — nur die echten Objekte einsammeln.
+  QList<QGraphicsItem *> items;
+  for (QGraphicsItem *it : scene_.selectedItems()) {
+    if (it != m_transformGroup && it->type() != QGraphicsItemGroup::Type)
+      items.append(it);
+  }
   if (items.isEmpty()) return;
 
   // Clean up previous session if still active
@@ -4960,6 +5570,11 @@ void MultiPageNoteView::startTransformSession() {
     m_transformGroup = scene_.createItemGroup(items);
     QRectF grpRect = m_transformGroup->boundingRect();
     m_transformGroup->setTransformOriginPoint(grpRect.center());
+    // Gruppierte Items melden isSelected() ueber die Gruppe. Ohne selektierte
+    // Gruppe gilt die Auswahl als leer -> onSelectionChanged() baute Rahmen
+    // und Menue sofort wieder ab (Mehrfachauswahl ohne Rahmen/Menue).
+    m_transformGroup->setFlag(QGraphicsItem::ItemIsSelectable, true);
+    m_transformGroup->setSelected(true);
     m_transformOverlay = new TransformOverlay(m_transformGroup);
     connect(m_transformOverlay, &TransformOverlay::transformChanged, this, &MultiPageNoteView::onSelectionChanged);
     connect(m_transformOverlay, &TransformOverlay::interactionStarted, m_selectionMenu, &QWidget::hide);
@@ -4972,15 +5587,30 @@ void MultiPageNoteView::startTransformSession() {
 }
 
 void MultiPageNoteView::applyTransform() {
+  const bool hadSession = m_transformOverlay || m_transformGroup;
   if (m_transformOverlay) {
     scene_.removeItem(m_transformOverlay);
     delete m_transformOverlay;
     m_transformOverlay = nullptr;
   }
   if (m_transformGroup) {
-    scene_.destroyItemGroup(m_transformGroup);
+    // Kinder merken: ihr eigenes Selected-Flag bleibt beim Abwaehlen der
+    // Gruppe gesetzt -> Geister-Markierung. Nach dem Aufloesen zuruecksetzen.
+    QGraphicsItemGroup *grp = m_transformGroup;
     m_transformGroup = nullptr;
+    const QList<QGraphicsItem *> kids = grp->childItems();
+    const bool keep = grp->isSelected();
+    const bool blocked = scene_.blockSignals(true);
+    scene_.destroyItemGroup(grp);
+    for (QGraphicsItem *k : kids) {
+      k->setSelected(true);
+      if (!keep)
+        k->setSelected(false);
+    }
+    scene_.blockSignals(blocked);
   }
+  if (hadSession)
+    syncStrokesToNote(); // verschobene/skalierte Objekte ins Modell
   syncGraphItemsToNote();
   if (onSaveRequested) onSaveRequested(note_);
 }
@@ -5847,6 +6477,28 @@ bool MultiPageNoteView::syncStrokesToNote() {
       changed = true;
     }
   }
+
+  // Ruler overlay persists with the note (position/rotation/mode/size).
+  bindRulerSignals();
+  RulerState rs;
+  if (RulerItem *ruler = findActiveRuler(&scene_)) {
+    rs.placed = true;
+    rs.pos = ruler->pos();
+    rs.rotation = ruler->rotation();
+    rs.compassMode = ruler->config().compassMode;
+    const QSizeF bs = ruler->bodySize();
+    rs.width = bs.width();
+    rs.height = bs.height();
+  }
+  if (rs.placed != note_->ruler.placed || rs.pos != note_->ruler.pos ||
+      !qFuzzyCompare(rs.rotation + 1.0, note_->ruler.rotation + 1.0) ||
+      rs.compassMode != note_->ruler.compassMode ||
+      !qFuzzyCompare(rs.width + 1.0, note_->ruler.width + 1.0) ||
+      !qFuzzyCompare(rs.height + 1.0, note_->ruler.height + 1.0)) {
+    note_->ruler = rs;
+    changed = true;
+  }
+
   if (changed) {
     ++m_contentRevision;
     if (onSaveRequested)

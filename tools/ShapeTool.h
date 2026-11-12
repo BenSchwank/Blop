@@ -491,6 +491,9 @@ public:
           pathItem->setBrush(Qt::NoBrush);
         }
         pathItem->setZValue(5);
+        pathItem->setFlags(QGraphicsItem::ItemIsSelectable |
+                           QGraphicsItem::ItemIsMovable);
+        pathItem->setData(0, QStringLiteral("shape_item"));
 
         m_currentShape = pathItem;
         scene->addItem(m_currentShape);

@@ -2,10 +2,11 @@
 #include "AbstractTool.h"
 #include "ToolManager.h"
 
+#include <QFont>
 #include <QGraphicsPathItem>
 #include <QGraphicsSceneMouseEvent>
-#include <QGraphicsSimpleTextItem>
 #include <QPainterPath>
+#include <QTabletEvent>
 #include <QtMath>
 
 /// Technical dimensioning: length bar, 3-point angle, or area polygon.
@@ -17,20 +18,46 @@ public:
   QString name() const override { return QStringLiteral("Bemaßung"); }
   QString iconName() const override { return QStringLiteral("ruler"); }
 
+  void setStrokeSceneForTablet(QGraphicsScene *scene) override {
+    m_sceneRef = scene;
+  }
+
+  bool handleTabletEvent(QTabletEvent *event,
+                         const QPointF &scenePos) override {
+    if (event->type() == QEvent::TabletPress) {
+      QGraphicsSceneMouseEvent ev(QEvent::GraphicsSceneMousePress);
+      ev.setScenePos(scenePos);
+      return handleMousePress(&ev, m_sceneRef);
+    }
+    if (event->type() == QEvent::TabletMove) {
+      QGraphicsSceneMouseEvent ev(QEvent::GraphicsSceneMouseMove);
+      ev.setScenePos(scenePos);
+      return handleMouseMove(&ev, m_sceneRef);
+    }
+    if (event->type() == QEvent::TabletRelease) {
+      QGraphicsSceneMouseEvent ev(QEvent::GraphicsSceneMouseRelease);
+      ev.setScenePos(scenePos);
+      return handleMouseRelease(&ev, m_sceneRef);
+    }
+    return false;
+  }
+
   bool handleMousePress(QGraphicsSceneMouseEvent *event,
                         QGraphicsScene *scene) override {
     if (!scene || !event)
       return false;
-    m_points.clear();
+    // Multi-click sequences (angle/area) keep collecting until enough points
+    // exist — only a finished/aborted sequence starts a fresh measurement.
+    const bool inProgress =
+        m_preview && !m_points.isEmpty() && m_points.size() < pointsNeeded();
+    if (!inProgress)
+      m_points.clear();
     m_points.append(event->scenePos());
-    if (m_preview) {
-      scene->removeItem(m_preview);
-      delete m_preview;
-      m_preview = nullptr;
+    if (!m_preview) {
+      m_preview = scene->addPath(QPainterPath(),
+                                 QPen(QColor(91, 157, 255), 1.4, Qt::DashLine));
+      m_preview->setZValue(900);
     }
-    m_preview = scene->addPath(QPainterPath(),
-                               QPen(QColor(91, 157, 255), 1.4, Qt::DashLine));
-    m_preview->setZValue(900);
     return true;
   }
 
@@ -51,11 +78,11 @@ public:
       m_preview = nullptr;
       return false;
     }
-    m_points.append(event->scenePos());
-    const DimensionKind kind = m_config.dimensionKind;
-    const int need = (kind == DimensionKind::Length)   ? 2
-                     : (kind == DimensionKind::Angle3Point) ? 3
-                                                           : 3;
+    // Clicks re-fire press+release at the same spot — skip duplicate points.
+    if (m_points.isEmpty() ||
+        QLineF(m_points.last(), event->scenePos()).length() > 2.0)
+      m_points.append(event->scenePos());
+    const int need = pointsNeeded();
     if (m_points.size() < need) {
       if (m_preview)
         m_preview->setPath(buildPreview(m_points));
@@ -66,16 +93,28 @@ public:
       delete m_preview;
       m_preview = nullptr;
     }
-    auto *item = scene->addPath(buildFinal(m_points),
-                                QPen(QColor(30, 30, 36), 1.6, Qt::SolidLine,
-                                     Qt::RoundCap, Qt::RoundJoin));
+    QPainterPath path = buildFinal(m_points);
+    // Bake the measurement text into the path so it survives the note
+    // harvest (children of items are not persisted separately).
+    const QString label = labelText(m_points);
+    if (!label.isEmpty()) {
+      QFont f;
+      f.setPointSizeF(10);
+      f.setBold(true);
+      path.addText(labelAnchor(m_points), f, label);
+    }
+    auto *item = scene->addPath(
+        path, QPen(QColor(30, 30, 36), 1.6, Qt::SolidLine, Qt::RoundCap,
+                   Qt::RoundJoin));
+    // Solid dark fill → label glyphs + dot. Area mode gets a light shading
+    // over the measured polygon instead.
+    item->setBrush(m_config.dimensionKind == DimensionKind::Area
+                       ? QColor(30, 30, 36, 60)
+                       : QColor(30, 30, 36));
     item->setZValue(8);
     item->setFlag(QGraphicsItem::ItemIsSelectable, true);
     item->setFlag(QGraphicsItem::ItemIsMovable, true);
-    if (auto *lbl = makeLabel(m_points)) {
-      lbl->setParentItem(item);
-      lbl->setZValue(9);
-    }
+    item->setData(0, QStringLiteral("shape_item"));
     m_lastCompletedItem = item;
     m_points.clear();
     emit contentModified();
@@ -83,6 +122,10 @@ public:
   }
 
 private:
+  int pointsNeeded() const {
+    return m_config.dimensionKind == DimensionKind::Length ? 2 : 3;
+  }
+
   qreal unitsPerPx() const {
     // One paper cell ≈ 5mm ≈ measureUnitsPerCell user units.
     // At ~37.8 px/cm → 18.9 px per 5mm cell.
@@ -164,22 +207,20 @@ private:
     return p;
   }
 
-  QGraphicsSimpleTextItem *makeLabel(const QVector<QPointF> &pts) const {
+  QString labelText(const QVector<QPointF> &pts) const {
     if (pts.size() < 2)
-      return nullptr;
+      return QString();
     const DimensionKind kind = m_config.dimensionKind;
-    QString text;
-    QPointF anchor;
     if (kind == DimensionKind::Length) {
       const qreal lenU = QLineF(pts.first(), pts.last()).length() * unitsPerPx();
-      text = QStringLiteral("%1").arg(lenU, 0, 'f', 2);
-      anchor = QLineF(pts.first(), pts.last()).pointAt(0.5) + QPointF(0, -12);
-    } else if (kind == DimensionKind::Angle3Point && pts.size() >= 3) {
+      return QStringLiteral("%1").arg(lenU, 0, 'f', 2);
+    }
+    if (kind == DimensionKind::Angle3Point && pts.size() >= 3) {
       const qreal ang =
           QLineF(pts[0], pts[1]).angleTo(QLineF(pts[0], pts.last()));
-      text = QStringLiteral("%1°").arg(ang, 0, 'f', 1);
-      anchor = pts[0] + QPointF(8, -8);
-    } else if (pts.size() >= 3) {
+      return QStringLiteral("%1°").arg(ang, 0, 'f', 1);
+    }
+    if (pts.size() >= 3) {
       // Shoelace area in user units²
       double area = 0.0;
       for (int i = 0; i < pts.size(); ++i) {
@@ -188,24 +229,24 @@ private:
         area += a.x() * b.y() - b.x() * a.y();
       }
       area = qAbs(area) * 0.5 * unitsPerPx() * unitsPerPx();
-      text = QStringLiteral("A=%1").arg(area, 0, 'f', 2);
-      QPointF c(0, 0);
-      for (const QPointF &pt : pts)
-        c += pt;
-      anchor = c / pts.size();
-    } else {
-      return nullptr;
+      return QStringLiteral("A=%1").arg(area, 0, 'f', 2);
     }
-    auto *lbl = new QGraphicsSimpleTextItem(text);
-    lbl->setBrush(QColor(20, 20, 28));
-    QFont f = lbl->font();
-    f.setPointSizeF(10);
-    f.setBold(true);
-    lbl->setFont(f);
-    lbl->setPos(anchor);
-    return lbl;
+    return QString();
+  }
+
+  QPointF labelAnchor(const QVector<QPointF> &pts) const {
+    const DimensionKind kind = m_config.dimensionKind;
+    if (kind == DimensionKind::Length)
+      return QLineF(pts.first(), pts.last()).pointAt(0.5) + QPointF(0, -12);
+    if (kind == DimensionKind::Angle3Point && pts.size() >= 3)
+      return pts[0] + QPointF(8, -8);
+    QPointF c(0, 0);
+    for (const QPointF &pt : pts)
+      c += pt;
+    return c / pts.size();
   }
 
   QVector<QPointF> m_points;
   QGraphicsPathItem *m_preview{nullptr};
+  QGraphicsScene *m_sceneRef{nullptr};
 };

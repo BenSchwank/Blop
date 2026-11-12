@@ -21,6 +21,11 @@ struct Stroke {
     /// Pixel-erased remnants are filled outlines (no pen): `path` is the
     /// filled shape in page-local coordinates, `points` stay empty.
     bool filled{false};
+    /// Shape-tool strokes: `path` serializes as elements (like `filled`),
+    /// keeps pen style and an optional fill under the outline.
+    bool shape{false};
+    QColor fillColor;      // invalid = outline only
+    int penStyle{1};       // Qt::PenStyle (1 = SolidLine)
 };
 
 struct GraphFunction {
@@ -122,11 +127,24 @@ struct NotePage {
     bool bookmarked{false};
 };
 
+/// Persistent ruler overlay state (scene coords, rotation in degrees).
+/// `placed` = a RulerItem existed when the note was saved; the ruler is
+/// restored hidden and only shown while the ruler tool is active.
+struct RulerState {
+    bool placed{false};
+    QPointF pos;
+    qreal rotation{0.0};
+    bool compassMode{false};
+    qreal width{0.0};   // 0 = default from config
+    qreal height{0.0};  // 0 = default from config
+};
+
 struct Note {
     QString id;
     QString title;
     QStringList tags;
     QVector<NotePage> pages;
+    RulerState ruler;
 
     void ensurePage(int index) {
         if (index >= pages.size()) {

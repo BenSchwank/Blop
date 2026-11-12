@@ -6,6 +6,7 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QPen>
+#include <QTabletEvent>
 
 /// Math dock tile: drag a rect (default click = 420×340) to place a GraphCanvasItem.
 class FormulaTool : public AbstractTool {
@@ -15,6 +16,30 @@ public:
   ToolMode mode() const override { return ToolMode::Formula; }
   QString name() const override { return QStringLiteral("Formel"); }
   QString iconName() const override { return QStringLiteral("pi"); }
+
+  void setStrokeSceneForTablet(QGraphicsScene *scene) override {
+    m_sceneRef = scene;
+  }
+
+  bool handleTabletEvent(QTabletEvent *event,
+                         const QPointF &scenePos) override {
+    if (event->type() == QEvent::TabletPress) {
+      QGraphicsSceneMouseEvent ev(QEvent::GraphicsSceneMousePress);
+      ev.setScenePos(scenePos);
+      return handleMousePress(&ev, m_sceneRef);
+    }
+    if (event->type() == QEvent::TabletMove) {
+      QGraphicsSceneMouseEvent ev(QEvent::GraphicsSceneMouseMove);
+      ev.setScenePos(scenePos);
+      return handleMouseMove(&ev, m_sceneRef);
+    }
+    if (event->type() == QEvent::TabletRelease) {
+      QGraphicsSceneMouseEvent ev(QEvent::GraphicsSceneMouseRelease);
+      ev.setScenePos(scenePos);
+      return handleMouseRelease(&ev, m_sceneRef);
+    }
+    return false;
+  }
 
   bool handleMousePress(QGraphicsSceneMouseEvent *event,
                         QGraphicsScene *scene) override {
@@ -71,4 +96,5 @@ public:
 private:
   QPointF m_start;
   QGraphicsRectItem *m_preview{nullptr};
+  QGraphicsScene *m_sceneRef{nullptr};
 };

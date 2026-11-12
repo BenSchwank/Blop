@@ -1,116 +1,143 @@
 #pragma once
 #include "AbstractTool.h"
-#include <QGraphicsPathItem>
-#include <QPen>
-#include <QGraphicsScene>
-#include <QPainterPath>
-#include <QTransform>
+#include "RulerItem.h"
 #include "ToolManager.h"
+#include "ToolSettings.h"
+
+#include <QBrush>
+#include <QColor>
+#include <QGraphicsPathItem>
+#include <QGraphicsScene>
 #include <QGraphicsSceneMouseEvent>
-#include <QGraphicsItem>
-#include <QObject>
-#include <QString>
+#include <QPainterPath>
+#include <QPen>
 #include <QPointF>
+#include <QTransform>
 
 class LassoTool : public AbstractTool {
-    Q_OBJECT
+  Q_OBJECT
 public:
-    using AbstractTool::AbstractTool;
-    ToolMode mode() const override { return ToolMode::Lasso; }
-    QString name() const override { return "Lasso"; }
-    QString iconName() const override { return "lasso"; }
+  using AbstractTool::AbstractTool;
+  ToolMode mode() const override { return ToolMode::Lasso; }
+  QString name() const override { return QStringLiteral("Lasso"); }
+  QString iconName() const override { return QStringLiteral("lasso"); }
 
-    bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        QGraphicsItem* itemUnderMouse = scene->itemAt(event->scenePos(), QTransform());
+  bool handleMousePress(QGraphicsSceneMouseEvent *event,
+                        QGraphicsScene *scene) override {
+    if (!scene)
+      return false;
 
-        // Wenn auf ein markiertes Objekt geklickt wurde: Nichts tun -> Verschieben!
-        if (itemUnderMouse && itemUnderMouse->isSelected()) {
-            return false; // -> Standard Qt Verschiebe-Logik greift!
-        }
+    QGraphicsItem *itemUnderMouse =
+        scene->itemAt(event->scenePos(), QTransform());
+    if (itemUnderMouse && itemUnderMouse->isSelected())
+      return false; // let Qt move the selection
 
-        // Sonst: Immer alte Auswahl verwerfen, da wir explizit eine neue Starten
-        scene->clearSelection();
+    // Drop a stale marquee from an aborted previous gesture.
+    if (m_selectionItem && m_selectionItem->scene()) {
+      m_selectionItem->scene()->removeItem(m_selectionItem);
+      delete m_selectionItem;
+    }
+    m_selectionItem = nullptr;
 
-        // Neue Auswahl starten
-        m_startPos = event->scenePos();
-        m_currentPath = QPainterPath();
+    scene->clearSelection();
+    m_startPos = event->scenePos();
+    m_currentPath = QPainterPath();
 
-        if (m_config.lassoMode == LassoMode::Rectangle) {
-            m_currentPath.addRect(QRectF(m_startPos, m_startPos));
-        } else {
-            m_currentPath.moveTo(m_startPos);
-        }
-
-        if (!m_selectionItem) {
-            m_selectionItem = new QGraphicsPathItem();
-            QPen p(Qt::black, 2, Qt::DashLine);
-            p.setCosmetic(true);
-            m_selectionItem->setPen(p);
-            m_selectionItem->setZValue(9999);
-            scene->addItem(m_selectionItem);
-        }
-        m_selectionItem->setPath(m_currentPath);
-        m_selectionItem->show();
-
-        return true;
+    // Default: rectangle marquee (clean-sheet contract).
+    if (m_config.lassoMode == LassoMode::Freehand) {
+      m_currentPath.moveTo(m_startPos);
+    } else {
+      m_currentPath.addRect(QRectF(m_startPos, m_startPos));
     }
 
-    bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        if (!m_selectionItem) return false;
+    ensureMarquee(scene);
+    m_selectionItem->setPath(m_currentPath);
+    m_selectionItem->show();
+    return true;
+  }
 
-        if (m_config.lassoMode == LassoMode::Rectangle) {
-            QRectF rect(m_startPos, event->scenePos());
-            rect = rect.normalized(); // FIX: Prevent degenerate shapes with negative dimensions
-            if (m_config.aspectLock) {
-                qreal w = rect.width();
-                qreal h = rect.height();
-                qreal size = qMax(qAbs(w), qAbs(h));
-                w = (w < 0) ? -size : size;
-                h = (h < 0) ? -size : size;
-                rect = QRectF(m_startPos, QPointF(m_startPos.x() + w, m_startPos.y() + h));
-            }
-            m_currentPath = QPainterPath();
-            m_currentPath.addRect(rect);
-        } else {
-            m_currentPath.lineTo(event->scenePos());
-        }
+  bool handleMouseMove(QGraphicsSceneMouseEvent *event,
+                       QGraphicsScene *scene) override {
+    if (!m_selectionItem || !scene)
+      return false;
 
-        QPainterPath shown = m_currentPath;
-        if (m_config.lassoMode != LassoMode::Rectangle)
-            shown.closeSubpath();
-        m_selectionItem->setPath(shown);
-        scene->update();
-        return true;
+    if (m_config.lassoMode == LassoMode::Freehand) {
+      m_currentPath.lineTo(event->scenePos());
+    } else {
+      QRectF rect(m_startPos, event->scenePos());
+      rect = rect.normalized();
+      if (m_config.aspectLock) {
+        const qreal w = rect.width();
+        const qreal h = rect.height();
+        const qreal size = qMax(qAbs(w), qAbs(h));
+        const qreal sx = (event->scenePos().x() >= m_startPos.x()) ? 1.0 : -1.0;
+        const qreal sy = (event->scenePos().y() >= m_startPos.y()) ? 1.0 : -1.0;
+        rect = QRectF(m_startPos,
+                      m_startPos + QPointF(size * sx, size * sy))
+                   .normalized();
+      }
+      m_currentPath = QPainterPath();
+      m_currentPath.addRect(rect);
     }
 
-    bool handleMouseRelease(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        if (!m_selectionItem) return false;
+    QPainterPath shown = m_currentPath;
+    if (m_config.lassoMode == LassoMode::Freehand)
+      shown.closeSubpath();
+    m_selectionItem->setPath(shown);
+    scene->update();
+    return true;
+  }
 
-        if (m_config.lassoMode == LassoMode::Freehand) {
-            m_currentPath.closeSubpath();
-            m_selectionItem->setPath(m_currentPath);
-        }
+  bool handleMouseRelease(QGraphicsSceneMouseEvent *event,
+                          QGraphicsScene *scene) override {
+    Q_UNUSED(event);
+    if (!m_selectionItem || !scene)
+      return false;
 
-        auto selectionMode = Qt::IntersectsItemShape;
-
-        scene->setSelectionArea(m_currentPath, Qt::ReplaceSelection, selectionMode, QTransform());
-
-        for (QGraphicsItem* item : scene->selectedItems()) {
-            if (item->type() == RulerItem::Type) {
-                item->setSelected(false);
-            }
-        }
-
-        scene->removeItem(m_selectionItem);
-        delete m_selectionItem;
-        m_selectionItem = nullptr;
-
-        scene->update();
-        return true;
+    if (m_config.lassoMode == LassoMode::Freehand) {
+      m_currentPath.closeSubpath();
+      m_selectionItem->setPath(m_currentPath);
     }
+
+    scene->setSelectionArea(m_currentPath, Qt::ReplaceSelection,
+                            Qt::IntersectsItemShape, QTransform());
+
+    for (QGraphicsItem *item : scene->selectedItems()) {
+      if (item && item->type() == RulerItem::Type)
+        item->setSelected(false);
+    }
+
+    scene->removeItem(m_selectionItem);
+    delete m_selectionItem;
+    m_selectionItem = nullptr;
+    scene->update();
+    return true;
+  }
+
+  void onDeactivated() override {
+    if (m_selectionItem && m_selectionItem->scene()) {
+      m_selectionItem->scene()->removeItem(m_selectionItem);
+      delete m_selectionItem;
+    }
+    m_selectionItem = nullptr;
+  }
 
 private:
-    QPointF m_startPos;
-    QPainterPath m_currentPath;
-    QGraphicsPathItem* m_selectionItem{nullptr};
+  void ensureMarquee(QGraphicsScene *scene) {
+    if (m_selectionItem)
+      return;
+    m_selectionItem = new QGraphicsPathItem();
+    QPen pen(QColor(0x5B, 0x9D, 0xFF), 1.5, Qt::DashLine, Qt::RoundCap,
+             Qt::RoundJoin);
+    pen.setCosmetic(true);
+    pen.setDashPattern({4.0, 3.0});
+    m_selectionItem->setPen(pen);
+    m_selectionItem->setBrush(QColor(91, 157, 255, 20)); // ~0.08 alpha
+    m_selectionItem->setZValue(99999);
+    scene->addItem(m_selectionItem);
+  }
+
+  QPointF m_startPos;
+  QPainterPath m_currentPath;
+  QGraphicsPathItem *m_selectionItem{nullptr};
 };

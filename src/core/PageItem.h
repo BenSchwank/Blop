@@ -100,7 +100,7 @@ protected:
             const qreal bottom = rect().bottom();
             const int L = m_paperColor.lightness();
             const QColor lineCol =
-                L < 130 ? QColor(255, 255, 255, 50) : QColor(190, 190, 210, 110);
+                L < 130 ? QColor(255, 255, 255, 60) : QColor(150, 160, 190, 150);
 
             switch (m_type) {
             case PageBackgroundType::Blank:
@@ -131,29 +131,29 @@ protected:
                     break;
                 const int spacing = 40; // ~5mm at A4 scale
                 const QColor minor =
-                    L < 130 ? QColor(255, 255, 255, 36) : QColor(0xE2, 0xE8, 0xF0);
+                    L < 130 ? QColor(255, 255, 255, 60) : QColor(0xA8, 0xBB, 0xD8);
                 const QColor major =
-                    L < 130 ? QColor(255, 255, 255, 58) : QColor(0xCB, 0xD5, 0xE1);
+                    L < 130 ? QColor(255, 255, 255, 96) : QColor(0x7E, 0x9C, 0xC6);
                 int ix = 0;
                 for (qreal x = gl; x <= gr + 0.5; x += spacing, ++ix) {
                     const bool isMajor = (ix % 5) == 0;
-                    QPen pen(isMajor ? major : minor, isMajor ? 1.2 : 0.8);
-                    pen.setCosmetic(true);
-                    painter->setPen(pen);
+                    painter->setPen(QPen(isMajor ? major : minor,
+                                       isMajor ? 1.6 : 1.2));
                     painter->drawLine(QPointF(x, gt), QPointF(x, gb));
                 }
                 int iy = 0;
                 for (qreal y = gt; y <= gb + 0.5; y += spacing, ++iy) {
                     const bool isMajor = (iy % 5) == 0;
-                    QPen pen(isMajor ? major : minor, isMajor ? 1.2 : 0.8);
-                    pen.setCosmetic(true);
-                    painter->setPen(pen);
+                    painter->setPen(QPen(isMajor ? major : minor,
+                                       isMajor ? 1.6 : 1.2));
                     painter->drawLine(QPointF(gl, y), QPointF(gr, y));
                 }
-                // Quiet margin hairline.
+                // Quiet margin hairline — NoBrush, sonst übermalt die Füllung
+                // das Gitter (Brush war zuletzt das Papier).
                 painter->setPen(QPen(L < 130 ? QColor(255, 255, 255, 28)
                                              : QColor(0xCB, 0xD5, 0xE1, 120),
                                     1.0));
+                painter->setBrush(Qt::NoBrush);
                 painter->drawRect(QRectF(QPointF(gl, gt), QPointF(gr, gb)));
                 break;
             }
@@ -216,52 +216,82 @@ protected:
                QWidget *widget) override {
         Q_UNUSED(option);
         Q_UNUSED(widget);
-        const QRectF r = boundingRect();
-        const qreal rad = 14.0;
+        // Gleiche Sprache wie das Pages-Bar-Sheet: weisse Papier-Karte,
+        // NoteChrome-Accent. Waehrend des Pulls: Fortschrittsring um das
+        // Plus + Balken an der Unterkante, damit der Widerstand lesbar ist.
+        const QRectF r = boundingRect().adjusted(1.0, 1.0, -1.0, -1.0);
         painter->setRenderHint(QPainter::Antialiasing);
-
-        // Light Mode: NoteChrome blue dashed affordance (not purple).
         const qreal pull = m_pullProgress;
-        const QColor accent = QColor(91, 157, 255); // NoteChrome::accent
-        QColor border = pull > 0.0
-                            ? QColor(accent.red(), accent.green(), accent.blue(),
-                                     int(140 + 115 * pull))
-                            : QColor(91, 157, 255, 160);
-        QPen borderPen(border, 2.0, Qt::DashLine);
-        borderPen.setCosmetic(true);
-        painter->setPen(borderPen);
+        const QColor accent(91, 157, 255); // NoteChrome::accent
+        const QColor muted(100, 116, 139);
+        const qreal rad = 14.0;
 
-        // Soft fill that fades in with the pull / hover.
+        // 1. Karte
+        QPen cardPen(QColor(0xE3, 0xE3, 0xE3), 1.0);
+        cardPen.setCosmetic(true);
+        painter->setPen(cardPen);
+        painter->setBrush(QColor(0xFF, 0xFF, 0xFF));
+        painter->drawRoundedRect(r, rad, rad);
         if (pull > 0.0) {
-            QColor fill = QColor(239, 246, 255, int(180 * pull)); // primary-light
-            painter->setBrush(fill);
-        } else {
-            painter->setBrush(Qt::NoBrush);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(QColor(239, 246, 255, int(255 * pull)));
+            painter->drawRoundedRect(r, rad, rad);
         }
-        painter->drawRoundedRect(r.adjusted(1.0, 1.0, -1.0, -1.0), rad, rad);
 
-        const QString caption = (pull >= 0.7)
-                                    ? QStringLiteral("Loslassen f\u00FCr neue Seite")
-                                    : QStringLiteral("Neue Seite");
-        const QColor txtColor = pull > 0.0
-                                    ? accent
-                                    : QColor(100, 116, 139); // text-muted
-        painter->setPen(txtColor);
-        QFont plusFont = painter->font();
-        plusFont.setPointSizeF(qMax(14.0, r.height() * 0.32));
-        plusFont.setWeight(QFont::Bold);
-        painter->setFont(plusFont);
-        const QRectF plusRect(r.left(), r.top() + r.height() * 0.10,
-                              r.width(), r.height() * 0.55);
-        painter->drawText(plusRect, Qt::AlignCenter, QStringLiteral("+"));
+        // 2. Gestrichelter CTA-Rahmen innen (wie der Sheet-Button)
+        const QRectF cta = r.adjusted(22.0, 22.0, -22.0, -34.0);
+        QPen ctaPen(pull > 0.0 ? accent : QColor(91, 157, 255, 170), 1.5,
+                    pull >= 1.0 ? Qt::SolidLine : Qt::DashLine);
+        ctaPen.setCosmetic(true);
+        painter->setPen(ctaPen);
+        painter->setBrush(Qt::NoBrush);
+        painter->drawRoundedRect(cta, 10.0, 10.0);
 
+        // 3. Fortschrittsring + Plus
+        const qreal ringR = 26.0;
+        const QPointF c(cta.center().x(), cta.top() + cta.height() * 0.40);
+        const QRectF ring(c.x() - ringR, c.y() - ringR, 2 * ringR, 2 * ringR);
+        painter->setPen(QPen(QColor(91, 157, 255, 50), 5.0));
+        painter->drawEllipse(ring);
+        if (pull > 0.0) {
+            QPen arcPen(accent, 5.0, Qt::SolidLine, Qt::RoundCap);
+            painter->setPen(arcPen);
+            painter->drawArc(ring, 90 * 16, -int(360 * 16 * pull));
+        }
+        QPen plusPen(pull > 0.0 ? accent : muted, 3.5, Qt::SolidLine,
+                     Qt::RoundCap);
+        painter->setPen(plusPen);
+        const qreal pl = 10.0;
+        painter->drawLine(QPointF(c.x() - pl, c.y()), QPointF(c.x() + pl, c.y()));
+        painter->drawLine(QPointF(c.x(), c.y() - pl), QPointF(c.x(), c.y() + pl));
+
+        // 4. Beschriftung — feste Groesse (skaliert mit dem Zoom, nicht mit
+        //    der Kartenhoehe).
+        const QString caption =
+            pull <= 0.0   ? QStringLiteral("Neue Seite")
+            : pull < 1.0  ? QStringLiteral("Weiter ziehen f\u00FCr neue Seite")
+                          : QStringLiteral("Neue Seite wird angelegt");
         QFont capFont = painter->font();
-        capFont.setPointSizeF(qMax(9.0, r.height() * 0.12));
-        capFont.setWeight(QFont::Medium);
+        capFont.setPixelSize(17);
+        capFont.setWeight(QFont::DemiBold);
         painter->setFont(capFont);
-        const QRectF capRect(r.left(), r.top() + r.height() * 0.60,
-                             r.width(), r.height() * 0.30);
-        painter->drawText(capRect, Qt::AlignCenter, caption);
+        painter->setPen(pull > 0.0 ? accent : muted);
+        const QRectF capRect(cta.left(), c.y() + ringR + 8.0, cta.width(), 28.0);
+        painter->drawText(capRect, Qt::AlignHCenter | Qt::AlignTop, caption);
+
+        // 5. Fortschrittsbalken an der Unterkante
+        const QRectF track(r.left() + 22.0, r.bottom() - 20.0,
+                           r.width() - 44.0, 6.0);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(QColor(91, 157, 255, pull > 0.0 ? 45 : 0));
+        painter->drawRoundedRect(track, 3.0, 3.0);
+        if (pull > 0.0) {
+            painter->setBrush(accent);
+            painter->drawRoundedRect(
+                QRectF(track.left(), track.top(), track.width() * pull,
+                       track.height()),
+                3.0, 3.0);
+        }
     }
 
 private:
