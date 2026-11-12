@@ -374,6 +374,68 @@ Regeln:
 - bleibe in derselben Struktur und im gleichen Stil
 - schreibe den fachlichen Inhalt vollständig aus (Herleitungen, LaTeX, durchgerechnete Aufgaben)"""
 
+    _ALLOWED_CHAT_IMAGE_MIMES = {
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/webp",
+        "image/gif",
+    }
+    _MAX_CHAT_IMAGES = 4
+    _MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024  # decoded size cap per image
+
+    @staticmethod
+    def _normalize_chat_images(images: Optional[List[Any]]) -> List[Dict[str, Any]]:
+        """Turn client ChatImage payloads into OpenRouter image_url content blocks."""
+        import base64
+
+        parts: List[Dict[str, Any]] = []
+        if not images:
+            return parts
+        for raw in list(images)[: AIService._MAX_CHAT_IMAGES]:
+            if raw is None:
+                continue
+            if hasattr(raw, "mime_type"):
+                mime = str(getattr(raw, "mime_type", "") or "").strip().lower()
+                data_b64 = str(getattr(raw, "data_base64", "") or "").strip()
+                name = str(getattr(raw, "name", "") or "") or None
+            elif isinstance(raw, dict):
+                mime = str(raw.get("mime_type") or "").strip().lower()
+                data_b64 = str(raw.get("data_base64") or "").strip()
+                name = str(raw.get("name") or "") or None
+            else:
+                continue
+            if mime == "image/jpg":
+                mime = "image/jpeg"
+            if mime not in AIService._ALLOWED_CHAT_IMAGE_MIMES or not data_b64:
+                continue
+            # Strip accidental data-URL prefix
+            if "," in data_b64 and data_b64.lower().startswith("data:"):
+                data_b64 = data_b64.split(",", 1)[1]
+            try:
+                decoded = base64.b64decode(data_b64, validate=False)
+            except Exception:
+                continue
+            if not decoded or len(decoded) > AIService._MAX_CHAT_IMAGE_BYTES:
+                continue
+            parts.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{data_b64}"},
+                **({"_name": name} if name else {}),
+            })
+        # Drop internal name key before sending (OpenRouter ignores unknown keys, but keep clean)
+        clean: List[Dict[str, Any]] = []
+        for p in parts:
+            clean.append({"type": "image_url", "image_url": p["image_url"]})
+        return clean
+
+    @staticmethod
+    def _user_message_parts(user_message: str, image_parts: Optional[List[Dict[str, Any]]] = None) -> Any:
+        text = (user_message or "").strip() or ("Bitte analysiere das/die angehängte(n) Bild(er)." if image_parts else "")
+        if not image_parts:
+            return text
+        return [text, *image_parts]
+
     @staticmethod
     def _generate_repetition_with_continuation(model, input_parts: List[Any], max_followups: int = 6) -> str:
         """Chat-based generation so we can continue after MAX_TOKENS (long repetitions)."""
@@ -549,7 +611,7 @@ Regeln:
         )
 
     @staticmethod
-    def _collect_document_patch_response(chat: Any, prompt: str, max_followups: int = 4) -> Tuple[str, Any]:
+    def _collect_document_patch_response(chat: Any, prompt: Any, max_followups: int = 4) -> Tuple[str, Any]:
         """Send patch prompt; on MAX_TOKENS continue until JSON completes (Gemini finish_reason 2 = MAX_TOKENS)."""
         continuation = (
             "Die JSON-Antwort wurde wegen des Ausgabe-Tokenlimits abgeschnitten. "
@@ -2314,6 +2376,7 @@ Quellenmaterial (nur zur Orientierung):
         user_message: str,
         history: List[Dict[str, str]],
         model_preference: str = None,
+        images: Optional[List[Any]] = None,
         return_meta: bool = False,
     ) -> Dict[str, Any]:
         """Return a patch proposal for interactive document editing."""
@@ -2335,12 +2398,15 @@ Quellenmaterial (nur zur Orientierung):
                 role = "user" if msg.get("role") == "user" else "model"
                 compact_history.append({"role": role, "parts": [msg.get("content", "")]})
             chat = model.start_chat(history=compact_history)
-            prompt = f"""
+            image_parts = AIService._normalize_chat_images(images)
+            prompt_text = f"""
 Aktuelles Dokument (Ausschnitt):
 {document_content[:12000]}
 
 Nutzerwunsch:
 {user_message}
+
+{"Der Nutzer hat Screenshot(s)/Bild(er) angehängt — berücksichtige sie bei der Änderung." if image_parts else ""}
 
 Antworte nur als JSON im Format:
 {{
@@ -2351,6 +2417,7 @@ Antworte nur als JSON im Format:
   "confidence": 0.0
 }}
 """
+            prompt = AIService._user_message_parts(prompt_text, image_parts)
             try:
                 response_text, response = AIService._collect_document_patch_response(chat, prompt)
             except Exception as first_err:
@@ -2532,11 +2599,12 @@ Hier ist das Quellenmaterial:
             raise Exception(f"Fehler bei der Wiederholung: {str(e)}")
 
     @staticmethod
-    def chat_stream(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None, active_file: dict = None):
+    def chat_stream(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None, active_file: dict = None, images: Optional[List[Any]] = None):
         """Like chat() but yields text chunks. Final item has type='done' with usage info."""
         system_instruction = (
             "Du bist der hilfreiche 'Blop KI-Assistent'. Beantworte Fragen zu den Lernmaterialien.\n"
             "Sei freundlich und klar. Antworte auf Deutsch, außer der Nutzer schreibt anders.\n"
+            "Der Nutzer kann Screenshots/Bilder anhängen — beschreibe und nutze sichtbaren Inhalt (UI, Fehler, Diagramme, Notizen).\n"
             "FORMATIERUNG:\n"
             "- Nutze Markdown: kurze Absätze, Listen mit '-', Code in ```fences```.\n"
             "- Keine Unicode-Bullets wie ● oder Schmuckzeichen.\n"
@@ -2578,6 +2646,9 @@ Hier ist das Quellenmaterial:
         elif content:
             context_parts.append(content)
 
+        image_parts = AIService._normalize_chat_images(images)
+        outgoing = AIService._user_message_parts(user_message, image_parts)
+
         formatted_history = []
         if history:
             first_user_msg = True
@@ -2591,9 +2662,9 @@ Hier ist das Quellenmaterial:
                     first_user_msg = False
                 formatted_history.append({"role": role, "parts": parts})
             chat_session = model.start_chat(history=formatted_history)
-            response = chat_session.send_message(user_message, stream=True, safety_settings=SAFETY_SETTINGS)
+            response = chat_session.send_message(outgoing, stream=True, safety_settings=SAFETY_SETTINGS)
         else:
-            message_parts = context_parts + [user_message]
+            message_parts = context_parts + (outgoing if isinstance(outgoing, list) else [outgoing])
             chat_session = model.start_chat(history=[])
             response = chat_session.send_message(message_parts, stream=True, safety_settings=SAFETY_SETTINGS)
 
@@ -2609,12 +2680,13 @@ Hier ist das Quellenmaterial:
         }
 
     @staticmethod
-    def chat(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None, active_file: dict = None, return_meta: bool = False) -> Any:
+    def chat(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None, active_file: dict = None, images: Optional[List[Any]] = None, return_meta: bool = False) -> Any:
         """Handles a conversational chat with the AI, given the folder content context and optionally the currently active file."""
         try:
             system_instruction = (
                 "Du bist der hilfreiche 'Blop KI-Assistent'. Beantworte Fragen zu den Lernmaterialien.\n"
                 "Sei freundlich und klar. Antworte auf Deutsch, außer der Nutzer schreibt anders.\n"
+                "Der Nutzer kann Screenshots/Bilder anhängen — beschreibe und nutze sichtbaren Inhalt (UI, Fehler, Diagramme, Notizen).\n"
                 "FORMATIERUNG:\n"
                 "- Nutze Markdown: kurze Absätze, Listen mit '-', Code in ```fences```.\n"
                 "- Keine Unicode-Bullets wie ● oder Schmuckzeichen.\n"
@@ -2670,6 +2742,9 @@ Hier ist das Quellenmaterial:
             elif content:
                 context_parts.append(content)
                 
+            image_parts = AIService._normalize_chat_images(images)
+            outgoing = AIService._user_message_parts(user_message, image_parts)
+
             formatted_history = []
             if history:
                  first_user_msg = True
@@ -2689,10 +2764,10 @@ Hier ist das Quellenmaterial:
                  # Start the chat with reconstructed history
                  chat_session = model.start_chat(history=formatted_history)
                  # Send the new incoming message
-                 response = chat_session.send_message(user_message, safety_settings=SAFETY_SETTINGS)
+                 response = chat_session.send_message(outgoing, safety_settings=SAFETY_SETTINGS)
             else:
                  # No history, this is the very first message. Inject context directly into the new message.
-                 message_parts = context_parts + [user_message]
+                 message_parts = context_parts + (outgoing if isinstance(outgoing, list) else [outgoing])
                  chat_session = model.start_chat(history=[])
                  response = chat_session.send_message(message_parts, safety_settings=SAFETY_SETTINGS)
             

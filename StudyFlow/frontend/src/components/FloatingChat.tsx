@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, X, Send, Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import { MessageCircle, X, Send, Loader2, Maximize2, Minimize2, ImagePlus } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -8,9 +8,64 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { OVERLAY_FLOATING_CHAT, OVERLAY_FLOATING_CHAT_DOCK } from '@/constants/overlayLayout';
 
+interface ChatAttachment {
+    id: string;
+    name: string;
+    mime_type: string;
+    data_base64: string;
+    previewUrl: string;
+}
+
 interface Message {
     role: 'user' | 'model';
     content: string;
+    images?: { previewUrl: string; name: string }[];
+}
+
+const MAX_CHAT_IMAGES = 4;
+const MAX_IMAGE_EDGE = 1600;
+
+async function fileToChatAttachment(file: File): Promise<ChatAttachment> {
+    const previewUrl = URL.createObjectURL(file);
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            try {
+                let { width, height } = img;
+                const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(width, height, 1));
+                width = Math.max(1, Math.round(width * scale));
+                height = Math.max(1, Math.round(height * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    reject(new Error('Canvas nicht verfügbar'));
+                    return;
+                }
+                ctx.drawImage(img, 0, 0, width, height);
+                // Prefer JPEG for screenshots (smaller); keep PNG for transparency-heavy images
+                const preferPng = file.type === 'image/png' && file.size < 800_000;
+                resolve(canvas.toDataURL(preferPng ? 'image/png' : 'image/jpeg', 0.85));
+            } catch (err) {
+                reject(err);
+            }
+        };
+        img.onerror = () => reject(new Error('Bild konnte nicht geladen werden'));
+        img.src = previewUrl;
+    });
+    const comma = dataUrl.indexOf(',');
+    const header = dataUrl.slice(0, Math.max(0, comma));
+    const data_base64 = dataUrl.slice(comma + 1);
+    const mimeMatch = /data:([^;]+)/.exec(header);
+    const mime_type = mimeMatch?.[1] || (file.type.startsWith('image/') ? file.type : 'image/jpeg');
+    return {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: file.name || 'screenshot.png',
+        mime_type,
+        data_base64,
+        previewUrl,
+    };
 }
 
 interface FloatingChatProps {
@@ -62,12 +117,16 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
         { role: 'model', content: 'Hallo! Ich bin dein Blop KI-Assistent. Hast du Fragen zu den Dokumenten in diesem Ordner?' }
     ]);
     const [input, setInput] = useState('');
+    const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [pendingPatch, setPendingPatch] = useState<DocumentPatch | null>(null);
     const [lastUsageInfo, setLastUsageInfo] = useState<string>('');
     const [vvOffset, setVvOffset] = useState({ top: 0, height: 0 });
     const messagesRef = useRef<HTMLDivElement>(null);
     const dockRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const attachmentsRef = useRef<ChatAttachment[]>([]);
+    attachmentsRef.current = attachments;
 
     /** Scroll only the messages pane — never scrollIntoView (that scrolls ancestors). */
     const scrollToBottom = () => {
@@ -107,12 +166,63 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
         };
     }, [isOpen]);
 
+    useEffect(() => {
+        return () => {
+            attachmentsRef.current.forEach((a) => {
+                try { URL.revokeObjectURL(a.previewUrl); } catch { /* ignore */ }
+            });
+        };
+    }, []);
+
+    const handlePickImages = async (files: FileList | null) => {
+        if (!files?.length) return;
+        const remaining = MAX_CHAT_IMAGES - attachments.length;
+        if (remaining <= 0) return;
+        const picked = Array.from(files)
+            .filter((f) => f.type.startsWith('image/'))
+            .slice(0, remaining);
+        if (!picked.length) return;
+        try {
+            const encoded = await Promise.all(picked.map(fileToChatAttachment));
+            setAttachments((prev) => [...prev, ...encoded].slice(0, MAX_CHAT_IMAGES));
+        } catch (err) {
+            console.error(err);
+            setMessages((prev) => [
+                ...prev,
+                { role: 'model', content: 'Bild konnte nicht geladen werden. Bitte versuche ein PNG/JPEG.' },
+            ]);
+        } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const removeAttachment = (id: string) => {
+        setAttachments((prev) => {
+            const target = prev.find((a) => a.id === id);
+            if (target) {
+                try { URL.revokeObjectURL(target.previewUrl); } catch { /* ignore */ }
+            }
+            return prev.filter((a) => a.id !== id);
+        });
+    };
+
     const handleSend = async () => {
-        if (!input.trim() || isLoading) return;
+        if ((!input.trim() && attachments.length === 0) || isLoading) return;
 
         const userMsg = input.trim();
+        const pendingImages = attachments;
         setInput('');
-        const newMessages: Message[] = [...messages, { role: 'user', content: userMsg }];
+        setAttachments([]);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+
+        const newMessages: Message[] = [
+            ...messages,
+            {
+                role: 'user',
+                content: userMsg || (pendingImages.length ? '📎 Bild angehängt' : ''),
+                images: pendingImages.map((a) => ({ previewUrl: a.previewUrl, name: a.name })),
+            },
+        ];
         setMessages(newMessages);
         setIsLoading(true);
 
@@ -120,10 +230,15 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
             username,
             folder_id: folderId,
             file_id: activeFile?.id,
-            message: userMsg,
+            message: userMsg || 'Bitte schau dir das/die angehängte(n) Bild(er) an und erkläre, was du siehst.',
             history: messages.filter(m => m.role !== 'model' || m.content !== 'Hallo! Ich bin dein Blop KI-Assistent. Hast du Fragen zu den Dokumenten in diesem Ordner?'),
             model_preference: modelPreference || null,
             active_file: activeFile || null,
+            images: pendingImages.map((a) => ({
+                mime_type: a.mime_type,
+                data_base64: a.data_base64,
+                name: a.name,
+            })),
         };
 
         try {
@@ -373,7 +488,32 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                                 </ReactMarkdown>
                                             </div>
                                         ) : (
-                                            <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                                            <div className="space-y-2">
+                                                {msg.images?.length ? (
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {msg.images.map((img, i) => (
+                                                            <a
+                                                                key={`${img.previewUrl}-${i}`}
+                                                                href={img.previewUrl}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="block overflow-hidden rounded-lg border border-white/20 bg-black/20"
+                                                                title={img.name}
+                                                            >
+                                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                                <img
+                                                                    src={img.previewUrl}
+                                                                    alt={img.name}
+                                                                    className="max-h-28 max-w-[140px] object-cover"
+                                                                />
+                                                            </a>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
+                                                {msg.content ? (
+                                                    <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                                                ) : null}
+                                            </div>
                                         )}
                                     </div>
                                 </div>
@@ -427,10 +567,49 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                     Dokument ändern
                                 </button>
                             ) : null}
+                            {attachments.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                    {attachments.map((a) => (
+                                        <div
+                                            key={a.id}
+                                            className="group relative h-14 w-14 overflow-hidden rounded-lg border border-[#3A4558] bg-[#0E1117]"
+                                        >
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img src={a.previewUrl} alt={a.name} className="h-full w-full object-cover" />
+                                            <button
+                                                type="button"
+                                                onClick={() => removeAttachment(a.id)}
+                                                className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white opacity-90 hover:bg-black"
+                                                aria-label="Bild entfernen"
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : null}
                             <form
                                 onSubmit={(e) => { e.preventDefault(); handleSend(); }}
                                 className="flex items-end gap-2"
                             >
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp,image/gif,image/*"
+                                    multiple
+                                    className="hidden"
+                                    onChange={(e) => handlePickImages(e.target.files)}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={isLoading || attachments.length >= MAX_CHAT_IMAGES}
+                                    className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-xl border border-[#2A3140] bg-[#0E1117] text-gray-300 transition-colors hover:border-[#5B9DFF]/40 hover:text-[#9EC5FF] disabled:cursor-not-allowed disabled:opacity-40"
+                                    title="Screenshot / Bild anhängen"
+                                    aria-label="Bild anhängen"
+                                >
+                                    <ImagePlus size={18} />
+                                </button>
                                 <textarea
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
@@ -440,16 +619,28 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                             handleSend();
                                         }
                                     }}
-                                    placeholder={editDocument ? 'Beschreibe die Änderung am Dokument…' : 'Frage etwas zum Ordner…'}
+                                    onPaste={(e) => {
+                                        const items = Array.from(e.clipboardData?.items || []);
+                                        const imageFiles = items
+                                            .filter((it) => it.type.startsWith('image/'))
+                                            .map((it) => it.getAsFile())
+                                            .filter((f): f is File => !!f);
+                                        if (!imageFiles.length) return;
+                                        e.preventDefault();
+                                        const dt = new DataTransfer();
+                                        imageFiles.forEach((f) => dt.items.add(f));
+                                        void handlePickImages(dt.files);
+                                    }}
+                                    placeholder={editDocument ? 'Beschreibe die Änderung am Dokument…' : 'Frage etwas oder hänge einen Screenshot an…'}
                                     className="custom-scrollbar max-h-32 min-h-[48px] flex-1 resize-none rounded-xl border border-[#2A3140] bg-[#0E1117] px-3.5 py-3 text-sm text-white focus:border-[#5B9DFF]/50 focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
                                     rows={1}
                                 />
                                 <button
                                     type="submit"
-                                    disabled={!input.trim() || isLoading}
+                                    disabled={(!input.trim() && attachments.length === 0) || isLoading}
                                     className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-xl bg-[#5B9DFF] p-3 text-white transition-colors hover:bg-[#4A8AE6] disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    <Send size={18} className={input.trim() ? 'translate-x-0.5' : ''} />
+                                    <Send size={18} className={input.trim() || attachments.length ? 'translate-x-0.5' : ''} />
                                 </button>
                             </form>
                             {lastUsageInfo ? (

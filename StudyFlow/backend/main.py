@@ -776,6 +776,14 @@ class ChatMessage(BaseModel):
     role: str
     content: str
 
+
+class ChatImage(BaseModel):
+    """Client-attached screenshot/image for multimodal chat (base64, no data: prefix)."""
+    mime_type: str
+    data_base64: str
+    name: Optional[str] = None
+
+
 class ChatRequest(BaseModel):
     username: str
     folder_id: str
@@ -783,6 +791,7 @@ class ChatRequest(BaseModel):
     history: List[ChatMessage]
     model_preference: Optional[str] = None
     active_file: Optional[dict] = None  # {id, name, type, content}
+    images: Optional[List[ChatImage]] = None
 
 class GoogleVerifyRequest(BaseModel):
     token: str
@@ -3065,6 +3074,7 @@ class DocumentChatPatchRequest(BaseModel):
     message: str
     history: List[ChatMessage]
     model_preference: Optional[str] = None
+    images: Optional[List[ChatImage]] = None
 
 
 class SelectionEditRequest(BaseModel):
@@ -4280,6 +4290,7 @@ def chat_endpoint_stream(request: ChatRequest):
                     history=history_dicts,
                     model_preference=model_pref,
                     active_file=request.active_file,
+                    images=request.images,
                 ):
                     if event["type"] == "chunk":
                         yield f"data: {json.dumps({'text': event['text']}, ensure_ascii=False)}\n\n"
@@ -4326,6 +4337,7 @@ def chat_endpoint(request: ChatRequest):
             history=history_dicts, 
             model_preference=model_pref,
             active_file=request.active_file,
+            images=request.images,
             return_meta=True,
         )
         charge = deduct_tokens_by_usage(
@@ -4368,6 +4380,7 @@ def document_chat_patch(request: DocumentChatPatchRequest):
             user_message=request.message,
             history=history_dicts,
             model_preference=model_pref,
+            images=request.images,
             return_meta=True,
         )
         charge = deduct_tokens_by_usage(
