@@ -59,13 +59,27 @@ QImage renderFullPage(const NotePage &page, int pageW, int pageH) {
       break;
     }
     case PageBackgroundType::Grid: {
-      const QColor gridCol =
-          L < 130 ? QColor(255, 255, 255, 60) : QColor(150, 160, 190, 180);
-      p.setPen(QPen(gridCol, 1));
-      for (int x = 40; x < pageW; x += 40)
-        p.drawLine(x, 0, x, pageH);
-      for (int y = 40; y < pageH; y += 40)
-        p.drawLine(0, y, pageW, y);
+      // Gleiches Raster wie PageItem::paint (Ansicht): Rand 24, jede 5.
+      // Linie als Hauptlinie.
+      const qreal margin = 24.0;
+      const qreal gl = margin, gr = pageW - margin;
+      const qreal gt = margin, gb = pageH - margin;
+      const QColor minor =
+          L < 130 ? QColor(255, 255, 255, 60) : QColor(0xA8, 0xBB, 0xD8);
+      const QColor major =
+          L < 130 ? QColor(255, 255, 255, 96) : QColor(0x7E, 0x9C, 0xC6);
+      int ix = 0;
+      for (qreal x = gl; x <= gr + 0.5; x += 40, ++ix) {
+        const bool isMajor = (ix % 5) == 0;
+        p.setPen(QPen(isMajor ? major : minor, isMajor ? 1.6 : 1.2));
+        p.drawLine(QPointF(x, gt), QPointF(x, gb));
+      }
+      int iy = 0;
+      for (qreal y = gt; y <= gb + 0.5; y += 40, ++iy) {
+        const bool isMajor = (iy % 5) == 0;
+        p.setPen(QPen(isMajor ? major : minor, isMajor ? 1.6 : 1.2));
+        p.drawLine(QPointF(gl, y), QPointF(gr, y));
+      }
       break;
     }
     case PageBackgroundType::Dotted: {

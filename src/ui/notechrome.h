@@ -6,6 +6,8 @@
 #include "blop_theme.h"
 
 #include <QColor>
+#include <QEvent>
+#include <QPainter>
 #include <QPoint>
 #include <QString>
 #include <QWidget>
@@ -135,63 +137,151 @@ inline void clampPopupToHost(QWidget *popup, const QPoint &globalPos,
   popup->move(nx, ny);
 }
 
-/// Shared Studio Dock second-tap popover chrome (Drawboard-dark).
+/// Tool-Popover-Tokens — abgeleitet vom Kuli-Menue (PenStudioPopover), das
+/// die Referenz fuer Aufbau und Farben ist. Folgen dem Darstellungsmodus
+/// (Hell / Dunkel / System -> BlopTheme::isDark()).
+inline QColor studioFill() {
+  return isDark() ? QColor(0x18, 0x1B, 0x22) : QColor(0xFF, 0xFF, 0xFF);
+}
+inline QColor studioInk() {
+  return isDark() ? QColor(0xF4, 0xF6, 0xFA) : QColor(0x22, 0x22, 0x22);
+}
+inline QColor studioMuted() {
+  return isDark() ? QColor(0xA7, 0xAD, 0xB6) : QColor(0x6B, 0x6B, 0x6B);
+}
+inline QColor studioEdge() {
+  return isDark() ? QColor(255, 255, 255, 31) : QColor(0xE5, 0xE7, 0xEB);
+}
+
+/// Gemeinsames Stylesheet aller Werkzeug-Popover (Radierer, Formen, Messen):
+/// Abschnitts-Labels, Karten-Buttons, Regler wie im Kuli-Menue.
 inline QString studioPopoverStyle(const QString &objectName) {
-  return QStringLiteral(
-             "QFrame#%1, QWidget#%1 {"
-             "  background: #181B22;"
-             "  border: 1px solid rgba(255,255,255,0.12);"
-             "  border-radius: 12px;"
-             "}"
-             "QLabel, QRadioButton, QCheckBox { color: #E2E8F0; font-size: 12px; }"
-             "QRadioButton::indicator {"
-             "  width: 14px; height: 14px; border-radius: 7px;"
-             "  border: 2px solid rgba(255,255,255,0.35);"
-             "  background: transparent;"
-             "}"
-             "QRadioButton::indicator:checked {"
-             "  border: 2px solid #5B9DFF;"
-             "  background: #5B9DFF;"
-             "}"
-             "QTabWidget::pane { border: none; background: transparent; }"
-             "QTabBar::tab {"
-             "  background: transparent; color: #94A3B8; padding: 6px 10px;"
-             "  border: none; font-size: 11px; font-weight: 600;"
-             "}"
-             "QTabBar::tab:selected { color: #F8FAFC;"
-             "  border-bottom: 2px solid #5B9DFF; }"
-             "QPushButton {"
-             "  background: rgba(255,255,255,0.06); color: #E2E8F0;"
-             "  border: 1px solid rgba(255,255,255,0.10); border-radius: 8px;"
-             "  padding: 6px 10px; font-size: 12px; font-weight: 600;"
-             "}"
-             "QPushButton:hover { background: rgba(91,157,255,0.16);"
-             "  border-color: #5B9DFF; }"
-             "QPushButton:checked { background: rgba(91,157,255,0.22);"
-             "  border-color: #5B9DFF; color: #F8FAFC; }"
-             "QPushButton#ShapesCatTab {"
-             "  background: transparent; border: none; border-radius: 0;"
-             "  border-bottom: 2px solid transparent; color: #94A3B8;"
-             "  padding: 6px 10px; font-size: 11px; font-weight: 600;"
-             "}"
-             "QPushButton#ShapesCatTab:hover {"
-             "  background: transparent; border: none;"
-             "  border-bottom: 2px solid transparent; color: #E2E8F0;"
-             "}"
-             "QPushButton#ShapesCatTab:checked,"
-             "QPushButton#ShapesCatTab:checked:hover {"
-             "  background: transparent; border: none;"
-             "  border-bottom: 2px solid #5B9DFF; color: #F8FAFC;"
-             "}"
-             "QWidget#ShapesCatalogPage { background: #181B22; }"
-             "QSlider::groove:horizontal {"
-             "  height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px;"
-             "}"
-             "QSlider::handle:horizontal {"
-             "  width: 14px; height: 14px; margin: -5px 0; border-radius: 7px;"
-             "  background: #5B9DFF;"
-             "}")
-      .arg(objectName);
+  const bool dark = isDark();
+  const QString bg = studioFill().name(QColor::HexRgb);
+  const QString edge = dark ? QStringLiteral("rgba(255,255,255,0.12)")
+                            : QStringLiteral("#E5E7EB");
+  const QString ink = studioInk().name(QColor::HexRgb);
+  const QString muted = studioMuted().name(QColor::HexRgb);
+  const QString cardBg = dark ? QStringLiteral("rgba(255,255,255,0.06)")
+                              : panelBg().name(QColor::HexRgb);
+  const QString cardBd = dark ? QStringLiteral("rgba(255,255,255,0.12)")
+                              : borderSoft().name(QColor::HexRgb);
+  const QString indBd = dark ? QStringLiteral("rgba(255,255,255,0.35)")
+                             : QStringLiteral("#94A3B8");
+  QString qss = QStringLiteral(
+      "QFrame#%1, QWidget#%1 {"
+      "  background: %2; border: 1px solid %3; border-radius: 12px;"
+      "}"
+      "QLabel { color: %5; font-size: 11px; font-weight: 600;"
+      "  background: transparent; }"
+      "QLabel#StudioValue { color: %4; font-size: 12px; }"
+      "QRadioButton, QCheckBox { color: %4; font-size: 12px; font-weight: 500;"
+      "  background: transparent; spacing: 8px; }"
+      "QRadioButton::indicator {"
+      "  width: 14px; height: 14px; border-radius: 9px;"
+      "  border: 2px solid %8; background: transparent;"
+      "}"
+      "QRadioButton::indicator:checked {"
+      "  border: 2px solid #5B9DFF; background: #5B9DFF;"
+      "}"
+      "QCheckBox::indicator {"
+      "  width: 14px; height: 14px; border-radius: 4px;"
+      "  border: 2px solid %8; background: transparent;"
+      "}"
+      "QCheckBox::indicator:checked {"
+      "  border: 2px solid #5B9DFF; background: #5B9DFF;"
+      "}"
+      "QPushButton {"
+      "  background: %6; color: %4; border: 1px solid %7; border-radius: 8px;"
+      "  padding: 6px 10px; font-size: 12px; font-weight: 600;"
+      "}"
+      "QPushButton:hover { background: rgba(91,157,255,0.14);"
+      "  border-color: #5B9DFF; }"
+      "QPushButton:checked { background: rgba(91,157,255,0.18);"
+      "  border-color: #5B9DFF; color: %4; }"
+      "QPushButton#ShapesCatTab {"
+      "  background: transparent; border: none; border-radius: 0;"
+      "  border-bottom: 2px solid transparent; color: %5;"
+      "  padding: 6px 10px; font-size: 11px; font-weight: 600;"
+      "}"
+      "QPushButton#ShapesCatTab:hover {"
+      "  background: transparent; border: none;"
+      "  border-bottom: 2px solid transparent; color: %4;"
+      "}"
+      "QPushButton#ShapesCatTab:checked,"
+      "QPushButton#ShapesCatTab:checked:hover {"
+      "  background: transparent; border: none;"
+      "  border-bottom: 2px solid #5B9DFF; color: %4;"
+      "}"
+      "QWidget#ShapesCatalogPage, QStackedWidget#ShapesCatalogStack {"
+      "  background: transparent; }"
+      "QSlider { background: transparent; min-height: 18px; }"
+      "QSlider::groove:horizontal {"
+      "  height: 4px; background: %7; border: none; border-radius: 2px;"
+      "}"
+      "QSlider::sub-page:horizontal { background: #5B9DFF; border-radius: 2px; }"
+      "QSlider::add-page:horizontal { background: %7; border-radius: 2px; }"
+      "QSlider::handle:horizontal {"
+      "  width: 14px; height: 14px; margin: -5px 0; border-radius: 7px;"
+      "  background: #5B9DFF; border: none;"
+      "}");
+  return qss.arg(objectName, bg, edge, ink, muted, cardBg, cardBd, indBd);
+}
+
+/// Die Studio-Popover sind transluzente Top-Level-Fenster: der
+/// Stylesheet-Hintergrund wird von QWidget::grab() nicht zuverlaessig
+/// mitgerendert (Screenshot zeigt dann die Seite durch). Wie beim
+/// PenStudioPopover malen wir Karte + Rand deshalb im Paint-Event
+/// selbst; das Stylesheet bleibt fuer Texte/Regler zustaendig.
+class StudioPopupPaintFilter : public QObject {
+public:
+  explicit StudioPopupPaintFilter(QObject *popup) : QObject(popup) {}
+
+protected:
+  bool eventFilter(QObject *obj, QEvent *e) override {
+    if (e->type() == QEvent::Paint) {
+      auto *w = qobject_cast<QWidget *>(obj);
+      if (w) {
+        QPainter p(w);
+        p.setRenderHint(QPainter::Antialiasing);
+        const QRectF r = QRectF(w->rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+        p.setPen(Qt::NoPen);
+        p.setBrush(studioFill());
+        p.drawRoundedRect(r, 12, 12);
+        p.setPen(QPen(studioEdge(), 1));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(r, 12, 12);
+      }
+    }
+    return QObject::eventFilter(obj, e);
+  }
+};
+
+/// Popover-Fenster vorbereiten: transparente Ecken (saubere Rundung) und
+/// Stylesheet-Hintergrund auch fuer reine QWidget-Popover.
+inline void prepareStudioPopup(QWidget *pop, const QString &objectName) {
+  if (!pop)
+    return;
+  pop->setObjectName(objectName);
+  pop->setAttribute(Qt::WA_TranslucentBackground, true);
+  pop->setAttribute(Qt::WA_StyledBackground, true);
+  pop->setStyleSheet(studioPopoverStyle(objectName));
+  pop->installEventFilter(new StudioPopupPaintFilter(pop));
+}
+
+/// „Gefaehrliche" Aktion im Popover (z. B. Seite leeren), theme-abhaengig.
+inline QString studioDangerButtonStyle() {
+  return isDark()
+             ? QStringLiteral(
+                   "QPushButton { background: rgba(248,113,113,0.16);"
+                   " color: #FCA5A5; border: 1px solid rgba(248,113,113,0.35); }"
+                   "QPushButton:hover { background: rgba(248,113,113,0.26);"
+                   " border-color: #F87171; }")
+             : QStringLiteral(
+                   "QPushButton { background: rgba(220,38,38,0.07);"
+                   " color: #DC2626; border: 1px solid rgba(220,38,38,0.35); }"
+                   "QPushButton:hover { background: rgba(220,38,38,0.14);"
+                   " border-color: #DC2626; }");
 }
 
 } // namespace NoteChrome

@@ -9183,7 +9183,8 @@ void MainWindow::setupUi() {
         m_penStudio->hide();
         return;
       }
-      m_penStudio->present(m_noteToolbars->studioAnchorGlobal());
+      m_penStudio->present(m_noteToolbars->studioAnchorGlobal(),
+                           m_noteToolbars->studioOpensBelow());
     });
     connect(m_noteToolbars, &NoteToolbarHost::toolOptionsRequested, this,
             [this]() {

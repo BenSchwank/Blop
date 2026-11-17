@@ -18,7 +18,9 @@ public:
   explicit PenStudioPopover(QWidget *parent = nullptr);
 
   void syncFromTool();
-  void present(const QPoint &globalAnchor);
+  /// `below` = direkt unter dem Anker (Toolbar-Tile) oeffnen wie die anderen
+  /// Werkzeug-Popover; sonst links/oberhalb (Radiant-Faecher).
+  void present(const QPoint &globalAnchor, bool below = false);
 
 protected:
   void paintEvent(QPaintEvent *event) override;

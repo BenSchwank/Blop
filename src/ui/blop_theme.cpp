@@ -5,9 +5,11 @@
 #include "uiscale.h"
 
 #include <QApplication>
+#include <QPalette>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStyleHints>
+#include <QTimer>
 
 namespace {
 constexpr const char *kSettingsOrg = "Blop";
@@ -71,24 +73,29 @@ void applyTooltipStyle() {
   if (!qApp)
     return;
   const bool dark = BlopTheme::instance().isDark();
-  const QString tip = dark
-      ? QStringLiteral(
-            "QToolTip { background-color: #1E293B; color: #F8FAFC;"
-            " border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;"
-            " padding: 4px 8px; font-size: 12px; }")
-      : QStringLiteral(
-            "QToolTip { background-color: #FFFFFF; color: #111827;"
-            " border: 1px solid #E5E7EB; border-radius: 6px;"
-            " padding: 4px 8px; font-size: 12px; }");
-  QString css = qApp->styleSheet();
+  // Colors come from the application palette so a theme switch never has
+  // to rebuild the global style sheet -- a full qApp->setStyleSheet() can
+  // crash inside Qt's scrollbar style animations on Windows.
+  const QString tip = QStringLiteral(
+      "QToolTip { border: 1px solid palette(mid); border-radius: 6px;"
+      " padding: 4px 8px; font-size: 12px; }");
+  const QString css = qApp->styleSheet();
   const QRegularExpression re(QStringLiteral("QToolTip\\s*\\{[^}]*\\}"));
+  QString next = css;
   if (re.match(css).hasMatch())
-    css.replace(re, tip);
+    next.replace(re, tip);
   else if (css.isEmpty())
-    css = tip;
+    next = tip;
   else
-    css += QLatin1Char('\n') + tip;
-  qApp->setStyleSheet(css);
+    next += QLatin1Char('\n') + tip;
+  if (next != css)
+    qApp->setStyleSheet(next);
+  QPalette pal = qApp->palette();
+  pal.setColor(QPalette::ToolTipBase,
+               dark ? QColor(0x1E, 0x29, 0x3B) : QColor(0xFF, 0xFF, 0xFF));
+  pal.setColor(QPalette::ToolTipText,
+               dark ? QColor(0xF8, 0xFA, 0xFC) : QColor(0x11, 0x18, 0x27));
+  qApp->setPalette(pal);
 }
 
 void BlopTheme::install() {
@@ -112,7 +119,10 @@ void BlopTheme::install() {
   applyTooltipStyle();
   QObject::connect(this, &BlopTheme::themeChanged, this, []() {
     UIStyles::refresh();
-    applyTooltipStyle();
+    // Deferred: a synchronous qApp->setStyleSheet() here can crash inside
+    // Qt's scrollbar style animation while scrollbars are mid-animation
+    // (seen as SIGSEGV in QScrollbarStyleAnimation::qt_metacall).
+    QTimer::singleShot(0, qApp, []() { applyTooltipStyle(); });
   });
   if (qApp && qApp->styleHints()) {
     QObject::connect(qApp->styleHints(), &QStyleHints::colorSchemeChanged, this,

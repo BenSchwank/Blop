@@ -512,6 +512,17 @@ private:
       if (it->data(kStrokeSerialKey).toULongLong() == m_serial)
         return it;
     }
+    // Szene wurde neu aufgebaut (Seiten-/Text-Undo): Serien sind neu vergeben.
+    // Den Strich ueber seinen Inhalt wiederfinden.
+    for (QGraphicsItem *it : all) {
+      if (!it->data(kStrokeSnapKey).canConvert<Stroke>())
+        continue;
+      const Stroke s = it->data(kStrokeSnapKey).value<Stroke>();
+      if (s.pageIndex == m_page && s.points == m_stroke.points &&
+          s.path == m_stroke.path && s.color == m_stroke.color &&
+          qFuzzyCompare(s.width + 1.0, m_stroke.width + 1.0))
+        return it;
+    }
     return nullptr;
   }
 
@@ -2226,6 +2237,9 @@ void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
       m_pageUndoStack->clear();
   }
   ++m_contentRevision;
+  // scene_.clear() loescht das Lineal — den Cache vorher leeren, sonst
+  // greift findActiveRuler() auf ein geloeschtes Item zu (Absturz).
+  rememberActiveRuler(&scene_, nullptr);
   scene_.clear();
   pageItems_.clear();
   m_hydratedPages.clear();
@@ -2368,8 +2382,9 @@ bool MultiPageNoteView::isEditingText() const {
 }
 
 void MultiPageNoteView::layoutPages() {
-  if (m_undoStack)
-    m_undoStack->clear();
+  // Kein m_undoStack->clear() hier: layoutPages() laeuft auch innerhalb von
+  // PageSnapshotUndoCommand::undo()/redo() — das Leeren zerstoerte dort die
+  // Historie (und den gerade laufenden Befehl). setNote() leert bei Bedarf.
   if (m_pagesBarAnchorStrip) {
     scene_.removeItem(m_pagesBarAnchorStrip);
     delete m_pagesBarAnchorStrip;
@@ -3010,13 +3025,40 @@ void MultiPageNoteView::debugSnapshotTools(const QString &dir) {
 
   // 10 Formel/Graph per Drag
   noteActivateTool(ToolMode::Formula);
+  // Das Formel-Tool oeffnet beim Loslassen den (modalen) Achsen-Dialog —
+  // fotografieren und schliessen, sonst blockiert der Durchlauf.
+  // Waechter fuer den Rest des Durchlaufs: jeder modale Dialog wird
+  // protokolliert, einmal fotografiert und geschlossen.
+  auto *dialogGuard = new QTimer(this);
+  auto guardShots = std::make_shared<int>(0);
+  connect(dialogGuard, &QTimer::timeout, this, [win, dir, log, guardShots]() {
+    QList<QDialog *> dialogs = win->findChildren<QDialog *>();
+    for (QWidget *w : QApplication::topLevelWidgets())
+      if (auto *d = qobject_cast<QDialog *>(w))
+        dialogs.append(d);
+    for (QDialog *d : dialogs) {
+      if (!d->isVisible())
+        continue;
+      const int n = ++*guardShots;
+      win->grab().save(
+          QDir(dir).filePath(QStringLiteral("t10_dialog_%1.png").arg(n)));
+      log(QStringLiteral("   guard: closed modal %1 '%2' title='%3'")
+              .arg(QString::fromLatin1(d->metaObject()->className()),
+                   d->objectName(), d->windowTitle()));
+      d->reject();
+    }
+  });
+  dialogGuard->start(700);
   drag(line({80, 580}, {360, 780}, 10));
   wait(300);
   stats(QStringLiteral("10 formula graph"));
 
   // 11 Sticky
   noteActivateTool(ToolMode::StickyNote);
+  log(QStringLiteral("   sticky: tool active=%1, pressing")
+          .arg(int(mgr.activeToolMode())));
   send(QEvent::MouseButtonPress, vp({470, 560}));
+  log(QStringLiteral("   sticky: press returned"));
   send(QEvent::MouseButtonRelease, vp({470, 560}));
   wait(200);
   stats(QStringLiteral("11 sticky"));
@@ -3117,7 +3159,8 @@ void MultiPageNoteView::debugSnapshotTools(const QString &dir) {
       ToolMode mode;
       const char *name;
     };
-    for (const P &p : {P{ToolMode::Pen, "pen"}, P{ToolMode::Highlighter, "marker"},
+    auto runPopovers = [&](const QString &suffix) {
+      for (const P &p : {P{ToolMode::Pen, "pen"}, P{ToolMode::Highlighter, "marker"},
                        P{ToolMode::Eraser, "eraser"}, P{ToolMode::Shape, "shape"},
                        P{ToolMode::Ruler, "ruler"}, P{ToolMode::Lasso, "lasso"}}) {
       noteActivateTool(ToolMode::Hand);
@@ -3131,13 +3174,37 @@ void MultiPageNoteView::debugSnapshotTools(const QString &dir) {
               .arg(c1)
               .arg(active));
       popups(QString::fromLatin1(p.name));
-      shot(QStringLiteral("t15_popover_%1.png").arg(QString::fromLatin1(p.name)));
+      shot(QStringLiteral("t15_popover_%1%2.png").arg(QString::fromLatin1(p.name), suffix));
       closePopups();
     }
+    };
+    // Aktueller Modus, dann der jeweils andere (Hell <-> Dunkel); danach
+    // die Nutzereinstellung (inkl. "System folgen") wiederherstellen.
+    const bool wasDark = BlopTheme::instance().isDark();
+    const bool followed = BlopTheme::instance().followSystem();
+    runPopovers(wasDark ? QStringLiteral("_dark") : QStringLiteral("_light"));
+    log(QStringLiteral("16 theme: switching (wasDark=%1 follow=%2)")
+            .arg(wasDark)
+            .arg(followed));
+    BlopTheme::instance().setMode(wasDark ? BlopTheme::Mode::Light
+                                          : BlopTheme::Mode::Dark);
+    log(QStringLiteral("16 theme: setMode returned"));
+    wait(400);
+    log(QStringLiteral("16 theme: settled"));
+    shot(wasDark ? QStringLiteral("t16_canvas_light.png")
+                 : QStringLiteral("t16_canvas_dark.png"));
+    runPopovers(wasDark ? QStringLiteral("_light") : QStringLiteral("_dark"));
+    BlopTheme::instance().setMode(wasDark ? BlopTheme::Mode::Dark
+                                          : BlopTheme::Mode::Light);
+    if (followed)
+      BlopTheme::instance().setFollowSystem(true);
+    wait(200);
     if (RulerItem *r = findActiveRuler(&scene_))
       r->setVisible(false);
   }
   noteActivateTool(ToolMode::Pen);
+  dialogGuard->stop();
+  dialogGuard->deleteLater();
   log(QStringLiteral("tools snapshot done"));
 }
 
@@ -3363,6 +3430,8 @@ void MultiPageNoteView::pickAndAddImagePage() {
         self->note_->pages[idx].backgroundType =
             static_cast<int>(PageBackgroundType::Blank);
         self->note_->pages[idx].paperColor = QColor(Qt::white);
+        if (self->m_undoStack)
+          self->m_undoStack->clear();
         self->layoutPages();
         if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
           RulerTool::ensureRulerExists(&self->scene_,
@@ -3399,6 +3468,8 @@ void MultiPageNoteView::pickAndAddImagePage() {
   note_->pages[idx].backgroundImage = canvas;
   note_->pages[idx].backgroundType = static_cast<int>(PageBackgroundType::Blank);
   note_->pages[idx].paperColor = QColor(Qt::white);
+  if (m_undoStack)
+    m_undoStack->clear();
   layoutPages();
   if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
     RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());

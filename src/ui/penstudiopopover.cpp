@@ -471,10 +471,11 @@ void PenStudioPopover::syncFromTool() {
   update();
 }
 
-void PenStudioPopover::present(const QPoint &globalAnchor) {
+void PenStudioPopover::present(const QPoint &globalAnchor, bool below) {
   syncFromTool();
   adjustSize();
-  QPoint pos = globalAnchor - QPoint(width() + 12, height() / 3);
+  QPoint pos = below ? globalAnchor + QPoint(0, 6)
+                     : globalAnchor - QPoint(width() + 12, height() / 3);
   if (QWidget *host = parentWidget()) {
     const QRect bounds = host->rect();
     QPoint local = host->mapFromGlobal(pos);

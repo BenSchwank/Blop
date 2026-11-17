@@ -21,7 +21,7 @@ namespace {
 
 void paintPreview(QPainter *p, ShapeToolKind kind, const QRectF &r) {
   p->setRenderHint(QPainter::Antialiasing, true);
-  QPen pen(QColor(0xE2, 0xE8, 0xF0), 1.4);
+  QPen pen(NoteChrome::studioInk(), 1.4);
   pen.setCapStyle(Qt::RoundCap);
   pen.setJoinStyle(Qt::RoundJoin);
   p->setPen(pen);
@@ -43,7 +43,7 @@ void paintPreview(QPainter *p, ShapeToolKind kind, const QRectF &r) {
     tip.lineTo(r.right() - 4, c.y() - 2.5);
     tip.lineTo(r.right() - 4, c.y() + 2.5);
     tip.closeSubpath();
-    p->setBrush(QColor(0xE2, 0xE8, 0xF0));
+    p->setBrush(NoteChrome::studioInk());
     p->drawPath(tip);
     if (kind == ShapeToolKind::DoubleArrow) {
       QPainterPath tip2;
@@ -152,7 +152,7 @@ void paintPreview(QPainter *p, ShapeToolKind kind, const QRectF &r) {
                 QPointF(r.right() - 5, c.y() + 4));
     break;
   case ShapeToolKind::StampNode:
-    p->setBrush(QColor(0xE2, 0xE8, 0xF0));
+    p->setBrush(NoteChrome::studioInk());
     p->drawEllipse(c, 2.5, 2.5);
     break;
   case ShapeToolKind::FlowDecision: {
@@ -183,22 +183,16 @@ void paintPreview(QPainter *p, ShapeToolKind kind, const QRectF &r) {
 } // namespace
 
 ShapesCatalogPopover::ShapesCatalogPopover(QWidget *parent) : QWidget(parent) {
-  setObjectName(QStringLiteral("ShapesCatalogPopover"));
   setWindowFlags(Qt::Popup | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
   setAttribute(Qt::WA_DeleteOnClose, true);
-  setFixedWidth(UiScale::dp(280));
-  setStyleSheet(NoteChrome::studioPopoverStyle(QStringLiteral("ShapesCatalogPopover")));
-
-  auto *shadow = new QGraphicsDropShadowEffect(this);
-  shadow->setBlurRadius(32);
-  shadow->setOffset(0, 12);
-  shadow->setColor(QColor(0, 0, 0, 115));
-  setGraphicsEffect(shadow);
+  setFixedWidth(UiScale::dp(300));
+  // Gleiche Popover-Sprache wie Kuli/Radierer/Messen; WA_StyledBackground
+  // malt den Karten-Hintergrund (vorher standen die Reiter im Leeren).
+  NoteChrome::prepareStudioPopup(this, QStringLiteral("ShapesCatalogPopover"));
 
   auto *root = new QVBoxLayout(this);
-  root->setContentsMargins(UiScale::dp(12), UiScale::dp(12), UiScale::dp(12),
-                           UiScale::dp(12));
-  root->setSpacing(UiScale::dp(8));
+  root->setContentsMargins(16, 16, 16, 16);
+  root->setSpacing(10);
 
   m_tabLay = new QHBoxLayout;
   m_tabLay->setContentsMargins(0, 0, 0, 0);

@@ -776,6 +776,7 @@ bool CanvasView::loadFromFile() {
   setPageFormat(m_isInfinite);
   updateBackgroundTile();
   m_undoStack->clear();
+  rememberActiveRuler(m_scene, nullptr);
   m_scene->clear();
   m_graphPlusBypassItem = nullptr;
   m_graphPlotBypassItem = nullptr;

@@ -631,9 +631,20 @@ QColor NoteFloatToolbar::hoverFill() const {
 }
 
 QPoint NoteFloatToolbar::studioAnchorGlobal() const {
+  // Anker = untere Kante der Toolbar-Pille (nicht Tile-Unterkante): die
+  // Popover sollen mit ~6px Abstand UNTER der Toolbar schweben, nicht
+  // die Pillenhoehe ueberlappen.
   auto mapTile = [this](const NoteToolTile &t) {
-    return mapToGlobal(t.rect.bottomLeft().toPoint());
+    return mapToGlobal(QPoint(t.rect.left(), height()));
   };
+  // Unter dem aktiven Stift-Tile oeffnen — gleiche Stelle wie Radierer-,
+  // Formen- und Messen-Popover unter ihren Tiles.
+  for (const NoteToolTile &t : m_tiles) {
+    if (t.action == NoteToolTile::Tool && tileActive(t) &&
+        (t.mode == ToolMode::Pen || t.mode == ToolMode::Pencil ||
+         t.mode == ToolMode::Highlighter))
+      return mapTile(t);
+  }
   for (const NoteToolTile &t : m_tiles) {
     if (t.action == NoteToolTile::Width)
       return mapTile(t);
@@ -917,12 +928,14 @@ void NoteFloatToolbar::mousePressEvent(QMouseEvent *event) {
     }
     if (t.action == NoteToolTile::Tool && tileActive(t)) {
       if (t.mode == ToolMode::Eraser) {
-        showEraserPopover(mapToGlobal(t.rect.bottomLeft().toPoint()));
+        showEraserPopover(
+            mapToGlobal(QPoint(t.rect.left(), height())));
         event->accept();
         return;
       }
       if (t.mode == ToolMode::Shape) {
-        showShapesPopover(mapToGlobal(t.rect.bottomLeft().toPoint()));
+        showShapesPopover(
+            mapToGlobal(QPoint(t.rect.left(), height())));
         event->accept();
         return;
       }
@@ -931,7 +944,8 @@ void NoteFloatToolbar::mousePressEvent(QMouseEvent *event) {
     if (t.action == NoteToolTile::Tool && t.mode == ToolMode::Ruler) {
       if (!tileActive(t))
         noteActivateTool(ToolMode::Ruler);
-      showMeasurePopover(mapToGlobal(t.rect.bottomLeft().toPoint()));
+      showMeasurePopover(
+          mapToGlobal(QPoint(t.rect.left(), height())));
       event->accept();
       return;
     }
@@ -941,37 +955,52 @@ void NoteFloatToolbar::mousePressEvent(QMouseEvent *event) {
 
 void NoteFloatToolbar::showEraserPopover(const QPoint &globalAnchor) {
   QWidget *host = parentWidget() ? parentWidget() : window();
-  auto *pop = new QFrame(host, Qt::Popup | Qt::FramelessWindowHint);
+  auto *pop = new QFrame(host, Qt::Popup | Qt::FramelessWindowHint |
+                                   Qt::NoDropShadowWindowHint);
   pop->setAttribute(Qt::WA_DeleteOnClose);
-  pop->setObjectName(QStringLiteral("StudioEraserPopover"));
-  pop->setFixedWidth(UiScale::dp(280));
-  pop->setStyleSheet(NoteChrome::studioPopoverStyle(
-      QStringLiteral("StudioEraserPopover")));
-  auto *shadow = new QGraphicsDropShadowEffect(pop);
-  shadow->setBlurRadius(32);
-  shadow->setOffset(0, 12);
-  shadow->setColor(QColor(0, 0, 0, 115));
-  pop->setGraphicsEffect(shadow);
+  NoteChrome::prepareStudioPopup(pop, QStringLiteral("StudioEraserPopover"));
+  pop->setFixedWidth(UiScale::dp(300));
   auto *lay = new QVBoxLayout(pop);
-  lay->setContentsMargins(14, 14, 14, 14);
-  lay->setSpacing(8);
-  auto *stroke = new QRadioButton(QStringLiteral("Strich-Radierer (Objekt)"), pop);
-  auto *pixel = new QRadioButton(QStringLiteral("Pixel-Radierer"), pop);
+  lay->setContentsMargins(16, 16, 16, 16);
+  lay->setSpacing(10);
+  // Aufbau wie das Kuli-Menue: Abschnitts-Label, Karten, Regler mit Wert.
+  lay->addWidget(new QLabel(QStringLiteral("Modus"), pop));
+  auto *stroke = new QPushButton(QStringLiteral("Ganzer Strich"), pop);
+  auto *pixel = new QPushButton(QStringLiteral("Pixelgenau"), pop);
+  stroke->setToolTip(QStringLiteral("Löscht das berührte Objekt komplett"));
+  pixel->setToolTip(QStringLiteral("Radiert nur unter dem Radierer"));
   auto *grp = new QButtonGroup(pop);
   grp->setExclusive(true);
-  grp->addButton(stroke);
-  grp->addButton(pixel);
+  auto *modeRow = new QHBoxLayout;
+  modeRow->setSpacing(6);
+  for (QPushButton *b : {stroke, pixel}) {
+    b->setCheckable(true);
+    b->setCursor(Qt::PointingHandCursor);
+    b->setFocusPolicy(Qt::NoFocus);
+    b->setFixedHeight(UiScale::dp(32));
+    grp->addButton(b);
+    modeRow->addWidget(b, 1);
+  }
+  lay->addLayout(modeRow);
   const ToolConfig cfg = ToolManager::instance().configFor(ToolMode::Eraser);
   stroke->setChecked(cfg.eraserMode == EraserMode::Object);
   pixel->setChecked(cfg.eraserMode != EraserMode::Object);
-  lay->addWidget(stroke);
-  lay->addWidget(pixel);
-  auto *sizeLbl = new QLabel(QStringLiteral("Größe"), pop);
-  lay->addWidget(sizeLbl);
+  lay->addWidget(new QLabel(QStringLiteral("Größe"), pop));
+  auto *sizeRow = new QHBoxLayout;
   auto *slider = new QSlider(Qt::Horizontal, pop);
   slider->setRange(1, 40);
   slider->setValue(qBound(1, cfg.penWidth, 40));
-  lay->addWidget(slider);
+  slider->setFocusPolicy(Qt::NoFocus);
+  auto *sizeVal = new QLabel(QStringLiteral("%1 px").arg(slider->value()), pop);
+  sizeVal->setObjectName(QStringLiteral("StudioValue"));
+  sizeVal->setFixedWidth(48);
+  sizeVal->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  sizeRow->addWidget(slider, 1);
+  sizeRow->addWidget(sizeVal);
+  lay->addLayout(sizeRow);
+  connect(slider, &QSlider::valueChanged, sizeVal, [sizeVal](int v) {
+    sizeVal->setText(QStringLiteral("%1 px").arg(v));
+  });
   auto *keepHl = new QCheckBox(QStringLiteral("Nur Textmarker löschen"), pop);
   keepHl->setChecked(cfg.eraserKeepInk);
   lay->addWidget(keepHl);
@@ -984,9 +1013,9 @@ void NoteFloatToolbar::showEraserPopover(const QPoint &globalAnchor) {
       mgr.activeTool()->setConfig(c);
   });
   auto *clearBtn = new QPushButton(QStringLiteral("Aktuelle Seite leeren"), pop);
-  clearBtn->setStyleSheet(
-      QStringLiteral("QPushButton { background: rgba(248,113,113,0.16); color: #FCA5A5;"
-                     "  border: 1px solid rgba(248,113,113,0.35); }"));
+  clearBtn->setStyleSheet(NoteChrome::studioDangerButtonStyle());
+  clearBtn->setCursor(Qt::PointingHandCursor);
+  clearBtn->setFocusPolicy(Qt::NoFocus);
   lay->addWidget(clearBtn);
 
   auto applyMode = [](EraserMode mode) {
@@ -998,11 +1027,11 @@ void NoteFloatToolbar::showEraserPopover(const QPoint &globalAnchor) {
     if (mgr.activeTool())
       mgr.activeTool()->setConfig(c);
   };
-  connect(stroke, &QRadioButton::toggled, pop, [applyMode](bool on) {
+  connect(stroke, &QPushButton::toggled, pop, [applyMode](bool on) {
     if (on)
       applyMode(EraserMode::Object);
   });
-  connect(pixel, &QRadioButton::toggled, pop, [applyMode](bool on) {
+  connect(pixel, &QPushButton::toggled, pop, [applyMode](bool on) {
     if (on)
       applyMode(EraserMode::Pixel);
   });
@@ -1066,19 +1095,14 @@ void NoteFloatToolbar::showShapesPopover(const QPoint &globalAnchor) {
 
 void NoteFloatToolbar::showMeasurePopover(const QPoint &globalAnchor) {
   QWidget *host = parentWidget() ? parentWidget() : window();
-  auto *pop = new QFrame(host, Qt::Popup | Qt::FramelessWindowHint);
+  auto *pop = new QFrame(host, Qt::Popup | Qt::FramelessWindowHint |
+                                   Qt::NoDropShadowWindowHint);
   pop->setAttribute(Qt::WA_DeleteOnClose);
-  pop->setObjectName(QStringLiteral("StudioMeasurePopover"));
-  pop->setStyleSheet(NoteChrome::studioPopoverStyle(
-      QStringLiteral("StudioMeasurePopover")));
-  auto *shadow = new QGraphicsDropShadowEffect(pop);
-  shadow->setBlurRadius(32);
-  shadow->setOffset(0, 12);
-  shadow->setColor(QColor(0, 0, 0, 115));
-  pop->setGraphicsEffect(shadow);
+  NoteChrome::prepareStudioPopup(pop, QStringLiteral("StudioMeasurePopover"));
   auto *lay = new QVBoxLayout(pop);
-  lay->setContentsMargins(14, 14, 14, 14);
-  lay->setSpacing(8);
+  lay->setContentsMargins(16, 16, 16, 16);
+  lay->setSpacing(10);
+  lay->addWidget(new QLabel(QStringLiteral("Werkzeug"), pop));
 
   const bool mintOn = noteMintToolsVisible();
   auto &mgr = ToolManager::instance();
@@ -1196,31 +1220,41 @@ void NoteFloatToolbar::showMeasurePopover(const QPoint &globalAnchor) {
   });
   lay->addWidget(hideRulerBtn);
 
-  auto *scaleLbl = new QLabel(QStringLiteral("Maßstab: 1 Kästchen ="), pop);
+  auto *scaleLbl =
+      new QLabel(QStringLiteral("Maßstab (Einheiten pro Kästchen)"), pop);
   lay->addWidget(scaleLbl);
   const ToolConfig cfg = ToolManager::instance().config();
+  auto *scaleRow = new QHBoxLayout;
   auto *scaleSlider = new QSlider(Qt::Horizontal, pop);
   scaleSlider->setRange(1, 100); // 0.1 … 10.0 units
   scaleSlider->setValue(qBound(1, int(qRound(cfg.measureUnitsPerCell * 10.0)), 100));
+  scaleSlider->setFocusPolicy(Qt::NoFocus);
   auto *scaleVal = new QLabel(
-      QStringLiteral("%1 Einheit(en)").arg(cfg.measureUnitsPerCell, 0, 'g', 3), pop);
-  lay->addWidget(scaleSlider);
-  lay->addWidget(scaleVal);
+      QString::number(cfg.measureUnitsPerCell, 'g', 3), pop);
+  scaleVal->setObjectName(QStringLiteral("StudioValue"));
+  scaleVal->setFixedWidth(48);
+  scaleVal->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  scaleRow->addWidget(scaleSlider, 1);
+  scaleRow->addWidget(scaleVal);
+  lay->addLayout(scaleRow);
   connect(scaleSlider, &QSlider::valueChanged, pop, [scaleVal](int v) {
     const double units = v / 10.0;
     ToolUIBridge::instance().setMeasureUnitsPerCell(units);
-    scaleVal->setText(QStringLiteral("%1 Einheit(en)").arg(units, 0, 'g', 3));
+    scaleVal->setText(QString::number(units, 'g', 3));
   });
   auto *presets = new QHBoxLayout;
+  presets->setSpacing(6);
   for (double u : {0.5, 1.0, 2.0, 5.0}) {
     auto *b = new QPushButton(QString::number(u), pop);
+    b->setCursor(Qt::PointingHandCursor);
+    b->setFocusPolicy(Qt::NoFocus);
     connect(b, &QPushButton::clicked, pop, [scaleSlider, u]() {
       scaleSlider->setValue(qBound(1, int(qRound(u * 10.0)), 100));
     });
     presets->addWidget(b);
   }
   lay->addLayout(presets);
-  pop->setFixedWidth(UiScale::dp(280));
+  pop->setFixedWidth(UiScale::dp(300));
   pop->adjustSize();
   NoteChrome::clampPopupToHost(pop, globalAnchor + QPoint(0, 6), host);
   pop->show();
@@ -1642,6 +1676,10 @@ QPoint NoteToolbarHost::studioAnchorGlobal() const {
   if (QWidget *w = activeWidget())
     return w->mapToGlobal(QPoint(w->width() / 2, w->height()));
   return QCursor::pos();
+}
+
+bool NoteToolbarHost::studioOpensBelow() const {
+  return m_float && m_float->isVisible();
 }
 
 void NoteToolbarHost::showStyleMenu(const QPoint &globalPos) {

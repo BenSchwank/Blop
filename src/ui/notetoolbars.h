@@ -205,6 +205,8 @@ public:
   QRect activeRect() const;
   /// Anchor for Pen Studio: width chip on the float dock, else toolbar bottom.
   QPoint studioAnchorGlobal() const;
+  /// True wenn das Kuli-Menue direkt unter dem Anker aufgehen soll (Float-Dock).
+  bool studioOpensBelow() const;
   void raiseAll();
 
 signals:
