@@ -238,7 +238,9 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
     voiceLayout->setSpacing(0);
     auto *voice = new QKeySequenceEdit(
         QKeySequence(SettingsSync::voiceHotkey(), QKeySequence::PortableText), voicePage);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     voice->setMaximumSequenceLength(1);
+#endif
     voice->setClearButtonEnabled(true);
     voice->setFixedSize(148, 30);
     voiceLayout->addWidget(
@@ -255,7 +257,9 @@ SetupWindow::SetupWindow(QWidget *parent) : QWidget(parent) {
     for (const ToolBinding &binding : SettingsSync::toolBindings()) {
         auto *edit = new QKeySequenceEdit(
             QKeySequence(binding.keys, QKeySequence::PortableText), toolsPage);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
         edit->setMaximumSequenceLength(1);
+#endif
         edit->setClearButtonEnabled(true);
         edit->setFixedSize(148, 30);
         toolsLayout->addWidget(
