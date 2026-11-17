@@ -346,6 +346,7 @@ input:focus-visible {
 
   #blop-markdown-print-mount .blop-mermaid svg {
     background: #ffffff !important;
+    max-width: none !important;
   }
 
   #blop-markdown-print-mount .blop-markdown-export-prose {
@@ -487,8 +488,13 @@ input:focus-visible {
     page-break-inside: avoid;
   }
 
+  .blop-mermaid {
+    overflow-x: auto !important;
+  }
+
   .blop-mermaid svg {
     background: #ffffff !important;
+    max-width: none !important;
   }
 
   .prose-blop a {

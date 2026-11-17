@@ -1,3 +1,5 @@
+import { looksLikeMermaidDiagram, normalizeMermaidSource } from "@/lib/mermaidNormalize";
+
 export type TocHeading = {
     id: string;
     text: string;
@@ -107,31 +109,13 @@ function repairBareCasesBlocks(src: string): string {
     });
 }
 
-function normalizeMermaidFenceBody(body: string): string {
-    let b = body.trim();
-    b = b.replace(/→/g, "-->");
-    b = b.replace(/--\s*([^-→\n]+?)\s*-+\s*-->/g, "-- $1 -->");
-    b = b.replace(/--\s*([^-→\n]+?)\s*-->/g, "-- $1 -->");
-    if (!b.includes("\n")) {
-        b = b
-            .replace(/;\s*/g, ";\n")
-            .replace(/\s*(-->|---|-.->|==>|==)\s*/g, "\n$1 ")
-            .trim();
-    }
-    return b;
-}
-
-/** Tag flowchart/graph fences as mermaid and fix Unicode arrows. */
+/** Tag flowchart/graph/PAP fences as mermaid and fix Unicode arrows / edge chains. */
 function repairMermaidFences(src: string): string {
     return src.replace(/```([^\n`]*)\n([\s\S]*?)```/g, (_m, lang: string, body: string) => {
         const trimmed = String(body || "").trim();
-        const looksMermaid = /^(flowchart|graph)\s/i.test(trimmed);
-        let label = String(lang || "").trim();
-        if (looksMermaid && (!label || label.toLowerCase() === "text" || label.toLowerCase() === "plain")) {
-            label = "mermaid";
-        }
-        if (label.toLowerCase() === "mermaid" || looksMermaid) {
-            return `\`\`\`mermaid\n${normalizeMermaidFenceBody(trimmed)}\n\`\`\``;
+        const label = String(lang || "").trim();
+        if (looksLikeMermaidDiagram(trimmed, label)) {
+            return `\`\`\`mermaid\n${normalizeMermaidSource(trimmed)}\n\`\`\``;
         }
         return `\`\`\`${lang}\n${body}\`\`\``;
     });

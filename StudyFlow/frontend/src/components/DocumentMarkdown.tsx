@@ -83,7 +83,12 @@ export default function DocumentMarkdown({ children, className = "" }: Props) {
                     code: ({ className, children: kids }) => {
                         const lang = /language-(\w+)/.exec(className || "")?.[1];
                         const plain = String(kids ?? "").replace(/\n$/, "");
-                        if (lang === "mermaid") {
+                        if (
+                            lang === "mermaid" ||
+                            lang === "pap" ||
+                            lang === "flowchart" ||
+                            lang === "flow"
+                        ) {
                             // Prefer raw text; highlighted children may already be nodes
                             const raw =
                                 typeof kids === "string" || typeof kids === "number"

@@ -38,7 +38,11 @@ function insertSnippet(
         case "displayMath":
             return wrap("\n$$\n", "\n$$\n", "\\frac{a}{b}");
         case "mermaid":
-            return wrap("\n```mermaid\n", "\n```\n", "flowchart TD\n  A --> B");
+            return wrap(
+                "\n```mermaid\n",
+                "\n```\n",
+                'flowchart TD\n  Start((Start)) --> Eingabe[/Eingabe/]\n  Eingabe --> Entscheidung{"Bedingung?"}\n  Entscheidung -->|ja| Prozess[Verarbeitung]\n  Entscheidung -->|nein| Ende((Ende))\n  Prozess --> Ende'
+            );
         case "code":
             return wrap("\n```c\n", "\n```\n", "// code");
         default:

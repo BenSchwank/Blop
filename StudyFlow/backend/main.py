@@ -3050,6 +3050,20 @@ class SmartLearningRequest(BaseModel):
     exam_date: str = ""
     model_preference: str = None
     included_file_ids: Optional[List[str]] = None
+    difficulty: Optional[str] = None  # basics | exam | hard
+    question_frequency: Optional[str] = None  # standard | compact | chapter_end
+    focus_mode: Optional[str] = None  # theory | balanced | practice
+    custom_prompt: Optional[str] = None
+    exam_preset: Optional[str] = None  # short | standard | full
+
+class SmartLearningExamRequest(BaseModel):
+    username: str
+    folder_id: str
+    exam_preset: str = "standard"  # short | standard | full
+    model_preference: str = None
+    included_file_ids: Optional[List[str]] = None
+    custom_prompt: Optional[str] = None
+    difficulty: Optional[str] = None
 
 class SmartLearningProgressRequest(BaseModel):
     username: str
@@ -3060,6 +3074,8 @@ class SmartLearningProgressRequest(BaseModel):
     readiness: Optional[int] = None
     exam_best_score: Optional[int] = None
     exam_completed_at: Optional[str] = None
+    settings: Optional[dict] = None
+    session_awards: Optional[dict] = None
 
 class TaskHelpRequest(BaseModel):
     username: str
@@ -3313,6 +3329,11 @@ def create_smart_learning(request: SmartLearningRequest):
             exam_date=request.exam_date or "",
             model_preference=model_pref,
             return_meta=True,
+            difficulty=request.difficulty,
+            question_frequency=request.question_frequency,
+            focus_mode=request.focus_mode,
+            custom_prompt=request.custom_prompt,
+            exam_preset=request.exam_preset,
         )
         journey = result["data"]
         file_id = f"smart_main_{request.folder_id}"
@@ -3334,30 +3355,72 @@ def create_smart_learning(request: SmartLearningRequest):
                 old_lessons = old_progress.get("completed_lesson_ids") or []
                 if not isinstance(old_lessons, list):
                     old_lessons = []
-                new_ids = {
-                    str(ch.get("id"))
-                    for ch in (journey.get("chapters") or [])
-                    if isinstance(ch, dict) and ch.get("id")
-                }
+                old_awards = old_content.get("session_awards") if isinstance(old_content.get("session_awards"), dict) else {}
+                new_chapters = [ch for ch in (journey.get("chapters") or []) if isinstance(ch, dict)]
+                new_ids = {str(ch.get("id")) for ch in new_chapters if ch.get("id")}
                 new_lesson_ids = set()
-                for ch in (journey.get("chapters") or []):
-                    if not isinstance(ch, dict):
-                        continue
+                new_title_by_id = {}
+                new_lesson_by_title = {}
+                for ch in new_chapters:
+                    cid = str(ch.get("id") or "")
+                    new_title_by_id[cid] = str(ch.get("title") or "").strip().lower()
                     for les in (ch.get("lessons") or []):
                         if isinstance(les, dict) and les.get("id"):
-                            new_lesson_ids.add(str(les["id"]))
-                kept = [str(x) for x in old_completed if str(x) in new_ids]
-                kept_lessons = [str(x) for x in old_lessons if str(x) in new_lesson_ids]
+                            lid = str(les["id"])
+                            new_lesson_ids.add(lid)
+                            teach_key = str(les.get("teach") or "")[:80].strip().lower()
+                            if teach_key:
+                                new_lesson_by_title[teach_key] = lid
+                # Fuzzy: map old chapter ids by matching titles when IDs churn
+                old_chapters = [ch for ch in (old_content.get("chapters") or []) if isinstance(ch, dict)]
+                old_to_new_ch = {}
+                for och in old_chapters:
+                    oid = str(och.get("id") or "")
+                    if oid in new_ids:
+                        old_to_new_ch[oid] = oid
+                        continue
+                    ot = str(och.get("title") or "").strip().lower()
+                    for nid, nt in new_title_by_id.items():
+                        if ot and nt and (ot == nt or ot in nt or nt in ot):
+                            old_to_new_ch[oid] = nid
+                            break
+                kept = []
+                for x in old_completed:
+                    sx = str(x)
+                    mapped = old_to_new_ch.get(sx, sx)
+                    if mapped in new_ids:
+                        kept.append(mapped)
+                kept_lessons = []
+                for x in old_lessons:
+                    sx = str(x)
+                    if sx in new_lesson_ids:
+                        kept_lessons.append(sx)
+                        continue
+                    # try remap via old lesson teach text
+                    for och in old_chapters:
+                        for les in (och.get("lessons") or []):
+                            if not isinstance(les, dict) or str(les.get("id")) != sx:
+                                continue
+                            teach_key = str(les.get("teach") or "")[:80].strip().lower()
+                            mapped = new_lesson_by_title.get(teach_key)
+                            if mapped:
+                                kept_lessons.append(mapped)
                 sessions = max(0, int(old_progress.get("practice_sessions") or 0))
                 exam_best = old_progress.get("exam_best_score")
                 exam_at = old_progress.get("exam_completed_at")
                 readiness = 0
+                exam_bonus = 0
+                try:
+                    if exam_best is not None:
+                        exam_bonus = min(10, int(round(int(exam_best or 0) / 20)))
+                except Exception:
+                    exam_bonus = 0
                 if new_lesson_ids:
                     readiness = int(round(100.0 * len(set(kept_lessons)) / max(len(new_lesson_ids), 1)))
-                    readiness = min(100, readiness + min(15, sessions * 3))
+                    readiness = min(100, readiness + min(15, sessions * 3) + exam_bonus)
                 elif len(new_ids) > 0:
                     readiness = int(round(100.0 * len(set(kept)) / len(new_ids)))
-                    readiness = min(100, readiness + min(20, sessions * 5))
+                    readiness = min(100, readiness + min(20, sessions * 5) + exam_bonus)
                 journey["progress"] = {
                     "completed_chapter_ids": list(dict.fromkeys(kept)),
                     "completed_lesson_ids": list(dict.fromkeys(kept_lessons)),
@@ -3366,6 +3429,14 @@ def create_smart_learning(request: SmartLearningRequest):
                     "exam_completed_at": exam_at,
                 }
                 journey["readiness"] = readiness
+                # Keep awards + merge settings preference with new generation settings
+                journey["session_awards"] = {
+                    "lesson_ids": list(dict.fromkeys([str(x) for x in (old_awards.get("lesson_ids") or [])]))[:500],
+                    "exam_runs": list(dict.fromkeys([str(x) for x in (old_awards.get("exam_runs") or [])]))[:100],
+                }
+                old_settings = old_content.get("settings") if isinstance(old_content.get("settings"), dict) else {}
+                new_settings = journey.get("settings") if isinstance(journey.get("settings"), dict) else {}
+                journey["settings"] = {**old_settings, **new_settings}
         except Exception as merge_err:
             print(f"Smart Learning progress merge skipped: {merge_err}")
 
@@ -3440,6 +3511,17 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
         progress["exam_best_score"] = max(0, min(100, int(body.exam_best_score)))
     if body.exam_completed_at is not None:
         progress["exam_completed_at"] = str(body.exam_completed_at) if body.exam_completed_at else None
+    if body.settings is not None and isinstance(body.settings, dict):
+        prev_settings = content.get("settings") if isinstance(content.get("settings"), dict) else {}
+        content["settings"] = {**prev_settings, **body.settings}
+    if body.session_awards is not None and isinstance(body.session_awards, dict):
+        prev_awards = content.get("session_awards") if isinstance(content.get("session_awards"), dict) else {}
+        lesson_ids = body.session_awards.get("lesson_ids", prev_awards.get("lesson_ids") or [])
+        exam_runs = body.session_awards.get("exam_runs", prev_awards.get("exam_runs") or [])
+        content["session_awards"] = {
+            "lesson_ids": list(dict.fromkeys([str(x) for x in (lesson_ids or [])]))[:500],
+            "exam_runs": list(dict.fromkeys([str(x) for x in (exam_runs or [])]))[:100],
+        }
 
     chapter_count = len(content.get("chapters") or []) if isinstance(content.get("chapters"), list) else 0
     completed = progress.get("completed_chapter_ids") or []
@@ -3499,6 +3581,91 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
         body.folder_id,
     )
     return {"status": "success", "smart_learning": content}
+
+
+@app.post("/api/ai/smart-learning/exam")
+def create_smart_learning_exam(request: SmartLearningExamRequest):
+    """Regenerate only the Probeklausur for an existing Smart Learning file; progress unchanged."""
+    SubscriptionManager.ensure_feature(request.username, "smart_learning")
+    ensure_minimum_tokens(request.username, 1)
+
+    def work():
+        from ai_service import AIService
+        _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
+        file_id = f"smart_main_{request.folder_id}"
+        existing = DataManager.get_file(request.username, file_id)
+        if not existing or existing.get("type") != "smart_learning":
+            raise HTTPException(status_code=404, detail="Smart Learning nicht gefunden. Bitte zuerst generieren.")
+        content = existing.get("content")
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except Exception:
+                content = {}
+        if not isinstance(content, dict):
+            content = {}
+        chapters = content.get("chapters") if isinstance(content.get("chapters"), list) else []
+        context, debug_log = _get_folder_context(
+            request.username,
+            request.folder_id,
+            included_file_ids=request.included_file_ids,
+        )
+        if not context:
+            # Fall back to chapter text as context
+            context = [
+                "\n\n".join(
+                    f"## {ch.get('title')}\n{ch.get('summary')}"
+                    for ch in chapters
+                    if isinstance(ch, dict)
+                )
+                or "Smart Learning Material"
+            ]
+            if not any(str(x).strip() for x in context):
+                raise HTTPException(status_code=400, detail=f"Kein Material. Debug: {'; '.join(debug_log)}")
+        result = AIService.generate_smart_learning_exam(
+            context,
+            chapters=chapters,
+            exam_preset=request.exam_preset or "standard",
+            difficulty=request.difficulty,
+            custom_prompt=request.custom_prompt,
+            model_preference=model_pref,
+            return_meta=True,
+        )
+        exam = result["data"]
+        content["exam"] = exam
+        settings = content.get("settings") if isinstance(content.get("settings"), dict) else {}
+        settings["exam_preset"] = str(request.exam_preset or settings.get("exam_preset") or "standard")
+        if request.difficulty:
+            settings["difficulty"] = request.difficulty
+        content["settings"] = settings
+        DataManager.save_file_metadata(
+            {
+                "id": file_id,
+                "name": content.get("title") or existing.get("name") or "Smart Learning",
+                "type": "smart_learning",
+                "content": content,
+                "created_at": existing.get("created_at"),
+            },
+            request.username,
+            request.folder_id,
+        )
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "smart_learning",
+            result.get("used_model", model_pref or ""),
+            result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "exam": exam,
+            "smart_learning": content,
+            "used_model": result.get("used_model", model_pref or ""),
+            "usage": result.get("usage", {}),
+            **charge,
+        }
+
+    return _spawn_core_ai_job("smart_learning", request.username, work)
 
 
 def _truncate_for_learning_video_context(parts: List[Any]) -> List[Any]:

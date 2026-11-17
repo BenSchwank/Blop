@@ -218,7 +218,16 @@ MARKDOWN- UND LATEX-LAYOUT (verbindlich):
 - Display-Mathe IMMER auf eigenen Zeilen: Leerzeile, dann $$, Formel, $$, Leerzeile. Niemals $$ mitten in einem Fließtext-Satz und niemals #### oder --- INNEN in einer $$...$$-Umgebung.
 - Überschriften (##, ###, ####) und Trennlinien (---) stehen allein am Zeilenanfang.
 - Doppelbrüche, \\sum, \\oint, \\int IMMER als Blockformel $$...$$, nie inline $...$.
-- KEINE ASCII-Schaltpläne oder ASCII-Kunst (z. B. +---[ Ri ]---+ oder senkrechte ||| -Leiter). Stattdessen eine Markdown-Tabelle oder ein mermaid-Codeblock (```mermaid ... ```) mit flowchart/graph.
+- KEINE ASCII-Schaltpläne, ASCII-Kunst oder PlantUML. Diagramme/PAPs NUR als Mermaid:
+  ```mermaid
+  flowchart TD
+    Start((Start)) --> Eingabe[/Eingabe/]
+    Eingabe --> Entscheidung{Bedingung?}
+    Entscheidung -->|ja| Prozess[Verarbeitung]
+    Entscheidung -->|nein| Ende((Ende))
+    Prozess --> Ende
+  ```
+- PAP-/Flowchart-Regeln: Fence-Label `mermaid` (oder `pap`); Header `flowchart TD` oder `flowchart LR`; Kanten NUR als `-->` (nie einzelnes `->`); JEDE Kante in eigener Zeile (`A --> B`, nie `A --> B --> C`); Formeln/Klammern/Schrägstriche in Labels IMMER in Anführungszeichen, z. B. `CalcA["a = (a + b) / 2"]`, `D{"x < 0?"}`; Formen: `Start((Start))`, `P["Prozess"]`, `E{"Entscheidung?"}`, `IO[/"Eingabe"/]`; kein HTML/`<br>` in Labels (stattdessen kurze Texte); max. 12 Knoten — große Abläufe aufteilen.
 """
 
 MATH_ACCURACY_INSTRUCTIONS = """
@@ -1066,6 +1075,19 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             print(f"Plan Error: {e}")
             raise Exception(f"Fehler beim Lernplan-Generieren: {str(e)}")
 
+    _EXAM_PRESETS = {
+        "short": {"target_q": 12, "time_limit_sec": 900, "label": "Kurz (15 Min)"},
+        "standard": {"target_q": 20, "time_limit_sec": 2700, "label": "Standard (45 Min)"},
+        "full": {"target_q": 28, "time_limit_sec": 5400, "label": "Vollständig (90 Min)"},
+    }
+
+    @staticmethod
+    def _smart_learning_exam_preset(exam_preset: Optional[str]) -> Dict[str, Any]:
+        key = str(exam_preset or "standard").strip().lower()
+        if key not in AIService._EXAM_PRESETS:
+            key = "standard"
+        return {"key": key, **AIService._EXAM_PRESETS[key]}
+
     @staticmethod
     def generate_smart_learning(
         content: List[Any],
@@ -1073,6 +1095,11 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
         exam_date: str = "",
         model_preference: str = None,
         return_meta: bool = False,
+        difficulty: str = None,
+        question_frequency: str = None,
+        focus_mode: str = None,
+        custom_prompt: str = None,
+        exam_preset: str = None,
     ) -> Any:
         """Builds a Lumivara-style smart learning journey (chapters + readiness shell) from folder material."""
         try:
@@ -1083,29 +1110,58 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             focus_line = (focus or "").strip() or "Gesamtes Material prüfungsrelevant aufbereiten"
             exam_line = (exam_date or "").strip()
             exam_hint = f"- Geplante Prüfung / Zieltermin: {exam_line}\n" if exam_line else ""
+            diff = str(difficulty or "exam").strip().lower()
+            if diff not in ("basics", "exam", "hard"):
+                diff = "exam"
+            freq = str(question_frequency or "standard").strip().lower()
+            if freq not in ("standard", "compact", "chapter_end"):
+                freq = "standard"
+            fmode = str(focus_mode or "balanced").strip().lower()
+            if fmode not in ("theory", "balanced", "practice"):
+                fmode = "balanced"
+            custom_line = (custom_prompt or "").strip()
+            custom_block = f"\nZUSÄTZLICHE NUTZERANWEISUNG:\n{custom_line}\n" if custom_line else ""
+            preset = AIService._smart_learning_exam_preset(exam_preset)
+            diff_hint = {
+                "basics": "Erklärungen einfach und einsteigerfreundlich; Checks eher grundlegend.",
+                "exam": "Prüfungsnahes Klausurniveau; typische Fallstricke abdecken.",
+                "hard": "Anspruchsvoll, Transferaufgaben, knifflige Edge-Cases.",
+            }[diff]
+            focus_hint = {
+                "theory": "Mehr Theorie/Erklärungen, etwas weniger reine Drill-Fragen.",
+                "balanced": "Ausgewogen Theorie und Praxis.",
+                "practice": "Kürzere Lehreinheiten, mehr und tiefere Übungsfragen.",
+            }[fmode]
 
             prompt = f"""
 Du bist ein KI-Lerncoach (Duolingo-Stil). Erstelle aus dem Material eine SMART-LEARNING-LERNREISE:
-Kapitel mit kurzem Überblick PLUS micro-lessons (erst erklären, dann sofort testen), plus Lückentexte und eine Probeklausur.
+Kapitel mit kurzem Überblick PLUS micro-lessons (erklären, später gebündelt testen), plus Lückentexte/Freitext und eine Probeklausur.
 
 FOKUS: {focus_line}
 {exam_hint}
+SCHWIERIGKEIT: {diff} — {diff_hint}
+FOKUS-MODUS: {fmode} — {focus_hint}
+FRAGEN-FREQUENZ (UI): {freq} (nur Hinweis; Checks pro Lesson trotzdem liefern)
+PROBEKLAUSUR-ZIEL: ca. {preset["target_q"]} Fragen, time_limit_sec ≈ {preset["time_limit_sec"]}
+{custom_block}
 {MATH_ACCURACY_INSTRUCTIONS}
 
 ANFORDERUNGEN:
-1. 3–5 Kapitel in sinnvoller Lernreihenfolge (Fundament → Anwendung). Nicht mehr.
+1. 3–5 Kapitel in sinnvoller Lernreihenfolge (Fundament → Anwendung). Nicht mehr. IDs STABIL: "ch1"… "chN".
 2. Jedes Kapitel: Titel, summary (2–4 Sätze), 3 key_points.
-3. Genau 2 lessons pro Kapitel. Jede Lesson:
+3. Genau 2 lessons pro Kapitel. Lesson-IDs STABIL: "ch1-l1", "ch1-l2", … Jede Lesson:
    - teach: 2–5 Sätze Erklärung (klar, prüfungsnah); Formeln NUR in $...$ / $$...$$
-   - check: Sofort-Test. Typen mischen:
+   - check: Test zur Lesson. Typen mischen:
      * "mc" oder "true_false": prompt, 2–4 options, answer, explanation
-     * "cloze" (Lückentext): prompt mit genau einer oder zwei Lücken als {{{{Antwort}}}}, plus blanks-Array mit denselben Antworten, explanation. KEINE options bei cloze.
+     * "cloze" (Lückentext): prompt mit genau einer oder zwei Lücken als {{{{Antwort}}}}, plus blanks-Array, explanation. KEINE options.
+     * "short_answer": kurze Freitext-/Code-/Verständnisfrage; prompt, answer (Musterlösung), optional blanks mit Keywords, explanation. KEINE options.
    - Pro Kapitel mindestens EINE Lesson mit type "cloze".
-4. exam (Probeklausur): 8–12 Fragen gemischt aus mc / true_false / cloze über alle Kapitel; time_limit_sec z. B. 900; title prüfungsnah.
+4. exam (Probeklausur): {preset["target_q"] - 2}–{preset["target_q"] + 2} Fragen gemischt aus mc / true_false / cloze / short_answer über ALLE Kapitel; jede Frage mit chapter_id (z. B. "ch1"); time_limit_sec {preset["time_limit_sec"]}; title prüfungsnah.
 5. Titel der Lernreise: prüfungsnah und konkret.
 6. source_hint: ein Satz zum Material.
 7. readiness immer 0; progress.completed_chapter_ids=[], completed_lesson_ids=[], practice_sessions=0, exam_best_score=null, exam_completed_at=null.
 8. IDs: Kapitel "ch1"…; Lessons "ch1-l1", "ch1-l2", …; Exam-Fragen "ex-q1"…
+9. settings-Objekt: difficulty="{diff}", question_frequency="{freq}", focus_mode="{fmode}", exam_preset="{preset["key"]}"{f', custom_prompt={json.dumps(custom_line, ensure_ascii=False)}' if custom_line else ""}.
 
 Ausgabe: EIN JSON-Objekt:
 {{
@@ -1223,6 +1279,7 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                     explanation = _finalize_study_markdown(str(check.get("explanation") or ""))
                     ctype = str(check.get("type") or "mc").strip().lower()
                     is_cloze = ctype in ("cloze", "fill", "lueckentext", "lückentext")
+                    is_short = ctype in ("short_answer", "short", "freitext", "code", "open")
                     blanks_raw = check.get("blanks") if isinstance(check.get("blanks"), list) else []
                     blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
                     options = check.get("options") if isinstance(check.get("options"), list) else []
@@ -1241,6 +1298,17 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             answer = " | ".join(blanks)
                         check_obj = {
                             "type": "cloze",
+                            "prompt": prompt_q,
+                            "options": [],
+                            "blanks": blanks,
+                            "answer": answer,
+                            "explanation": explanation,
+                        }
+                    elif is_short:
+                        if not answer:
+                            continue
+                        check_obj = {
+                            "type": "short_answer",
                             "prompt": prompt_q,
                             "options": [],
                             "blanks": blanks,
@@ -1291,6 +1359,10 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
             result["chapters"] = normalized_chapters
 
             # Probeklausur / exam section
+            exam_preset_info = AIService._smart_learning_exam_preset(
+                (result.get("settings") or {}).get("exam_preset") if isinstance(result.get("settings"), dict) else None
+            )
+            # Prefer caller preset if provided via settings we inject below
             exam_raw = result.get("exam") if isinstance(result.get("exam"), dict) else None
             normalized_exam_qs = []
             if exam_raw:
@@ -1303,10 +1375,12 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                     explanation = _finalize_study_markdown(str(q.get("explanation") or ""))
                     ctype = str(q.get("type") or "mc").strip().lower()
                     is_cloze = ctype in ("cloze", "fill", "lueckentext", "lückentext")
+                    is_short = ctype in ("short_answer", "short", "freitext", "code", "open")
                     blanks_raw = q.get("blanks") if isinstance(q.get("blanks"), list) else []
                     blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
                     options = q.get("options") if isinstance(q.get("options"), list) else []
                     options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
+                    chapter_id = str(q.get("chapter_id") or q.get("topic_id") or "").strip() or None
                     if not prompt_q:
                         continue
                     qid = str(q.get("id") or f"ex-q{qi + 1}").strip() or f"ex-q{qi + 1}"
@@ -1320,7 +1394,7 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             continue
                         if not answer:
                             answer = " | ".join(blanks)
-                        normalized_exam_qs.append({
+                        row = {
                             "id": qid,
                             "type": "cloze",
                             "prompt": prompt_q,
@@ -1328,23 +1402,46 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             "blanks": blanks,
                             "answer": answer,
                             "explanation": explanation,
-                        })
+                        }
+                        if chapter_id:
+                            row["chapter_id"] = chapter_id
+                        normalized_exam_qs.append(row)
+                    elif is_short:
+                        if not answer:
+                            continue
+                        row = {
+                            "id": qid,
+                            "type": "short_answer",
+                            "prompt": prompt_q,
+                            "options": [],
+                            "blanks": blanks,
+                            "answer": answer,
+                            "explanation": explanation,
+                        }
+                        if chapter_id:
+                            row["chapter_id"] = chapter_id
+                        normalized_exam_qs.append(row)
                     else:
                         if not answer:
                             continue
                         if len(options) < 2:
                             options = ["Richtig", "Falsch"] if answer in ("Richtig", "Falsch") else [answer, "Andere Antwort"]
-                        normalized_exam_qs.append({
+                        row = {
                             "id": qid,
                             "type": "true_false" if ctype == "true_false" else "mc",
                             "prompt": prompt_q,
                             "options": options,
                             "answer": answer,
                             "explanation": explanation,
-                        })
-            if not normalized_exam_qs:
-                # Build a lightweight exam from chapter checks if model omitted exam
+                        }
+                        if chapter_id:
+                            row["chapter_id"] = chapter_id
+                        normalized_exam_qs.append(row)
+            target_q = int(exam_preset_info["target_q"])
+            if not normalized_exam_qs or len(normalized_exam_qs) < min(8, target_q):
+                # Pad / build exam from chapter checks
                 for ch in normalized_chapters:
+                    cid = ch.get("id")
                     for les in ch.get("lessons") or []:
                         chk = les.get("check") or {}
                         if not chk.get("prompt"):
@@ -1357,23 +1454,35 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             "blanks": chk.get("blanks") or [],
                             "answer": chk.get("answer") or "",
                             "explanation": chk.get("explanation") or "",
+                            "chapter_id": cid,
                         })
-                        if len(normalized_exam_qs) >= 10:
+                        if len(normalized_exam_qs) >= target_q:
                             break
-                    if len(normalized_exam_qs) >= 10:
+                    if len(normalized_exam_qs) >= target_q:
                         break
             if normalized_exam_qs:
                 try:
-                    tls = int((exam_raw or {}).get("time_limit_sec") or 900)
+                    tls = int((exam_raw or {}).get("time_limit_sec") or exam_preset_info["time_limit_sec"])
                 except Exception:
-                    tls = 900
+                    tls = int(exam_preset_info["time_limit_sec"])
                 result["exam"] = {
                     "title": str((exam_raw or {}).get("title") or "Probeklausur").strip() or "Probeklausur",
-                    "time_limit_sec": max(60, min(3600, tls)),
-                    "questions": normalized_exam_qs[:12],
+                    "time_limit_sec": max(60, min(7200, tls)),
+                    "questions": normalized_exam_qs[:30],
                 }
             else:
                 result["exam"] = None
+
+            # Persist customization settings on the journey
+            result["settings"] = {
+                "difficulty": diff,
+                "question_frequency": freq,
+                "focus_mode": fmode,
+                "exam_preset": exam_preset_info["key"],
+                **({"custom_prompt": custom_line} if custom_line else {}),
+            }
+            if "session_awards" not in result or not isinstance(result.get("session_awards"), dict):
+                result["session_awards"] = {"lesson_ids": [], "exam_runs": []}
 
             if not return_meta:
                 return result
@@ -1385,6 +1494,136 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
         except Exception as e:
             print(f"Smart Learning Error: {e}")
             raise Exception(f"Fehler bei Smart Learning: {str(e)}")
+
+    @staticmethod
+    def generate_smart_learning_exam(
+        content: List[Any],
+        *,
+        chapters: List[Dict[str, Any]],
+        exam_preset: str = "standard",
+        difficulty: str = None,
+        custom_prompt: str = None,
+        model_preference: str = None,
+        return_meta: bool = False,
+    ) -> Any:
+        """Generate/expand only the Probeklausur for an existing Smart Learning journey."""
+        try:
+            preset = AIService._smart_learning_exam_preset(exam_preset)
+            diff = str(difficulty or "exam").strip().lower()
+            if diff not in ("basics", "exam", "hard"):
+                diff = "exam"
+            custom_line = (custom_prompt or "").strip()
+            chapter_lines = []
+            for ch in chapters or []:
+                if not isinstance(ch, dict):
+                    continue
+                cid = str(ch.get("id") or "")
+                title = str(ch.get("title") or cid)
+                chapter_lines.append(f"- {cid}: {title}")
+            chapter_block = "\n".join(chapter_lines) if chapter_lines else "- (Kapitel aus Material ableiten)"
+            model = genai.GenerativeModel(
+                model_for_task("smart_learning", model_preference),
+                generation_config={"response_mime_type": "application/json"},
+            )
+            prompt = f"""
+Erstelle eine Probeklausur als JSON für Smart Learning.
+
+Kapitel:
+{chapter_block}
+
+Ziel: ca. {preset["target_q"]} Fragen, time_limit_sec = {preset["time_limit_sec"]}, Schwierigkeit = {diff}.
+Typen mischen: mc, true_false, cloze, short_answer. Jede Frage braucht chapter_id.
+{"Zusatz: " + custom_line if custom_line else ""}
+{MATH_ACCURACY_INSTRUCTIONS}
+
+Ausgabe NUR:
+{{
+  "title": "Probeklausur …",
+  "time_limit_sec": {preset["time_limit_sec"]},
+  "questions": [
+    {{
+      "id": "ex-q1",
+      "type": "mc",
+      "chapter_id": "ch1",
+      "prompt": "…?",
+      "options": ["A","B","C","D"],
+      "answer": "A",
+      "explanation": "…"
+    }}
+  ]
+}}
+"""
+            input_parts: List[Any] = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Klausur-Antwort vom Modell.")
+            raw = json.loads(response.text)
+            if not isinstance(raw, dict):
+                raise Exception("Klausur muss ein JSON-Objekt sein.")
+            qs_out = []
+            for qi, q in enumerate(raw.get("questions") or []):
+                if not isinstance(q, dict):
+                    continue
+                prompt_q = _finalize_study_markdown(str(q.get("prompt") or ""))
+                answer = _finalize_study_markdown(str(q.get("answer") or ""))
+                if not prompt_q or not answer:
+                    continue
+                ctype = str(q.get("type") or "mc").strip().lower()
+                chapter_id = str(q.get("chapter_id") or "").strip() or None
+                blanks_raw = q.get("blanks") if isinstance(q.get("blanks"), list) else []
+                blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
+                options = q.get("options") if isinstance(q.get("options"), list) else []
+                options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
+                row: Dict[str, Any] = {
+                    "id": str(q.get("id") or f"ex-q{qi + 1}"),
+                    "prompt": prompt_q,
+                    "answer": answer,
+                    "explanation": _finalize_study_markdown(str(q.get("explanation") or "")),
+                    "blanks": blanks,
+                    "options": options,
+                }
+                if ctype in ("cloze", "fill", "lueckentext", "lückentext"):
+                    row["type"] = "cloze"
+                    row["options"] = []
+                elif ctype in ("short_answer", "short", "freitext", "code", "open"):
+                    row["type"] = "short_answer"
+                    row["options"] = []
+                elif ctype in ("true_false", "truefalse", "tf"):
+                    row["type"] = "true_false"
+                    if len(row["options"]) < 2:
+                        row["options"] = ["Richtig", "Falsch"]
+                else:
+                    row["type"] = "mc"
+                    if len(row["options"]) < 2:
+                        row["options"] = [answer, "Andere Antwort"]
+                if chapter_id:
+                    row["chapter_id"] = chapter_id
+                qs_out.append(row)
+                if len(qs_out) >= 30:
+                    break
+            try:
+                tls = int(raw.get("time_limit_sec") or preset["time_limit_sec"])
+            except Exception:
+                tls = int(preset["time_limit_sec"])
+            exam = {
+                "title": str(raw.get("title") or "Probeklausur").strip() or "Probeklausur",
+                "time_limit_sec": max(60, min(7200, tls)),
+                "questions": qs_out[:30],
+            }
+            if not return_meta:
+                return exam
+            return {
+                "data": exam,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
+        except Exception as e:
+            print(f"Smart Learning Exam Error: {e}")
+            raise Exception(f"Fehler bei Probeklausur: {str(e)}")
 
     @staticmethod
     def _validate_refined_quiz(obj: Any) -> None:
