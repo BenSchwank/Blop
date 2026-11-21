@@ -19,9 +19,12 @@
 #include <QConicalGradient>
 #include <cmath>
 #include <QCursor>
+#include <QEasingCurve>
+#include <QEnterEvent>
 #include <QFont>
 #include <QFrame>
 #include <QGraphicsDropShadowEffect>
+#include <QGraphicsOpacityEffect>
 #include <QGraphicsPathItem>
 #include <QGraphicsView>
 #include <QHBoxLayout>
@@ -33,8 +36,10 @@
 #include <QRadioButton>
 #include <QRadialGradient>
 #include <QSettings>
+#include <QShowEvent>
 #include <QSlider>
 #include <QTabWidget>
+#include <QTimer>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <QtMath>
@@ -46,13 +51,15 @@ const QColor kBgSoft(43, 47, 56);      // ring tiles / separators
 const QColor kActiveGray(58, 63, 75);  // #3A3F4B
 const QColor kGlyph(242, 244, 248);    // #F2F4F8
 const QColor kLabel(201, 205, 214);    // #C9CDD6
-const QColor kAccent(91, 157, 255);    // #5B9DFF
+QColor kAccent() { return NoteChrome::accent(); }
 const QColor kHighlighter(245, 197, 24);
 
 constexpr int kPenPresets = 4;
 const QColor kPresetColors[kPenPresets] = {
-    QColor(20, 22, 28), QColor(37, 99, 235), QColor(220, 38, 38),
+    QColor(20, 22, 28), QColor(91, 157, 255), QColor(220, 38, 38),
     QColor(22, 163, 74)};
+constexpr qreal kChromeDimOpacity = 0.42;
+constexpr int kChromeIdleMs = 2800;
 
 QPointF polar(const QPointF &c, qreal r, qreal deg) {
   const qreal rad = qDegreesToRadians(deg);
@@ -248,7 +255,7 @@ bool NoteToolbarBase::debugClickTool(ToolMode mode) {
   return false;
 }
 
-QColor NoteToolbarBase::activeFill() const { return kAccent; }
+QColor NoteToolbarBase::activeFill() const { return kAccent(); }
 QColor NoteToolbarBase::activeGlyph() const { return QColor(255, 255, 255); }
 QColor NoteToolbarBase::idleGlyph() const { return kGlyph; }
 QColor NoteToolbarBase::hoverFill() const { return QColor(255, 255, 255, 16); }
@@ -610,24 +617,101 @@ constexpr int kPillSep = 12;
 
 NoteFloatToolbar::NoteFloatToolbar(QWidget *parent) : NoteToolbarBase(parent) {
   setAttribute(Qt::WA_TranslucentBackground, true);
+  setMouseTracking(true);
+  m_fade = new QGraphicsOpacityEffect(this);
+  m_fade->setOpacity(1.0);
+  setGraphicsEffect(m_fade);
+  m_idleTimer = new QTimer(this);
+  m_idleTimer->setSingleShot(true);
+  connect(m_idleTimer, &QTimer::timeout, this, [this]() {
+    if (!m_fade || underMouse())
+      return;
+    auto *anim = new QVariantAnimation(this);
+    anim->setDuration(320);
+    anim->setStartValue(m_fade->opacity());
+    anim->setEndValue(kChromeDimOpacity);
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(anim, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &v) {
+              if (m_fade)
+                m_fade->setOpacity(v.toReal());
+            });
+    connect(anim, &QVariantAnimation::finished, anim, &QObject::deleteLater);
+    anim->start();
+  });
   rebuildTiles();
   connect(&ToolManager::instance(), &ToolManager::configChanged, this,
           [this](const ToolConfig &) {
             rebuildTiles();
             update();
           });
+  connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this, [this]() {
+    rebuildTiles();
+    update();
+  });
 }
 
 QColor NoteFloatToolbar::activeFill() const {
-  return QColor(0x25, 0x63, 0xEB, 72); // #2563EB soft fill
+  QColor soft = NoteChrome::accentSoft();
+  soft.setAlpha(NoteChrome::isDark() ? 72 : 56);
+  return soft;
 }
-QColor NoteFloatToolbar::activeGlyph() const { return QColor(0xF8, 0xFA, 0xFC); }
+QColor NoteFloatToolbar::activeGlyph() const {
+  return NoteChrome::isDark() ? QColor(0xF8, 0xFA, 0xFC)
+                              : NoteChrome::textPrimary();
+}
 QColor NoteFloatToolbar::idleGlyph() const {
-  // The pill plate is dark in every theme -> glyphs must stay light.
-  return kGlyph;
+  return NoteChrome::isDark() ? kGlyph : NoteChrome::textSecondary();
 }
 QColor NoteFloatToolbar::hoverFill() const {
-  return QColor(255, 255, 255, 16);
+  return NoteChrome::isDark() ? QColor(255, 255, 255, 16)
+                              : QColor(15, 23, 42, 14);
+}
+
+void NoteFloatToolbar::wakeChrome() {
+  if (m_idleTimer)
+    m_idleTimer->stop();
+  if (m_fade && m_fade->opacity() < 0.99)
+    m_fade->setOpacity(1.0);
+  scheduleChromeIdle();
+}
+
+void NoteFloatToolbar::activateOverflowTool(ToolMode mode, int shapeKind) {
+  wakeChrome();
+  noteActivateTool(mode, shapeKind);
+  refreshActive();
+  const QPoint anchor = mapToGlobal(QPoint(width() / 2, height()));
+  if (mode == ToolMode::Shape)
+    showShapesPopover(anchor);
+  else if (mode == ToolMode::Ruler)
+    showMeasurePopover(anchor);
+  else if (mode == ToolMode::Eraser)
+    showEraserPopover(anchor);
+}
+
+void NoteFloatToolbar::scheduleChromeIdle() {
+  if (m_idleTimer)
+    m_idleTimer->start(kChromeIdleMs);
+}
+
+void NoteFloatToolbar::enterEvent(QEnterEvent *event) {
+  NoteToolbarBase::enterEvent(event);
+  wakeChrome();
+}
+
+void NoteFloatToolbar::leaveEvent(QEvent *event) {
+  NoteToolbarBase::leaveEvent(event);
+  scheduleChromeIdle();
+}
+
+void NoteFloatToolbar::showEvent(QShowEvent *event) {
+  NoteToolbarBase::showEvent(event);
+  wakeChrome();
+}
+
+void NoteFloatToolbar::mouseMoveEvent(QMouseEvent *event) {
+  wakeChrome();
+  NoteToolbarBase::mouseMoveEvent(event);
 }
 
 QPoint NoteFloatToolbar::studioAnchorGlobal() const {
@@ -658,7 +742,7 @@ QPoint NoteFloatToolbar::studioAnchorGlobal() const {
 
 namespace {
 const QColor kProInk[5] = {
-    QColor(0x1E, 0x29, 0x3B), QColor(0xF8, 0xFA, 0xFC), QColor(0x25, 0x63, 0xEB),
+    QColor(0x1E, 0x29, 0x3B), QColor(0xF8, 0xFA, 0xFC), QColor(0x5B, 0x9D, 0xFF),
     QColor(0xE1, 0x1D, 0x48), QColor(0x10, 0xB9, 0x81)};
 constexpr qreal kWidthPresets[3] = {1.5, 3.0, 6.0};
 } // namespace
@@ -670,16 +754,16 @@ void NoteFloatToolbar::rebuildTiles() {
   const qreal widthBtn = UiScale::dp(118);
   const qreal shadow = UiScale::dp(6);
   const int surfaceW = parentWidget() ? parentWidget()->width() : 1600;
-  const int hudReserve = UiScale::dp(280); // PageHud + margins
-  const int maxDockW = qMax(UiScale::dp(320), surfaceW - hudReserve);
+  const int hudReserve = UiScale::dp(220); // PageHud + margins
+  const int maxDockW = qMax(UiScale::dp(280), surfaceW - hudReserve);
 
-  // Shrink horizontal spacing when the dock would clip the surface.
+  // Idle dock: Hand, Lasso | Pen, Marker, Eraser | swatches/width | undo/redo/more
+  // Shape/Text/Ruler/Laser/Formula live in the More overflow menu.
   qreal gap = UiScale::dp(3);
   qreal swatchGap = UiScale::dp(8);
   qreal sep = UiScale::dp(12);
   qreal padX = UiScale::dp(6);
   const qreal padY = UiScale::dp(6);
-  const bool mintOn = noteMintToolsVisible();
 
   auto estimate = [&](bool withSwatches, qreal g, qreal sg, qreal s,
                       qreal px) {
@@ -689,7 +773,7 @@ void NoteFloatToolbar::rebuildTiles() {
     add(tool);
     add(tool);
     addSep();
-    for (int i = 0; i < (mintOn ? 8 : 7); ++i)
+    for (int i = 0; i < 3; ++i)
       add(tool);
     addSep();
     if (withSwatches) {
@@ -758,12 +842,6 @@ void NoteFloatToolbar::rebuildTiles() {
   toolTile("pen", ToolMode::Pen);
   toolTile("highlighter", ToolMode::Highlighter, -1, kHighlighter);
   toolTile("eraser", ToolMode::Eraser);
-  toolTile("shape", ToolMode::Shape, static_cast<int>(ShapeToolKind::Line));
-  if (mintOn)
-    toolTile("pi", ToolMode::Formula);
-  toolTile("ruler", ToolMode::Ruler);
-  toolTile("text", ToolMode::Text);
-  toolTile("laser", ToolMode::Laser);
   separator();
 
   const ToolConfig cfg = ToolManager::instance().config();
@@ -809,14 +887,20 @@ void NoteFloatToolbar::rebuildTiles() {
 
 void NoteFloatToolbar::paintSkin(QPainter &p) {
   const QRectF plate = QRectF(rect()).adjusted(1, 1, -7, -7);
-  p.setPen(Qt::NoPen);
-  p.setBrush(QColor(0, 0, 0, 100));
   const qreal rad = UiScale::dp(14);
+  const bool dark = NoteChrome::isDark();
+  p.setPen(Qt::NoPen);
+  p.setBrush(QColor(0, 0, 0, dark ? 100 : 36));
   p.drawRoundedRect(plate.adjusted(0, 4, 0, 2), rad, rad);
-  p.setBrush(QColor(20, 23, 30, 242));
-  p.setPen(QPen(QColor(255, 255, 255, 31), 1));
+  if (dark) {
+    p.setBrush(QColor(20, 23, 30, 242));
+    p.setPen(QPen(QColor(255, 255, 255, 31), 1));
+  } else {
+    p.setBrush(NoteChrome::panelElevated());
+    p.setPen(QPen(NoteChrome::border(), 1));
+  }
   p.drawRoundedRect(plate, rad, rad);
-  p.setPen(QPen(QColor(255, 255, 255, 26), 1));
+  p.setPen(QPen(dark ? QColor(255, 255, 255, 26) : NoteChrome::borderSoft(), 1));
   for (const NoteToolTile &t : m_tiles) {
     if (t.action == NoteToolTile::Gap)
       p.drawLine(QPointF(t.rect.center().x(), plate.top() + 12),
@@ -850,19 +934,25 @@ void NoteFloatToolbar::paintTile(QPainter &p, const NoteToolTile &t, int index) 
       r = QRectF(r.center().x() - 12, r.center().y() - 12, 24, 24);
     p.setBrush(t.tint);
     if (on) {
-      // Offset ring: dark gap then white outer.
-      p.setPen(QPen(QColor(20, 23, 30), 2.0));
+      // Offset ring: plate gap then contrasting outer.
+      const QColor gap =
+          NoteChrome::isDark() ? QColor(20, 23, 30) : NoteChrome::panelElevated();
+      const QColor ring =
+          NoteChrome::isDark() ? QColor(255, 255, 255) : NoteChrome::textPrimary();
+      p.setPen(QPen(gap, 2.0));
       p.drawEllipse(r.adjusted(-2, -2, 2, 2));
-      p.setPen(QPen(QColor(255, 255, 255), 2.0));
+      p.setPen(QPen(ring, 2.0));
       p.drawEllipse(r.adjusted(-4, -4, 4, 4));
     } else if (t.tint.lightness() < 40) {
-      p.setPen(QPen(QColor(255, 255, 255, 76), 1.0));
+      p.setPen(QPen(NoteChrome::isDark() ? QColor(255, 255, 255, 76)
+                                         : NoteChrome::border(),
+                    1.0));
     } else {
       p.setPen(Qt::NoPen);
     }
     p.drawEllipse(r);
     if (hover && !on) {
-      p.setPen(QPen(kAccent, 1.5));
+      p.setPen(QPen(kAccent(), 1.5));
       p.setBrush(Qt::NoBrush);
       p.drawEllipse(r.adjusted(-1, -1, 1, 1));
     }
@@ -870,20 +960,24 @@ void NoteFloatToolbar::paintTile(QPainter &p, const NoteToolTile &t, int index) 
   }
   if (t.action == NoteToolTile::Width) {
     const int w = qBound(1, ToolManager::instance().config().penWidth, 24);
-    p.setPen(QPen(QColor(255, 255, 255, 26), 1));
-    p.setBrush(QColor(255, 255, 255, 15));
+    const bool dark = NoteChrome::isDark();
+    p.setPen(QPen(dark ? QColor(255, 255, 255, 26) : NoteChrome::border(), 1));
+    p.setBrush(dark ? QColor(255, 255, 255, 15) : QColor(15, 23, 42, 10));
     p.drawRoundedRect(t.rect, UiScale::dp(8), UiScale::dp(8));
-    const QColor dot(0xE2, 0xE8, 0xF0);
+    const QColor dot =
+        dark ? QColor(0xE2, 0xE8, 0xF0) : NoteChrome::textSecondary();
+    const QColor onDot =
+        dark ? QColor(255, 255, 255) : NoteChrome::textPrimary();
     const qreal zone = (t.rect.width() - UiScale::dp(44)) / 3.0;
     for (int i = 0; i < 3; ++i) {
       const qreal d = 4.0 + i * 3.0;
       const bool on = qAbs(w - kWidthPresets[i]) < 0.6;
       const QPointF c(t.rect.left() + zone * (i + 0.5), t.rect.center().y());
       p.setPen(Qt::NoPen);
-      p.setBrush(on ? QColor(255, 255, 255) : dot);
+      p.setBrush(on ? onDot : dot);
       p.drawEllipse(c, d / 2.0, d / 2.0);
     }
-    p.setPen(QColor(0xE2, 0xE8, 0xF0));
+    p.setPen(dark ? QColor(0xE2, 0xE8, 0xF0) : NoteChrome::textPrimary());
     QFont f = p.font();
     f.setPixelSize(11);
     f.setWeight(QFont::DemiBold);
@@ -897,7 +991,7 @@ void NoteFloatToolbar::paintTile(QPainter &p, const NoteToolTile &t, int index) 
   if (t.action == NoteToolTile::Tool && tileActive(t)) {
     // Active indicator bar under the tile (NoteChrome blue).
     p.setPen(Qt::NoPen);
-    p.setBrush(kAccent);
+    p.setBrush(kAccent());
     const QRectF bar(t.rect.center().x() - 8, t.rect.bottom() - 4, 16, 3);
     p.drawRoundedRect(bar, 1.5, 1.5);
   } else if (t.action == NoteToolTile::Tool && t.icon == QLatin1String("pen")) {
@@ -911,6 +1005,7 @@ void NoteFloatToolbar::paintTile(QPainter &p, const NoteToolTile &t, int index) 
 }
 
 void NoteFloatToolbar::mousePressEvent(QMouseEvent *event) {
+  wakeChrome();
   const int idx = tileAt(event->position());
   if (idx >= 0 && idx < m_tiles.size()) {
     const NoteToolTile &t = m_tiles[idx];
@@ -1410,7 +1505,7 @@ void NoteRadiantToolbar::paintTile(QPainter &p, const NoteToolTile &t, int index
   }
   QColor fill = kBgSoft;
   if (active)
-    fill = kAccent;
+    fill = kAccent();
   else if (hover)
     fill = QColor(60, 65, 78);
   p.setBrush(fill);
@@ -1532,7 +1627,7 @@ NotePenWidthChip::NotePenWidthChip(QWidget *parent) : QWidget(parent) {
       "QSlider::sub-page:horizontal { background: %1; border-radius: 1px; }"
       "QSlider::handle:horizontal { width: 12px; height: 12px; margin: -5px 0;"
       "  background: %1; border-radius: 6px; }")
-                              .arg(kAccent.name(QColor::HexRgb)));
+                              .arg(kAccent().name(QColor::HexRgb)));
   lay->addWidget(m_slider, 1);
   connect(m_slider, &QSlider::valueChanged, this, [this](int v) {
     if (!m_syncing)
@@ -1686,8 +1781,35 @@ void NoteToolbarHost::showStyleMenu(const QPoint &globalPos) {
   QWidget *anchor = activeWidget();
   if (!anchor)
     return;
+  if (m_float)
+    m_float->wakeChrome();
   const NoteToolbarStyle cur = noteToolbarStyle();
   QList<BlopInWindowMenu::Item> items;
+
+  // Overflow tools (kept off the idle float pill).
+  auto addTool = [&](const QString &label, ToolMode mode, int shape = -1) {
+    BlopInWindowMenu::Item it;
+    const bool on = ToolManager::instance().activeToolMode() == mode;
+    it.label = (on ? QStringLiteral("●  ") : QStringLiteral("○  ")) + label;
+    it.handler = [this, mode, shape]() {
+      if (m_float && m_float->isVisible())
+        m_float->activateOverflowTool(mode, shape);
+      else
+        noteActivateTool(mode, shape);
+    };
+    items.append(it);
+  };
+  addTool(QStringLiteral("Formen"), ToolMode::Shape,
+          static_cast<int>(ShapeToolKind::Line));
+  addTool(QStringLiteral("Text"), ToolMode::Text);
+  addTool(QStringLiteral("Lineal / Messen"), ToolMode::Ruler);
+  addTool(QStringLiteral("Laser"), ToolMode::Laser);
+  if (noteMintToolsVisible())
+    addTool(QStringLiteral("Formel"), ToolMode::Formula);
+  BlopInWindowMenu::Item sepTools;
+  sepTools.separator = true;
+  items.append(sepTools);
+
   auto add = [&](NoteToolbarStyle st) {
     BlopInWindowMenu::Item it;
     it.label = (st == cur ? QStringLiteral("●  ") : QStringLiteral("○  ")) +

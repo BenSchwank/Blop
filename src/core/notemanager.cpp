@@ -178,11 +178,16 @@ QJsonDocument NoteManager::toJson(const Note &note) {
         // Filled remnant / shape stroke: serialise path elements as
         // [type, x, y] triples (0=move, 1=line, 2=curve, 3=curve data).
         so["f"] = s.filled;
-        if (s.shape) {
+        so["ps"] = s.penStyle;
+        if (s.shape)
           so["sh"] = true;
-          so["ps"] = s.penStyle;
-          if (s.fillColor.isValid())
-            so["fc"] = s.fillColor.name(QColor::HexArgb);
+        if (s.fillColor.isValid())
+          so["fc"] = s.fillColor.name(QColor::HexArgb);
+        if (!s.points.isEmpty()) {
+          QJsonArray sp;
+          for (const QPointF &pt : s.points)
+            sp.append(QJsonArray{pt.x(), pt.y()});
+          so["pts"] = sp;
         }
         so["fr"] = static_cast<int>(s.path.fillRule());
         QJsonArray els;
@@ -432,6 +437,11 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
           }
         }
         s.path = fp;
+        for (const auto &pv : so.value("pts").toArray()) {
+          const auto a = pv.toArray();
+          if (a.size() >= 2)
+            s.points.push_back(QPointF(a[0].toDouble(), a[1].toDouble()));
+        }
         out.pages[i].strokes.push_back(std::move(s));
         continue;
       }

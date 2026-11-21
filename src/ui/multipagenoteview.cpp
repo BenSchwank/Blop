@@ -2728,7 +2728,8 @@ void MultiPageNoteView::debugSnapshotTools(const QString &dir) {
       const bool same =
           x.shape == y.shape && x.filled == y.filled &&
           x.isHighlighter == y.isHighlighter && x.penStyle == y.penStyle &&
-          x.color == y.color && x.fillColor == y.fillColor &&
+          x.color.rgba() == y.color.rgba() &&
+          x.fillColor.rgba() == y.fillColor.rgba() &&
           qAbs(x.width - y.width) < 0.01 &&
           x.points.size() == y.points.size() &&
           qAbs(bx.width() - by.width()) < 1.0 &&
@@ -2752,7 +2753,15 @@ void MultiPageNoteView::debugSnapshotTools(const QString &dir) {
                 .arg(bx.width(), 0, 'f', 1)
                 .arg(bx.height(), 0, 'f', 1)
                 .arg(by.width(), 0, 'f', 1)
-                .arg(by.height(), 0, 'f', 1));
+                .arg(by.height(), 0, 'f', 1)
+            + QStringLiteral(" | ps %1/%2 c %3/%4 fc %5/%6 w %7/%8")
+                  .arg(x.penStyle)
+                  .arg(y.penStyle)
+                  .arg(x.color.name(QColor::HexArgb), y.color.name(QColor::HexArgb),
+                       x.fillColor.name(QColor::HexArgb),
+                       y.fillColor.name(QColor::HexArgb))
+                  .arg(x.width)
+                  .arg(y.width));
       }
     }
     log(QStringLiteral("%1 roundtrip strokes %2/%3 mismatches=%4 "

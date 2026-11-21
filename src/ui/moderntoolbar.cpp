@@ -1900,22 +1900,25 @@ public:
     // content does not need its own card. This avoids the double-card
     // look that the Android stylesheet previously produced.
     setAttribute(Qt::WA_TranslucentBackground);
+    const QString acc = NoteChrome::accent().name(QColor::HexRgb);
     setStyleSheet(BlopTheme::themed(
-        "QLabel { color: #DDD; font-weight: bold; font-size: 11px; background: "
-        "transparent; }"
-        "QSlider::groove:horizontal { height: 4px; background: #444; "
-        "border-radius: 2px; }"
-        "QSlider::sub-page:horizontal { background: #6c5ce7; border-radius: "
-        "2px; }"
-        "QSlider::handle:horizontal { background: #FFFFFF; width: 14px; "
-        "height: 14px; margin: -5px 0; border-radius: 7px; }"
-        "QCheckBox { color: #DDD; background: transparent; }"
-        "QPushButton { background-color: #444; color: #BBB; border: none; "
-        "border-radius: 4px; padding: 5px; }"
-        "QPushButton:checked { background-color: #6c5ce7; color: white; }"
-        "QPushButton:hover { background-color: #555; }"
-        "QPushButton#DangerBtn { background-color: #A00; color: white; }"
-        "QPushButton#DangerBtn:hover { background-color: #C00; }"));
+        QStringLiteral(
+            "QLabel { color: #DDD; font-weight: bold; font-size: 11px; background: "
+            "transparent; }"
+            "QSlider::groove:horizontal { height: 4px; background: #444; "
+            "border-radius: 2px; }"
+            "QSlider::sub-page:horizontal { background: %1; border-radius: "
+            "2px; }"
+            "QSlider::handle:horizontal { background: #FFFFFF; width: 14px; "
+            "height: 14px; margin: -5px 0; border-radius: 7px; }"
+            "QCheckBox { color: #DDD; background: transparent; }"
+            "QPushButton { background-color: #444; color: #BBB; border: none; "
+            "border-radius: 4px; padding: 5px; }"
+            "QPushButton:checked { background-color: %1; color: white; }"
+            "QPushButton:hover { background-color: #555; }"
+            "QPushButton#DangerBtn { background-color: #A00; color: white; }"
+            "QPushButton#DangerBtn:hover { background-color: #C00; }")
+            .arg(acc)));
     QVBoxLayout *layout = new QVBoxLayout(this);
     layout->setContentsMargins(15, 15, 15, 15);
     layout->setSpacing(12);

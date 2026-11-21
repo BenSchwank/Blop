@@ -12,7 +12,9 @@
 #include <QVector>
 #include <QWidget>
 
+class QGraphicsOpacityEffect;
 class QSlider;
+class QTimer;
 class QVariantAnimation;
 
 /// Desktop note toolbar skins (A4 + infinite note). All four drive
@@ -113,7 +115,7 @@ protected:
   QColor activeGlyph() const override;
 };
 
-/// Compact dark pill.
+/// Compact floating pill (theme-aware plate; idle chrome dims).
 class NoteFloatToolbar : public NoteToolbarBase {
   Q_OBJECT
 public:
@@ -125,12 +127,19 @@ public:
     updateGeometry();
     update();
   }
+  void wakeChrome();
+  /// Activate a tool that lives in the More overflow (and open its studio).
+  void activateOverflowTool(ToolMode mode, int shapeKind = -1);
 
 protected:
   void rebuildTiles() override;
   void paintSkin(QPainter &p) override;
   void paintTile(QPainter &p, const NoteToolTile &t, int index) override;
   void mousePressEvent(QMouseEvent *event) override;
+  void mouseMoveEvent(QMouseEvent *event) override;
+  void enterEvent(QEnterEvent *event) override;
+  void leaveEvent(QEvent *event) override;
+  void showEvent(QShowEvent *event) override;
   QColor activeFill() const override;
   QColor activeGlyph() const override;
   QColor idleGlyph() const override;
@@ -140,7 +149,11 @@ private:
   void showEraserPopover(const QPoint &globalAnchor);
   void showShapesPopover(const QPoint &globalAnchor);
   void showMeasurePopover(const QPoint &globalAnchor);
+  void scheduleChromeIdle();
   int widthPresetAt(const NoteToolTile &t, const QPointF &local) const;
+
+  QTimer *m_idleTimer{nullptr};
+  QGraphicsOpacityEffect *m_fade{nullptr};
 };
 
 /// Quarter bloom anchored bottom-right: center disc + two segmented rings.

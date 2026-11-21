@@ -209,7 +209,7 @@ void DocumentTab::refreshChromeStyle() {
                                 : BlopTheme::accentPrimary());
     const QColor iconFg =
         m_readingMarkMode
-            ? (m_active ? (studioActive ? QColor(0x60, 0xA5, 0xFA) : accent)
+            ? (m_active ? accent
                         : (darkBar ? QColor(0x8A, 0x90, 0x9C)
                                    : QColor(0x9C, 0xA3, 0xAF)))
             : fg;

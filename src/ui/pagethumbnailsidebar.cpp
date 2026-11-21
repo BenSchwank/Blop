@@ -394,11 +394,15 @@ void PageThumbnailSidebar::setHorizontalStrip(bool on) {
               "  color: %3; font-size: 16px; font-weight: 700;"
               "}"
               "QPushButton#PageRailToggleBtn:hover {"
-              "  border-color: #5B9DFF; background: rgba(91,157,255,0.10);"
+              "  border-color: %4; background: rgba(%5,%6,%7,0.10);"
               "}")
               .arg(NoteChrome::panelElevated().name(),
                    NoteChrome::borderSoft().name(),
-                   NoteChrome::textSecondary().name()));
+                   NoteChrome::textSecondary().name(),
+                   NoteChrome::accent().name(QColor::HexRgb),
+                   QString::number(NoteChrome::accent().red()),
+                   QString::number(NoteChrome::accent().green()),
+                   QString::number(NoteChrome::accent().blue())));
       row->addWidget(m_btnToggle, 0, Qt::AlignVCenter);
     }
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -547,7 +551,7 @@ void PageThumbnailSidebar::applyCollapsedState() {
 }
 
 void PageThumbnailSidebar::refreshListStyle() {
-  const QColor accent = QColor(0x3B, 0x82, 0xF6);
+  const QColor accent = NoteChrome::accent();
   const bool studioDrawer = m_floatingMode && !m_horizontalStrip;
   const QString bg =
       studioDrawer ? QStringLiteral("rgba(24, 27, 34, 0.96)")

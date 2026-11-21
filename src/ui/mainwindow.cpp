@@ -9579,6 +9579,7 @@ void MainWindow::setupUi() {
   };
   m_pageHud = makeHud(QStringLiteral("PageHud"));
   m_pageHud->setFixedHeight(UiScale::dp(36));
+  // ZoomHud matched to same family height in refreshNoteChromeStyle.
   auto *pageLay = new QHBoxLayout(m_pageHud);
   pageLay->setContentsMargins(UiScale::dp(6), 0, UiScale::dp(6), 0);
   pageLay->setSpacing(UiScale::dp(4));
@@ -9654,7 +9655,7 @@ void MainWindow::setupUi() {
   pageLay->addWidget(addPageBtn);
 
   m_zoomHud = makeHud(QStringLiteral("ZoomHud"));
-  m_zoomHud->setFixedHeight(UiScale::dp(34));
+  m_zoomHud->setFixedHeight(UiScale::dp(36));
   auto *zoomLay = new QHBoxLayout(m_zoomHud);
   zoomLay->setContentsMargins(6, 0, 6, 0);
   zoomLay->setSpacing(2);
@@ -20635,45 +20636,71 @@ void MainWindow::refreshNoteChromeStyle() {
                                              NoteChrome::borderSoft().name(
                                                  QColor::HexRgb)));
 #ifndef Q_OS_ANDROID
-  const bool darkHud = true; // Studio HUDs stay dark glass on charcoal canvas.
-  const auto hudQss = [](const QString &name) {
+  // PageHud + ZoomHud share one chrome family (same height/radius/tokens).
+  const bool darkHud = NoteChrome::isDark();
+  const int hudRad = UiScale::dp(10);
+  const auto hudQss = [&](const QString &name) {
+    if (darkHud) {
+      return QStringLiteral(
+                 "QWidget#%1 {"
+                 "  background: rgba(24, 27, 34, 0.92);"
+                 "  border: 1px solid rgba(255,255,255,0.12);"
+                 "  border-radius: %2px;"
+                 "}"
+                 "QLabel { background: transparent; color: %3;"
+                 "  font-size: 12px; font-weight: 600; }"
+                 "QPushButton { background: transparent; color: %4; border: none;"
+                 " border-radius: 6px; font-size: 14px; font-weight: 600; padding: 0 4px; }"
+                 "QPushButton:hover { background: rgba(255,255,255,0.10); }"
+                 "QPushButton:disabled { color: rgba(255,255,255,0.28); }"
+                 "QFrame#PageHudSep, QFrame#ZoomHudSep, QFrame#ZoomHudUndoSep {"
+                 "  background: rgba(255,255,255,0.14); border: none; max-width: 1px;"
+                 "}")
+          .arg(name, QString::number(hudRad),
+               NoteChrome::textPrimary().name(QColor::HexRgb),
+               NoteChrome::textSecondary().name(QColor::HexRgb));
+    }
     return QStringLiteral(
                "QWidget#%1 {"
-               "  background: rgba(24, 27, 34, 0.92);"
-               "  border: 1px solid rgba(255,255,255,0.12);"
-               "  border-radius: 10px;"
+               "  background: %2;"
+               "  border: 1px solid %3;"
+               "  border-radius: %4px;"
                "}"
-               "QLabel { background: transparent; color: #F8FAFC;"
+               "QLabel { background: transparent; color: %5;"
                "  font-size: 12px; font-weight: 600; }"
-               "QPushButton { background: transparent; color: #E2E8F0; border: none;"
+               "QPushButton { background: transparent; color: %6; border: none;"
                " border-radius: 6px; font-size: 14px; font-weight: 600; padding: 0 4px; }"
-               "QPushButton:hover { background: rgba(255,255,255,0.10); }"
-               "QPushButton:disabled { color: rgba(255,255,255,0.28); }"
+               "QPushButton:hover { background: rgba(15,23,42,0.06); }"
+               "QPushButton:disabled { color: rgba(15,23,42,0.28); }"
                "QFrame#PageHudSep, QFrame#ZoomHudSep, QFrame#ZoomHudUndoSep {"
-               "  background: rgba(255,255,255,0.14); border: none; max-width: 1px;"
+               "  background: %3; border: none; max-width: 1px;"
                "}")
-        .arg(name);
+        .arg(name, NoteChrome::panelElevated().name(QColor::HexRgb),
+             NoteChrome::border().name(QColor::HexRgb), QString::number(hudRad),
+             NoteChrome::textPrimary().name(QColor::HexRgb),
+             NoteChrome::textSecondary().name(QColor::HexRgb));
+  };
+  auto ensureHudShadow = [](QWidget *hud, bool dark) {
+    if (!hud)
+      return;
+    auto *shadow = qobject_cast<QGraphicsDropShadowEffect *>(hud->graphicsEffect());
+    if (!shadow) {
+      shadow = new QGraphicsDropShadowEffect(hud);
+      hud->setGraphicsEffect(shadow);
+    }
+    shadow->setBlurRadius(16);
+    shadow->setOffset(0, 4);
+    shadow->setColor(QColor(0, 0, 0, dark ? 64 : 40));
   };
   if (m_pageHud) {
+    m_pageHud->setFixedHeight(UiScale::dp(36));
     m_pageHud->setStyleSheet(hudQss(QStringLiteral("PageHud")));
-    if (!m_pageHud->graphicsEffect()) {
-      auto *shadow = new QGraphicsDropShadowEffect(m_pageHud);
-      shadow->setBlurRadius(16);
-      shadow->setOffset(0, 4);
-      shadow->setColor(QColor(0, 0, 0, 64));
-      m_pageHud->setGraphicsEffect(shadow);
-    }
+    ensureHudShadow(m_pageHud, darkHud);
   }
   if (m_zoomHud) {
+    m_zoomHud->setFixedHeight(UiScale::dp(36));
     m_zoomHud->setStyleSheet(hudQss(QStringLiteral("ZoomHud")));
-    if (!m_zoomHud->graphicsEffect()) {
-      auto *shadow = new QGraphicsDropShadowEffect(m_zoomHud);
-      shadow->setBlurRadius(16);
-      shadow->setOffset(0, 4);
-      shadow->setColor(QColor(0, 0, 0, 64));
-      m_zoomHud->setGraphicsEffect(shadow);
-    }
-    Q_UNUSED(darkHud);
+    ensureHudShadow(m_zoomHud, darkHud);
   }
 #endif
 }
@@ -20814,8 +20841,20 @@ void MainWindow::positionNoteChrome() {
     }
   }
 
+  // Desktop note chrome source of truth: NoteToolbarHost + Page/Zoom HUDs.
+  // Legacy Modern rail / left rail / bookmark / bottom notch stay off.
   if (m_noteLeftRail)
     m_noteLeftRail->hide();
+  if (m_pageBookmarkRail)
+    m_pageBookmarkRail->hide();
+  if (m_noteBottomChrome)
+    m_noteBottomChrome->hide();
+  if (m_penPresetBar)
+    m_penPresetBar->hide();
+  if (auto *legacyTb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    if (m_noteToolbars)
+      legacyTb->hide();
+  }
 
   leftX = favLeft;
   rightX = W - favRight;
