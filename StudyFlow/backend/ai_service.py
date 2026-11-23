@@ -1842,8 +1842,9 @@ ANFORDERUNGEN:
 3. Reihenfolge pädagogisch: Warm-up → Lehre → Notiz → Übung → … → Summary am Ende.
 4. IDs stabil: session "ds1", steps "ds1-s1"…
 5. JSON streng gültig (Backslashes in LaTeX verdoppeln).
+6. Wurzel MUSS ein JSON-Objekt sein — KEIN Array. Keine Markdown-Fences.
 
-Ausgabe: EIN JSON-Objekt:
+Ausgabe: EIN JSON-Objekt (nicht eine Liste):
 {{
   "id": "ds1",
   "title": "…",
@@ -1891,11 +1892,12 @@ Analysiere das Material und erstelle die Deep-Learning-Session:
             if not response.text:
                 raise Exception("Leere Deep-Session-Antwort vom Modell.")
             try:
-                raw = AIService._loads_model_json(response.text, label="Deep-Session-Antwort")
+                parsed = AIService._loads_model_json(
+                    response.text, label="Deep-Session-Antwort", prefer_object=True
+                )
+                raw = AIService._coerce_deep_session_payload(parsed, minutes=minutes)
             except ValueError as parse_err:
                 raise Exception(str(parse_err)) from parse_err
-            if not isinstance(raw, dict):
-                raise Exception("Deep Session muss ein JSON-Objekt sein.")
 
             sid = str(raw.get("id") or "ds1").strip() or "ds1"
             title = str(raw.get("title") or f"Tiefes Lernen ({minutes} Min)").strip()
@@ -2456,43 +2458,98 @@ Markierter Ausschnitt (nur diesen ersetzen):
         return "".join(out)
 
     @staticmethod
-    def _loads_model_json(raw: str, *, label: str = "Modellantwort") -> Any:
+    def _loads_model_json(raw: str, *, label: str = "Modellantwort", prefer_object: bool = False) -> Any:
         """json.loads with fence strip, LaTeX escape fix, and json_repair fallback."""
         text = AIService._strip_json_fences(raw)
         if not text:
             raise ValueError(f"Leere {label}.")
-        candidates = [text]
+        candidates: List[str] = [text]
         start_obj = text.find("{")
         end_obj = text.rfind("}")
+        obj_slice = ""
         if start_obj >= 0 and end_obj > start_obj:
-            sliced = text[start_obj : end_obj + 1]
-            if sliced != text:
-                candidates.append(sliced)
+            obj_slice = text[start_obj : end_obj + 1]
+            if obj_slice != text:
+                candidates.append(obj_slice)
         start_arr = text.find("[")
         end_arr = text.rfind("]")
+        arr_slice = ""
         if start_arr >= 0 and end_arr > start_arr:
-            sliced_arr = text[start_arr : end_arr + 1]
-            if sliced_arr not in candidates:
-                candidates.append(sliced_arr)
+            arr_slice = text[start_arr : end_arr + 1]
+            if arr_slice not in candidates:
+                candidates.append(arr_slice)
+        # Prefer object JSON when both shapes exist (Deep Session / journey payloads).
+        if prefer_object and obj_slice:
+            ordered = [obj_slice]
+            for c in candidates:
+                if c not in ordered:
+                    ordered.append(c)
+            candidates = ordered
 
         last_err: Optional[Exception] = None
+        parsed_any: Any = None
         for cand in candidates:
             for attempt in (cand, AIService._fix_json_invalid_escapes(cand)):
                 try:
-                    return json.loads(attempt)
+                    parsed = json.loads(attempt)
                 except json.JSONDecodeError as e:
                     last_err = e
+                    continue
+                if prefer_object and not isinstance(parsed, dict):
+                    parsed_any = parsed if parsed_any is None else parsed_any
+                    continue
+                return parsed
             try:
                 from json_repair import repair_json
 
                 fixed = repair_json(AIService._fix_json_invalid_escapes(cand))
-                return json.loads(fixed)
+                parsed = json.loads(fixed)
+                if prefer_object and not isinstance(parsed, dict):
+                    parsed_any = parsed if parsed_any is None else parsed_any
+                    continue
+                return parsed
             except Exception as e:
                 last_err = e
+        if prefer_object and parsed_any is not None:
+            return parsed_any
         raise ValueError(
             f"{label} war kein gültiges JSON (oft LaTeX-Backslash oder Anführungszeichen). "
             f"Bitte erneut generieren. Technischer Hinweis: {last_err}"
         ) from last_err
+
+    @staticmethod
+    def _coerce_deep_session_payload(raw: Any, *, minutes: int = 60) -> Dict[str, Any]:
+        """Accept object, wrapper keys, single-item arrays, or bare step lists."""
+        if isinstance(raw, dict):
+            for key in ("deep_session", "session", "data", "result", "journey"):
+                inner = raw.get(key)
+                if isinstance(inner, dict) and (
+                    isinstance(inner.get("steps"), list) or inner.get("title") or inner.get("id")
+                ):
+                    return inner
+            if isinstance(raw.get("steps"), list) or raw.get("title") or raw.get("id"):
+                return raw
+            # Rare: {"0": step, "1": step} — ignore
+        if isinstance(raw, list):
+            if len(raw) == 1 and isinstance(raw[0], dict):
+                return AIService._coerce_deep_session_payload(raw[0], minutes=minutes)
+            stepish = [x for x in raw if isinstance(x, dict) and x.get("type")]
+            if len(stepish) >= 3:
+                total = 0
+                for x in stepish:
+                    try:
+                        total += int(x.get("estimated_minutes") or 5)
+                    except Exception:
+                        total += 5
+                return {
+                    "id": "ds1",
+                    "title": f"Tiefes Lernen ({minutes} Min)",
+                    "target_minutes": minutes if total <= 0 else total,
+                    "steps": stepish,
+                }
+        raise ValueError(
+            "Deep Session hat kein gültiges Format (Objekt mit steps erwartet). Bitte erneut starten."
+        )
 
     @staticmethod
     def _parse_json_storyboard(raw: str) -> dict:

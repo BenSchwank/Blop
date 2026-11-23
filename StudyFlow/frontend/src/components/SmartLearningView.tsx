@@ -1502,14 +1502,24 @@ export default function SmartLearningView({
             if (!res.ok && !data.smart_learning && !data.deep_session) {
                 throw new Error(formatApiDetail(data.detail) || `HTTP ${res.status}`);
             }
-            const updated = normalizeSmartLearningContent(data.smart_learning || data, local.title);
+            const journeySource =
+                data.smart_learning && typeof data.smart_learning === "object"
+                    ? data.smart_learning
+                    : data.deep_session && typeof data.deep_session === "object"
+                      ? {
+                            ...local,
+                            deep_sessions: [...(local.deep_sessions || []), data.deep_session],
+                            active_deep_session_id: (data.deep_session as { id?: string }).id,
+                        }
+                      : data;
+            const updated = normalizeSmartLearningContent(journeySource, local.title);
             setLocal(updated);
             onContentUpdated?.(updated);
             const sessions = updated.deep_sessions || [];
             const sid = updated.active_deep_session_id || sessions[sessions.length - 1]?.id;
             const session = sessions.find((s) => s.id === sid) || sessions[sessions.length - 1];
             if (session) startDeepSession(session);
-            else setError("Deep Session erzeugt, aber leer.");
+            else setError("Deep Session erzeugt, aber leer — bitte nochmal versuchen.");
         } catch (e: any) {
             setError(e?.message || "Tiefes Lernen fehlgeschlagen.");
         } finally {
