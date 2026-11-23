@@ -69,7 +69,10 @@ export function AiModelOptions({ current }: { current?: string }) {
         };
     }, []);
 
-    const curatedIds = useMemo(() => new Set(AI_MODEL_CHOICES.map((c) => c.value).filter(Boolean)), []);
+    const curatedIds = useMemo(
+        () => new Set<string>(AI_MODEL_CHOICES.map((c) => c.value).filter(Boolean)),
+        [],
+    );
     const openRouterExtras = useMemo(
         () => catalog.filter((m) => m.id && !curatedIds.has(m.id)).slice(0, 80),
         [catalog, curatedIds],
