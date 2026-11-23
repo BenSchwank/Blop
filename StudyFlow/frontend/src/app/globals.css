@@ -489,12 +489,14 @@ input:focus-visible {
   }
 
   .blop-mermaid {
-    overflow-x: auto !important;
+    overflow: auto !important;
+    max-height: none !important;
   }
 
   .blop-mermaid svg {
     background: #ffffff !important;
-    max-width: none !important;
+    max-width: 100% !important;
+    height: auto !important;
   }
 
   .prose-blop a {

@@ -17,13 +17,13 @@ async function getMermaid() {
                 flowchart: {
                     htmlLabels: true,
                     curve: "basis",
-                    padding: 18,
-                    nodeSpacing: 55,
-                    rankSpacing: 65,
+                    padding: 8,
+                    nodeSpacing: 28,
+                    rankSpacing: 36,
                     useMaxWidth: false,
                 },
                 themeVariables: {
-                    fontSize: "16px",
+                    fontSize: "15px",
                     primaryColor: "#1E3A5F",
                     primaryTextColor: "#F9FAFB",
                     primaryBorderColor: "#9CA3AF",
@@ -44,21 +44,38 @@ async function getMermaid() {
     return mermaidInitPromise;
 }
 
+/**
+ * Crop empty Mermaid canvas via getBBox, then display fluidly in the card
+ * (width 100%, height auto, max-height) so PAPs stay compact and readable.
+ */
 function fitSvg(host: HTMLElement) {
-    const svg = host.querySelector("svg");
+    const svg = host.querySelector("svg") as SVGSVGElement | null;
     if (!svg) return;
-    svg.style.maxWidth = "none";
-    svg.style.height = "auto";
-    svg.style.display = "block";
-    svg.removeAttribute("height");
-    const vb = svg.viewBox?.baseVal;
-    if (vb && vb.width > 0) {
-        const w = Math.max(Math.round(vb.width), 420);
-        svg.setAttribute("width", String(w));
-        if (vb.height > 0) {
-            svg.setAttribute("height", String(Math.round(vb.height)));
+
+    const maxH = Math.min(Math.round((typeof window !== "undefined" ? window.innerHeight : 900) * 0.72), 780);
+
+    try {
+        const bbox = svg.getBBox();
+        if (bbox.width > 1 && bbox.height > 1) {
+            const pad = 10;
+            svg.setAttribute(
+                "viewBox",
+                `${bbox.x - pad} ${bbox.y - pad} ${bbox.width + pad * 2} ${bbox.height + pad * 2}`
+            );
         }
+    } catch {
+        /* getBBox can throw if not in DOM yet */
     }
+
+    svg.removeAttribute("width");
+    svg.removeAttribute("height");
+    svg.setAttribute("preserveAspectRatio", "xMidYMin meet");
+    svg.style.display = "block";
+    svg.style.width = "100%";
+    svg.style.maxWidth = "100%";
+    svg.style.height = "auto";
+    svg.style.maxHeight = `${maxH}px`;
+    svg.style.marginInline = "auto";
 }
 
 function showFallback(host: HTMLElement, src: string, detail?: string) {
@@ -97,7 +114,12 @@ export default function MermaidBlock({ code }: { code: string }) {
                     return;
                 }
                 hostRef.current.innerHTML = svg;
-                fitSvg(hostRef.current);
+                // Double rAF: layout/paint so getBBox sees real geometry
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (!cancelled && hostRef.current) fitSvg(hostRef.current);
+                    });
+                });
             } catch {
                 if (!cancelled && hostRef.current) {
                     showFallback(hostRef.current, src);
@@ -110,8 +132,8 @@ export default function MermaidBlock({ code }: { code: string }) {
     }, [code, reactId]);
 
     return (
-        <div className="blop-mermaid not-prose my-5 overflow-x-auto rounded-[10px] border border-white/[0.08] bg-[#181B22] p-5">
-            <div ref={hostRef} className="min-w-0 [&_svg]:max-w-none" />
+        <div className="blop-mermaid not-prose my-5 max-h-[min(75vh,820px)] overflow-auto rounded-[10px] border border-white/[0.08] bg-[#181B22] p-4 sm:p-5">
+            <div ref={hostRef} className="min-w-0 [&_svg]:max-w-full" />
         </div>
     );
 }

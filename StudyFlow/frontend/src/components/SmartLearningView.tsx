@@ -454,7 +454,7 @@ function pickBatchSize(
     if (remainingTotal <= 0) return 0;
     if (frequency === "compact") return 1;
     if (frequency === "chapter_end") return Math.max(1, Math.min(remainingInChapter || remainingTotal, remainingTotal));
-    const n = 2 + Math.floor(Math.random() * 4); // 2..5
+    const n = 3 + Math.floor(Math.random() * 2); // 3..4
     return Math.max(1, Math.min(n, remainingTotal));
 }
 
@@ -582,18 +582,21 @@ export default function SmartLearningView({
 }: Props) {
     const [local, setLocal] = useState<SmartLearningContent>(() => normalizeSmartLearningContent(content));
     const [mode, setMode] = useState<"overview" | "learn" | "exam" | "exam_result" | "exam_picker">("overview");
-    const [learnPhase, setLearnPhase] = useState<"teach" | "assess">("teach");
+    const [learnPhase, setLearnPhase] = useState<"teach" | "assess" | "review">("teach");
     const [teachQueue, setTeachQueue] = useState<FlatStep[]>([]);
     const [teachIdx, setTeachIdx] = useState(0);
     const [assessQueue, setAssessQueue] = useState<AssessItem[]>([]);
     const [assessIdx, setAssessIdx] = useState(0);
     const [batchTarget, setBatchTarget] = useState(0);
+    const [reviewItem, setReviewItem] = useState<AssessItem | null>(null);
+    const [deferCountByLessonId, setDeferCountByLessonId] = useState<Record<string, number>>({});
     const [selected, setSelected] = useState<string | null>(null);
     const [clozeValues, setClozeValues] = useState<string[]>([]);
     const [clozeSubmitted, setClozeSubmitted] = useState(false);
     const [shortAnswer, setShortAnswer] = useState("");
     const [savingProgress, setSavingProgress] = useState(false);
     const [error, setError] = useState("");
+    const MAX_DEFER_PER_LESSON = 2;
 
     const [examIndex, setExamIndex] = useState(0);
     const [examSelected, setExamSelected] = useState<string | null>(null);
@@ -786,6 +789,8 @@ export default function SmartLearningView({
             setBatchTarget(1);
             setAssessQueue([]);
             setAssessIdx(0);
+            setReviewItem(null);
+            setDeferCountByLessonId({});
             setLearnPhase("teach");
             setHearts(HEARTS_MAX);
             setFailOpen(false);
@@ -813,6 +818,8 @@ export default function SmartLearningView({
         setBatchTarget(batch.length);
         setAssessQueue([]);
         setAssessIdx(0);
+        setReviewItem(null);
+        setDeferCountByLessonId({});
         setLearnPhase("teach");
         setHearts(HEARTS_MAX);
         setFailOpen(false);
@@ -835,17 +842,61 @@ export default function SmartLearningView({
         beginBatchFrom(idx >= 0 ? idx : Math.max(0, fallback));
     };
 
+    const resetAssessInputs = () => {
+        setSelected(null);
+        setClozeValues([]);
+        setClozeSubmitted(false);
+        setShortAnswer("");
+    };
+
     const enterAssessPhase = (batch: FlatStep[]) => {
         const items: AssessItem[] = batch.map((b) => ({ ...b, check: b.lesson.check }));
         shuffleInPlace(items);
         setAssessQueue(items);
         setAssessIdx(0);
+        setReviewItem(null);
+        setDeferCountByLessonId({});
         setLearnPhase("assess");
-        setSelected(null);
-        setClozeValues([]);
-        setClozeSubmitted(false);
-        setShortAnswer("");
+        resetAssessInputs();
         setHearts(HEARTS_MAX);
+    };
+
+    const startIdkReview = (item: AssessItem) => {
+        setReviewItem(item);
+        setLearnPhase("review");
+        resetAssessInputs();
+    };
+
+    const finishIdkReviewAndDefer = () => {
+        if (!reviewItem) {
+            setLearnPhase("assess");
+            return;
+        }
+        const lessonId = reviewItem.lesson.id;
+        const prevCount = deferCountByLessonId[lessonId] || 0;
+        const nextCount = prevCount + 1;
+        setDeferCountByLessonId((m) => ({ ...m, [lessonId]: nextCount }));
+
+        let removeAt = assessIdx;
+        if (removeAt < 0 || removeAt >= assessQueue.length || assessQueue[removeAt]?.lesson.id !== lessonId) {
+            removeAt = assessQueue.findIndex((q) => q.lesson.id === lessonId);
+        }
+        if (removeAt < 0) {
+            setReviewItem(null);
+            resetAssessInputs();
+            setLearnPhase("assess");
+            return;
+        }
+        const copy = [...assessQueue];
+        const [moved] = copy.splice(removeAt, 1);
+        if (moved && nextCount <= MAX_DEFER_PER_LESSON) {
+            copy.push(moved);
+        }
+        setAssessQueue(copy);
+        setAssessIdx(copy.length === 0 ? 0 : Math.min(removeAt, copy.length - 1));
+        setReviewItem(null);
+        resetAssessInputs();
+        setLearnPhase("assess");
     };
 
     const openExamPicker = () => {
@@ -1128,23 +1179,70 @@ export default function SmartLearningView({
         );
     };
 
+    /* ——— Learn: review after „Ich weiß nicht“ ——— */
+    if (mode === "learn" && learnPhase === "review" && reviewItem) {
+        return (
+            <div className="w-full max-w-3xl mx-auto space-y-5 pb-8">
+                {hudBar}
+                <BatchProgress phaseLabel={reviewItem.chapterTitle} />
+                <div className="rounded-2xl border border-amber-500/30 bg-[#1A1F2A] p-6 sm:p-7 space-y-5 shadow-lg">
+                    <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-amber-300 font-semibold">
+                            <BookOpen size={12} /> Nochmal erklären
+                        </span>
+                        <span className="text-[11px] text-gray-500">Frage kommt danach wieder</span>
+                    </div>
+                    <MathMarkdown className="text-white prose prose-invert prose-blop max-w-none leading-relaxed prose-p:my-3 prose-li:my-1">
+                        {reviewItem.lesson.teach}
+                    </MathMarkdown>
+                    {reviewItem.check.explanation ? (
+                        <div className="text-sm text-gray-300 border border-[#2A3140] rounded-xl px-4 py-3 bg-[#12141A]">
+                            <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Tipp zur Frage</p>
+                            <MathMarkdown compact>{reviewItem.check.explanation}</MathMarkdown>
+                        </div>
+                    ) : null}
+                    <button
+                        type="button"
+                        onClick={finishIdkReviewAndDefer}
+                        className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold min-h-[48px]"
+                    >
+                        Später nochmal fragen
+                        <ChevronRight size={18} />
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     /* ——— Learn: teach batch ——— */
     if (mode === "learn" && learnPhase === "teach" && teachQueue[teachIdx]) {
         const current = teachQueue[teachIdx];
+        const remainingAfter = Math.max(0, batchTarget - teachIdx - 1);
         return (
-            <div className="w-full max-w-2xl mx-auto space-y-5 pb-8">
+            <div className="w-full max-w-3xl mx-auto space-y-5 pb-8">
                 {hudBar}
                 <BatchProgress phaseLabel={current.chapterTitle} />
-                <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 sm:p-7 space-y-5 shadow-lg">
-                    <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-[#5B9DFF] font-semibold">
-                            <BookOpen size={12} /> Erklären
-                        </span>
-                        <span className="text-[11px] text-gray-500">
-                            Lektion {teachIdx + 1}/{batchTarget}
-                        </span>
+                <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 sm:p-8 space-y-5 shadow-lg">
+                    <div className="flex flex-wrap items-center gap-2 justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-[#5B9DFF] font-semibold">
+                                <BookOpen size={12} /> Lehrkapitel
+                            </span>
+                            <span className="text-[11px] text-gray-500">
+                                Lektion {teachIdx + 1}/{batchTarget}
+                            </span>
+                        </div>
+                        <p className="text-[11px] text-gray-500">
+                            {remainingAfter > 0
+                                ? `Noch ${remainingAfter} Thema${remainingAfter === 1 ? "" : "en"}, danach Wissenstest`
+                                : batchTarget > 1
+                                  ? "Letztes Thema — danach Wissenstest"
+                                  : "Danach kurzer Wissenstest"}
+                        </p>
                     </div>
-                    <MathMarkdown className="text-white">{current.lesson.teach}</MathMarkdown>
+                    <MathMarkdown className="text-white prose prose-invert prose-blop max-w-none leading-relaxed prose-p:my-3 prose-li:my-1 prose-headings:text-white">
+                        {current.lesson.teach}
+                    </MathMarkdown>
                     <button
                         type="button"
                         onClick={() => {
@@ -1165,6 +1263,28 @@ export default function SmartLearningView({
                     </button>
                 </div>
                 {error ? <p className="text-sm text-red-400">{error}</p> : null}
+            </div>
+        );
+    }
+
+    /* ——— Learn: assess batch empty after defer ——— */
+    if (mode === "learn" && learnPhase === "assess" && assessQueue.length === 0) {
+        return (
+            <div className="w-full max-w-2xl mx-auto space-y-5 pb-8">
+                {hudBar}
+                <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 text-center space-y-4">
+                    <p className="text-sm text-gray-300">Keine offenen Fragen mehr in diesem Block.</p>
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            const xp = await markLessonsDone(teachQueue);
+                            setCelebrate({ title: "Block geschafft", xp: xp || 25 * teachQueue.length });
+                        }}
+                        className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold"
+                    >
+                        Block abschließen
+                    </button>
+                </div>
             </div>
         );
     }
@@ -1253,24 +1373,43 @@ export default function SmartLearningView({
                     )}
 
                     {(isCloze || isShort) && !clozeSubmitted ? (
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setClozeSubmitted(true);
+                                    const ok = isCloze
+                                        ? gradeCloze(check.prompt, check.blanks, clozeValues)
+                                        : gradeShortAnswer(check, shortAnswer);
+                                    if (ok) void grantXp(isCloze ? 5 : 8, isCloze ? "cloze" : "short");
+                                    else spendHeart();
+                                }}
+                                disabled={
+                                    isCloze
+                                        ? clozeValues.every((v) => !String(v || "").trim())
+                                        : !shortAnswer.trim()
+                                }
+                                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
+                            >
+                                Antwort prüfen
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => startIdkReview(current)}
+                                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl border border-[#3A4558] text-gray-300 hover:bg-[#243044] font-medium min-h-[48px]"
+                            >
+                                Ich weiß nicht
+                            </button>
+                        </div>
+                    ) : null}
+
+                    {!isCloze && !isShort && !revealed ? (
                         <button
                             type="button"
-                            onClick={() => {
-                                setClozeSubmitted(true);
-                                const ok = isCloze
-                                    ? gradeCloze(check.prompt, check.blanks, clozeValues)
-                                    : gradeShortAnswer(check, shortAnswer);
-                                if (ok) void grantXp(isCloze ? 5 : 8, isCloze ? "cloze" : "short");
-                                else spendHeart();
-                            }}
-                            disabled={
-                                isCloze
-                                    ? clozeValues.every((v) => !String(v || "").trim())
-                                    : !shortAnswer.trim()
-                            }
-                            className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
+                            onClick={() => startIdkReview(current)}
+                            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-[#3A4558] text-gray-300 hover:bg-[#243044] font-medium min-h-[48px]"
                         >
-                            Antwort prüfen
+                            Ich weiß nicht
                         </button>
                     ) : null}
 
@@ -1806,7 +1945,7 @@ export default function SmartLearningView({
                         ? "Fragen nach jedem Thema"
                         : settings.question_frequency === "chapter_end"
                           ? "Wissenstest am Kapitelende"
-                          : "Wissenstest nach 2–5 Themen (gebündelt)"}
+                          : "Wissenstest nach 3–4 Themen (gebündelt)"}
                 </p>
                 {chapters.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-[#2A3140] bg-[#1A1F2A] p-6 text-center text-gray-400 text-sm">
@@ -1878,7 +2017,9 @@ export default function SmartLearningView({
                                 <h3 className="text-base font-semibold text-white flex items-center gap-2">
                                     <Sparkles size={16} className="text-[#5B9DFF]" /> Mit KI anpassen
                                 </h3>
-                                <p className="text-[11px] text-gray-500 mt-1">Einstellungen speichern oder Lernpfad neu generieren</p>
+                                <p className="text-[11px] text-gray-500 mt-1">
+                                    Einstellungen speichern oder Lernpfad neu generieren (längere Lehrbuch-Lektionen erst nach Neu-Generieren)
+                                </p>
                             </div>
                             <button
                                 type="button"
@@ -1930,7 +2071,7 @@ export default function SmartLearningView({
                                 <div className="flex flex-wrap gap-2">
                                     {(
                                         [
-                                            ["standard", "Standard (2–5)"],
+                                            ["standard", "Standard (3–4)"],
                                             ["compact", "Kompakt (jedes Thema)"],
                                             ["chapter_end", "Kapitelende"],
                                         ] as const

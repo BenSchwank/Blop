@@ -227,7 +227,7 @@ MARKDOWN- UND LATEX-LAYOUT (verbindlich):
     Entscheidung -->|nein| Ende((Ende))
     Prozess --> Ende
   ```
-- PAP-/Flowchart-Regeln: Fence-Label `mermaid` (oder `pap`); Header `flowchart TD` oder `flowchart LR`; Kanten NUR als `-->` (nie einzelnes `->`); JEDE Kante in eigener Zeile (`A --> B`, nie `A --> B --> C`); Formeln/Klammern/Schrägstriche in Labels IMMER in Anführungszeichen, z. B. `CalcA["a = (a + b) / 2"]`, `D{"x < 0?"}`; Formen: `Start((Start))`, `P["Prozess"]`, `E{"Entscheidung?"}`, `IO[/"Eingabe"/]`; kein HTML/`<br>` in Labels (stattdessen kurze Texte); max. 12 Knoten — große Abläufe aufteilen.
+- PAP-/Flowchart-Regeln: Fence-Label `mermaid` (oder `pap`); Header `flowchart TD` (lieber kompakt vertikal) oder `flowchart LR`; Kanten NUR als `-->` (nie einzelnes `->`); JEDE Kante in eigener Zeile (`A --> B`, nie `A --> B --> C`); Formeln/Klammern/Schrägstriche in Labels IMMER in Anführungszeichen, z. B. `CalcA["a = (a + b) / 2"]`, `D{"x < 0?"}`; Formen: `Start((Start))`, `P["Prozess"]`, `E{"Entscheidung?"}`, `IO[/"Eingabe"/]`; kein HTML/`<br>` in Labels — kurze einzeilige Texte; max. 10 Knoten pro Diagramm (sonst aufteilen); keine leeren Dummy-Knoten.
 """
 
 MATH_ACCURACY_INSTRUCTIONS = """
@@ -1135,7 +1135,7 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
 
             prompt = f"""
 Du bist ein KI-Lerncoach (Duolingo-Stil). Erstelle aus dem Material eine SMART-LEARNING-LERNREISE:
-Kapitel mit kurzem Überblick PLUS micro-lessons (erklären, später gebündelt testen), plus Lückentexte/Freitext und eine Probeklausur.
+Kapitel mit kurzem Überblick PLUS Lehrbuch-Lektionen (erklären in Batches von 3–4, danach gebündelt testen), plus Lückentexte/Freitext und eine Probeklausur.
 
 FOKUS: {focus_line}
 {exam_hint}
@@ -1149,9 +1149,9 @@ PROBEKLAUSUR-ZIEL: ca. {preset["target_q"]} Fragen, time_limit_sec ≈ {preset["
 ANFORDERUNGEN:
 1. 3–5 Kapitel in sinnvoller Lernreihenfolge (Fundament → Anwendung). Nicht mehr. IDs STABIL: "ch1"… "chN".
 2. Jedes Kapitel: Titel, summary (2–4 Sätze), 3 key_points.
-3. Genau 2 lessons pro Kapitel. Lesson-IDs STABIL: "ch1-l1", "ch1-l2", … Jede Lesson:
-   - teach: 2–5 Sätze Erklärung (klar, prüfungsnah); Formeln NUR in $...$ / $$...$$
-   - check: Test zur Lesson. Typen mischen:
+3. Pro Kapitel 3–4 lessons (Lehrbuch-Stil). Lesson-IDs STABIL: "ch1-l1", "ch1-l2", "ch1-l3", … Jede Lesson:
+   - teach: Mini-Lehrbuchkapitel (ca. 120–250 Wörter), KEIN Karteikarten-Kurztext. Struktur: kurze Einleitung → Kernidee mit 1–2 konkreten Beispielen → Formeln NUR in $...$ / $$...$$ → 1 Merksatz. Absätze mit Leerzeilen trennen.
+   - check: EINE Testfrage zur Lesson (wird später im Batch geprüft). Typen mischen:
      * "mc" oder "true_false": prompt, 2–4 options, answer, explanation
      * "cloze" (Lückentext): prompt mit genau einer oder zwei Lücken als {{{{Antwort}}}}, plus blanks-Array, explanation. KEINE options.
      * "short_answer": kurze Freitext-/Code-/Verständnisfrage; prompt, answer (Musterlösung), optional blanks mit Keywords, explanation. KEINE options.
