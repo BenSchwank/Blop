@@ -1150,13 +1150,16 @@ ANFORDERUNGEN:
 1. 3–5 Kapitel in sinnvoller Lernreihenfolge (Fundament → Anwendung). Nicht mehr. IDs STABIL: "ch1"… "chN".
 2. Jedes Kapitel: Titel, summary (2–4 Sätze), 3 key_points.
 3. Pro Kapitel 3–4 lessons (Lehrbuch-Stil). Lesson-IDs STABIL: "ch1-l1", "ch1-l2", "ch1-l3", … Jede Lesson:
-   - teach: Mini-Lehrbuchkapitel (ca. 120–250 Wörter), KEIN Karteikarten-Kurztext. Struktur: kurze Einleitung → Kernidee mit 1–2 konkreten Beispielen → Formeln NUR in $...$ / $$...$$ → 1 Merksatz. Absätze mit Leerzeilen trennen.
-   - check: EINE Testfrage zur Lesson (wird später im Batch geprüft). Typen mischen:
+   - teach: Mini-Lehrbuchkapitel (ca. 120–250 Wörter), KEIN Karteikarten-Kurztext.
+     Struktur: kurze Einleitung → Kernidee / Konzept erklären → optional anschauliche Alltags-/Strukturbeispiele OHNE Rechenweg → Formeln NUR als Definition in $...$ / $$...$$ → 1 Merksatz.
+     VERBOTEN im teach: Berechnungsaufgaben, Übungsaufgaben, „Berechne…“, „Löse…“, Zahlenbeispiele zum Ausrechnen, Schritt-für-Schritt-Rechnungen. Nur Konzeptverständnis.
+   - check: EINE spielerische Übungsfrage zur Lesson (wird später im Batch geprüft). Typen mischen — mind. 3 verschiedene Typen pro Kapitel:
      * "mc" oder "true_false": prompt, 2–4 options, answer, explanation
      * "cloze" (Lückentext): prompt mit genau einer oder zwei Lücken als {{{{Antwort}}}}, plus blanks-Array, explanation. KEINE options.
-     * "short_answer": kurze Freitext-/Code-/Verständnisfrage; prompt, answer (Musterlösung), optional blanks mit Keywords, explanation. KEINE options.
-   - Pro Kapitel mindestens EINE Lesson mit type "cloze".
-4. exam (Probeklausur): {preset["target_q"] - 2}–{preset["target_q"] + 2} Fragen gemischt aus mc / true_false / cloze / short_answer über ALLE Kapitel; jede Frage mit chapter_id (z. B. "ch1"); time_limit_sec {preset["time_limit_sec"]}; title prüfungsnah.
+     * "short_answer": kurze Verständnisfrage (KEINE reine Rechenaufgabe); prompt, answer (Musterlösung), optional blanks mit Keywords, explanation. KEINE options.
+     * "matching" (Zuordnen / Verbinden): prompt (z. B. „Ordne zu“), options = linke Spalte (3–5 Begriffe), blanks = passende rechte Spalte in GLEICHER Reihenfolge wie options, answer = blanks mit " | " verbunden, explanation.
+   - Pro Kapitel mindestens EINE Lesson mit type "cloze" und mindestens EINE mit type "matching".
+4. exam (Probeklausur): {preset["target_q"] - 2}–{preset["target_q"] + 2} Fragen gemischt aus mc / true_false / cloze / short_answer / matching über ALLE Kapitel; jede Frage mit chapter_id (z. B. "ch1"); time_limit_sec {preset["time_limit_sec"]}; title prüfungsnah.
 5. Titel der Lernreise: prüfungsnah und konkret.
 6. source_hint: ein Satz zum Material.
 7. readiness immer 0; progress.completed_chapter_ids=[], completed_lesson_ids=[], practice_sessions=0, exam_best_score=null, exam_completed_at=null.
@@ -1280,13 +1283,41 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                     ctype = str(check.get("type") or "mc").strip().lower()
                     is_cloze = ctype in ("cloze", "fill", "lueckentext", "lückentext")
                     is_short = ctype in ("short_answer", "short", "freitext", "code", "open")
+                    is_match = ctype in ("matching", "match", "zuordnen", "verbinden", "connect", "pairs")
                     blanks_raw = check.get("blanks") if isinstance(check.get("blanks"), list) else []
                     blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
                     options = check.get("options") if isinstance(check.get("options"), list) else []
                     options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
+                    # Optional pairs: [{left,right}, ...] → options/blanks
+                    pairs_raw = check.get("pairs") if isinstance(check.get("pairs"), list) else []
+                    if is_match and pairs_raw and (len(options) < 2 or len(blanks) < 2):
+                        lefts, rights = [], []
+                        for p in pairs_raw:
+                            if not isinstance(p, dict):
+                                continue
+                            L = _finalize_study_markdown(str(p.get("left") or p.get("term") or ""))
+                            R = _finalize_study_markdown(str(p.get("right") or p.get("def") or p.get("definition") or ""))
+                            if L and R:
+                                lefts.append(L)
+                                rights.append(R)
+                        if len(lefts) >= 2:
+                            options, blanks = lefts, rights
                     if not teach or not prompt_q:
                         continue
-                    if is_cloze:
+                    if is_match:
+                        if len(options) < 2 or len(blanks) < 2 or len(options) != len(blanks):
+                            continue
+                        if not answer:
+                            answer = " | ".join(blanks)
+                        check_obj = {
+                            "type": "matching",
+                            "prompt": prompt_q or "Ordne die Paare zu.",
+                            "options": options,
+                            "blanks": blanks,
+                            "answer": answer,
+                            "explanation": explanation,
+                        }
+                    elif is_cloze:
                         brace_answers = [_finalize_study_markdown(m) for m in re.findall(r"\{\{([^}]*)\}\}", prompt_q)]
                         if not blanks:
                             blanks = [b for b in brace_answers if b]
@@ -1376,14 +1407,46 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                     ctype = str(q.get("type") or "mc").strip().lower()
                     is_cloze = ctype in ("cloze", "fill", "lueckentext", "lückentext")
                     is_short = ctype in ("short_answer", "short", "freitext", "code", "open")
+                    is_match = ctype in ("matching", "match", "zuordnen", "verbinden", "connect", "pairs")
                     blanks_raw = q.get("blanks") if isinstance(q.get("blanks"), list) else []
                     blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
                     options = q.get("options") if isinstance(q.get("options"), list) else []
                     options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
+                    pairs_raw = q.get("pairs") if isinstance(q.get("pairs"), list) else []
+                    if is_match and pairs_raw and (len(options) < 2 or len(blanks) < 2):
+                        lefts, rights = [], []
+                        for p in pairs_raw:
+                            if not isinstance(p, dict):
+                                continue
+                            L = _finalize_study_markdown(str(p.get("left") or p.get("term") or ""))
+                            R = _finalize_study_markdown(str(p.get("right") or p.get("def") or p.get("definition") or ""))
+                            if L and R:
+                                lefts.append(L)
+                                rights.append(R)
+                        if len(lefts) >= 2:
+                            options, blanks = lefts, rights
                     chapter_id = str(q.get("chapter_id") or q.get("topic_id") or "").strip() or None
                     if not prompt_q:
                         continue
                     qid = str(q.get("id") or f"ex-q{qi + 1}").strip() or f"ex-q{qi + 1}"
+                    if is_match:
+                        if len(options) < 2 or len(blanks) < 2 or len(options) != len(blanks):
+                            continue
+                        if not answer:
+                            answer = " | ".join(blanks)
+                        row = {
+                            "id": qid,
+                            "type": "matching",
+                            "prompt": prompt_q or "Ordne die Paare zu.",
+                            "options": options,
+                            "blanks": blanks,
+                            "answer": answer,
+                            "explanation": explanation,
+                        }
+                        if chapter_id:
+                            row["chapter_id"] = chapter_id
+                        normalized_exam_qs.append(row)
+                        continue
                     if is_cloze:
                         brace_answers = [_finalize_study_markdown(m) for m in re.findall(r"\{\{([^}]*)\}\}", prompt_q)]
                         if not blanks:

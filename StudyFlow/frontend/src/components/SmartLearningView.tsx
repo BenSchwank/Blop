@@ -51,7 +51,7 @@ function plainTextForTts(md: string): string {
         .trim();
 }
 
-export type SmartLearningCheckType = "mc" | "true_false" | "cloze" | "short_answer";
+export type SmartLearningCheckType = "mc" | "true_false" | "cloze" | "short_answer" | "matching";
 
 export type SmartLearningCheck = {
     type: SmartLearningCheckType;
@@ -167,6 +167,8 @@ function normalizeCheckType(raw: unknown): SmartLearningCheckType {
     if (t === "true_false" || t === "truefalse" || t === "tf") return "true_false";
     if (t === "cloze" || t === "fill" || t === "lueckentext" || t === "lückentext") return "cloze";
     if (t === "short_answer" || t === "short" || t === "freitext" || t === "code" || t === "open") return "short_answer";
+    if (t === "matching" || t === "match" || t === "zuordnen" || t === "verbinden" || t === "connect" || t === "pairs")
+        return "matching";
     return "mc";
 }
 
@@ -200,12 +202,43 @@ function normalizeCheck(checkRaw: Record<string, unknown>): SmartLearningCheck |
     const answer = String(checkRaw.answer || "").trim();
     if (!prompt) return null;
     const type = normalizeCheckType(checkRaw.type);
-    const blanks = Array.isArray(checkRaw.blanks)
+    let blanks = Array.isArray(checkRaw.blanks)
         ? checkRaw.blanks.map((x) => String(x).trim()).filter(Boolean)
         : undefined;
     let options = Array.isArray(checkRaw.options)
         ? checkRaw.options.map((x) => String(x).trim()).filter(Boolean)
         : [];
+
+    if (type === "matching") {
+        const pairsRaw = Array.isArray(checkRaw.pairs) ? checkRaw.pairs : [];
+        if (pairsRaw.length >= 2 && (options.length < 2 || !blanks || blanks.length < 2)) {
+            const lefts: string[] = [];
+            const rights: string[] = [];
+            for (const p of pairsRaw) {
+                if (!p || typeof p !== "object" || Array.isArray(p)) continue;
+                const pr = p as Record<string, unknown>;
+                const L = String(pr.left || pr.term || "").trim();
+                const R = String(pr.right || pr.def || pr.definition || "").trim();
+                if (L && R) {
+                    lefts.push(L);
+                    rights.push(R);
+                }
+            }
+            if (lefts.length >= 2) {
+                options = lefts;
+                blanks = rights;
+            }
+        }
+        if (options.length < 2 || !blanks || blanks.length < 2 || options.length !== blanks.length) return null;
+        return {
+            type: "matching",
+            prompt: prompt || "Ordne die Paare zu.",
+            options,
+            blanks,
+            answer: answer || blanks.join(" | "),
+            explanation: checkRaw.explanation ? String(checkRaw.explanation) : undefined,
+        };
+    }
 
     if (type === "cloze") {
         const parsed = parseClozePrompt(prompt, blanks);
@@ -463,6 +496,12 @@ function gradeShortAnswer(check: SmartLearningCheck, given: string): boolean {
     return keywords.every((k) => norm.includes(String(k).trim().toLowerCase()));
 }
 
+function gradeMatching(check: SmartLearningCheck, assigned: string[]): boolean {
+    const rights = check.blanks || [];
+    if (rights.length === 0 || rights.length !== (check.options?.length || 0)) return false;
+    return rights.every((r, i) => answersMatch(r, assigned[i] || ""));
+}
+
 function shuffleInPlace<T>(arr: T[]): T[] {
     for (let i = arr.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -551,6 +590,88 @@ function ClozeInputs({
                         </span>
                     ))}
                 </p>
+            ) : null}
+        </div>
+    );
+}
+
+/** Zuordnen / Verbinden: left column fixed, right column via shuffled selects. */
+function MatchingExercise({
+    prompt,
+    lefts,
+    rights,
+    values,
+    onChange,
+    disabled,
+    showResult,
+}: {
+    prompt: string;
+    lefts: string[];
+    rights: string[];
+    values: string[];
+    onChange: (v: string[]) => void;
+    disabled?: boolean;
+    showResult?: boolean;
+}) {
+    const shuffledRights = useMemo(() => {
+        const copy = [...rights];
+        shuffleInPlace(copy);
+        return copy;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rights.join("\u0001")]);
+
+    useEffect(() => {
+        if (values.length !== lefts.length) {
+            onChange(Array.from({ length: lefts.length }, (_, i) => values[i] || ""));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [lefts.length]);
+
+    return (
+        <div className="space-y-3">
+            <MathMarkdown className="text-lg font-medium text-white">{prompt || "Ordne die Paare zu."}</MathMarkdown>
+            <div className="space-y-2">
+                {lefts.map((left, i) => {
+                    const ok = showResult ? answersMatch(rights[i] || "", values[i] || "") : null;
+                    return (
+                        <div
+                            key={`${i}-${left.slice(0, 24)}`}
+                            className={`flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border px-3 py-2.5 ${
+                                ok === true
+                                    ? "border-green-500/40 bg-green-500/5"
+                                    : ok === false
+                                      ? "border-red-500/40 bg-red-500/5"
+                                      : "border-[#2A3140] bg-[#12141A]"
+                            }`}
+                        >
+                            <div className="flex-1 min-w-0 text-sm text-white">
+                                <MathMarkdown compact>{left}</MathMarkdown>
+                            </div>
+                            <span className="hidden sm:inline text-gray-600 shrink-0">→</span>
+                            <select
+                                value={values[i] || ""}
+                                disabled={disabled}
+                                onChange={(e) => {
+                                    const next = [...values];
+                                    next[i] = e.target.value;
+                                    onChange(next);
+                                }}
+                                className="sm:w-[55%] rounded-lg border border-[#3A4558] bg-[#0E1117] px-2.5 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40 disabled:opacity-60"
+                                aria-label={`Zuordnung für ${i + 1}`}
+                            >
+                                <option value="">— wählen —</option>
+                                {shuffledRights.map((r) => (
+                                    <option key={r} value={r}>
+                                        {r.replace(/\$/g, "").slice(0, 80)}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    );
+                })}
+            </div>
+            {showResult ? (
+                <p className="text-xs text-gray-400">Richtige Paare: links ↔ rechts in der Listenreihenfolge.</p>
             ) : null}
         </div>
     );
@@ -1482,11 +1603,13 @@ export default function SmartLearningView({
         const check = current.check;
         const isCloze = check.type === "cloze";
         const isShort = check.type === "short_answer";
+        const isMatch = check.type === "matching";
         const clozeOk = isCloze && clozeSubmitted ? gradeCloze(check.prompt, check.blanks, clozeValues) : false;
         const shortOk = isShort && clozeSubmitted ? gradeShortAnswer(check, shortAnswer) : false;
-        const mcOk = !isCloze && !isShort && selected != null && selected === check.answer;
-        const correct = isCloze ? clozeOk : isShort ? shortOk : mcOk;
-        const revealed = isCloze || isShort ? clozeSubmitted : selected != null;
+        const matchOk = isMatch && clozeSubmitted ? gradeMatching(check, clozeValues) : false;
+        const mcOk = !isCloze && !isShort && !isMatch && selected != null && selected === check.answer;
+        const correct = isCloze ? clozeOk : isShort ? shortOk : isMatch ? matchOk : mcOk;
+        const revealed = isCloze || isShort || isMatch ? clozeSubmitted : selected != null;
 
         const onCorrectContinue = async () => {
             if (assessIdx + 1 < assessQueue.length) {
@@ -1515,8 +1638,14 @@ export default function SmartLearningView({
                 <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 sm:p-7 space-y-4 shadow-lg">
                     <div className="flex items-center gap-2">
                         <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-amber-300/90 font-semibold">
-                            {isCloze ? <PenLine size={12} /> : isShort ? <PenLine size={12} /> : <HelpCircle size={12} />}
-                            {isCloze ? "Lückentext" : isShort ? "Freitext" : "Prüfen"}
+                            {isCloze || isShort || isMatch ? <PenLine size={12} /> : <HelpCircle size={12} />}
+                            {isCloze
+                                ? "Lückentext"
+                                : isShort
+                                  ? "Freitext"
+                                  : isMatch
+                                    ? "Zuordnen"
+                                    : "Quiz"}
                         </span>
                         <span className="text-[11px] text-gray-500">
                             Frage {assessIdx + 1}/{assessQueue.length}
@@ -1531,6 +1660,16 @@ export default function SmartLearningView({
                             onChange={setClozeValues}
                             disabled={clozeSubmitted && clozeOk}
                             showResult={clozeSubmitted && clozeOk}
+                        />
+                    ) : isMatch ? (
+                        <MatchingExercise
+                            prompt={check.prompt}
+                            lefts={check.options}
+                            rights={check.blanks || []}
+                            values={clozeValues}
+                            onChange={setClozeValues}
+                            disabled={clozeSubmitted && matchOk}
+                            showResult={clozeSubmitted}
                         />
                     ) : isShort ? (
                         <>
@@ -1559,7 +1698,7 @@ export default function SmartLearningView({
                         </>
                     )}
 
-                    {(isCloze || isShort) && !clozeSubmitted ? (
+                    {(isCloze || isShort || isMatch) && !clozeSubmitted ? (
                         <div className="flex flex-wrap gap-2">
                             <button
                                 type="button"
@@ -1567,14 +1706,21 @@ export default function SmartLearningView({
                                     setClozeSubmitted(true);
                                     const ok = isCloze
                                         ? gradeCloze(check.prompt, check.blanks, clozeValues)
-                                        : gradeShortAnswer(check, shortAnswer);
-                                    if (ok) void grantXp(isCloze ? 5 : 8, isCloze ? "cloze" : "short");
+                                        : isMatch
+                                          ? gradeMatching(check, clozeValues)
+                                          : gradeShortAnswer(check, shortAnswer);
+                                    if (ok)
+                                        void grantXp(
+                                            isCloze ? 5 : isMatch ? 8 : 8,
+                                            isCloze ? "cloze" : isMatch ? "matching" : "short"
+                                        );
                                     else spendHeart();
                                 }}
                                 disabled={
-                                    isCloze
-                                        ? clozeValues.every((v) => !String(v || "").trim())
-                                        : !shortAnswer.trim()
+                                    isShort
+                                        ? !shortAnswer.trim()
+                                        : clozeValues.length === 0 ||
+                                          clozeValues.some((v) => !String(v || "").trim())
                                 }
                                 className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
                             >
@@ -1591,7 +1737,7 @@ export default function SmartLearningView({
                         </div>
                     ) : null}
 
-                    {!isCloze && !isShort && !revealed ? (
+                    {!isCloze && !isShort && !isMatch && !revealed ? (
                         <button
                             type="button"
                             onClick={() => startIdkReview(current)}
@@ -1855,9 +2001,18 @@ export default function SmartLearningView({
         }
         const isCloze = q.type === "cloze";
         const isShort = q.type === "short_answer";
-        const revealed = isCloze || isShort ? examClozeDone : examSelected != null;
+        const isMatch = q.type === "matching";
+        const revealed = isCloze || isShort || isMatch ? examClozeDone : examSelected != null;
         const mm = Math.floor((examSecondsLeft ?? 0) / 60);
         const ss = String((examSecondsLeft ?? 0) % 60).padStart(2, "0");
+        const asCheck: SmartLearningCheck = {
+            type: q.type,
+            prompt: q.prompt,
+            options: q.options,
+            answer: q.answer,
+            blanks: q.blanks,
+            explanation: q.explanation,
+        };
         const resetExamInputs = () => {
             setExamSelected(null);
             setExamCloze([]);
@@ -1948,13 +2103,29 @@ export default function SmartLearningView({
                 <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 space-y-4">
                     <p className="text-[11px] uppercase tracking-widest text-gray-500">
                         Frage {examIndex + 1} / {activeExam.questions.length}
-                        {isCloze ? " · Lückentext" : isShort ? " · Freitext" : ""}
+                        {isCloze
+                            ? " · Lückentext"
+                            : isShort
+                              ? " · Freitext"
+                              : isMatch
+                                ? " · Zuordnen"
+                                : " · Quiz"}
                     </p>
 
                     {isCloze ? (
                         <ClozeInputs
                             prompt={q.prompt}
                             blanks={q.blanks}
+                            values={examCloze}
+                            onChange={setExamCloze}
+                            disabled={examClozeDone}
+                            showResult={examClozeDone}
+                        />
+                    ) : isMatch ? (
+                        <MatchingExercise
+                            prompt={q.prompt}
+                            lefts={q.options}
+                            rights={q.blanks || []}
                             values={examCloze}
                             onChange={setExamCloze}
                             disabled={examClozeDone}
@@ -1982,12 +2153,17 @@ export default function SmartLearningView({
                         </>
                     )}
 
-                    {(isCloze || isShort) && !examClozeDone ? (
+                    {(isCloze || isShort || isMatch) && !examClozeDone ? (
                         <div className="flex flex-wrap gap-2">
                             <button
                                 type="button"
                                 onClick={() => setExamClozeDone(true)}
-                                disabled={isCloze ? examCloze.every((v) => !String(v || "").trim()) : !examShort.trim()}
+                                disabled={
+                                    isShort
+                                        ? !examShort.trim()
+                                        : examCloze.length === 0 ||
+                                          examCloze.some((v) => !String(v || "").trim())
+                                }
                                 className="px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50"
                             >
                                 Antwort prüfen
@@ -2003,7 +2179,7 @@ export default function SmartLearningView({
                         </div>
                     ) : null}
 
-                    {!isCloze && !isShort && !revealed ? (
+                    {!isCloze && !isShort && !isMatch && !revealed ? (
                         <button
                             type="button"
                             onClick={skipExamQuestion}
@@ -2027,8 +2203,10 @@ export default function SmartLearningView({
                                     onClick={() => {
                                         if (isCloze) {
                                             recordAndAdvance(gradeCloze(q.prompt, q.blanks, examCloze), examCloze.join(" | "));
+                                        } else if (isMatch) {
+                                            recordAndAdvance(gradeMatching(asCheck, examCloze), examCloze.join(" | "));
                                         } else if (isShort) {
-                                            recordAndAdvance(gradeShortAnswer(q, examShort), examShort);
+                                            recordAndAdvance(gradeShortAnswer(asCheck, examShort), examShort);
                                         } else {
                                             recordAndAdvance(examSelected === q.answer, examSelected || "");
                                         }
