@@ -5928,6 +5928,8 @@ void ModernToolbar::loadRailTools() {
     case ToolMode::Text:
     case ToolMode::Hand:
     case ToolMode::Formula:
+    case ToolMode::Dimension:
+    case ToolMode::Laser:
       // Works (places a graph frame) — allowed on the Favorites rail.
       return true;
     case ToolMode::Molecule:
@@ -6121,6 +6123,10 @@ QString ModernToolbar::iconForSlot(const RailSlot &s) const {
     return QStringLiteral("pi");
   case ToolMode::Molecule:
     return QStringLiteral("molecule");
+  case ToolMode::Dimension:
+    return QStringLiteral("ruler");
+  case ToolMode::Laser:
+    return QStringLiteral("laser");
   }
   return QStringLiteral("pen");
 }
@@ -6189,6 +6195,12 @@ void ModernToolbar::syncSlotButtonAppearance(int index) {
     break;
   case ToolMode::StickyNote:
     tip = tr("Notiz");
+    break;
+  case ToolMode::Dimension:
+    tip = tr("Bemaßung");
+    break;
+  case ToolMode::Laser:
+    tip = tr("Laser");
     break;
   default:
     tip = tr("Werkzeug");
