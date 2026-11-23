@@ -1218,6 +1218,7 @@ ANFORDERUNGEN:
 7. readiness immer 0; progress.completed_chapter_ids=[], completed_lesson_ids=[], practice_sessions=0, exam_best_score=null, exam_completed_at=null.
 8. IDs: Kapitel "ch1"…; Lessons "ch1-l1", "ch1-l2", …; Exam-Fragen "ex-q1"…
 9. settings-Objekt: difficulty="{diff}", question_frequency="{freq}", focus_mode="{fmode}", exam_preset="{preset["key"]}", scope="{scope["key"]}"{f', custom_prompt={json.dumps(custom_line, ensure_ascii=False)}' if custom_line else ""}.
+10. JSON streng gültig: in Strings Backslashes verdoppeln (LaTeX z. B. \\\\frac, \\\\alpha); keine rohen \\n außerhalb von Strings; keine Markdown-Codefences.
 
 Ausgabe: EIN JSON-Objekt:
 {{
@@ -1291,7 +1292,10 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
 
-            result = json.loads(response.text)
+            try:
+                result = AIService._loads_model_json(response.text, label="Smart-Learning-Antwort")
+            except ValueError as parse_err:
+                raise Exception(str(parse_err)) from parse_err
             if not isinstance(result, dict):
                 raise Exception("Smart Learning Antwort muss ein JSON-Objekt sein.")
             chapters = result.get("chapters")
@@ -1695,7 +1699,10 @@ Ausgabe NUR:
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             if not response.text:
                 raise Exception("Leere Klausur-Antwort vom Modell.")
-            raw = json.loads(response.text)
+            try:
+                raw = AIService._loads_model_json(response.text, label="Klausur-Antwort")
+            except ValueError as parse_err:
+                raise Exception(str(parse_err)) from parse_err
             if not isinstance(raw, dict):
                 raise Exception("Klausur muss ein JSON-Objekt sein.")
             qs_out = []
@@ -2131,33 +2138,90 @@ Markierter Ausschnitt (nur diesen ersetzen):
         }
 
     @staticmethod
+    def _strip_json_fences(raw: str) -> str:
+        text = (raw or "").strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip().startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        return text
+
+    @staticmethod
+    def _fix_json_invalid_escapes(text: str) -> str:
+        """Turn LaTeX-style \\alpha / \\( into valid JSON string escapes (\\\\alpha)."""
+        out: List[str] = []
+        i = 0
+        n = len(text)
+        while i < n:
+            ch = text[i]
+            if ch == "\\" and i + 1 < n:
+                nxt = text[i + 1]
+                if nxt in "\"\\/bfnrt":
+                    out.append(ch)
+                    out.append(nxt)
+                    i += 2
+                    continue
+                if nxt == "u" and i + 5 < n and all(
+                    c in "0123456789abcdefABCDEF" for c in text[i + 2 : i + 6]
+                ):
+                    out.append(text[i : i + 6])
+                    i += 6
+                    continue
+                # Invalid JSON escape (common with TeX): keep as literal backslash
+                out.append("\\\\")
+                out.append(nxt)
+                i += 2
+                continue
+            out.append(ch)
+            i += 1
+        return "".join(out)
+
+    @staticmethod
+    def _loads_model_json(raw: str, *, label: str = "Modellantwort") -> Any:
+        """json.loads with fence strip, LaTeX escape fix, and json_repair fallback."""
+        text = AIService._strip_json_fences(raw)
+        if not text:
+            raise ValueError(f"Leere {label}.")
+        candidates = [text]
+        start_obj = text.find("{")
+        end_obj = text.rfind("}")
+        if start_obj >= 0 and end_obj > start_obj:
+            sliced = text[start_obj : end_obj + 1]
+            if sliced != text:
+                candidates.append(sliced)
+        start_arr = text.find("[")
+        end_arr = text.rfind("]")
+        if start_arr >= 0 and end_arr > start_arr:
+            sliced_arr = text[start_arr : end_arr + 1]
+            if sliced_arr not in candidates:
+                candidates.append(sliced_arr)
+
+        last_err: Optional[Exception] = None
+        for cand in candidates:
+            for attempt in (cand, AIService._fix_json_invalid_escapes(cand)):
+                try:
+                    return json.loads(attempt)
+                except json.JSONDecodeError as e:
+                    last_err = e
+            try:
+                from json_repair import repair_json
+
+                fixed = repair_json(AIService._fix_json_invalid_escapes(cand))
+                return json.loads(fixed)
+            except Exception as e:
+                last_err = e
+        raise ValueError(
+            f"{label} war kein gültiges JSON (oft LaTeX-Backslash oder Anführungszeichen). "
+            f"Bitte erneut generieren. Technischer Hinweis: {last_err}"
+        ) from last_err
+
+    @staticmethod
     def _parse_json_storyboard(raw: str) -> dict:
         """Parse model JSON; repair common syntax issues (quotes, truncation artifacts)."""
-        raw = (raw or "").strip()
-        if not raw:
-            raise ValueError(
-                "Leere Modellantwort für das Storyboard. Bitte erneut versuchen oder weniger Szenen wählen."
-            )
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            start = raw.find("{")
-            end = raw.rfind("}") + 1
-            slice_ = raw[start:end] if start >= 0 and end > start else raw
-            try:
-                data = json.loads(slice_)
-            except json.JSONDecodeError:
-                try:
-                    from json_repair import repair_json
-
-                    fixed = repair_json(slice_)
-                    data = json.loads(fixed)
-                except Exception as inner:
-                    raise ValueError(
-                        "Das Storyboard-JSON ist ungültig oder wurde abgeschnitten. "
-                        "Bitte weniger Szenen oder eine kürzere Erzähltiefe wählen und erneut versuchen. "
-                        f"Technischer Hinweis: {str(inner)}"
-                    ) from inner
+        data = AIService._loads_model_json(raw, label="Storyboard-Antwort")
         if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
             raise ValueError("Ungültiges Storyboard-Format (title/scenes).")
         return data
@@ -2165,29 +2229,7 @@ Markierter Ausschnitt (nur diesen ersetzen):
     @staticmethod
     def _parse_document_patch_json(raw: str) -> dict:
         """Parse patch JSON from the model; repair quotes/LaTeX issues that break json.loads."""
-        raw = (raw or "").strip()
-        if not raw:
-            raise ValueError("Leere Modellantwort für den Dokument-Patch.")
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            start = raw.find("{")
-            end = raw.rfind("}") + 1
-            slice_ = raw[start:end] if start >= 0 and end > start else raw
-            try:
-                data = json.loads(slice_)
-            except json.JSONDecodeError:
-                try:
-                    from json_repair import repair_json
-
-                    fixed = repair_json(slice_)
-                    data = json.loads(fixed)
-                except Exception as inner:
-                    raise ValueError(
-                        "Die Patch-Antwort war kein gültiges JSON (oft durch Anführungszeichen oder LaTeX im Text). "
-                        "Bitte erneut versuchen oder die Frage kürzer formulieren. "
-                        f"Technischer Hinweis: {str(inner)}"
-                    ) from inner
+        data = AIService._loads_model_json(raw, label="Patch-Antwort")
         if not isinstance(data, dict):
             raise ValueError("Patch-Antwort ist kein JSON-Objekt.")
         return data
