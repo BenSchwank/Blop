@@ -571,6 +571,7 @@ export default function FolderPage() {
     const [smartLearningFocus, setSmartLearningFocus] = useState('');
     const [smartLearningExamDate, setSmartLearningExamDate] = useState('');
     const [smartLearningContentMode, setSmartLearningContentMode] = useState<'concepts' | 'flashcards' | 'mix'>('mix');
+    const [smartLearningScopeIntensity, setSmartLearningScopeIntensity] = useState<'compact' | 'standard' | 'exam_week'>('exam_week');
     const smartLearningPracticeBumpRef = useRef(false);
 
     // Handler for changing target grade and auto-calculating realistic study times
@@ -2803,6 +2804,7 @@ export default function FolderPage() {
                     model_preference: effectiveModelPreference,
                     included_file_ids,
                     learn_content_mode: smartLearningContentMode,
+                    scope_intensity: smartLearningScopeIntensity,
                 }),
                 signal: ac.signal,
             });
@@ -2822,6 +2824,10 @@ export default function FolderPage() {
                         exam_preset: "standard",
                     }),
                     learn_content_mode: smartLearningContentMode,
+                    scope: journey.settings?.scope || smartLearningScopeIntensity,
+                    unlock_all_chapters:
+                        journey.settings?.unlock_all_chapters ??
+                        smartLearningScopeIntensity === "exam_week",
                 };
                 if (journey.chapters.length > 0 || journey.title) {
                     ok = true;
@@ -5396,9 +5402,46 @@ export default function FolderPage() {
                                     <input
                                         type="date"
                                         value={smartLearningExamDate}
-                                        onChange={(e) => setSmartLearningExamDate(e.target.value)}
+                                        onChange={(e) => {
+                                            const next = e.target.value;
+                                            setSmartLearningExamDate(next);
+                                            if (next) {
+                                                const days = Math.ceil(
+                                                    (new Date(next).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000
+                                                );
+                                                if (days <= 7) setSmartLearningScopeIntensity("exam_week");
+                                            }
+                                        }}
                                         className="w-full bg-[#353840] border border-[#45484F] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                     />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Stoffdichte</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(
+                                            [
+                                                ["compact", "Kompakt"],
+                                                ["standard", "Standard"],
+                                                ["exam_week", "Prüfungswoche"],
+                                            ] as const
+                                        ).map(([k, label]) => (
+                                            <button
+                                                key={k}
+                                                type="button"
+                                                onClick={() => setSmartLearningScopeIntensity(k)}
+                                                className={`px-3 py-1.5 rounded-lg text-xs border ${
+                                                    smartLearningScopeIntensity === k
+                                                        ? "bg-indigo-500 text-white border-indigo-500"
+                                                        : "border-[#45484F] text-gray-300"
+                                                }`}
+                                            >
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-[11px] text-gray-500 mt-1.5">
+                                        Für 1 Prüfungswoche: dicht, viele Themen aus dem Material — nicht nur 3 kurze Kapitel.
+                                    </p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Lerninhalt</label>

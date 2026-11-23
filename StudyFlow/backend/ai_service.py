@@ -1,5 +1,6 @@
 import os
 import re
+from datetime import date, datetime
 from genai_warnings import suppress_known_google_warnings
 
 suppress_known_google_warnings()
@@ -1040,6 +1041,96 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
         return {"key": key, **AIService._EXAM_PRESETS[key]}
 
     @staticmethod
+    def _smart_learning_scope(
+        exam_date: str = "",
+        difficulty: str = "exam",
+        scope_intensity: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Chapter/lesson density targets for Smart Learning (exam-week crunch vs compact)."""
+        days_left: Optional[int] = None
+        raw_date = (exam_date or "").strip()
+        if raw_date:
+            parsed = None
+            for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
+                try:
+                    parsed = datetime.strptime(raw_date[:10] if fmt == "%Y-%m-%d" else raw_date, fmt).date()
+                    break
+                except ValueError:
+                    continue
+            if parsed is None:
+                try:
+                    parsed = date.fromisoformat(raw_date[:10])
+                except ValueError:
+                    parsed = None
+            if parsed is not None:
+                days_left = (parsed - date.today()).days
+
+        intensity = str(scope_intensity or "").strip().lower()
+        if intensity not in ("compact", "standard", "exam_week", "crash"):
+            if days_left is not None and days_left <= 3:
+                intensity = "crash"
+            elif days_left is not None and days_left <= 7:
+                intensity = "exam_week"
+            elif (difficulty or "").strip().lower() in ("exam", "hard"):
+                intensity = "exam_week"
+            else:
+                intensity = "standard"
+
+        # crash shares exam_week UI label but denser mid-band
+        bands = {
+            "compact": {
+                "key": "compact",
+                "label": "Kompakt",
+                "min_chapters": 3,
+                "max_chapters": 5,
+                "min_lessons": 3,
+                "max_lessons": 4,
+                "teach_words_min": 120,
+                "teach_words_max": 220,
+                "flashcards_per_lesson": "2–3",
+            },
+            "standard": {
+                "key": "standard",
+                "label": "Standard",
+                "min_chapters": 5,
+                "max_chapters": 7,
+                "min_lessons": 4,
+                "max_lessons": 5,
+                "teach_words_min": 180,
+                "teach_words_max": 320,
+                "flashcards_per_lesson": "2–3",
+            },
+            "exam_week": {
+                "key": "exam_week",
+                "label": "Prüfungswoche",
+                "min_chapters": 7,
+                "max_chapters": 10,
+                "min_lessons": 5,
+                "max_lessons": 6,
+                "teach_words_min": 220,
+                "teach_words_max": 400,
+                "flashcards_per_lesson": "3–4",
+            },
+            "crash": {
+                "key": "exam_week",
+                "label": "Prüfungswoche",
+                "min_chapters": 6,
+                "max_chapters": 8,
+                "min_lessons": 5,
+                "max_lessons": 6,
+                "teach_words_min": 250,
+                "teach_words_max": 400,
+                "flashcards_per_lesson": "3–4",
+            },
+        }
+        band = bands[intensity]
+        return {
+            **band,
+            "days_until_exam": days_left,
+            "unlock_all_chapters": band["key"] == "exam_week",
+        }
+
+    @staticmethod
     def generate_smart_learning(
         content: List[Any],
         focus: str = "",
@@ -1051,6 +1142,7 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
         focus_mode: str = None,
         custom_prompt: str = None,
         exam_preset: str = None,
+        scope_intensity: str = None,
     ) -> Any:
         """Builds a Lumivara-style smart learning journey (chapters + readiness shell) from folder material."""
         try:
@@ -1073,6 +1165,12 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             custom_line = (custom_prompt or "").strip()
             custom_block = f"\nZUSÄTZLICHE NUTZERANWEISUNG:\n{custom_line}\n" if custom_line else ""
             preset = AIService._smart_learning_exam_preset(exam_preset)
+            scope = AIService._smart_learning_scope(exam_date, diff, scope_intensity)
+            days_hint = (
+                f" ({scope['days_until_exam']} Tage bis zur Prüfung)"
+                if scope.get("days_until_exam") is not None
+                else ""
+            )
             diff_hint = {
                 "basics": "Erklärungen einfach und einsteigerfreundlich; Checks eher grundlegend.",
                 "exam": "Prüfungsnahes Klausurniveau; typische Fallstricke abdecken.",
@@ -1090,6 +1188,7 @@ Kapitel mit kurzem Überblick PLUS Lehrbuch-Lektionen (erklären in Batches von 
 
 FOKUS: {focus_line}
 {exam_hint}
+STOFFDICHTE: {scope["label"]}{days_hint} — Ziel {scope["min_chapters"]}–{scope["max_chapters"]} Kapitel, je {scope["min_lessons"]}–{scope["max_lessons"]} Lektionen, Teach {scope["teach_words_min"]}–{scope["teach_words_max"]} Wörter.
 SCHWIERIGKEIT: {diff} — {diff_hint}
 FOKUS-MODUS: {fmode} — {focus_hint}
 FRAGEN-FREQUENZ (UI): {freq} (nur Hinweis; Checks pro Lesson trotzdem liefern)
@@ -1098,10 +1197,12 @@ PROBEKLAUSUR-ZIEL: ca. {preset["target_q"]} Fragen, time_limit_sec ≈ {preset["
 {MATH_ACCURACY_INSTRUCTIONS}
 
 ANFORDERUNGEN:
-1. 3–5 Kapitel in sinnvoller Lernreihenfolge (Fundament → Anwendung). Nicht mehr. IDs STABIL: "ch1"… "chN".
-2. Jedes Kapitel: Titel, summary (2–4 Sätze), 3 key_points.
-3. Pro Kapitel 3–4 lessons (Lehrbuch-Stil). Lesson-IDs STABIL: "ch1-l1", "ch1-l2", "ch1-l3", … Jede Lesson:
-   - teach: Mini-Lehrbuchkapitel (ca. 120–250 Wörter), KEIN Karteikarten-Kurztext.
+1. {scope["min_chapters"]}–{scope["max_chapters"]} Kapitel in sinnvoller Lernreihenfolge (Fundament → Anwendung). IDs STABIL: "ch1"… "chN".
+   Decke ALLE prüfungsrelevanten Themen aus dem Material ab — nicht auf wenige Oberkapitel kollabieren.
+   Bei knapper Zeit: Tiefe und Übungsdichte erhöhen, Stoff NICHT weglassen. Dichte Kapitel aufteilen.
+2. Jedes Kapitel: Titel, summary (2–4 Sätze), 3–5 key_points.
+3. Pro Kapitel {scope["min_lessons"]}–{scope["max_lessons"]} lessons (Lehrbuch-Stil). Lesson-IDs STABIL: "ch1-l1", "ch1-l2", "ch1-l3", … Jede Lesson:
+   - teach: Mini-Lehrbuchkapitel (ca. {scope["teach_words_min"]}–{scope["teach_words_max"]} Wörter), KEIN Karteikarten-Kurztext.
      Struktur: kurze Einleitung → Kernidee / Konzept erklären → optional anschauliche Alltags-/Strukturbeispiele OHNE Rechenweg → Formeln NUR als Definition in $...$ / $$...$$ → 1 Merksatz.
      VERBOTEN im teach: Berechnungsaufgaben, Übungsaufgaben, „Berechne…“, „Löse…“, Zahlenbeispiele zum Ausrechnen, Schritt-für-Schritt-Rechnungen. Nur Konzeptverständnis.
    - check: EINE spielerische Übungsfrage zur Lesson (wird später im Batch geprüft). Typen mischen — mind. 3 verschiedene Typen pro Kapitel:
@@ -1109,14 +1210,14 @@ ANFORDERUNGEN:
      * "cloze" (Lückentext): prompt mit genau einer oder zwei Lücken als {{{{Antwort}}}}, plus blanks-Array, explanation. KEINE options.
      * "short_answer": kurze Verständnisfrage (KEINE reine Rechenaufgabe); prompt, answer (Musterlösung), optional blanks mit Keywords, explanation. KEINE options.
      * "matching" (Zuordnen / Verbinden): prompt (z. B. „Ordne zu“), options = linke Spalte (3–5 Begriffe), blanks = passende rechte Spalte in GLEICHER Reihenfolge wie options, answer = blanks mit " | " verbunden, explanation.
-   - flashcards: optional 2–3 kurze Karteikarten (front/back) zur Lesson — Begriff/Frage → kurze Antwort. KEINE Rechenaufgaben.
+   - flashcards: {scope["flashcards_per_lesson"]} kurze Karteikarten (front/back) zur Lesson — Begriff/Frage → kurze Antwort. KEINE Rechenaufgaben.
    - Pro Kapitel mindestens EINE Lesson mit type "cloze" und mindestens EINE mit type "matching".
 4. exam (Probeklausur): {preset["target_q"] - 2}–{preset["target_q"] + 2} Fragen gemischt aus mc / true_false / cloze / short_answer / matching über ALLE Kapitel; jede Frage mit chapter_id (z. B. "ch1"); time_limit_sec {preset["time_limit_sec"]}; title prüfungsnah.
 5. Titel der Lernreise: prüfungsnah und konkret.
 6. source_hint: ein Satz zum Material.
 7. readiness immer 0; progress.completed_chapter_ids=[], completed_lesson_ids=[], practice_sessions=0, exam_best_score=null, exam_completed_at=null.
 8. IDs: Kapitel "ch1"…; Lessons "ch1-l1", "ch1-l2", …; Exam-Fragen "ex-q1"…
-9. settings-Objekt: difficulty="{diff}", question_frequency="{freq}", focus_mode="{fmode}", exam_preset="{preset["key"]}"{f', custom_prompt={json.dumps(custom_line, ensure_ascii=False)}' if custom_line else ""}.
+9. settings-Objekt: difficulty="{diff}", question_frequency="{freq}", focus_mode="{fmode}", exam_preset="{preset["key"]}", scope="{scope["key"]}"{f', custom_prompt={json.dumps(custom_line, ensure_ascii=False)}' if custom_line else ""}.
 
 Ausgabe: EIN JSON-Objekt:
 {{
@@ -1506,6 +1607,12 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                 "question_frequency": freq,
                 "focus_mode": fmode,
                 "exam_preset": exam_preset_info["key"],
+                "scope": scope["key"],
+                "scope_label": scope["label"],
+                "days_until_exam": scope.get("days_until_exam"),
+                "unlock_all_chapters": bool(scope.get("unlock_all_chapters")),
+                "min_chapters": scope["min_chapters"],
+                "max_chapters": scope["max_chapters"],
                 **({"custom_prompt": custom_line} if custom_line else {}),
             }
             if "session_awards" not in result or not isinstance(result.get("session_awards"), dict):

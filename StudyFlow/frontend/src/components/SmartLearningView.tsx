@@ -100,6 +100,7 @@ export type SmartLearningFocusMode = "theory" | "balanced" | "practice";
 export type SmartLearningExamPreset = "short" | "standard" | "full";
 /** What the learn path uses before the knowledge check. */
 export type SmartLearningContentMode = "concepts" | "flashcards" | "mix";
+export type SmartLearningScope = "compact" | "standard" | "exam_week";
 
 export type SmartLearningFlashcard = { front: string; back: string };
 
@@ -110,6 +111,12 @@ export type SmartLearningSettings = {
     custom_prompt?: string;
     exam_preset?: SmartLearningExamPreset;
     learn_content_mode?: SmartLearningContentMode;
+    scope?: SmartLearningScope;
+    scope_label?: string;
+    days_until_exam?: number | null;
+    unlock_all_chapters?: boolean;
+    min_chapters?: number;
+    max_chapters?: number;
 };
 
 export type SmartLearningSessionAwards = {
@@ -162,6 +169,8 @@ const DEFAULT_SETTINGS: SmartLearningSettings = {
     focus_mode: "balanced",
     exam_preset: "standard",
     learn_content_mode: "mix",
+    scope: "standard",
+    unlock_all_chapters: false,
 };
 
 function clampReadiness(n: number): number {
@@ -186,6 +195,25 @@ function normalizeSettings(raw: unknown): SmartLearningSettings {
     const focus = String(o.focus_mode || "balanced").toLowerCase();
     const preset = String(o.exam_preset || "standard").toLowerCase();
     const contentMode = String(o.learn_content_mode || "mix").toLowerCase();
+    const scopeRaw = String(o.scope || "").toLowerCase();
+    const scope = (["compact", "standard", "exam_week"].includes(scopeRaw)
+        ? scopeRaw
+        : "standard") as SmartLearningScope;
+    const daysRaw = o.days_until_exam;
+    const daysUntil =
+        typeof daysRaw === "number" && Number.isFinite(daysRaw)
+            ? Math.round(daysRaw)
+            : daysRaw == null || daysRaw === ""
+              ? null
+              : Number.isFinite(Number(daysRaw))
+                ? Math.round(Number(daysRaw))
+                : null;
+    const unlockAll =
+        o.unlock_all_chapters === true ||
+        scope === "exam_week" ||
+        (daysUntil != null && daysUntil <= 7);
+    const minCh = Number(o.min_chapters);
+    const maxCh = Number(o.max_chapters);
     return {
         difficulty: (["basics", "exam", "hard"].includes(difficulty) ? difficulty : "exam") as SmartLearningDifficulty,
         question_frequency: (["standard", "compact", "chapter_end"].includes(frequency)
@@ -197,6 +225,12 @@ function normalizeSettings(raw: unknown): SmartLearningSettings {
         learn_content_mode: (["concepts", "flashcards", "mix"].includes(contentMode)
             ? contentMode
             : "mix") as SmartLearningContentMode,
+        scope,
+        scope_label: o.scope_label ? String(o.scope_label) : undefined,
+        days_until_exam: daysUntil,
+        unlock_all_chapters: unlockAll,
+        min_chapters: Number.isFinite(minCh) ? minCh : undefined,
+        max_chapters: Number.isFinite(maxCh) ? maxCh : undefined,
     };
 }
 
@@ -2559,6 +2593,18 @@ export default function SmartLearningView({
                         : settings.question_frequency === "chapter_end"
                           ? "Wissenstest am Kapitelende"
                           : "Wissenstest nach 3–4 Themen (gebündelt)"}
+                    {settings.scope === "exam_week" || settings.unlock_all_chapters ? (
+                        <>
+                            {" · "}
+                            {settings.scope_label || "Prüfungswoche"}
+                            {settings.min_chapters && settings.max_chapters
+                                ? ` · ${settings.min_chapters}–${settings.max_chapters} Themenblöcke`
+                                : ""}
+                            {" · alle Kapitel offen"}
+                        </>
+                    ) : settings.scope === "compact" ? (
+                        <>{" · "}Kompakt</>
+                    ) : null}
                 </p>
                 {chapters.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-[#2A3140] bg-[#1A1F2A] p-6 text-center text-gray-400 text-sm">
@@ -2569,7 +2615,7 @@ export default function SmartLearningView({
                         const prevDone =
                             chi === 0 ||
                             chapters.slice(0, chi).every((p) => p.lessons.length > 0 && p.lessons.every((l) => completedLessonSet.has(l.id)));
-                        const locked = !prevDone;
+                        const locked = settings.unlock_all_chapters ? false : !prevDone;
                         const doneLessons = ch.lessons.filter((l) => completedLessonSet.has(l.id)).length;
                         const chapterDone = ch.lessons.length > 0 && doneLessons === ch.lessons.length;
                         return (

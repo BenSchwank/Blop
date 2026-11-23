@@ -3088,6 +3088,7 @@ class SmartLearningRequest(BaseModel):
     custom_prompt: Optional[str] = None
     exam_preset: Optional[str] = None  # short | standard | full
     learn_content_mode: Optional[str] = None  # concepts | flashcards | mix
+    scope_intensity: Optional[str] = None  # compact | standard | exam_week
 
 class SmartLearningExamRequest(BaseModel):
     username: str
@@ -3367,6 +3368,7 @@ def create_smart_learning(request: SmartLearningRequest):
             focus_mode=request.focus_mode,
             custom_prompt=request.custom_prompt,
             exam_preset=request.exam_preset,
+            scope_intensity=request.scope_intensity,
         )
         journey = result["data"]
         file_id = f"smart_main_{request.folder_id}"
