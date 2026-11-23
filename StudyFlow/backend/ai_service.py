@@ -10,6 +10,12 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from openrouter_genai import RequestOptions
 from math_normalize import MATH_POWER_INSTRUCTIONS, normalize_math_powers
+from model_router import (
+    estimate_content_size,
+    get_routing_tier,
+    resolve_model_preference,
+    route_model,
+)
 
 # Text models go through OpenRouter. The key is also read again on each request.
 api_key = os.environ.get("OPENROUTER_API_KEY")
@@ -17,17 +23,6 @@ if api_key:
     genai.configure(api_key=api_key)
 
 
-# Deprecated IDs still stored in settings / old code paths → current stable ids (mapped in openrouter_genai).
-_DEPRECATED_MODEL_ALIASES = {
-    "gemini-2.0-flash": "gemini-2.5-flash",
-    "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
-}
-
-def _resolve_model_preference(model_preference: str) -> str:
-    return _DEPRECATED_MODEL_ALIASES.get(model_preference, model_preference)
-
-
-# Auto order if a task has no dedicated pick.
 _PREFERRED_MODELS = [
     "gemini-3.7-flash",
     "claude-sonnet-5.5",
@@ -45,64 +40,18 @@ _PREFERRED_MODELS = [
     "gemini-pro",
 ]
 
-# Automatisch: cheap Flash defaults so everyday study tasks stay affordable.
-# Premium models (Claude / GPT / Pro) remain available as an explicit UI choice.
-_TASK_MODELS = {
-    "chat": "gemini-3.7-flash",
-    "summary": "gemini-3.7-flash",
-    "quiz": "gemini-3.7-flash",
-    "flashcards": "gemini-3.7-flash",
-    "plan": "gemini-3.7-flash",
-    "smart_learning": "gemini-3.7-flash",
-    "podcast": "gemini-3.7-flash",
-    "learning_video": "gemini-3.7-flash",
-    "audio": "gemini-3.7-flash",
-    "image": "gemini-3.7-flash",
-    "selection_edit": "gemini-3.7-flash",
-    "document_patch": "gemini-3.7-flash",
-    "artifact_refine": "gemini-3.7-flash",
-    "marketing": "gemini-3.7-flash",
-    "elaboration": "gemini-3.7-flash",
-    "repetition": "gemini-3.7-flash",
-    "task_help": "gemini-3.7-flash",
-    "handwriting": "gemini-3.7-flash",
-}
+
+def model_for_task(task: str, model_preference: str = None, content=None) -> str:
+    """Explicit UI/settings choice wins. Otherwise adaptive routing."""
+    size = estimate_content_size(content) if content is not None else 0
+    return route_model(task, model_preference, get_routing_tier(), size)
 
 
-def model_for_task(task: str, model_preference: str = None) -> str:
-    """Explicit UI/settings choice wins. Otherwise the task default."""
-    chosen = (model_preference or "").strip()
-    if chosen:
-        return _resolve_model_preference(chosen)
-    return _TASK_MODELS.get(task, "gemini-3.7-flash")
-
-
-def get_best_model(model_preference: str = None) -> str:
-    """Pick a model id. Explicit choice wins; otherwise the Flash workhorse."""
+def get_best_model(model_preference: str = None, content_size: int = 0) -> str:
+    """Pick a model id. Explicit choice wins; otherwise adaptive general routing."""
     if model_preference:
-        return _resolve_model_preference(model_preference)
-        
-    try:
-        available = []
-        for m in genai.list_models():
-            name = m.name.replace("models/", "")
-            if hasattr(m, "supported_generation_methods") and "generateContent" in m.supported_generation_methods:
-                available.append(name)
-
-        print(f"Available models: {available}")
-
-        for preferred in _PREFERRED_MODELS:
-            if preferred in available:
-                print(f"Auto-selected model: {preferred}")
-                return preferred
-
-        if available:
-            print(f"Fallback model: {available[0]}")
-            return available[0]
-    except Exception as e:
-        print(f"Could not list models: {e}")
-
-    return "gemini-3.7-flash"
+        return resolve_model_preference(model_preference)
+    return route_model("general", None, get_routing_tier(), content_size)
 
 
 # Safety Settings - Allow all content to prevent blocking of valid study materials
@@ -168,11 +117,14 @@ def _learning_video_storyboard_send_message(chat: Any, content: Any) -> Any:
     raise RuntimeError("Learning video storyboard: send_message failed without exception")
 
 
-def _learning_video_storyboard_model_candidates(model_preference: Optional[str]) -> List[str]:
-    """Storyboard: bei Auto Flash zuerst (weniger 503-Spitzenlast als Pro). Env LEARNING_VIDEO_STORYBOARD_MODEL setzt erste Wahl."""
+def _learning_video_storyboard_model_candidates(
+    model_preference: Optional[str],
+    content_size: int = 0,
+) -> List[str]:
+    """Storyboard chain: env override, explicit user model, else adaptive primary + fallbacks."""
     env_first = os.environ.get("LEARNING_VIDEO_STORYBOARD_MODEL", "").strip()
     if env_first:
-        resolved = _resolve_model_preference(env_first)
+        resolved = resolve_model_preference(env_first)
         pool: List[str] = [resolved]
         for m in (
             "gemini-3.7-flash",
@@ -185,19 +137,18 @@ def _learning_video_storyboard_model_candidates(model_preference: Optional[str])
 
     mp = (model_preference or "").strip()
     if mp:
-        primary = _resolve_model_preference(mp)
+        primary = resolve_model_preference(mp)
         pool = [primary]
         for m in ("gemini-3.7-flash", "claude-sonnet-5.5", "gemini-2.5-flash"):
             if m not in pool:
                 pool.append(m)
         return pool
 
-    pool: List[str] = []
+    primary = route_model("learning_video", None, get_routing_tier(), content_size)
+    pool = [primary]
     for m in ("gemini-3.7-flash", "claude-sonnet-5.5", "gemini-2.5-flash"):
-        pool.append(m)
-    primary = get_best_model(None)
-    if primary not in pool:
-        pool.append(primary)
+        if m not in pool:
+            pool.append(m)
     return pool
 
 
@@ -687,7 +638,7 @@ Regeln:
         """Return a model that exists for this API key; fallback safely."""
         if preferred:
             try:
-                resolved = _resolve_model_preference(preferred)
+                resolved = resolve_model_preference(preferred)
                 available = []
                 for m in genai.list_models():
                     name = m.name.replace("models/", "")
@@ -711,7 +662,7 @@ Regeln:
         """Prefer high-quality models first, then fallback to fast models."""
         if preferred:
             picked = AIService._pick_available_model(preferred=preferred, fast_only=False)
-            if picked == _resolve_model_preference(preferred):
+            if picked == resolve_model_preference(preferred):
                 return picked
         strong_candidates = (
             "claude-sonnet-5.5",
@@ -729,7 +680,7 @@ Regeln:
     def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal", focus: str = "", return_meta: bool = False) -> Any:
         """Generates a comprehensive summary from text or multimodal content."""
         try:
-            model = genai.GenerativeModel(model_for_task("summary", model_preference))
+            model = genai.GenerativeModel(model_for_task("summary", model_preference, content=content))
 
             # --- Learning Mode Preamble ---
             if learning_mode == "exercise":
@@ -840,7 +791,7 @@ Erstelle jetzt die vollständige, detaillierte Zusammenfassung basierend auf dem
     ) -> Any:
         """Generates a comprehensive quiz from multimodal content."""
         try:
-            model = genai.GenerativeModel(model_for_task("quiz", model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(model_for_task("quiz", model_preference, content=content), generation_config={"response_mime_type": "application/json"})
             prompt = f"""
 Du bist ein erfahrener Lehrer. Erstelle ein anspruchsvolles Quiz mit {question_count} Fragen basierend auf dem Lernmaterial.
 
@@ -914,7 +865,7 @@ Erstelle das Quiz für das folgende Material:
     ) -> Any:
         """Generates comprehensive flashcards from multimodal content."""
         try:
-            model = genai.GenerativeModel(model_for_task("flashcards", model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(model_for_task("flashcards", model_preference, content=content), generation_config={"response_mime_type": "application/json"})
             prompt = f"""
 Du bist ein erfahrener Tutor. Erstelle {cards_count} hochwertige Karteikarten aus dem Lernmaterial.
 
@@ -977,7 +928,7 @@ Erstelle die Karteikarten für das folgende Material:
     def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None, active_days: list[int] = None, learning_mode: str = "normal", focus: str = "", exam_date: str = "", return_meta: bool = False) -> Any:
         """Generates a detailed, actionable study plan from multimodal content."""
         try:
-            model = genai.GenerativeModel(model_for_task("plan", model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(model_for_task("plan", model_preference, content=content), generation_config={"response_mime_type": "application/json"})
             total_hours = duration_days * hours_per_day
 
             # Map the active_days array to a string of weekday names for the prompt
@@ -1104,7 +1055,7 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
         """Builds a Lumivara-style smart learning journey (chapters + readiness shell) from folder material."""
         try:
             model = genai.GenerativeModel(
-                model_for_task("smart_learning", model_preference),
+                model_for_task("smart_learning", model_preference, content=content),
                 generation_config={"response_mime_type": "application/json"},
             )
             focus_line = (focus or "").strip() or "Gesamtes Material prüfungsrelevant aufbereiten"
@@ -1158,6 +1109,7 @@ ANFORDERUNGEN:
      * "cloze" (Lückentext): prompt mit genau einer oder zwei Lücken als {{{{Antwort}}}}, plus blanks-Array, explanation. KEINE options.
      * "short_answer": kurze Verständnisfrage (KEINE reine Rechenaufgabe); prompt, answer (Musterlösung), optional blanks mit Keywords, explanation. KEINE options.
      * "matching" (Zuordnen / Verbinden): prompt (z. B. „Ordne zu“), options = linke Spalte (3–5 Begriffe), blanks = passende rechte Spalte in GLEICHER Reihenfolge wie options, answer = blanks mit " | " verbunden, explanation.
+   - flashcards: optional 2–3 kurze Karteikarten (front/back) zur Lesson — Begriff/Frage → kurze Antwort. KEINE Rechenaufgaben.
    - Pro Kapitel mindestens EINE Lesson mit type "cloze" und mindestens EINE mit type "matching".
 4. exam (Probeklausur): {preset["target_q"] - 2}–{preset["target_q"] + 2} Fragen gemischt aus mc / true_false / cloze / short_answer / matching über ALLE Kapitel; jede Frage mit chapter_id (z. B. "ch1"); time_limit_sec {preset["time_limit_sec"]}; title prüfungsnah.
 5. Titel der Lernreise: prüfungsnah und konkret.
@@ -1359,11 +1311,23 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             "explanation": explanation,
                         }
                     lid = str(les.get("id") or f"{cid}-l{li + 1}").strip() or f"{cid}-l{li + 1}"
-                    normalized_lessons.append({
+                    cards_raw = les.get("flashcards") if isinstance(les.get("flashcards"), list) else []
+                    flashcards = []
+                    for card in cards_raw:
+                        if not isinstance(card, dict):
+                            continue
+                        front = _finalize_study_markdown(str(card.get("front") or "")).strip()
+                        back = _finalize_study_markdown(str(card.get("back") or "")).strip()
+                        if front and back:
+                            flashcards.append({"front": front, "back": back})
+                    lesson_row = {
                         "id": lid,
                         "teach": teach,
                         "check": check_obj,
-                    })
+                    }
+                    if flashcards:
+                        lesson_row["flashcards"] = flashcards[:4]
+                    normalized_lessons.append(lesson_row)
                 # Fallback: key points → mini lessons
                 if not normalized_lessons and key_points:
                     for li, kp in enumerate(key_points[:4]):
@@ -1585,7 +1549,7 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                 chapter_lines.append(f"- {cid}: {title}")
             chapter_block = "\n".join(chapter_lines) if chapter_lines else "- (Kapitel aus Material ableiten)"
             model = genai.GenerativeModel(
-                model_for_task("smart_learning", model_preference),
+                model_for_task("smart_learning", model_preference, content=content),
                 generation_config={"response_mime_type": "application/json"},
             )
             prompt = f"""
@@ -1785,7 +1749,7 @@ Ausgabe: JSON-Array von Tag-Objekten (gleiche Struktur wie generate_study_plan):
 
             existing = json.dumps(data, ensure_ascii=False)
             model = genai.GenerativeModel(
-                model_for_task("artifact_refine", model_preference),
+                model_for_task("artifact_refine", model_preference, content=existing),
                 generation_config={"response_mime_type": "application/json"},
             )
             prompt = f"""Du passt ein bestehendes Lern-Artefakt (Typ: {at}) an.
@@ -1830,7 +1794,7 @@ Bestehendes JSON:
     def generate_task_help(content: List[Any], task_description: str, model_preference: str = None, return_meta: bool = False) -> Any:
         """Generates a concise, context-aware explanation/help text for a specific study plan task."""
         try:
-            model = genai.GenerativeModel(model_for_task("task_help", model_preference))
+            model = genai.GenerativeModel(model_for_task("task_help", model_preference, content=content))
             
             prompt = f"""
 Du bist ein hilfreicher Lern-Kompagnon. 
@@ -1908,7 +1872,7 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
     @staticmethod
     def generate_podcast_script(content: List[Any], model_preference: str = None, return_meta: bool = False, focus: str = "") -> Any:
         """German dialogue for two podcast speakers."""
-        primary = model_for_task("podcast", model_preference)
+        primary = model_for_task("podcast", model_preference, content=content)
         candidates = [primary]
         if "gemini-3.7-flash" not in candidates:
             candidates.append("gemini-3.7-flash")
@@ -2015,7 +1979,7 @@ Antworte NUR mit dem Dialog.
         """Edits only the selected text span and returns replacement text."""
         try:
             model = genai.GenerativeModel(
-                model_for_task("selection_edit", model_preference),
+                model_for_task("selection_edit", model_preference, content=selected_text),
                 generation_config={"temperature": 0.25, "max_output_tokens": 2048},
             )
             prompt = f"""
@@ -2262,7 +2226,9 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
                 "‚…‘ oder Umformulierung ohne Zitate, damit die JSON-Strings syntaktisch gültig bleiben.\n"
             )
 
-            model_candidates = _learning_video_storyboard_model_candidates(model_preference)
+            model_candidates = _learning_video_storyboard_model_candidates(
+                model_preference, estimate_content_size(content)
+            )
 
             input_parts = [schema_hint + "\n\nAnalysiere das Material und fülle das JSON sinnvoll."]
             if isinstance(content, list):
@@ -2313,7 +2279,7 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
     def transcribe_audio(audio_file_path: str, model_preference: str = None, return_meta: bool = False) -> Any:
         """Transcribes an audio file using Gemini's multimodal capabilities."""
         try:
-            model = genai.GenerativeModel(model_for_task("audio", model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(model_for_task("audio", model_preference, content=audio_file_path), generation_config={"response_mime_type": "application/json"})
             
             # Upload the file to Gemini API temporarily
             print(f"Uploading audio to Gemini: {audio_file_path}")
@@ -2395,7 +2361,7 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
   "content": "Die vollständige Mitschrift als Markdown-Text"
 }
 """
-            model = genai.GenerativeModel(model_for_task("audio", model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(model_for_task("audio", model_preference, content=audio_file_path), generation_config={"response_mime_type": "application/json"})
             response = model.generate_content([prompt, uploaded_file], safety_settings=SAFETY_SETTINGS)
             
             # Cleanup the file from Google's servers
@@ -2507,7 +2473,7 @@ Hier ist das Quellenmaterial:
         else:
             input_parts.append(content)
 
-        primary = model_for_task("elaboration", model_preference)
+        primary = model_for_task("elaboration", model_preference, content=content)
         candidates = [primary]
         for fallback in ("gemini-3.7-flash", "gemini-2.5-flash"):
             if fallback not in candidates:
@@ -2621,7 +2587,7 @@ Quellenmaterial (nur zur Orientierung):
             "\n\nSetze jetzt direkt mit dem fehlenden deutschen Fachtext fort (ohne Einleitung, ohne Meta)."
         )
 
-        primary = model_for_task("elaboration", model_preference)
+        primary = model_for_task("elaboration", model_preference, content=input_parts)
         candidates = [primary]
         for fallback in ("gemini-3.7-flash", "gemini-2.5-flash"):
             if fallback not in candidates:
@@ -2683,7 +2649,8 @@ Quellenmaterial (nur zur Orientierung):
     ) -> Dict[str, Any]:
         """Return a patch proposal for interactive document editing."""
         try:
-            selected_model = model_for_task("document_patch", model_preference)
+            patch_ctx = (document_content or "") + "\n" + (user_message or "")
+            selected_model = model_for_task("document_patch", model_preference, content=patch_ctx)
             doc_patch_gen_cfg = {
                 "response_mime_type": "application/json",
                 "max_output_tokens": 8192,
@@ -2725,7 +2692,7 @@ Antworte nur als JSON im Format:
             except Exception as first_err:
                 err_msg = str(first_err)
                 if "model is not found" in err_msg.lower() or "404" in err_msg:
-                    fallback_model = model_for_task("document_patch", None)
+                    fallback_model = model_for_task("document_patch", None, content=patch_ctx)
                     print(f"Document chat model fallback: '{selected_model}' -> '{fallback_model}'")
                     model = genai.GenerativeModel(
                         model_name=fallback_model,
@@ -2771,7 +2738,7 @@ Antworte nur als JSON im Format:
                 "temperature": 0.45,
             }
             model = genai.GenerativeModel(
-                model_for_task("repetition", model_preference),
+                model_for_task("repetition", model_preference, content=content),
                 generation_config=repetition_generation_config,
             )
 
@@ -2938,7 +2905,7 @@ Hier ist das Quellenmaterial:
             )
 
         model = genai.GenerativeModel(
-            model_name=model_for_task("chat", model_preference),
+            model_name=model_for_task("chat", model_preference, content=content),
             system_instruction=system_instruction,
         )
 
@@ -3033,7 +3000,7 @@ Hier ist das Quellenmaterial:
 
             # Initialize model with the system instruction
             model = genai.GenerativeModel(
-                model_name=model_for_task("chat", model_preference),
+                model_name=model_for_task("chat", model_preference, content=content),
                 system_instruction=system_instruction
             )
 

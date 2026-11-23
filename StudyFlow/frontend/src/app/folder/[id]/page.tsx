@@ -570,6 +570,7 @@ export default function FolderPage() {
     const [isSmartLearningConfigOpen, setIsSmartLearningConfigOpen] = useState(false);
     const [smartLearningFocus, setSmartLearningFocus] = useState('');
     const [smartLearningExamDate, setSmartLearningExamDate] = useState('');
+    const [smartLearningContentMode, setSmartLearningContentMode] = useState<'concepts' | 'flashcards' | 'mix'>('mix');
     const smartLearningPracticeBumpRef = useRef(false);
 
     // Handler for changing target grade and auto-calculating realistic study times
@@ -2801,6 +2802,7 @@ export default function FolderPage() {
                     exam_date: smartLearningExamDate || undefined,
                     model_preference: effectiveModelPreference,
                     included_file_ids,
+                    learn_content_mode: smartLearningContentMode,
                 }),
                 signal: ac.signal,
             });
@@ -2812,6 +2814,15 @@ export default function FolderPage() {
                     data.smart_learning || data.file?.content,
                     data.file?.name || 'Smart Learning'
                 );
+                journey.settings = {
+                    ...(journey.settings || {
+                        difficulty: "exam",
+                        question_frequency: "standard",
+                        focus_mode: "balanced",
+                        exam_preset: "standard",
+                    }),
+                    learn_content_mode: smartLearningContentMode,
+                };
                 if (journey.chapters.length > 0 || journey.title) {
                     ok = true;
                     const generated: FileData = {
@@ -5389,8 +5400,36 @@ export default function FolderPage() {
                                         className="w-full bg-[#353840] border border-[#45484F] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50"
                                     />
                                 </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Lerninhalt</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(
+                                            [
+                                                ["concepts", "Nur Lehrbuch"],
+                                                ["flashcards", "Nur Karteikarten"],
+                                                ["mix", "Lehrbuch + Karten"],
+                                            ] as const
+                                        ).map(([k, label]) => (
+                                            <button
+                                                key={k}
+                                                type="button"
+                                                onClick={() => setSmartLearningContentMode(k)}
+                                                className={`px-3 py-1.5 rounded-lg text-xs border ${
+                                                    smartLearningContentMode === k
+                                                        ? "bg-indigo-500 text-white border-indigo-500"
+                                                        : "border-[#45484F] text-gray-300"
+                                                }`}
+                                            >
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-[11px] text-gray-500 mt-1.5">
+                                        Steuert den Lernmodus: Konzepte, Karteikarten oder beides — danach Wissenstest.
+                                    </p>
+                                </div>
                                 <p className="text-xs text-gray-500">
-                                    Braucht PDF- oder YouTube-Material im Ordner. Erzeugt Kapitel + Bereitschaft; Übungen nutzen Quiz/Karteikarten.
+                                    Braucht PDF- oder YouTube-Material im Ordner. Erzeugt Kapitel + Bereitschaft.
                                     Neu generieren behält deinen Kapitel-Fortschritt, soweit möglich.
                                 </p>
                             </div>

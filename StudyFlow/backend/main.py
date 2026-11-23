@@ -34,6 +34,8 @@ from genai_warnings import suppress_known_google_warnings
 
 suppress_known_google_warnings()
 import openrouter_genai as genai
+import openrouter_catalog
+from model_router import set_routing_tier
 
 # Text models (chat, quiz, PDFs, …) go through OpenRouter.
 api_key = os.environ.get("OPENROUTER_API_KEY")
@@ -266,7 +268,7 @@ def _elaboration_job_worker(
     from ai_service import AIService
 
     try:
-        _configure_genai()
+        _configure_genai(username)
         model_pref = resolve_model_preference(username, model_preference)
         context, debug_log = _get_folder_context(
             username, folder_id, included_file_ids=included_file_ids
@@ -349,7 +351,7 @@ def _elaboration_continue_job_worker(
     from ai_service import AIService
 
     try:
-        _configure_genai()
+        _configure_genai(username)
         model_pref = resolve_model_preference(username, model_preference)
         target = DataManager.get_file(username, file_id)
         if not target:
@@ -435,7 +437,7 @@ def _podcast_job_worker(
     from podcast_dialogue import podcast_voice_pair
 
     try:
-        _configure_genai()
+        _configure_genai(username)
         model_pref = resolve_model_preference(username, model_preference)
         context, debug_log = _get_folder_context(
             username, folder_id, included_file_ids=included_file_ids
@@ -576,7 +578,7 @@ def _learning_video_job_worker(
     slide_root: Optional[str] = None
     work_tmp: Optional[str] = None
     try:
-        _configure_genai()
+        _configure_genai(username)
         model_pref = resolve_model_preference(username, model_preference)
         context, debug_log = _get_folder_context(
             username, folder_id, included_file_ids=included_file_ids
@@ -2376,14 +2378,10 @@ def resolve_model_preference(username: str, request_model: Optional[str]) -> Opt
     return stored or None
 
 def _rates_for_model(model_name: str):
-    model_name = (model_name or "").strip()
-    if model_name in MODEL_TOKEN_RATES_PER_1K:
-        return MODEL_TOKEN_RATES_PER_1K[model_name]
-    # Prefix fallback for versioned model ids
-    for key, rates in MODEL_TOKEN_RATES_PER_1K.items():
-        if model_name.startswith(key):
-            return rates
-    return {"in": 1.0, "out": 3.0}
+    return openrouter_catalog.rates_for_internal_model(
+        (model_name or "").strip(),
+        known_rates=MODEL_TOKEN_RATES_PER_1K,
+    )
 
 def deduct_tokens_by_usage(username: str, feature_key: str, used_model: str, usage: dict):
     usage = usage or {}
@@ -2414,15 +2412,49 @@ def deduct_tokens_by_usage(username: str, feature_key: str, used_model: str, usa
         "usage_estimated": usage_estimated,
     }
 
+def subscription_tier_for_user(username: Optional[str]) -> str:
+    """Resolve subscription tier for adaptive model routing."""
+    uname = (username or "").strip()
+    if not uname:
+        return "free"
+    try:
+        user = AuthManager.get_user(uname)
+        if not user:
+            return "free"
+        tier = user.get("subscription_tier", "free") or "free"
+        try:
+            sub = SubscriptionManager.get_user_subscription(uname)
+            if sub.get("tier"):
+                tier = sub.get("tier")
+        except Exception:
+            pass
+        return str(tier).strip().lower() or "free"
+    except Exception as exc:
+        print(f"subscription_tier_for_user failed for {uname!r}: {exc!r}")
+        return "free"
+
+
 def _configure_genai(username: str = None):
-    """Points text models at OpenRouter. TTS still uses OPENAI_API_KEY separately."""
+    """Points text models at OpenRouter and sets per-request routing tier."""
     env_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
 
     if not env_key:
         raise HTTPException(status_code=503, detail=AI_USER_UNAVAILABLE_MSG)
 
     genai.configure(api_key=env_key)
+    set_routing_tier(subscription_tier_for_user(username) if username else "free")
     return env_key
+
+
+@app.get("/api/ai/models")
+def list_ai_models():
+    """Public OpenRouter catalog with study-token rates (cached)."""
+    try:
+        models = openrouter_catalog.get_catalog_for_ui()
+        return {"models": models}
+    except Exception as exc:
+        print(f"list_ai_models failed: {exc!r}")
+        return {"models": []}
 
 
 class AssistantCompleteRequest(BaseModel):
@@ -3055,6 +3087,7 @@ class SmartLearningRequest(BaseModel):
     focus_mode: Optional[str] = None  # theory | balanced | practice
     custom_prompt: Optional[str] = None
     exam_preset: Optional[str] = None  # short | standard | full
+    learn_content_mode: Optional[str] = None  # concepts | flashcards | mix
 
 class SmartLearningExamRequest(BaseModel):
     username: str
@@ -3254,7 +3287,7 @@ def create_study_plan(request: PlanRequest):
 
     def work():
         from ai_service import AIService
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         
         context, debug_log = _get_folder_context(
@@ -3310,7 +3343,7 @@ def create_smart_learning(request: SmartLearningRequest):
 
     def work():
         from ai_service import AIService
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
 
         context, debug_log = _get_folder_context(
@@ -3337,6 +3370,12 @@ def create_smart_learning(request: SmartLearningRequest):
         )
         journey = result["data"]
         file_id = f"smart_main_{request.folder_id}"
+        # Persist learn-path preference from the generate dialog.
+        lcm = str(request.learn_content_mode or "").strip().lower()
+        if lcm in ("concepts", "flashcards", "mix"):
+            settings = journey.get("settings") if isinstance(journey.get("settings"), dict) else {}
+            settings["learn_content_mode"] = lcm
+            journey["settings"] = settings
 
         # Preserve chapter/practice progress across re-generation (Lumivara-like continuity).
         try:
@@ -3485,11 +3524,15 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
     if user != body.username:
         raise HTTPException(status_code=403, detail="Nicht berechtigt.")
 
-    SubscriptionManager.ensure_feature(body.username, "smart_learning")
     file_id = f"smart_main_{body.folder_id}"
     existing = DataManager.get_file(body.username, file_id)
     if not existing or existing.get("type") != "smart_learning":
         raise HTTPException(status_code=404, detail="Smart Learning nicht gefunden. Bitte zuerst generieren.")
+    # File already exists → allow progress saves even if feature gate flickers.
+    try:
+        SubscriptionManager.ensure_feature(body.username, "smart_learning")
+    except HTTPException:
+        pass
 
     content = existing.get("content")
     if isinstance(content, str):
@@ -3591,7 +3634,7 @@ def create_smart_learning_exam(request: SmartLearningExamRequest):
 
     def work():
         from ai_service import AIService
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         file_id = f"smart_main_{request.folder_id}"
         existing = DataManager.get_file(request.username, file_id)
@@ -3895,7 +3938,7 @@ def create_quiz(request: GenRequest):
 
     def work():
         from ai_service import AIService
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(
             request.username,
@@ -3951,7 +3994,7 @@ def create_flashcards(request: GenRequest):
 
     def work():
         from ai_service import AIService
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(
             request.username,
@@ -4025,7 +4068,7 @@ def create_summary(
 
     def work():
         from ai_service import AIService
-        _configure_genai()
+        _configure_genai(user)
         model_pref = resolve_model_preference(user, request.model_preference)
         context, debug_log = _get_folder_context(
             user,
@@ -4195,7 +4238,7 @@ def refine_elaboration(request: ElaborationRefineRequest):
     try:
         SubscriptionManager.ensure_feature(request.username, "elaboration_refine")
         ensure_minimum_tokens(request.username, 1)
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         target = DataManager.get_file(request.username, request.file_id)
         if not target:
@@ -4354,7 +4397,7 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
     try:
         SubscriptionManager.ensure_feature(request.username, "repetition")
         ensure_minimum_tokens(request.username, 2)
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(
             request.username,
@@ -4410,7 +4453,7 @@ def get_task_help(request: TaskHelpRequest):
     try:
         SubscriptionManager.ensure_feature(request.username, "task_help")
         ensure_minimum_tokens(request.username, 1)
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
@@ -4442,7 +4485,7 @@ def chat_endpoint_stream(request: ChatRequest):
     try:
         SubscriptionManager.ensure_feature(request.username, "chat")
         ensure_minimum_tokens(request.username, 1)
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         context = _get_chat_context(request.username, request.folder_id)
         if not context:
@@ -4489,7 +4532,7 @@ def chat_endpoint(request: ChatRequest):
     try:
         SubscriptionManager.ensure_feature(request.username, "chat")
         ensure_minimum_tokens(request.username, 1)
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         context = _get_chat_context(request.username, request.folder_id)
         if not context:
@@ -4532,7 +4575,7 @@ def document_chat_patch(request: DocumentChatPatchRequest):
     try:
         SubscriptionManager.ensure_feature(request.username, "chat")
         ensure_minimum_tokens(request.username, 1)
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         target = DataManager.get_file(request.username, request.file_id)
         if not target:
@@ -4576,7 +4619,7 @@ def edit_selection(request: SelectionEditRequest):
     try:
         SubscriptionManager.ensure_feature(request.username, "chat")
         ensure_minimum_tokens(request.username, 1)
-        _configure_genai()
+        _configure_genai(request.username)
         model_pref = resolve_model_preference(request.username, request.model_preference)
         selected = (request.selected_text or "").strip()
         instruction = (request.instruction or "").strip()

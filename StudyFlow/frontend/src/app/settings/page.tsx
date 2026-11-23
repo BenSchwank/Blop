@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { AiModelOptions } from '@/lib/aiModelOptions';
+import { AiModelSelector } from '@/lib/aiModelOptions';
 import { Trash2, AlertTriangle, Loader2, LogOut, CreditCard, Calendar, ArrowUpRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { fetchSubscriptionStatus, syncStripeSubscription, cancelStripeSubscription, confirmStripeCheckout, createStripePortal, SubscriptionStatus } from '@/lib/subscription';
@@ -323,17 +323,18 @@ export default function Settings() {
                     <h2 className="text-xl font-semibold text-white mb-4">KI-Modell (Standard)</h2>
                     <div className="bg-[#252526] border border-[#333] rounded-2xl p-6 space-y-4">
                         <p className="text-sm text-gray-400">
-                            Automatisch nutzt günstige Flash-Modelle. Eine feste Premium-Wahl (Claude, GPT, Pro) gilt für alle Aufgaben und kann die Kosten stark erhöhen.
+                            Im Modus „Automatisch“ wählt Blop Study pro Aufgabe ein passendes Modell — abhängig von
+                            Materialumfang, Aufgabentyp und deinem Abo (Free / Pro / Premium). Feste Modelle oder
+                            eigene OpenRouter-IDs überschreiben das für alle KI-Funktionen.
                         </p>
-                        <select
+                        <AiModelSelector
                             value={preferredModel}
-                            onChange={(e) => setPreferredModel(e.target.value)}
+                            onChange={setPreferredModel}
                             className="w-full bg-[#353840] border border-[#45484F] text-gray-200 rounded-xl px-4 py-2.5"
-                        >
-                            <AiModelOptions current={preferredModel} />
-                        </select>
+                            showCustomHint={false}
+                        />
                         <p className="text-xs text-gray-500">
-                            Claude, GPT und Pro-Modelle ziehen mehr Tokens ab. Flash und Flash Lite sind sparsamer.
+                            Teurere Modelle (Claude, GPT, Pro) verbrauchen mehr Study-Tokens. Flash-Varianten sind sparsamer.
                         </p>
                         <button
                             onClick={savePreferredModel}

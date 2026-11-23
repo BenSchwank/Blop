@@ -66,6 +66,7 @@ export type SmartLearningLesson = {
     id: string;
     teach: string;
     check: SmartLearningCheck;
+    flashcards?: SmartLearningFlashcard[];
 };
 
 export type SmartLearningChapter = {
@@ -97,6 +98,10 @@ export type SmartLearningDifficulty = "basics" | "exam" | "hard";
 export type SmartLearningFrequency = "standard" | "compact" | "chapter_end";
 export type SmartLearningFocusMode = "theory" | "balanced" | "practice";
 export type SmartLearningExamPreset = "short" | "standard" | "full";
+/** What the learn path uses before the knowledge check. */
+export type SmartLearningContentMode = "concepts" | "flashcards" | "mix";
+
+export type SmartLearningFlashcard = { front: string; back: string };
 
 export type SmartLearningSettings = {
     difficulty: SmartLearningDifficulty;
@@ -104,6 +109,7 @@ export type SmartLearningSettings = {
     focus_mode: SmartLearningFocusMode;
     custom_prompt?: string;
     exam_preset?: SmartLearningExamPreset;
+    learn_content_mode?: SmartLearningContentMode;
 };
 
 export type SmartLearningSessionAwards = {
@@ -155,6 +161,7 @@ const DEFAULT_SETTINGS: SmartLearningSettings = {
     question_frequency: "standard",
     focus_mode: "balanced",
     exam_preset: "standard",
+    learn_content_mode: "mix",
 };
 
 function clampReadiness(n: number): number {
@@ -178,6 +185,7 @@ function normalizeSettings(raw: unknown): SmartLearningSettings {
     const frequency = String(o.question_frequency || "standard").toLowerCase();
     const focus = String(o.focus_mode || "balanced").toLowerCase();
     const preset = String(o.exam_preset || "standard").toLowerCase();
+    const contentMode = String(o.learn_content_mode || "mix").toLowerCase();
     return {
         difficulty: (["basics", "exam", "hard"].includes(difficulty) ? difficulty : "exam") as SmartLearningDifficulty,
         question_frequency: (["standard", "compact", "chapter_end"].includes(frequency)
@@ -186,7 +194,46 @@ function normalizeSettings(raw: unknown): SmartLearningSettings {
         focus_mode: (["theory", "balanced", "practice"].includes(focus) ? focus : "balanced") as SmartLearningFocusMode,
         custom_prompt: o.custom_prompt ? String(o.custom_prompt) : undefined,
         exam_preset: (["short", "standard", "full"].includes(preset) ? preset : "standard") as SmartLearningExamPreset,
+        learn_content_mode: (["concepts", "flashcards", "mix"].includes(contentMode)
+            ? contentMode
+            : "mix") as SmartLearningContentMode,
     };
+}
+
+function normalizeFlashcards(raw: unknown): SmartLearningFlashcard[] {
+    if (!Array.isArray(raw)) return [];
+    const out: SmartLearningFlashcard[] = [];
+    for (const row of raw) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        const o = row as Record<string, unknown>;
+        const front = String(o.front || "").trim();
+        const back = String(o.back || "").trim();
+        if (front && back) out.push({ front, back });
+    }
+    return out;
+}
+
+/** Prefer AI cards; otherwise a short concept card from the teach text. */
+function cardsForLesson(lesson: SmartLearningLesson): SmartLearningFlashcard[] {
+    if (lesson.flashcards && lesson.flashcards.length > 0) return lesson.flashcards;
+    const teach = String(lesson.teach || "").trim();
+    if (!teach) return [];
+    const plain = teach
+        .replace(/```[\s\S]*?```/g, " ")
+        .replace(/\$\$[\s\S]*?\$\$/g, " ")
+        .replace(/\$[^$\n]+\$/g, " ")
+        .replace(/[#>*_`~]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (!plain) return [];
+    const sentences = plain.split(/(?<=[.!?])\s+/).filter((s) => s.length > 12);
+    if (sentences.length >= 2) {
+        return [
+            { front: "Was ist die Kernidee?", back: sentences.slice(0, 2).join(" ") },
+            ...(sentences[2] ? [{ front: "Merksatz / Detail?", back: sentences.slice(2, 4).join(" ") }] : []),
+        ];
+    }
+    return [{ front: "Zusammenfassung", back: plain.slice(0, 420) }];
 }
 
 function normalizeAwards(raw: unknown): SmartLearningSessionAwards {
@@ -307,10 +354,12 @@ function normalizeLesson(raw: unknown, chapterId: string, i: number): SmartLearn
     if (!teach || !checkRaw) return null;
     const check = normalizeCheck(checkRaw);
     if (!check) return null;
+    const flashcards = normalizeFlashcards(o.flashcards);
     return {
         id: String(o.id || `${chapterId}-l${i + 1}`).trim() || `${chapterId}-l${i + 1}`,
         teach,
         check,
+        ...(flashcards.length ? { flashcards } : {}),
     };
 }
 
@@ -728,9 +777,11 @@ export default function SmartLearningView({
 }: Props) {
     const [local, setLocal] = useState<SmartLearningContent>(() => normalizeSmartLearningContent(content));
     const [mode, setMode] = useState<"overview" | "learn" | "exam" | "exam_result" | "exam_picker">("overview");
-    const [learnPhase, setLearnPhase] = useState<"teach" | "assess" | "review">("teach");
+    const [learnPhase, setLearnPhase] = useState<"teach" | "cards" | "assess" | "review">("teach");
     const [teachQueue, setTeachQueue] = useState<FlatStep[]>([]);
     const [teachIdx, setTeachIdx] = useState(0);
+    const [cardIdx, setCardIdx] = useState(0);
+    const [cardFlipped, setCardFlipped] = useState(false);
     const [assessQueue, setAssessQueue] = useState<AssessItem[]>([]);
     const [assessIdx, setAssessIdx] = useState(0);
     const [batchTarget, setBatchTarget] = useState(0);
@@ -863,12 +914,20 @@ export default function SmartLearningView({
                 );
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
-                    throw new Error(formatApiDetail(data.detail) || "Fortschritt konnte nicht gespeichert werden.");
+                    const detail = formatApiDetail(data.detail) || data.message || "";
+                    throw new Error(
+                        detail
+                            ? `Fortschritt konnte nicht gespeichert werden: ${detail}`
+                            : `Fortschritt konnte nicht gespeichert werden (HTTP ${res.status}).`
+                    );
                 }
                 const updated = normalizeSmartLearningContent(data.smart_learning || next, next.title);
                 setLocal(updated);
                 onContentUpdated?.(updated);
             } catch (e: any) {
+                // Keep local progress so learning is not blocked if the network/API hiccups.
+                setLocal(next);
+                onContentUpdated?.(next);
                 setError(e?.message || "Fortschritt speichern fehlgeschlagen.");
             } finally {
                 setSavingProgress(false);
@@ -929,21 +988,23 @@ export default function SmartLearningView({
         return xpGained;
     };
 
+    const contentMode = (): SmartLearningContentMode =>
+        settings.learn_content_mode || DEFAULT_SETTINGS.learn_content_mode || "mix";
+
+    const initialLearnPhase = (): "teach" | "cards" =>
+        contentMode() === "flashcards" ? "cards" : "teach";
+
     const beginBatchFrom = (startIndex: number) => {
         const incomplete = flatSteps
             .map((s, i) => ({ s, i }))
             .filter(({ s }) => !completedLessonSet.has(s.lesson.id));
-        if (incomplete.length === 0) {
-            const fallback = flatSteps.slice(Math.max(0, startIndex), Math.max(0, startIndex) + 1);
-            if (fallback.length === 0) return;
-            setTeachQueue(fallback);
-            setTeachIdx(0);
-            setBatchTarget(1);
+        const resetLearnInputs = () => {
             setAssessQueue([]);
             setAssessIdx(0);
             setReviewItem(null);
             setDeferCountByLessonId({});
-            setLearnPhase("teach");
+            setCardIdx(0);
+            setCardFlipped(false);
             setHearts(HEARTS_MAX);
             setFailOpen(false);
             setCelebrate(null);
@@ -952,6 +1013,15 @@ export default function SmartLearningView({
             setClozeSubmitted(false);
             setShortAnswer("");
             setMode("learn");
+        };
+        if (incomplete.length === 0) {
+            const fallback = flatSteps.slice(Math.max(0, startIndex), Math.max(0, startIndex) + 1);
+            if (fallback.length === 0) return;
+            setTeachQueue(fallback);
+            setTeachIdx(0);
+            setBatchTarget(1);
+            setLearnPhase(initialLearnPhase());
+            resetLearnInputs();
             return;
         }
         // Prefer continuing near startIndex
@@ -968,19 +1038,46 @@ export default function SmartLearningView({
         setTeachQueue(batch);
         setTeachIdx(0);
         setBatchTarget(batch.length);
-        setAssessQueue([]);
-        setAssessIdx(0);
-        setReviewItem(null);
-        setDeferCountByLessonId({});
-        setLearnPhase("teach");
-        setHearts(HEARTS_MAX);
-        setFailOpen(false);
-        setCelebrate(null);
-        setSelected(null);
-        setClozeValues([]);
-        setClozeSubmitted(false);
-        setShortAnswer("");
-        setMode("learn");
+        setLearnPhase(initialLearnPhase());
+        resetLearnInputs();
+    };
+
+    const advanceAfterLearnUnit = () => {
+        stopTeachTts();
+        const mode = contentMode();
+        const atEnd = teachIdx + 1 >= teachQueue.length;
+
+        if (learnPhase === "teach") {
+            if (mode === "mix" && cardsForLesson(teachQueue[teachIdx].lesson).length > 0) {
+                setCardIdx(0);
+                setCardFlipped(false);
+                setLearnPhase("cards");
+                return;
+            }
+            if (atEnd) {
+                enterAssessPhase(teachQueue);
+                return;
+            }
+            setTeachIdx((i) => i + 1);
+            return;
+        }
+
+        if (learnPhase === "cards") {
+            const cards = cardsForLesson(teachQueue[teachIdx]?.lesson);
+            if (cardIdx + 1 < cards.length) {
+                setCardIdx((i) => i + 1);
+                setCardFlipped(false);
+                return;
+            }
+            if (atEnd) {
+                enterAssessPhase(teachQueue);
+                return;
+            }
+            setTeachIdx((i) => i + 1);
+            setCardIdx(0);
+            setCardFlipped(false);
+            setLearnPhase(mode === "flashcards" ? "cards" : "teach");
+        }
     };
 
     const startLearn = () => {
@@ -1384,17 +1481,27 @@ export default function SmartLearningView({
     );
 
     const BatchProgress = ({ phaseLabel }: { phaseLabel: string }) => {
-        const teachDone = learnPhase === "assess" ? batchTarget : teachIdx;
+        const teachDone = learnPhase === "assess" || learnPhase === "review" ? batchTarget : teachIdx;
+        const phaseTitle =
+            learnPhase === "teach"
+                ? "Lehrbuch"
+                : learnPhase === "cards"
+                  ? "Karteikarten"
+                  : learnPhase === "review"
+                    ? "Nochmal"
+                    : "Wissenstest";
         return (
             <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-gray-500">
                     <span>
-                        {phaseLabel} · Themen-Sammlung {Math.min(teachDone + (learnPhase === "teach" ? 1 : 0), batchTarget)}/
-                        {batchTarget}
+                        {phaseLabel} · Themen-Sammlung{" "}
+                        {Math.min(
+                            teachDone + (learnPhase === "teach" || learnPhase === "cards" ? 1 : 0),
+                            batchTarget
+                        )}
+                        /{batchTarget}
                     </span>
-                    <span className="text-[#9EC5FF]">
-                        {learnPhase === "teach" ? "Lernen" : "Wissenstest"}
-                    </span>
+                    <span className="text-[#9EC5FF]">{phaseTitle}</span>
                 </div>
                 <div className="relative h-1.5 rounded-full bg-[#23252A] border border-[#45484F]">
                     <div
@@ -1551,21 +1658,92 @@ export default function SmartLearningView({
                         </button>
                         <button
                             type="button"
-                            onClick={() => {
-                                stopTeachTts();
-                                if (teachIdx + 1 >= teachQueue.length) {
-                                    enterAssessPhase(teachQueue);
-                                } else {
-                                    setTeachIdx((i) => i + 1);
-                                }
-                            }}
+                            onClick={() => advanceAfterLearnUnit()}
                             className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold min-h-[48px]"
                         >
-                            {teachIdx + 1 >= teachQueue.length
-                                ? batchTarget > 1
+                            {contentMode() === "mix" && cardsForLesson(current.lesson).length > 0
+                                ? "Zu den Karteikarten"
+                                : teachIdx + 1 >= teachQueue.length
+                                  ? batchTarget > 1
+                                      ? "Zum Wissenstest"
+                                      : "Verstanden — jetzt testen"
+                                  : "Nächstes Thema"}
+                            <ChevronRight size={18} />
+                        </button>
+                    </div>
+                </div>
+                {error ? <p className="text-sm text-red-400">{error}</p> : null}
+            </div>
+        );
+    }
+
+    /* ——— Learn: flashcards for current lesson ——— */
+    if (mode === "learn" && learnPhase === "cards" && teachQueue[teachIdx]) {
+        const current = teachQueue[teachIdx];
+        const cards = cardsForLesson(current.lesson);
+        if (cards.length === 0) {
+            return (
+                <div className="w-full max-w-2xl mx-auto space-y-5 pb-8">
+                    {hudBar}
+                    <BatchProgress phaseLabel={current.chapterTitle} />
+                    <p className="text-sm text-gray-400">Keine Karten fuer dieses Thema.</p>
+                    <button
+                        type="button"
+                        onClick={() => advanceAfterLearnUnit()}
+                        className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold"
+                    >
+                        Weiter
+                        <ChevronRight size={18} />
+                    </button>
+                </div>
+            );
+        }
+        const card = cards[Math.min(cardIdx, cards.length - 1)];
+        return (
+            <div className="w-full max-w-2xl mx-auto space-y-5 pb-8">
+                {hudBar}
+                <BatchProgress phaseLabel={current.chapterTitle} />
+                <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 sm:p-7 space-y-4 shadow-lg">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-[#5B9DFF] font-semibold">
+                            <Layers size={12} /> Karteikarten
+                        </span>
+                        <span className="text-[11px] text-gray-500">
+                            Karte {cardIdx + 1}/{cards.length} · Lektion {teachIdx + 1}/{batchTarget}
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setCardFlipped((f) => !f)}
+                        className="w-full min-h-[180px] rounded-2xl border border-[#5B9DFF]/30 bg-[#12141A] px-5 py-8 text-left hover:border-[#5B9DFF]/55 transition-colors"
+                    >
+                        <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-3">
+                            {cardFlipped ? "Rückseite" : "Vorderseite"} · tippen zum Umdrehen
+                        </p>
+                        <MathMarkdown className="text-lg text-white leading-relaxed">
+                            {cardFlipped ? card.back : card.front}
+                        </MathMarkdown>
+                    </button>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setCardFlipped((f) => !f)}
+                            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] min-h-[48px]"
+                        >
+                            Umdrehen
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => advanceAfterLearnUnit()}
+                            className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold min-h-[48px]"
+                        >
+                            {cardIdx + 1 >= cards.length
+                                ? teachIdx + 1 >= teachQueue.length
                                     ? "Zum Wissenstest"
-                                    : "Verstanden — jetzt testen"
-                                : "Nächstes Thema"}
+                                    : contentMode() === "flashcards"
+                                      ? "Nächste Lektion"
+                                      : "Weiter lernen"
+                                : "Nächste Karte"}
                             <ChevronRight size={18} />
                         </button>
                     </div>
@@ -2370,6 +2548,12 @@ export default function SmartLearningView({
                     <BookOpen size={16} /> Lernpfad
                 </h3>
                 <p className="text-[11px] text-gray-500">
+                    {settings.learn_content_mode === "concepts"
+                        ? "Nur Lehrbuch → Wissenstest"
+                        : settings.learn_content_mode === "flashcards"
+                          ? "Nur Karteikarten → Wissenstest"
+                          : "Lehrbuch + Karteikarten → Wissenstest"}
+                    {" · "}
                     {settings.question_frequency === "compact"
                         ? "Fragen nach jedem Thema"
                         : settings.question_frequency === "chapter_end"
@@ -2544,6 +2728,34 @@ export default function SmartLearningView({
                                         </button>
                                     ))}
                                 </div>
+                            </div>
+                            <div>
+                                <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Lerninhalt</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {(
+                                        [
+                                            ["concepts", "Nur Lehrbuch"],
+                                            ["flashcards", "Nur Karteikarten"],
+                                            ["mix", "Lehrbuch + Karten"],
+                                        ] as const
+                                    ).map(([k, label]) => (
+                                        <button
+                                            key={k}
+                                            type="button"
+                                            onClick={() => setDraftSettings((s) => ({ ...s, learn_content_mode: k }))}
+                                            className={`px-3 py-1.5 rounded-lg text-xs border ${
+                                                (draftSettings.learn_content_mode || "mix") === k
+                                                    ? "bg-[#5B9DFF] text-white border-[#5B9DFF]"
+                                                    : "border-[#45484F] text-gray-300"
+                                            }`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="text-[11px] text-gray-500 mt-1.5">
+                                    Steuert „Jetzt lernen“: erst Konzepte und/oder Karten, danach der Wissenstest.
+                                </p>
                             </div>
                         </div>
                         <div className="p-5 border-t border-[#45484F] flex flex-col sm:flex-row gap-2">
