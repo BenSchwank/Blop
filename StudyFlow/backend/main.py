@@ -3099,6 +3099,14 @@ class SmartLearningExamRequest(BaseModel):
     custom_prompt: Optional[str] = None
     difficulty: Optional[str] = None
 
+class SmartLearningDeepSessionRequest(BaseModel):
+    username: str
+    folder_id: str
+    target_minutes: int = 60  # 25 | 45 | 60 | 90
+    focus: str = ""
+    model_preference: str = None
+    included_file_ids: Optional[List[str]] = None
+
 class SmartLearningProgressRequest(BaseModel):
     username: str
     folder_id: str
@@ -3110,6 +3118,8 @@ class SmartLearningProgressRequest(BaseModel):
     exam_completed_at: Optional[str] = None
     settings: Optional[dict] = None
     session_awards: Optional[dict] = None
+    deep_session_progress: Optional[dict] = None
+    active_deep_session_id: Optional[str] = None
 
 class TaskHelpRequest(BaseModel):
     username: str
@@ -3567,6 +3577,11 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
             "lesson_ids": list(dict.fromkeys([str(x) for x in (lesson_ids or [])]))[:500],
             "exam_runs": list(dict.fromkeys([str(x) for x in (exam_runs or [])]))[:100],
         }
+    if body.deep_session_progress is not None and isinstance(body.deep_session_progress, dict):
+        prev_dsp = content.get("deep_session_progress") if isinstance(content.get("deep_session_progress"), dict) else {}
+        content["deep_session_progress"] = {**prev_dsp, **body.deep_session_progress}
+    if body.active_deep_session_id is not None:
+        content["active_deep_session_id"] = str(body.active_deep_session_id) if body.active_deep_session_id else None
 
     chapter_count = len(content.get("chapters") or []) if isinstance(content.get("chapters"), list) else 0
     completed = progress.get("completed_chapter_ids") or []
@@ -3704,6 +3719,103 @@ def create_smart_learning_exam(request: SmartLearningExamRequest):
         return {
             "status": "success",
             "exam": exam,
+            "smart_learning": content,
+            "used_model": result.get("used_model", model_pref or ""),
+            "usage": result.get("usage", {}),
+            **charge,
+        }
+
+    return _spawn_core_ai_job("smart_learning", request.username, work)
+
+
+@app.post("/api/ai/smart-learning/deep-session")
+def create_smart_learning_deep_session(request: SmartLearningDeepSessionRequest):
+    """Generate a timed deep-learning session and attach it to the Smart Learning file."""
+    SubscriptionManager.ensure_feature(request.username, "smart_learning")
+    ensure_minimum_tokens(request.username, 2)
+
+    def work():
+        from ai_service import AIService
+        _configure_genai(request.username)
+        model_pref = resolve_model_preference(request.username, request.model_preference)
+        file_id = f"smart_main_{request.folder_id}"
+        existing = DataManager.get_file(request.username, file_id)
+        content: Dict[str, Any] = {}
+        chapters: List[Any] = []
+        if existing and existing.get("type") == "smart_learning":
+            raw = existing.get("content")
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except Exception:
+                    raw = {}
+            if isinstance(raw, dict):
+                content = raw
+                chapters = content.get("chapters") if isinstance(content.get("chapters"), list) else []
+        context, debug_log = _get_folder_context(
+            request.username,
+            request.folder_id,
+            included_file_ids=request.included_file_ids,
+        )
+        if not context:
+            context = [
+                "\n\n".join(
+                    f"## {ch.get('title')}\n{ch.get('summary')}"
+                    for ch in chapters
+                    if isinstance(ch, dict)
+                )
+                or "Smart Learning Material"
+            ]
+            if not any(str(x).strip() for x in context):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
+                )
+        result = AIService.generate_smart_learning_deep_session(
+            context,
+            target_minutes=request.target_minutes or 60,
+            focus=request.focus or "",
+            chapters_hint=[ch for ch in chapters if isinstance(ch, dict)],
+            model_preference=model_pref,
+            return_meta=True,
+        )
+        session = result["data"]
+        sessions = content.get("deep_sessions") if isinstance(content.get("deep_sessions"), list) else []
+        sessions = [s for s in sessions if isinstance(s, dict)]
+        sessions.append(session)
+        content["deep_sessions"] = sessions[-12:]
+        content["active_deep_session_id"] = session.get("id")
+        progress = content.get("deep_session_progress") if isinstance(content.get("deep_session_progress"), dict) else {}
+        progress[str(session.get("id"))] = {
+            "completed_step_ids": [],
+            "notes": {},
+            "started_at": session.get("created_at"),
+        }
+        content["deep_session_progress"] = progress
+        if not content.get("title"):
+            content["title"] = existing.get("name") if existing else "Smart Learning"
+        if "chapters" not in content:
+            content["chapters"] = chapters
+        DataManager.save_file_metadata(
+            {
+                "id": file_id,
+                "name": content.get("title") or (existing or {}).get("name") or "Smart Learning",
+                "type": "smart_learning",
+                "content": content,
+                "created_at": (existing or {}).get("created_at"),
+            },
+            request.username,
+            request.folder_id,
+        )
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "smart_learning",
+            result.get("used_model", model_pref or ""),
+            result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "deep_session": session,
             "smart_learning": content,
             "used_model": result.get("used_model", model_pref or ""),
             "usage": result.get("usage", {}),

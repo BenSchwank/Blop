@@ -1208,7 +1208,8 @@ ANFORDERUNGEN:
    - check: EINE spielerische Übungsfrage zur Lesson (wird später im Batch geprüft). Typen mischen — mind. 3 verschiedene Typen pro Kapitel:
      * "mc" oder "true_false": prompt, 2–4 options, answer, explanation
      * "cloze" (Lückentext): prompt mit genau einer oder zwei Lücken als {{{{Antwort}}}}, plus blanks-Array, explanation. KEINE options.
-     * "short_answer": kurze Verständnisfrage (KEINE reine Rechenaufgabe); prompt, answer (Musterlösung), optional blanks mit Keywords, explanation. KEINE options.
+       Alternativen in blanks mit "|" (z. B. "Pointer|Zeiger") ODER accepted_answers: 2–5 Varianten.
+     * "short_answer": kurze Verständnisfrage (KEINE reine Rechenaufgabe); prompt, answer (Musterlösung), optional blanks mit Keywords (Reihenfolge egal), accepted_answers mit 2–5 Synonymen/Pluralformen/Paraphrasen, explanation. KEINE options.
      * "matching" (Zuordnen / Verbinden): prompt (z. B. „Ordne zu“), options = linke Spalte (3–5 Begriffe), blanks = passende rechte Spalte in GLEICHER Reihenfolge wie options, answer = blanks mit " | " verbunden, explanation.
    - flashcards: {scope["flashcards_per_lesson"]} kurze Karteikarten (front/back) zur Lesson — Begriff/Frage → kurze Antwort. KEINE Rechenaufgaben.
    - Pro Kapitel mindestens EINE Lesson mit type "cloze" und mindestens EINE mit type "matching".
@@ -1345,6 +1346,12 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                     blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
                     options = check.get("options") if isinstance(check.get("options"), list) else []
                     options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
+                    accepted_raw = check.get("accepted_answers") if isinstance(check.get("accepted_answers"), list) else []
+                    accepted_answers = [
+                        _finalize_study_markdown(str(a)).strip()
+                        for a in accepted_raw
+                        if str(a).strip()
+                    ][:8]
                     # Optional pairs: [{left,right}, ...] → options/blanks
                     pairs_raw = check.get("pairs") if isinstance(check.get("pairs"), list) else []
                     if is_match and pairs_raw and (len(options) < 2 or len(blanks) < 2):
@@ -1392,6 +1399,8 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             "answer": answer,
                             "explanation": explanation,
                         }
+                        if accepted_answers:
+                            check_obj["accepted_answers"] = accepted_answers
                     elif is_short:
                         if not answer:
                             continue
@@ -1403,6 +1412,8 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             "answer": answer,
                             "explanation": explanation,
                         }
+                        if accepted_answers:
+                            check_obj["accepted_answers"] = accepted_answers
                     else:
                         if not answer:
                             continue
@@ -1481,6 +1492,12 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                     blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
                     options = q.get("options") if isinstance(q.get("options"), list) else []
                     options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
+                    accepted_raw = q.get("accepted_answers") if isinstance(q.get("accepted_answers"), list) else []
+                    accepted_answers = [
+                        _finalize_study_markdown(str(a)).strip()
+                        for a in accepted_raw
+                        if str(a).strip()
+                    ][:8]
                     pairs_raw = q.get("pairs") if isinstance(q.get("pairs"), list) else []
                     if is_match and pairs_raw and (len(options) < 2 or len(blanks) < 2):
                         lefts, rights = [], []
@@ -1535,6 +1552,8 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             "answer": answer,
                             "explanation": explanation,
                         }
+                        if accepted_answers:
+                            row["accepted_answers"] = accepted_answers
                         if chapter_id:
                             row["chapter_id"] = chapter_id
                         normalized_exam_qs.append(row)
@@ -1550,6 +1569,8 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             "answer": answer,
                             "explanation": explanation,
                         }
+                        if accepted_answers:
+                            row["accepted_answers"] = accepted_answers
                         if chapter_id:
                             row["chapter_id"] = chapter_id
                         normalized_exam_qs.append(row)
@@ -1765,6 +1786,261 @@ Ausgabe NUR:
         except Exception as e:
             print(f"Smart Learning Exam Error: {e}")
             raise Exception(f"Fehler bei Probeklausur: {str(e)}")
+
+    @staticmethod
+    def generate_smart_learning_deep_session(
+        content: List[Any],
+        *,
+        target_minutes: int = 60,
+        focus: str = "",
+        chapters_hint: Optional[List[Dict[str, Any]]] = None,
+        model_preference: str = None,
+        return_meta: bool = False,
+    ) -> Any:
+        """Guided multi-method deep learning session sized to target_minutes."""
+        try:
+            minutes = int(target_minutes or 60)
+            minutes = max(20, min(120, minutes))
+            model = genai.GenerativeModel(
+                model_for_task("smart_learning", model_preference, content=content),
+                generation_config={"response_mime_type": "application/json"},
+            )
+            focus_line = (focus or "").strip() or "Prüfungsrelevanten Stoff vertiefen"
+            chapter_lines = []
+            for ch in chapters_hint or []:
+                if not isinstance(ch, dict):
+                    continue
+                cid = str(ch.get("id") or "").strip()
+                title = str(ch.get("title") or "").strip()
+                if cid or title:
+                    chapter_lines.append(f"- {cid or '?'}: {title or 'Kapitel'}")
+            chapter_block = "\n".join(chapter_lines) if chapter_lines else "- (Themen aus Material ableiten)"
+            # Rough step budget: ~5–8 min average per step
+            min_steps = max(6, minutes // 8)
+            max_steps = max(min_steps + 2, minutes // 4)
+
+            prompt = f"""
+Du bist ein KI-Lerncoach für TIEFES LERNEN. Erstelle EINE geführte Lernsession von ca. {minutes} Minuten.
+Der Lernende soll OHNE Extra-Material nur mit dieser Session lernen können.
+
+FOKUS: {focus_line}
+VORHANDENE KAPITEL (Orientierung):
+{chapter_block}
+
+{MATH_ACCURACY_INSTRUCTIONS}
+
+ANFORDERUNGEN:
+1. target_minutes = {minutes}. Summe estimated_minutes aller steps ≈ {minutes} (±10 %).
+2. {min_steps}–{max_steps} steps mit gemischten Typen:
+   - teach: längerer Lehrtext (Markdown, 180–450 Wörter), KEINE Rechenaufgaben
+   - flashcards: 3–6 Karten front/back
+   - exercise: eine Check-Frage (mc / cloze / short_answer / matching) mit explanation und bei Freitext/Lücke accepted_answers (2–5 Alternativen; blanks dürfen Alternativen mit "|" haben)
+   - note: note_prompt — Aufforderung, in eigenen Worten zu notieren
+   - recall: aktive Abruf-Frage ohne Optionen (short_answer-ähnlich) + Musterlösung in answer + accepted_answers
+   - break: kurze Pause / Atemzug (1–2 Min)
+   - summary: Abschluss-Zusammenfassung der Session
+3. Reihenfolge pädagogisch: Warm-up → Lehre → Notiz → Übung → … → Summary am Ende.
+4. IDs stabil: session "ds1", steps "ds1-s1"…
+5. JSON streng gültig (Backslashes in LaTeX verdoppeln).
+
+Ausgabe: EIN JSON-Objekt:
+{{
+  "id": "ds1",
+  "title": "…",
+  "target_minutes": {minutes},
+  "steps": [
+    {{
+      "id": "ds1-s1",
+      "type": "teach",
+      "title": "…",
+      "estimated_minutes": 8,
+      "body": "…"
+    }},
+    {{
+      "id": "ds1-s2",
+      "type": "note",
+      "title": "…",
+      "estimated_minutes": 4,
+      "note_prompt": "Schreibe in eigenen Worten…"
+    }},
+    {{
+      "id": "ds1-s3",
+      "type": "exercise",
+      "title": "…",
+      "estimated_minutes": 5,
+      "check": {{
+        "type": "short_answer",
+        "prompt": "…?",
+        "answer": "…",
+        "accepted_answers": ["…", "…"],
+        "explanation": "…"
+      }}
+    }}
+  ]
+}}
+
+Analysiere das Material und erstelle die Deep-Learning-Session:
+"""
+            input_parts: List[Any] = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Deep-Session-Antwort vom Modell.")
+            try:
+                raw = AIService._loads_model_json(response.text, label="Deep-Session-Antwort")
+            except ValueError as parse_err:
+                raise Exception(str(parse_err)) from parse_err
+            if not isinstance(raw, dict):
+                raise Exception("Deep Session muss ein JSON-Objekt sein.")
+
+            sid = str(raw.get("id") or "ds1").strip() or "ds1"
+            title = str(raw.get("title") or f"Tiefes Lernen ({minutes} Min)").strip()
+            steps_raw = raw.get("steps") if isinstance(raw.get("steps"), list) else []
+            allowed_types = {"teach", "flashcards", "exercise", "note", "recall", "break", "summary"}
+            steps_out: List[Dict[str, Any]] = []
+            for i, st in enumerate(steps_raw):
+                if not isinstance(st, dict):
+                    continue
+                stype = str(st.get("type") or "").strip().lower()
+                if stype not in allowed_types:
+                    continue
+                try:
+                    est = int(st.get("estimated_minutes") or 5)
+                except Exception:
+                    est = 5
+                est = max(1, min(30, est))
+                step: Dict[str, Any] = {
+                    "id": str(st.get("id") or f"{sid}-s{i + 1}").strip() or f"{sid}-s{i + 1}",
+                    "type": stype,
+                    "title": str(st.get("title") or f"Schritt {i + 1}").strip(),
+                    "estimated_minutes": est,
+                }
+                body = _finalize_study_markdown(str(st.get("body") or "")).strip()
+                if body:
+                    step["body"] = body
+                note_prompt = str(st.get("note_prompt") or "").strip()
+                if note_prompt:
+                    step["note_prompt"] = note_prompt
+                cards_raw = st.get("flashcards") if isinstance(st.get("flashcards"), list) else []
+                cards = []
+                for card in cards_raw:
+                    if not isinstance(card, dict):
+                        continue
+                    front = _finalize_study_markdown(str(card.get("front") or "")).strip()
+                    back = _finalize_study_markdown(str(card.get("back") or "")).strip()
+                    if front and back:
+                        cards.append({"front": front, "back": back})
+                if cards:
+                    step["flashcards"] = cards[:8]
+                check_raw = st.get("check") if isinstance(st.get("check"), dict) else None
+                if check_raw and stype in ("exercise", "recall"):
+                    prompt_q = _finalize_study_markdown(str(check_raw.get("prompt") or "")).strip()
+                    answer = _finalize_study_markdown(str(check_raw.get("answer") or "")).strip()
+                    explanation = _finalize_study_markdown(str(check_raw.get("explanation") or "")).strip()
+                    ctype = str(check_raw.get("type") or "short_answer").strip().lower()
+                    blanks_raw = check_raw.get("blanks") if isinstance(check_raw.get("blanks"), list) else []
+                    blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
+                    options = check_raw.get("options") if isinstance(check_raw.get("options"), list) else []
+                    options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
+                    accepted_raw = (
+                        check_raw.get("accepted_answers")
+                        if isinstance(check_raw.get("accepted_answers"), list)
+                        else []
+                    )
+                    accepted_answers = [
+                        _finalize_study_markdown(str(a)).strip() for a in accepted_raw if str(a).strip()
+                    ][:8]
+                    if stype == "recall":
+                        ctype = "short_answer"
+                    if ctype in ("cloze", "fill", "lückentext", "lueckentext"):
+                        if not blanks and answer:
+                            blanks = [answer]
+                        if blanks:
+                            step["check"] = {
+                                "type": "cloze",
+                                "prompt": prompt_q,
+                                "options": [],
+                                "blanks": blanks,
+                                "answer": answer or " | ".join(blanks),
+                                "explanation": explanation,
+                                **({"accepted_answers": accepted_answers} if accepted_answers else {}),
+                            }
+                    elif ctype in ("matching", "match", "zuordnen"):
+                        if len(options) >= 2 and len(blanks) >= 2 and len(options) == len(blanks):
+                            step["check"] = {
+                                "type": "matching",
+                                "prompt": prompt_q or "Ordne zu.",
+                                "options": options,
+                                "blanks": blanks,
+                                "answer": answer or " | ".join(blanks),
+                                "explanation": explanation,
+                            }
+                    elif ctype in ("mc", "true_false", "truefalse", "tf"):
+                        if answer:
+                            if len(options) < 2:
+                                options = (
+                                    ["Richtig", "Falsch"]
+                                    if answer in ("Richtig", "Falsch")
+                                    else [answer, "Andere Antwort"]
+                                )
+                            step["check"] = {
+                                "type": "true_false" if "true" in ctype or ctype == "tf" else "mc",
+                                "prompt": prompt_q,
+                                "options": options,
+                                "answer": answer,
+                                "explanation": explanation,
+                            }
+                    elif prompt_q and answer:
+                        step["check"] = {
+                            "type": "short_answer",
+                            "prompt": prompt_q,
+                            "options": [],
+                            "blanks": blanks,
+                            "answer": answer,
+                            "explanation": explanation,
+                            **({"accepted_answers": accepted_answers} if accepted_answers else {}),
+                        }
+                if stype == "teach" and not step.get("body"):
+                    continue
+                if stype == "note" and not step.get("note_prompt"):
+                    step["note_prompt"] = "Fasse das Wichtigste in eigenen Worten zusammen."
+                if stype in ("exercise", "recall") and not step.get("check"):
+                    continue
+                if stype == "flashcards" and not step.get("flashcards"):
+                    continue
+                steps_out.append(step)
+
+            if len(steps_out) < 3:
+                raise Exception("Deep Session hat zu wenige gültige Schritte.")
+
+            total_est = sum(int(s.get("estimated_minutes") or 0) for s in steps_out)
+            # Soft rescale toward target if wildly off
+            if total_est > 0 and (total_est < minutes * 0.55 or total_est > minutes * 1.55):
+                scale = minutes / float(total_est)
+                for s in steps_out:
+                    s["estimated_minutes"] = max(1, min(30, int(round(int(s["estimated_minutes"]) * scale))))
+
+            session = {
+                "id": sid,
+                "title": title,
+                "target_minutes": minutes,
+                "steps": steps_out,
+                "created_at": datetime.utcnow().isoformat() + "Z",
+            }
+            if not return_meta:
+                return session
+            return {
+                "data": session,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
+        except Exception as e:
+            print(f"Smart Learning Deep Session Error: {e}")
+            raise Exception(f"Fehler bei Tiefem Lernen: {str(e)}")
 
     @staticmethod
     def _validate_refined_quiz(obj: Any) -> None:

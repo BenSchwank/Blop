@@ -39,15 +39,85 @@ export default function MathMarkdown({ children, className = "", compact = false
     );
 }
 
-/** Case/whitespace-tolerant blank compare for cloze answers. */
+/** Normalize for tolerant answer compare (case, quotes, light punctuation). */
+export function normalizeAnswerText(s: string): string {
+    return String(s || "")
+        .trim()
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[„“"'`´]/g, "")
+        .replace(/[.,;:!?()[\]{}]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+/** Strip common German plural endings for light singular/plural tolerance. */
+function stemPluralDe(s: string): string {
+    const n = normalizeAnswerText(s);
+    if (n.length < 4) return n;
+    if (n.endsWith("en") && n.length > 4) return n.slice(0, -2);
+    if (n.endsWith("er") && n.length > 4) return n.slice(0, -2);
+    if (n.endsWith("e") && n.length > 3) return n.slice(0, -1);
+    if (n.endsWith("n") && n.length > 3) return n.slice(0, -1);
+    if (n.endsWith("s") && n.length > 3) return n.slice(0, -1);
+    return n;
+}
+
+/** Split pipe-alternatives inside one blank: `Pointer|Zeiger`. */
+export function splitAnswerAlternatives(raw: string): string[] {
+    return String(raw || "")
+        .split("|")
+        .map((x) => x.trim())
+        .filter(Boolean);
+}
+
+/**
+ * Tolerant compare: exact-normalized match, pipe-alternatives, optional accepted list,
+ * light DE plural stemming.
+ */
+export function answerAccepted(
+    expected: string,
+    given: string,
+    alternatives?: string[] | null
+): boolean {
+    const g = normalizeAnswerText(given);
+    if (!g) return false;
+    const pool = [
+        ...splitAnswerAlternatives(expected),
+        ...(alternatives || []).flatMap((a) => splitAnswerAlternatives(a)),
+    ].filter(Boolean);
+    if (pool.length === 0) return false;
+    const gStem = stemPluralDe(g);
+    for (const cand of pool) {
+        const e = normalizeAnswerText(cand);
+        if (!e) continue;
+        if (e === g || stemPluralDe(e) === gStem) return true;
+    }
+    return false;
+}
+
+/** Case/whitespace-tolerant blank compare (also accepts `a|b` alternatives in expected). */
 export function answersMatch(expected: string, given: string): boolean {
-    const norm = (s: string) =>
-        s
-            .trim()
-            .toLowerCase()
-            .replace(/\s+/g, " ")
-            .replace(/[„“"']/g, "");
-    return norm(expected) === norm(given);
+    return answerAccepted(expected, given);
+}
+
+/** True if every required keyword (or alt) appears somewhere in given (order-independent). */
+export function keywordsAccepted(keywords: string[], given: string, extras?: string[] | null): boolean {
+    const g = normalizeAnswerText(given);
+    if (!g || keywords.length === 0) return false;
+    const bag = keywords.map((k) => splitAnswerAlternatives(k)).filter((alts) => alts.length > 0);
+    const extraPool = (extras || []).flatMap((a) => splitAnswerAlternatives(a));
+    return bag.every((alts) => {
+        const combined = [...alts, ...extraPool];
+        return combined.some((a) => {
+            const e = normalizeAnswerText(a);
+            if (!e) return false;
+            if (g.includes(e)) return true;
+            const stem = stemPluralDe(e);
+            return stem.length >= 3 && (g.includes(stem) || stemPluralDe(g).includes(stem));
+        });
+    });
 }
 
 /**

@@ -23,7 +23,13 @@ import {
     Volume2,
     XCircle,
 } from "lucide-react";
-import MathMarkdown, { answersMatch, parseClozePrompt } from "@/components/MathMarkdown";
+import MathMarkdown, {
+    answerAccepted,
+    answersMatch,
+    keywordsAccepted,
+    parseClozePrompt,
+    splitAnswerAlternatives,
+} from "@/components/MathMarkdown";
 import { awardXp } from "@/lib/xpClient";
 
 const HEARTS_MAX = 5;
@@ -60,6 +66,8 @@ export type SmartLearningCheck = {
     answer: string;
     explanation?: string;
     blanks?: string[];
+    /** Extra accepted forms (synonyms, plural, paraphrases). */
+    accepted_answers?: string[];
 };
 
 export type SmartLearningLesson = {
@@ -85,6 +93,7 @@ export type SmartLearningExamQuestion = {
     answer: string;
     explanation?: string;
     blanks?: string[];
+    accepted_answers?: string[];
     chapter_id?: string;
 };
 
@@ -124,6 +133,40 @@ export type SmartLearningSessionAwards = {
     exam_runs: string[];
 };
 
+export type DeepSessionStepType =
+    | "teach"
+    | "flashcards"
+    | "exercise"
+    | "note"
+    | "recall"
+    | "break"
+    | "summary";
+
+export type DeepSessionStep = {
+    id: string;
+    type: DeepSessionStepType;
+    title: string;
+    estimated_minutes: number;
+    body?: string;
+    flashcards?: SmartLearningFlashcard[];
+    check?: SmartLearningCheck;
+    note_prompt?: string;
+};
+
+export type DeepLearningSession = {
+    id: string;
+    title: string;
+    target_minutes: number;
+    steps: DeepSessionStep[];
+    created_at?: string;
+};
+
+export type DeepSessionProgressEntry = {
+    completed_step_ids?: string[];
+    notes?: Record<string, string>;
+    started_at?: string;
+};
+
 export type SmartLearningContent = {
     title: string;
     readiness: number;
@@ -139,6 +182,9 @@ export type SmartLearningContent = {
     };
     settings?: SmartLearningSettings;
     session_awards?: SmartLearningSessionAwards;
+    deep_sessions?: DeepLearningSession[];
+    active_deep_session_id?: string | null;
+    deep_session_progress?: Record<string, DeepSessionProgressEntry>;
 };
 
 type PracticeMode = "quiz" | "flashcards";
@@ -278,6 +324,12 @@ function normalizeAwards(raw: unknown): SmartLearningSessionAwards {
     };
 }
 
+function normalizeAcceptedAnswers(raw: unknown): string[] | undefined {
+    if (!Array.isArray(raw)) return undefined;
+    const out = raw.map((x) => String(x).trim()).filter(Boolean);
+    return out.length > 0 ? out : undefined;
+}
+
 function normalizeCheck(checkRaw: Record<string, unknown>): SmartLearningCheck | null {
     const prompt = String(checkRaw.prompt || "").trim();
     const answer = String(checkRaw.answer || "").trim();
@@ -289,6 +341,7 @@ function normalizeCheck(checkRaw: Record<string, unknown>): SmartLearningCheck |
     let options = Array.isArray(checkRaw.options)
         ? checkRaw.options.map((x) => String(x).trim()).filter(Boolean)
         : [];
+    const accepted = normalizeAcceptedAnswers(checkRaw.accepted_answers);
 
     if (type === "matching") {
         const pairsRaw = Array.isArray(checkRaw.pairs) ? checkRaw.pairs : [];
@@ -318,6 +371,7 @@ function normalizeCheck(checkRaw: Record<string, unknown>): SmartLearningCheck |
             blanks,
             answer: answer || blanks.join(" | "),
             explanation: checkRaw.explanation ? String(checkRaw.explanation) : undefined,
+            accepted_answers: accepted,
         };
     }
 
@@ -332,6 +386,7 @@ function normalizeCheck(checkRaw: Record<string, unknown>): SmartLearningCheck |
             answer: answer || resolvedBlanks.join(" | "),
             blanks: resolvedBlanks,
             explanation: checkRaw.explanation ? String(checkRaw.explanation) : undefined,
+            accepted_answers: accepted,
         };
     }
 
@@ -344,6 +399,7 @@ function normalizeCheck(checkRaw: Record<string, unknown>): SmartLearningCheck |
             answer,
             blanks,
             explanation: checkRaw.explanation ? String(checkRaw.explanation) : undefined,
+            accepted_answers: accepted,
         };
     }
 
@@ -360,7 +416,56 @@ function normalizeCheck(checkRaw: Record<string, unknown>): SmartLearningCheck |
         options,
         answer,
         explanation: checkRaw.explanation ? String(checkRaw.explanation) : undefined,
+        accepted_answers: accepted,
     };
+}
+
+function formatCorrectAnswerLabel(check: SmartLearningCheck): string {
+    if (check.type === "cloze") {
+        return (check.blanks || [])
+            .map((b) => splitAnswerAlternatives(b)[0] || b)
+            .filter(Boolean)
+            .join(", ");
+    }
+    if (check.type === "matching") {
+        return (check.options || [])
+            .map((left, i) => `${left} → ${splitAnswerAlternatives(check.blanks?.[i] || "")[0] || "?"}`)
+            .join("; ");
+    }
+    const primary = splitAnswerAlternatives(check.answer)[0] || check.answer;
+    if (check.accepted_answers?.length) {
+        const alts = check.accepted_answers
+            .flatMap((a) => splitAnswerAlternatives(a))
+            .filter((a) => a.toLowerCase() !== primary.toLowerCase())
+            .slice(0, 3);
+        if (alts.length) return `${primary} (auch: ${alts.join(", ")})`;
+    }
+    return primary;
+}
+
+function AnswerRevealBlock({ check, correct }: { check: SmartLearningCheck; correct: boolean }) {
+    const solution = formatCorrectAnswerLabel(check);
+    return (
+        <div className="text-sm text-gray-300 border border-[#2A3140] rounded-xl px-4 py-3 bg-[#12141A] space-y-2">
+            {!correct && solution ? (
+                <div>
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Richtige Antwort</p>
+                    <MathMarkdown compact>{solution}</MathMarkdown>
+                </div>
+            ) : null}
+            {check.explanation ? (
+                <div>
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Erklärung</p>
+                    <MathMarkdown compact>{check.explanation}</MathMarkdown>
+                </div>
+            ) : !correct && solution ? null : solution ? (
+                <div>
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Richtige Antwort</p>
+                    <MathMarkdown compact>{solution}</MathMarkdown>
+                </div>
+            ) : null}
+        </div>
+    );
 }
 
 function fallbackLessonsFromKeyPoints(chapterId: string, keyPoints: string[]): SmartLearningLesson[] {
@@ -417,6 +522,7 @@ function normalizeExam(raw: unknown): SmartLearningExam | null {
             answer: check.answer,
             blanks: check.blanks,
             explanation: check.explanation,
+            accepted_answers: check.accepted_answers,
             chapter_id,
         });
     }
@@ -517,6 +623,25 @@ export function normalizeSmartLearningContent(raw: unknown, fallbackTitle = "Sma
         }
     }
 
+    const deepSessions = normalizeDeepSessions(obj.deep_sessions);
+    const deepProgressRaw =
+        obj.deep_session_progress && typeof obj.deep_session_progress === "object" && !Array.isArray(obj.deep_session_progress)
+            ? (obj.deep_session_progress as Record<string, unknown>)
+            : {};
+    const deepProgress: Record<string, DeepSessionProgressEntry> = {};
+    for (const [k, v] of Object.entries(deepProgressRaw)) {
+        if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+        const row = v as Record<string, unknown>;
+        const notesRaw = row.notes && typeof row.notes === "object" && !Array.isArray(row.notes) ? (row.notes as Record<string, unknown>) : {};
+        const notes: Record<string, string> = {};
+        for (const [nk, nv] of Object.entries(notesRaw)) notes[nk] = String(nv ?? "");
+        deepProgress[k] = {
+            completed_step_ids: Array.isArray(row.completed_step_ids) ? row.completed_step_ids.map((x) => String(x)) : [],
+            notes,
+            started_at: row.started_at ? String(row.started_at) : undefined,
+        };
+    }
+
     return {
         title: String(obj.title || fallbackTitle).trim() || fallbackTitle,
         readiness: clampReadiness(Number(obj.readiness) || 0),
@@ -532,7 +657,54 @@ export function normalizeSmartLearningContent(raw: unknown, fallbackTitle = "Sma
         },
         settings: normalizeSettings(obj.settings),
         session_awards: normalizeAwards(obj.session_awards),
+        deep_sessions: deepSessions,
+        active_deep_session_id: obj.active_deep_session_id ? String(obj.active_deep_session_id) : null,
+        deep_session_progress: deepProgress,
     };
+}
+
+function normalizeDeepSessions(raw: unknown): DeepLearningSession[] {
+    if (!Array.isArray(raw)) return [];
+    const allowed: DeepSessionStepType[] = ["teach", "flashcards", "exercise", "note", "recall", "break", "summary"];
+    const out: DeepLearningSession[] = [];
+    for (const row of raw) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        const o = row as Record<string, unknown>;
+        const stepsRaw = Array.isArray(o.steps) ? o.steps : [];
+        const steps: DeepSessionStep[] = [];
+        for (let i = 0; i < stepsRaw.length; i++) {
+            const st = stepsRaw[i];
+            if (!st || typeof st !== "object" || Array.isArray(st)) continue;
+            const s = st as Record<string, unknown>;
+            const type = String(s.type || "").toLowerCase() as DeepSessionStepType;
+            if (!allowed.includes(type)) continue;
+            const check =
+                s.check && typeof s.check === "object" && !Array.isArray(s.check)
+                    ? normalizeCheck(s.check as Record<string, unknown>)
+                    : undefined;
+            const est = Number(s.estimated_minutes);
+            steps.push({
+                id: String(s.id || `s${i + 1}`).trim() || `s${i + 1}`,
+                type,
+                title: String(s.title || `Schritt ${i + 1}`).trim(),
+                estimated_minutes: Number.isFinite(est) ? Math.max(1, Math.min(30, Math.round(est))) : 5,
+                body: s.body ? String(s.body) : undefined,
+                note_prompt: s.note_prompt ? String(s.note_prompt) : undefined,
+                flashcards: normalizeFlashcards(s.flashcards),
+                ...(check ? { check } : {}),
+            });
+        }
+        if (steps.length === 0) continue;
+        const tm = Number(o.target_minutes);
+        out.push({
+            id: String(o.id || `ds${out.length + 1}`).trim() || `ds${out.length + 1}`,
+            title: String(o.title || "Tiefes Lernen").trim() || "Tiefes Lernen",
+            target_minutes: Number.isFinite(tm) ? Math.max(15, Math.min(120, Math.round(tm))) : 60,
+            steps,
+            created_at: o.created_at ? String(o.created_at) : undefined,
+        });
+    }
+    return out;
 }
 
 function allLessonIds(content: SmartLearningContent): string[] {
@@ -565,24 +737,40 @@ function formatApiDetail(detail: unknown): string {
     return String(detail);
 }
 
-function gradeCloze(prompt: string, blanks: string[] | undefined, values: string[]): boolean {
+function gradeCloze(
+    prompt: string,
+    blanks: string[] | undefined,
+    values: string[],
+    accepted?: string[] | null
+): boolean {
     const { answers } = parseClozePrompt(prompt, blanks);
     if (answers.length === 0) return false;
-    return answers.every((a, i) => answersMatch(a, values[i] || ""));
+    // Order-independent when ≥2 blanks: each expected blank must match some unused given value
+    if (answers.length >= 2) {
+        const used = new Set<number>();
+        return answers.every((a) => {
+            const idx = values.findIndex(
+                (v, i) => !used.has(i) && answerAccepted(a, v || "", accepted)
+            );
+            if (idx < 0) return false;
+            used.add(idx);
+            return true;
+        });
+    }
+    return answerAccepted(answers[0], values[0] || "", accepted);
 }
 
 function gradeShortAnswer(check: SmartLearningCheck, given: string): boolean {
-    if (answersMatch(check.answer, given)) return true;
+    if (answerAccepted(check.answer, given, check.accepted_answers)) return true;
     const keywords = check.blanks?.length ? check.blanks : [];
     if (keywords.length === 0) return false;
-    const norm = given.trim().toLowerCase();
-    return keywords.every((k) => norm.includes(String(k).trim().toLowerCase()));
+    return keywordsAccepted(keywords, given, check.accepted_answers);
 }
 
 function gradeMatching(check: SmartLearningCheck, assigned: string[]): boolean {
     const rights = check.blanks || [];
     if (rights.length === 0 || rights.length !== (check.options?.length || 0)) return false;
-    return rights.every((r, i) => answersMatch(r, assigned[i] || ""));
+    return rights.every((r, i) => answerAccepted(r, assigned[i] || "", check.accepted_answers));
 }
 
 function shuffleInPlace<T>(arr: T[]): T[] {
@@ -810,7 +998,17 @@ export default function SmartLearningView({
     onClose,
 }: Props) {
     const [local, setLocal] = useState<SmartLearningContent>(() => normalizeSmartLearningContent(content));
-    const [mode, setMode] = useState<"overview" | "learn" | "exam" | "exam_result" | "exam_picker">("overview");
+    const [mode, setMode] = useState<"overview" | "learn" | "exam" | "exam_result" | "exam_picker" | "deep">("overview");
+    const [deepBudget, setDeepBudget] = useState<25 | 45 | 60 | 90>(60);
+    const [deepBusy, setDeepBusy] = useState(false);
+    const [deepStepIdx, setDeepStepIdx] = useState(0);
+    const [deepNoteDraft, setDeepNoteDraft] = useState("");
+    const [deepSelected, setDeepSelected] = useState<string | null>(null);
+    const [deepCloze, setDeepCloze] = useState<string[]>([]);
+    const [deepClozeDone, setDeepClozeDone] = useState(false);
+    const [deepShort, setDeepShort] = useState("");
+    const [deepCardIdx, setDeepCardIdx] = useState(0);
+    const [deepCardFlipped, setDeepCardFlipped] = useState(false);
     const [learnPhase, setLearnPhase] = useState<"teach" | "cards" | "assess" | "review">("teach");
     const [teachQueue, setTeachQueue] = useState<FlatStep[]>([]);
     const [teachIdx, setTeachIdx] = useState(0);
@@ -830,9 +1028,11 @@ export default function SmartLearningView({
     const [clozeValues, setClozeValues] = useState<string[]>([]);
     const [clozeSubmitted, setClozeSubmitted] = useState(false);
     const [shortAnswer, setShortAnswer] = useState("");
+    const [failCounts, setFailCounts] = useState<Record<string, number>>({});
     const [savingProgress, setSavingProgress] = useState(false);
     const [error, setError] = useState("");
     const MAX_DEFER_PER_LESSON = 2;
+    const MAX_FAILS_BEFORE_REVEAL = 2;
 
     const [examIndex, setExamIndex] = useState(0);
     const [examSelected, setExamSelected] = useState<string | null>(null);
@@ -943,6 +1143,8 @@ export default function SmartLearningView({
                             readiness: computeReadiness(next),
                             settings: next.settings || DEFAULT_SETTINGS,
                             session_awards: next.session_awards || { lesson_ids: [], exam_runs: [] },
+                            deep_session_progress: next.deep_session_progress || {},
+                            active_deep_session_id: next.active_deep_session_id ?? null,
                         }),
                     }
                 );
@@ -1227,9 +1429,104 @@ export default function SmartLearningView({
         setAssessIdx(0);
         setReviewItem(null);
         setDeferCountByLessonId({});
+        setFailCounts({});
         setLearnPhase("assess");
         resetAssessInputs();
         setHearts(HEARTS_MAX);
+    };
+
+    const activeDeepSession = useMemo(() => {
+        const sessions = local.deep_sessions || [];
+        const aid = local.active_deep_session_id;
+        if (aid) {
+            const found = sessions.find((s) => s.id === aid);
+            if (found) return found;
+        }
+        return sessions.length ? sessions[sessions.length - 1] : null;
+    }, [local.active_deep_session_id, local.deep_sessions]);
+
+    const resetDeepExerciseInputs = () => {
+        setDeepSelected(null);
+        setDeepCloze([]);
+        setDeepClozeDone(false);
+        setDeepShort("");
+        setDeepCardIdx(0);
+        setDeepCardFlipped(false);
+    };
+
+    const startDeepSession = (session: DeepLearningSession) => {
+        const prog = local.deep_session_progress?.[session.id];
+        const done = new Set(prog?.completed_step_ids || []);
+        let idx = session.steps.findIndex((s) => !done.has(s.id));
+        if (idx < 0) idx = 0;
+        setDeepStepIdx(idx);
+        const note = prog?.notes?.[session.steps[idx]?.id || ""] || "";
+        setDeepNoteDraft(note);
+        resetDeepExerciseInputs();
+        setMode("deep");
+    };
+
+    const generateDeepSession = async () => {
+        setDeepBusy(true);
+        setError("");
+        try {
+            const res = await fetch(
+                `/api/ai/smart-learning/deep-session?session_id=${encodeURIComponent(sessionId)}`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Session-Id": sessionId,
+                    },
+                    body: JSON.stringify({
+                        username,
+                        folder_id: folderId,
+                        target_minutes: deepBudget,
+                        focus: local.title || undefined,
+                    }),
+                }
+            );
+            let data: Record<string, unknown> = await res.json().catch(() => ({}));
+            if (res.status === 202 && data.job_id) {
+                data = await pollSmartJob(String(data.job_id));
+            }
+            if (!res.ok && !data.smart_learning && !data.deep_session) {
+                throw new Error(formatApiDetail(data.detail) || `HTTP ${res.status}`);
+            }
+            const updated = normalizeSmartLearningContent(data.smart_learning || data, local.title);
+            setLocal(updated);
+            onContentUpdated?.(updated);
+            const sessions = updated.deep_sessions || [];
+            const sid = updated.active_deep_session_id || sessions[sessions.length - 1]?.id;
+            const session = sessions.find((s) => s.id === sid) || sessions[sessions.length - 1];
+            if (session) startDeepSession(session);
+            else setError("Deep Session erzeugt, aber leer.");
+        } catch (e: any) {
+            setError(e?.message || "Tiefes Lernen fehlgeschlagen.");
+        } finally {
+            setDeepBusy(false);
+        }
+    };
+
+    const persistDeepStep = async (sessionIdKey: string, stepId: string, noteText?: string) => {
+        const prevEntry = local.deep_session_progress?.[sessionIdKey] || { completed_step_ids: [], notes: {} };
+        const completed = Array.from(new Set([...(prevEntry.completed_step_ids || []), stepId]));
+        const notes = { ...(prevEntry.notes || {}) };
+        if (noteText != null) notes[stepId] = noteText;
+        const next: SmartLearningContent = {
+            ...local,
+            active_deep_session_id: sessionIdKey,
+            deep_session_progress: {
+                ...(local.deep_session_progress || {}),
+                [sessionIdKey]: {
+                    ...prevEntry,
+                    completed_step_ids: completed,
+                    notes,
+                },
+            },
+        };
+        setLocal(next);
+        await persistProgress(next);
     };
 
     const startIdkReview = (item: AssessItem) => {
@@ -1816,20 +2113,37 @@ export default function SmartLearningView({
         const isCloze = check.type === "cloze";
         const isShort = check.type === "short_answer";
         const isMatch = check.type === "matching";
-        const clozeOk = isCloze && clozeSubmitted ? gradeCloze(check.prompt, check.blanks, clozeValues) : false;
+        const clozeOk =
+            isCloze && clozeSubmitted
+                ? gradeCloze(check.prompt, check.blanks, clozeValues, check.accepted_answers)
+                : false;
         const shortOk = isShort && clozeSubmitted ? gradeShortAnswer(check, shortAnswer) : false;
         const matchOk = isMatch && clozeSubmitted ? gradeMatching(check, clozeValues) : false;
-        const mcOk = !isCloze && !isShort && !isMatch && selected != null && selected === check.answer;
+        const mcOk =
+            !isCloze && !isShort && !isMatch && selected != null && answerAccepted(check.answer, selected, check.accepted_answers);
         const correct = isCloze ? clozeOk : isShort ? shortOk : isMatch ? matchOk : mcOk;
         const revealed = isCloze || isShort || isMatch ? clozeSubmitted : selected != null;
+        const fails = failCounts[current.lesson.id] || 0;
+        const forceReveal = !correct && revealed && fails >= MAX_FAILS_BEFORE_REVEAL;
 
-        const onCorrectContinue = async () => {
+        const bumpFail = () => {
+            setFailCounts((prev) => ({
+                ...prev,
+                [current.lesson.id]: (prev[current.lesson.id] || 0) + 1,
+            }));
+        };
+
+        const resetAssessInputs = () => {
+            setSelected(null);
+            setClozeValues([]);
+            setClozeSubmitted(false);
+            setShortAnswer("");
+        };
+
+        const onContinueAfterAssess = async () => {
             if (assessIdx + 1 < assessQueue.length) {
                 setAssessIdx((i) => i + 1);
-                setSelected(null);
-                setClozeValues([]);
-                setClozeSubmitted(false);
-                setShortAnswer("");
+                resetAssessInputs();
                 return;
             }
             const xp = await markLessonsDone(teachQueue);
@@ -1899,11 +2213,12 @@ export default function SmartLearningView({
                         <>
                             <MathMarkdown className="text-lg font-medium text-white">{check.prompt}</MathMarkdown>
                             {renderMcOptions(check, selected, (opt) => {
-                                if (mcOk) return;
+                                if (mcOk || forceReveal) return;
                                 setSelected(opt);
-                                if (opt === check.answer) {
+                                if (answerAccepted(check.answer, opt, check.accepted_answers)) {
                                     void grantXp(10, "check");
                                 } else {
+                                    bumpFail();
                                     spendHeart();
                                 }
                             })}
@@ -1917,7 +2232,7 @@ export default function SmartLearningView({
                                 onClick={() => {
                                     setClozeSubmitted(true);
                                     const ok = isCloze
-                                        ? gradeCloze(check.prompt, check.blanks, clozeValues)
+                                        ? gradeCloze(check.prompt, check.blanks, clozeValues, check.accepted_answers)
                                         : isMatch
                                           ? gradeMatching(check, clozeValues)
                                           : gradeShortAnswer(check, shortAnswer);
@@ -1926,7 +2241,10 @@ export default function SmartLearningView({
                                             isCloze ? 5 : isMatch ? 8 : 8,
                                             isCloze ? "cloze" : isMatch ? "matching" : "short"
                                         );
-                                    else spendHeart();
+                                    else {
+                                        bumpFail();
+                                        spendHeart();
+                                    }
                                 }}
                                 disabled={
                                     isShort
@@ -1971,20 +2289,17 @@ export default function SmartLearningView({
                             >
                                 {correct
                                     ? "Richtig — gut gemacht."
-                                    : hearts > 0
-                                      ? `Leider falsch — noch ${hearts} ${hearts === 1 ? "Herz" : "Herzen"}.`
-                                      : "Keine Herzen mehr."}
+                                    : forceReveal
+                                      ? "Versuch vorbei — hier die richtige Antwort."
+                                      : hearts > 0
+                                        ? `Leider falsch — noch ${hearts} ${hearts === 1 ? "Herz" : "Herzen"}.`
+                                        : "Keine Herzen mehr."}
                             </div>
-                            {correct && check.explanation ? (
-                                <div className="text-sm text-gray-300 border border-[#2A3140] rounded-xl px-4 py-3 bg-[#12141A]">
-                                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Erklärung</p>
-                                    <MathMarkdown compact>{check.explanation}</MathMarkdown>
-                                </div>
-                            ) : null}
-                            {correct ? (
+                            <AnswerRevealBlock check={check} correct={correct} />
+                            {correct || forceReveal || hearts <= 0 ? (
                                 <button
                                     type="button"
-                                    onClick={() => void onCorrectContinue()}
+                                    onClick={() => void onContinueAfterAssess()}
                                     disabled={savingProgress}
                                     className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
                                 >
@@ -1994,19 +2309,13 @@ export default function SmartLearningView({
                                 </button>
                             ) : (
                                 <div className="flex flex-wrap gap-2">
-                                    {hearts > 0 ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setSelected(null);
-                                                setClozeSubmitted(false);
-                                                setShortAnswer("");
-                                            }}
-                                            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] min-h-[48px]"
-                                        >
-                                            Nochmal versuchen
-                                        </button>
-                                    ) : null}
+                                    <button
+                                        type="button"
+                                        onClick={resetAssessInputs}
+                                        className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] min-h-[48px]"
+                                    >
+                                        Nochmal versuchen
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={() => startIdkReview(current)}
@@ -2224,7 +2533,17 @@ export default function SmartLearningView({
             answer: q.answer,
             blanks: q.blanks,
             explanation: q.explanation,
+            accepted_answers: q.accepted_answers,
         };
+        const examCorrect = revealed
+            ? isCloze
+                ? gradeCloze(q.prompt, q.blanks, examCloze, q.accepted_answers)
+                : isMatch
+                  ? gradeMatching(asCheck, examCloze)
+                  : isShort
+                    ? gradeShortAnswer(asCheck, examShort)
+                    : answerAccepted(q.answer, examSelected || "", q.accepted_answers)
+            : false;
         const resetExamInputs = () => {
             setExamSelected(null);
             setExamCloze([]);
@@ -2404,23 +2723,31 @@ export default function SmartLearningView({
 
                     {revealed ? (
                         <div className="space-y-3">
-                            {q.explanation ? (
-                                <div className="text-sm text-gray-300 border border-[#2A3140] rounded-xl px-4 py-3 bg-[#12141A]">
-                                    <MathMarkdown compact>{q.explanation}</MathMarkdown>
-                                </div>
-                            ) : null}
+                            <div
+                                className={`rounded-xl px-3 py-2 text-sm border ${
+                                    examCorrect
+                                        ? "border-green-500/40 bg-green-500/10 text-green-300"
+                                        : "border-red-500/40 bg-red-500/10 text-red-300"
+                                }`}
+                            >
+                                {examCorrect ? "Richtig." : "Leider falsch — Lösung unten."}
+                            </div>
+                            <AnswerRevealBlock check={asCheck} correct={examCorrect} />
                             <div className="flex flex-wrap gap-2">
                                 <button
                                     type="button"
                                     onClick={() => {
                                         if (isCloze) {
-                                            recordAndAdvance(gradeCloze(q.prompt, q.blanks, examCloze), examCloze.join(" | "));
+                                            recordAndAdvance(
+                                                gradeCloze(q.prompt, q.blanks, examCloze, q.accepted_answers),
+                                                examCloze.join(" | ")
+                                            );
                                         } else if (isMatch) {
                                             recordAndAdvance(gradeMatching(asCheck, examCloze), examCloze.join(" | "));
                                         } else if (isShort) {
                                             recordAndAdvance(gradeShortAnswer(asCheck, examShort), examShort);
                                         } else {
-                                            recordAndAdvance(examSelected === q.answer, examSelected || "");
+                                            recordAndAdvance(examCorrect, examSelected || "");
                                         }
                                     }}
                                     className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold"
@@ -2447,6 +2774,229 @@ export default function SmartLearningView({
                         </div>
                     ) : null}
                 </div>
+            </div>
+        );
+    }
+
+    /* ——— Deep learning session player ——— */
+    if (mode === "deep" && activeDeepSession) {
+        const session = activeDeepSession;
+        const step = session.steps[deepStepIdx];
+        const remainingMin = session.steps
+            .slice(deepStepIdx)
+            .reduce((sum, s) => sum + (s.estimated_minutes || 0), 0);
+        const prog = local.deep_session_progress?.[session.id];
+        const doneSet = new Set(prog?.completed_step_ids || []);
+
+        const advanceDeep = async () => {
+            if (!step) return;
+            const noteVal = step.type === "note" ? deepNoteDraft : undefined;
+            await persistDeepStep(session.id, step.id, noteVal);
+            if (deepStepIdx + 1 >= session.steps.length) {
+                setMode("overview");
+                setCelebrate({ title: "Deep Session geschafft", xp: 40 });
+                return;
+            }
+            const nextIdx = deepStepIdx + 1;
+            setDeepStepIdx(nextIdx);
+            const nextStep = session.steps[nextIdx];
+            setDeepNoteDraft(prog?.notes?.[nextStep?.id || ""] || local.deep_session_progress?.[session.id]?.notes?.[nextStep?.id || ""] || "");
+            resetDeepExerciseInputs();
+        };
+
+        if (!step) {
+            return (
+                <div className="text-center text-gray-400 py-10">
+                    Keine Schritte.
+                    <button type="button" className="block mx-auto mt-3 text-[#5B9DFF]" onClick={() => setMode("overview")}>
+                        Zurück
+                    </button>
+                </div>
+            );
+        }
+
+        const check = step.check;
+        const isCloze = check?.type === "cloze";
+        const isShort = check?.type === "short_answer" || step.type === "recall";
+        const isMatch = check?.type === "matching";
+        const revealed =
+            check && (isCloze || isShort || isMatch ? deepClozeDone : deepSelected != null);
+        const deepCorrect = revealed && check
+            ? isCloze
+                ? gradeCloze(check.prompt, check.blanks, deepCloze, check.accepted_answers)
+                : isMatch
+                  ? gradeMatching(check, deepCloze)
+                  : isShort
+                    ? gradeShortAnswer(check, deepShort)
+                    : answerAccepted(check.answer, deepSelected || "", check.accepted_answers)
+            : false;
+
+        return (
+            <div className="w-full max-w-3xl mx-auto space-y-5 pb-10">
+                {hudBar}
+                <div className="flex items-center justify-between text-xs text-gray-400 gap-3">
+                    <button type="button" onClick={() => setMode("overview")} className="hover:text-white">
+                        ← Übersicht
+                    </button>
+                    <span className="truncate font-medium text-gray-300">{session.title}</span>
+                    <span className="inline-flex items-center gap-1 text-[#5B9DFF] shrink-0">
+                        <Timer size={12} /> ~{remainingMin} Min
+                    </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-[#23252A] border border-[#45484F] overflow-hidden">
+                    <div
+                        className="h-full bg-[#5B9DFF] transition-all"
+                        style={{ width: `${((deepStepIdx + (doneSet.has(step.id) ? 1 : 0)) / Math.max(session.steps.length, 1)) * 100}%` }}
+                    />
+                </div>
+                <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 sm:p-7 space-y-4">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] uppercase tracking-widest text-[#9EC5FF] font-semibold">
+                            {step.type} · Schritt {deepStepIdx + 1}/{session.steps.length}
+                        </span>
+                        <span className="text-[11px] text-gray-500">~{step.estimated_minutes} Min</span>
+                    </div>
+                    <h3 className="text-lg font-semibold text-white">{step.title}</h3>
+
+                    {step.type === "teach" || step.type === "summary" || step.type === "break" ? (
+                        <MathMarkdown className="text-white leading-relaxed">
+                            {step.body || (step.type === "break" ? "Kurze Pause — atme durch, dann weiter." : "")}
+                        </MathMarkdown>
+                    ) : null}
+
+                    {step.type === "note" ? (
+                        <>
+                            <p className="text-sm text-gray-300">{step.note_prompt || "Notiere in eigenen Worten."}</p>
+                            <textarea
+                                value={deepNoteDraft}
+                                onChange={(e) => setDeepNoteDraft(e.target.value)}
+                                rows={5}
+                                className="w-full rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
+                                placeholder="Deine Notiz…"
+                            />
+                        </>
+                    ) : null}
+
+                    {step.type === "flashcards" && step.flashcards?.length ? (
+                        <div className="space-y-3">
+                            <p className="text-xs text-gray-500">
+                                Karte {deepCardIdx + 1}/{step.flashcards.length}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => setDeepCardFlipped((f) => !f)}
+                                className="w-full min-h-[140px] rounded-xl border border-[#2A3140] bg-[#12141A] p-5 text-left"
+                            >
+                                <MathMarkdown className="text-white">
+                                    {deepCardFlipped
+                                        ? step.flashcards[deepCardIdx]?.back || ""
+                                        : step.flashcards[deepCardIdx]?.front || ""}
+                                </MathMarkdown>
+                                <p className="text-[11px] text-gray-500 mt-3">Tippen zum Umdrehen</p>
+                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    disabled={deepCardIdx <= 0}
+                                    onClick={() => {
+                                        setDeepCardIdx((i) => Math.max(0, i - 1));
+                                        setDeepCardFlipped(false);
+                                    }}
+                                    className="px-3 py-2 rounded-lg border border-[#2A3140] text-gray-300 disabled:opacity-40"
+                                >
+                                    Zurück
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={deepCardIdx >= step.flashcards.length - 1}
+                                    onClick={() => {
+                                        setDeepCardIdx((i) => Math.min(step.flashcards!.length - 1, i + 1));
+                                        setDeepCardFlipped(false);
+                                    }}
+                                    className="px-3 py-2 rounded-lg border border-[#2A3140] text-gray-300 disabled:opacity-40"
+                                >
+                                    Nächste Karte
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
+
+                    {(step.type === "exercise" || step.type === "recall") && check ? (
+                        <div className="space-y-3">
+                            {isCloze ? (
+                                <ClozeInputs
+                                    prompt={check.prompt}
+                                    blanks={check.blanks}
+                                    values={deepCloze}
+                                    onChange={setDeepCloze}
+                                    disabled={deepClozeDone && deepCorrect}
+                                    showResult={deepClozeDone && deepCorrect}
+                                />
+                            ) : isMatch ? (
+                                <MatchingExercise
+                                    prompt={check.prompt}
+                                    lefts={check.options}
+                                    rights={check.blanks || []}
+                                    values={deepCloze}
+                                    onChange={setDeepCloze}
+                                    disabled={deepClozeDone && deepCorrect}
+                                    showResult={deepClozeDone}
+                                />
+                            ) : isShort ? (
+                                <>
+                                    <MathMarkdown className="text-lg font-medium text-white">{check.prompt}</MathMarkdown>
+                                    <textarea
+                                        value={deepShort}
+                                        disabled={deepClozeDone && deepCorrect}
+                                        onChange={(e) => setDeepShort(e.target.value)}
+                                        rows={3}
+                                        className="w-full rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
+                                        placeholder="Antwort…"
+                                    />
+                                </>
+                            ) : (
+                                <>
+                                    <MathMarkdown className="text-lg font-medium text-white">{check.prompt}</MathMarkdown>
+                                    {renderMcOptions(check, deepSelected, (opt) => {
+                                        if (deepSelected) return;
+                                        setDeepSelected(opt);
+                                    })}
+                                </>
+                            )}
+                            {(isCloze || isShort || isMatch) && !deepClozeDone ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setDeepClozeDone(true)}
+                                    disabled={
+                                        isShort
+                                            ? !deepShort.trim()
+                                            : deepCloze.length === 0 || deepCloze.some((v) => !String(v || "").trim())
+                                    }
+                                    className="px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50"
+                                >
+                                    Antwort prüfen
+                                </button>
+                            ) : null}
+                            {revealed ? <AnswerRevealBlock check={check} correct={!!deepCorrect} /> : null}
+                        </div>
+                    ) : null}
+
+                    <button
+                        type="button"
+                        onClick={() => void advanceDeep()}
+                        disabled={
+                            savingProgress ||
+                            (step.type === "note" && !deepNoteDraft.trim()) ||
+                            ((step.type === "exercise" || step.type === "recall") && check && !revealed)
+                        }
+                        className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
+                    >
+                        {savingProgress ? <Loader2 size={16} className="animate-spin" /> : null}
+                        {deepStepIdx + 1 >= session.steps.length ? "Session abschließen" : "Weiter"}
+                        <ChevronRight size={18} />
+                    </button>
+                </div>
+                {error ? <p className="text-sm text-red-400">{error}</p> : null}
             </div>
         );
     }
@@ -2551,6 +3101,54 @@ export default function SmartLearningView({
                                 Probeklausur
                             </button>
                         ) : null}
+                    </div>
+
+                    <div className="mt-5 rounded-xl border border-indigo-500/25 bg-indigo-500/5 p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                            <BrainCircuit size={16} className="text-indigo-300" />
+                            <p className="text-sm font-semibold text-white">Tiefes Lernen</p>
+                        </div>
+                        <p className="text-[11px] text-gray-400">
+                            Geführte Session mit Lehrtext, Notizen, Übungen und Recall — Länge wie dein Tagesbudget.
+                            Erstellung kann einige Minuten dauern.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            {([25, 45, 60, 90] as const).map((m) => (
+                                <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => setDeepBudget(m)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs border ${
+                                        deepBudget === m
+                                            ? "bg-indigo-500 text-white border-indigo-500"
+                                            : "border-[#45484F] text-gray-300"
+                                    }`}
+                                >
+                                    {m} Min
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => void generateDeepSession()}
+                                disabled={deepBusy}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50 min-h-[44px]"
+                            >
+                                {deepBusy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                                {deepBusy ? "Session wird erstellt…" : "Session starten"}
+                            </button>
+                            {activeDeepSession ? (
+                                <button
+                                    type="button"
+                                    onClick={() => startDeepSession(activeDeepSession)}
+                                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-indigo-400/40 text-indigo-200 text-sm font-medium min-h-[44px]"
+                                >
+                                    <Play size={16} />
+                                    Letzte fortsetzen ({activeDeepSession.target_minutes} Min)
+                                </button>
+                            ) : null}
+                        </div>
                     </div>
 
                     <div className="mt-4 flex flex-wrap gap-2 items-center">
