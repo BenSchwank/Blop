@@ -13,11 +13,14 @@ import {
     Layers,
     Loader2,
     Lock,
+    Pause,
     PenLine,
     Play,
     Settings2,
+    SkipForward,
     Sparkles,
     Timer,
+    Volume2,
     XCircle,
 } from "lucide-react";
 import MathMarkdown, { answersMatch, parseClozePrompt } from "@/components/MathMarkdown";
@@ -25,6 +28,28 @@ import { awardXp } from "@/lib/xpClient";
 
 const HEARTS_MAX = 5;
 const DAILY_GOAL_XP = 50;
+
+const LEARN_VOICES = [
+    { id: "charon", label: "Sam · ruhig erklärend" },
+    { id: "aoede", label: "Alex · warm & neugierig" },
+    { id: "kore", label: "Lea · nachdenklich & warm" },
+    { id: "leda", label: "Mila · klar & jung" },
+    { id: "puck", label: "Jonas · lebendig erzählend" },
+    { id: "zephyr", label: "Nora · hell & direkt" },
+] as const;
+
+/** Strip markdown / LaTeX enough for natural TTS narration. */
+function plainTextForTts(md: string): string {
+    return String(md || "")
+        .replace(/```[\s\S]*?```/g, " ")
+        .replace(/\$\$([\s\S]*?)\$\$/g, " $1 ")
+        .replace(/\$([^$\n]+)\$/g, " $1 ")
+        .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .replace(/[#>*_`~]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
 
 export type SmartLearningCheckType = "mc" | "true_false" | "cloze" | "short_answer";
 
@@ -590,6 +615,11 @@ export default function SmartLearningView({
     const [batchTarget, setBatchTarget] = useState(0);
     const [reviewItem, setReviewItem] = useState<AssessItem | null>(null);
     const [deferCountByLessonId, setDeferCountByLessonId] = useState<Record<string, number>>({});
+    const [learnVoice, setLearnVoice] = useState<string>("charon");
+    const [ttsBusy, setTtsBusy] = useState(false);
+    const [ttsPlaying, setTtsPlaying] = useState(false);
+    const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+    const ttsUrlRef = useRef<string | null>(null);
     const [selected, setSelected] = useState<string | null>(null);
     const [clozeValues, setClozeValues] = useState<string[]>([]);
     const [clozeSubmitted, setClozeSubmitted] = useState(false);
@@ -607,6 +637,7 @@ export default function SmartLearningView({
     const [examSecondsLeft, setExamSecondsLeft] = useState<number | null>(null);
     const [lastExamScore, setLastExamScore] = useState<number | null>(null);
     const [activeExam, setActiveExam] = useState<SmartLearningExam | null>(null);
+    const [examOrder, setExamOrder] = useState<number[]>([]);
     const [examPreset, setExamPreset] = useState<SmartLearningExamPreset>("standard");
     const [readinessBeforeExam, setReadinessBeforeExam] = useState(0);
     const examFinishingRef = useRef(false);
@@ -849,7 +880,95 @@ export default function SmartLearningView({
         setShortAnswer("");
     };
 
+    const stopTeachTts = () => {
+        if (ttsAudioRef.current) {
+            ttsAudioRef.current.pause();
+            ttsAudioRef.current = null;
+        }
+        if (ttsUrlRef.current) {
+            try {
+                URL.revokeObjectURL(ttsUrlRef.current);
+            } catch {
+                /* ignore */
+            }
+            ttsUrlRef.current = null;
+        }
+        setTtsBusy(false);
+        setTtsPlaying(false);
+    };
+
+    const playTeachTts = async (markdown: string) => {
+        if (ttsBusy) return;
+        const text = plainTextForTts(markdown);
+        if (!text) {
+            setError("Kein Text zum Vorlesen.");
+            return;
+        }
+        stopTeachTts();
+        setTtsBusy(true);
+        setError("");
+        try {
+            const res = await fetch(`/api/ai/tts-preview?session_id=${encodeURIComponent(sessionId)}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Session-Id": sessionId,
+                },
+                body: JSON.stringify({
+                    username,
+                    voice: learnVoice || "charon",
+                    text: text.slice(0, 3800),
+                }),
+            });
+            if (!res.ok) {
+                let msg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    msg = formatApiDetail(err.detail) || msg;
+                } catch {
+                    /* ignore */
+                }
+                throw new Error(msg);
+            }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            ttsUrlRef.current = url;
+            const audio = new Audio(url);
+            ttsAudioRef.current = audio;
+            audio.onended = () => {
+                setTtsPlaying(false);
+                setTtsBusy(false);
+            };
+            audio.onerror = () => {
+                setTtsPlaying(false);
+                setTtsBusy(false);
+                setError("Audio konnte nicht abgespielt werden.");
+            };
+            setTtsPlaying(true);
+            await audio.play();
+        } catch (e: any) {
+            setError(e?.message || "Vorlesen fehlgeschlagen.");
+            setTtsPlaying(false);
+        } finally {
+            setTtsBusy(false);
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            if (ttsAudioRef.current) ttsAudioRef.current.pause();
+            if (ttsUrlRef.current) {
+                try {
+                    URL.revokeObjectURL(ttsUrlRef.current);
+                } catch {
+                    /* ignore */
+                }
+            }
+        };
+    }, []);
+
     const enterAssessPhase = (batch: FlatStep[]) => {
+        stopTeachTts();
         const items: AssessItem[] = batch.map((b) => ({ ...b, check: b.lesson.check }));
         shuffleInPlace(items);
         setAssessQueue(items);
@@ -862,12 +981,14 @@ export default function SmartLearningView({
     };
 
     const startIdkReview = (item: AssessItem) => {
+        stopTeachTts();
         setReviewItem(item);
         setLearnPhase("review");
         resetAssessInputs();
     };
 
     const finishIdkReviewAndDefer = () => {
+        stopTeachTts();
         if (!reviewItem) {
             setLearnPhase("assess");
             return;
@@ -957,6 +1078,7 @@ export default function SmartLearningView({
             return;
         }
         setActiveExam(built);
+        setExamOrder(built.questions.map((_, i) => i));
         setExamIndex(0);
         setExamSelected(null);
         setExamCloze([]);
@@ -1201,14 +1323,46 @@ export default function SmartLearningView({
                             <MathMarkdown compact>{reviewItem.check.explanation}</MathMarkdown>
                         </div>
                     ) : null}
-                    <button
-                        type="button"
-                        onClick={finishIdkReviewAndDefer}
-                        className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold min-h-[48px]"
-                    >
-                        Später nochmal fragen
-                        <ChevronRight size={18} />
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <select
+                            value={learnVoice}
+                            onChange={(e) => setLearnVoice(e.target.value)}
+                            className="rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2.5 text-xs text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40 min-h-[48px]"
+                            aria-label="Vorlese-Stimme"
+                        >
+                            {LEARN_VOICES.map((v) => (
+                                <option key={v.id} value={v.id}>
+                                    {v.label}
+                                </option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            disabled={ttsBusy && !ttsPlaying}
+                            onClick={() => {
+                                if (ttsPlaying) stopTeachTts();
+                                else void playTeachTts(reviewItem.lesson.teach);
+                            }}
+                            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-[#5B9DFF]/35 text-[#9EC5FF] hover:bg-[#5B9DFF]/10 font-medium min-h-[48px] disabled:opacity-50"
+                        >
+                            {ttsBusy && !ttsPlaying ? (
+                                <Loader2 size={16} className="animate-spin" />
+                            ) : ttsPlaying ? (
+                                <Pause size={16} />
+                            ) : (
+                                <Volume2 size={16} />
+                            )}
+                            {ttsPlaying ? "Stoppen" : "Vorlesen"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={finishIdkReviewAndDefer}
+                            className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold min-h-[48px]"
+                        >
+                            Später nochmal fragen
+                            <ChevronRight size={18} />
+                        </button>
+                    </div>
                 </div>
             </div>
         );
@@ -1243,24 +1397,57 @@ export default function SmartLearningView({
                     <MathMarkdown className="text-white prose prose-invert prose-blop max-w-none leading-relaxed prose-p:my-3 prose-li:my-1 prose-headings:text-white">
                         {current.lesson.teach}
                     </MathMarkdown>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            if (teachIdx + 1 >= teachQueue.length) {
-                                enterAssessPhase(teachQueue);
-                            } else {
-                                setTeachIdx((i) => i + 1);
-                            }
-                        }}
-                        className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold min-h-[48px]"
-                    >
-                        {teachIdx + 1 >= teachQueue.length
-                            ? batchTarget > 1
-                                ? "Zum Wissenstest"
-                                : "Verstanden — jetzt testen"
-                            : "Nächstes Thema"}
-                        <ChevronRight size={18} />
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <select
+                            value={learnVoice}
+                            onChange={(e) => setLearnVoice(e.target.value)}
+                            className="rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2.5 text-xs text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40 min-h-[48px]"
+                            aria-label="Vorlese-Stimme"
+                        >
+                            {LEARN_VOICES.map((v) => (
+                                <option key={v.id} value={v.id}>
+                                    {v.label}
+                                </option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            disabled={ttsBusy && !ttsPlaying}
+                            onClick={() => {
+                                if (ttsPlaying) stopTeachTts();
+                                else void playTeachTts(current.lesson.teach);
+                            }}
+                            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-[#5B9DFF]/35 text-[#9EC5FF] hover:bg-[#5B9DFF]/10 font-medium min-h-[48px] disabled:opacity-50"
+                        >
+                            {ttsBusy && !ttsPlaying ? (
+                                <Loader2 size={16} className="animate-spin" />
+                            ) : ttsPlaying ? (
+                                <Pause size={16} />
+                            ) : (
+                                <Volume2 size={16} />
+                            )}
+                            {ttsPlaying ? "Stoppen" : "Vorlesen"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                stopTeachTts();
+                                if (teachIdx + 1 >= teachQueue.length) {
+                                    enterAssessPhase(teachQueue);
+                                } else {
+                                    setTeachIdx((i) => i + 1);
+                                }
+                            }}
+                            className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold min-h-[48px]"
+                        >
+                            {teachIdx + 1 >= teachQueue.length
+                                ? batchTarget > 1
+                                    ? "Zum Wissenstest"
+                                    : "Verstanden — jetzt testen"
+                                : "Nächstes Thema"}
+                            <ChevronRight size={18} />
+                        </button>
+                    </div>
                 </div>
                 {error ? <p className="text-sm text-red-400">{error}</p> : null}
             </div>
@@ -1396,9 +1583,10 @@ export default function SmartLearningView({
                             <button
                                 type="button"
                                 onClick={() => startIdkReview(current)}
-                                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl border border-[#3A4558] text-gray-300 hover:bg-[#243044] font-medium min-h-[48px]"
+                                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px]"
                             >
-                                Ich weiß nicht
+                                <SkipForward size={16} />
+                                Überspringen
                             </button>
                         </div>
                     ) : null}
@@ -1407,9 +1595,10 @@ export default function SmartLearningView({
                         <button
                             type="button"
                             onClick={() => startIdkReview(current)}
-                            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-[#3A4558] text-gray-300 hover:bg-[#243044] font-medium min-h-[48px]"
+                            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px]"
                         >
-                            Ich weiß nicht
+                            <SkipForward size={16} />
+                            Überspringen — weiß ich nicht
                         </button>
                     ) : null}
 
@@ -1445,18 +1634,31 @@ export default function SmartLearningView({
                                     {assessIdx + 1 >= assessQueue.length ? "Block abschließen" : "Weiter"}
                                     <ChevronRight size={18} />
                                 </button>
-                            ) : hearts > 0 ? (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setSelected(null);
-                                        setClozeSubmitted(false);
-                                    }}
-                                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] min-h-[48px]"
-                                >
-                                    Nochmal versuchen
-                                </button>
-                            ) : null}
+                            ) : (
+                                <div className="flex flex-wrap gap-2">
+                                    {hearts > 0 ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelected(null);
+                                                setClozeSubmitted(false);
+                                                setShortAnswer("");
+                                            }}
+                                            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] min-h-[48px]"
+                                        >
+                                            Nochmal versuchen
+                                        </button>
+                                    ) : null}
+                                    <button
+                                        type="button"
+                                        onClick={() => startIdkReview(current)}
+                                        className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px]"
+                                    >
+                                        <SkipForward size={16} />
+                                        Überspringen & später nochmal
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     ) : null}
                 </div>
@@ -1635,7 +1837,12 @@ export default function SmartLearningView({
 
     /* ——— Exam mode ——— */
     if (mode === "exam" && activeExam) {
-        const q = activeExam.questions[examIndex];
+        const order =
+            examOrder.length === activeExam.questions.length
+                ? examOrder
+                : activeExam.questions.map((_, i) => i);
+        const qRealIdx = order[examIndex] ?? examIndex;
+        const q = activeExam.questions[qRealIdx];
         if (!q) {
             return (
                 <div className="text-center text-gray-400 py-8">
@@ -1651,19 +1858,37 @@ export default function SmartLearningView({
         const revealed = isCloze || isShort ? examClozeDone : examSelected != null;
         const mm = Math.floor((examSecondsLeft ?? 0) / 60);
         const ss = String((examSecondsLeft ?? 0) % 60).padStart(2, "0");
-
-        const recordAndAdvance = (correct: boolean, given: string) => {
-            const nextAnswers = { ...examAnswers, [examIndex]: { correct, given } };
-            setExamAnswers(nextAnswers);
-            if (examIndex + 1 >= activeExam.questions.length) {
-                void finishExam(nextAnswers);
-                return;
-            }
-            setExamIndex((i) => i + 1);
+        const resetExamInputs = () => {
             setExamSelected(null);
             setExamCloze([]);
             setExamClozeDone(false);
             setExamShort("");
+        };
+
+        const recordAndAdvance = (correct: boolean, given: string) => {
+            const nextAnswers = { ...examAnswers, [qRealIdx]: { correct, given } };
+            setExamAnswers(nextAnswers);
+            if (examIndex + 1 >= order.length) {
+                void finishExam(nextAnswers);
+                return;
+            }
+            setExamIndex((i) => i + 1);
+            resetExamInputs();
+        };
+
+        const skipExamQuestion = () => {
+            if (examIndex >= order.length - 1) {
+                // Last in queue: leave unanswered and finish if everything else done
+                if (Object.keys(examAnswers).length >= order.length - 1) {
+                    void finishExam({ ...examAnswers, [qRealIdx]: { correct: false, given: "" } });
+                }
+                return;
+            }
+            const next = [...order];
+            const [moved] = next.splice(examIndex, 1);
+            next.push(moved);
+            setExamOrder(next);
+            resetExamInputs();
         };
 
         return (
@@ -1685,20 +1910,17 @@ export default function SmartLearningView({
                 </div>
 
                 <div className="flex flex-wrap gap-1.5">
-                    {activeExam.questions.map((_, i) => {
-                        const answered = examAnswers[i] != null;
-                        const current = i === examIndex;
+                    {order.map((realIdx, pos) => {
+                        const answered = examAnswers[realIdx] != null;
+                        const current = pos === examIndex;
                         return (
                             <button
-                                key={i}
+                                key={`${realIdx}-${pos}`}
                                 type="button"
                                 onClick={() => {
                                     if (revealed) return;
-                                    setExamIndex(i);
-                                    setExamSelected(null);
-                                    setExamCloze([]);
-                                    setExamClozeDone(false);
-                                    setExamShort("");
+                                    setExamIndex(pos);
+                                    resetExamInputs();
                                 }}
                                 className={`h-7 min-w-[1.75rem] px-1.5 rounded-md text-[11px] border ${
                                     current
@@ -1708,7 +1930,7 @@ export default function SmartLearningView({
                                           : "border-[#2A3140] text-gray-500"
                                 }`}
                             >
-                                {i + 1}
+                                {pos + 1}
                             </button>
                         );
                     })}
@@ -1761,13 +1983,34 @@ export default function SmartLearningView({
                     )}
 
                     {(isCloze || isShort) && !examClozeDone ? (
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setExamClozeDone(true)}
+                                disabled={isCloze ? examCloze.every((v) => !String(v || "").trim()) : !examShort.trim()}
+                                className="px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50"
+                            >
+                                Antwort prüfen
+                            </button>
+                            <button
+                                type="button"
+                                onClick={skipExamQuestion}
+                                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium"
+                            >
+                                <SkipForward size={16} />
+                                Überspringen
+                            </button>
+                        </div>
+                    ) : null}
+
+                    {!isCloze && !isShort && !revealed ? (
                         <button
                             type="button"
-                            onClick={() => setExamClozeDone(true)}
-                            disabled={isCloze ? examCloze.every((v) => !String(v || "").trim()) : !examShort.trim()}
-                            className="px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50"
+                            onClick={skipExamQuestion}
+                            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium"
                         >
-                            Antwort prüfen
+                            <SkipForward size={16} />
+                            Überspringen — später
                         </button>
                     ) : null}
 
@@ -1792,12 +2035,20 @@ export default function SmartLearningView({
                                     }}
                                     className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold"
                                 >
-                                    {examIndex + 1 >= activeExam.questions.length ? "Ergebnis" : "Weiter"}
+                                    {examIndex + 1 >= order.length ? "Ergebnis" : "Weiter"}
                                     <ChevronRight size={18} />
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => void finishExam({ ...examAnswers, [examIndex]: { correct: false, given: "" } })}
+                                    onClick={skipExamQuestion}
+                                    className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 text-sm font-medium"
+                                >
+                                    <SkipForward size={16} />
+                                    Überspringen
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => void finishExam({ ...examAnswers, [qRealIdx]: { correct: false, given: "" } })}
                                     className="px-4 py-3 rounded-xl border border-[#2A3140] text-gray-400 text-sm"
                                 >
                                     Abgeben
