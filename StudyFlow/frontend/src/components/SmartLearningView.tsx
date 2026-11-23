@@ -198,6 +198,8 @@ type Props = {
     onContentUpdated?: (next: SmartLearningContent) => void;
     onStartPractice: (mode: PracticeMode) => void;
     onClose?: () => void;
+    /** If set, kick off a deep session generation once after mount (e.g. 45). */
+    autoStartDeepMinutes?: 30 | 45 | 60 | 90 | null;
 };
 
 const EXAM_PRESETS: Record<
@@ -987,6 +989,9 @@ function buildExamForPreset(
     };
 }
 
+const DEEP_BUDGETS = [30, 45, 60, 90] as const;
+export type DeepBudgetMinutes = (typeof DEEP_BUDGETS)[number];
+
 export default function SmartLearningView({
     content,
     folderId,
@@ -996,10 +1001,12 @@ export default function SmartLearningView({
     onContentUpdated,
     onStartPractice,
     onClose,
+    autoStartDeepMinutes = null,
 }: Props) {
     const [local, setLocal] = useState<SmartLearningContent>(() => normalizeSmartLearningContent(content));
     const [mode, setMode] = useState<"overview" | "learn" | "exam" | "exam_result" | "exam_picker" | "deep">("overview");
-    const [deepBudget, setDeepBudget] = useState<25 | 45 | 60 | 90>(60);
+    const [deepBudget, setDeepBudget] = useState<DeepBudgetMinutes>(60);
+    const deepAutoStartedRef = useRef(false);
     const [deepBusy, setDeepBusy] = useState(false);
     const [deepStepIdx, setDeepStepIdx] = useState(0);
     const [deepNoteDraft, setDeepNoteDraft] = useState("");
@@ -1466,7 +1473,9 @@ export default function SmartLearningView({
         setMode("deep");
     };
 
-    const generateDeepSession = async () => {
+    const generateDeepSession = async (minutes?: DeepBudgetMinutes) => {
+        const budget = minutes || deepBudget;
+        setDeepBudget(budget);
         setDeepBusy(true);
         setError("");
         try {
@@ -1481,7 +1490,7 @@ export default function SmartLearningView({
                     body: JSON.stringify({
                         username,
                         folder_id: folderId,
-                        target_minutes: deepBudget,
+                        target_minutes: budget,
                         focus: local.title || undefined,
                     }),
                 }
@@ -1507,6 +1516,23 @@ export default function SmartLearningView({
             setDeepBusy(false);
         }
     };
+
+    useEffect(() => {
+        if (deepAutoStartedRef.current) return;
+        let minutes: DeepBudgetMinutes | null = autoStartDeepMinutes || null;
+        if (!minutes && typeof window !== "undefined") {
+            const raw = sessionStorage.getItem("blop_smart_deep_minutes");
+            const n = Number(raw);
+            if (DEEP_BUDGETS.includes(n as DeepBudgetMinutes)) {
+                minutes = n as DeepBudgetMinutes;
+                sessionStorage.removeItem("blop_smart_deep_minutes");
+            }
+        }
+        if (!minutes) return;
+        deepAutoStartedRef.current = true;
+        void generateDeepSession(minutes);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot after open
+    }, [autoStartDeepMinutes]);
 
     const persistDeepStep = async (sessionIdKey: string, stepId: string, noteText?: string) => {
         const prevEntry = local.deep_session_progress?.[sessionIdKey] || { completed_step_ids: [], notes: {} };
@@ -3081,50 +3107,31 @@ export default function SmartLearningView({
                         </div>
                     </div>
 
-                    <div className="mt-5 flex flex-wrap gap-2">
-                        <button
-                            type="button"
-                            onClick={startLearn}
-                            disabled={busyPractice || flatSteps.length === 0}
-                            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold disabled:opacity-50 transition-colors min-h-[48px]"
-                        >
-                            <Play size={18} />
-                            Jetzt lernen
-                        </button>
-                        {exam && exam.questions.length > 0 ? (
-                            <button
-                                type="button"
-                                onClick={openExamPicker}
-                                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-[#5B9DFF]/40 text-[#9EC5FF] hover:bg-[#5B9DFF]/10 font-semibold min-h-[48px]"
-                            >
-                                <ClipboardList size={18} />
-                                Probeklausur
-                            </button>
-                        ) : null}
-                    </div>
-
-                    <div className="mt-5 rounded-xl border border-indigo-500/25 bg-indigo-500/5 p-4 space-y-3">
+                    <div className="mt-5 rounded-xl border border-indigo-500/40 bg-indigo-500/10 p-4 space-y-3">
                         <div className="flex items-center gap-2">
-                            <BrainCircuit size={16} className="text-indigo-300" />
-                            <p className="text-sm font-semibold text-white">Tiefes Lernen</p>
+                            <BrainCircuit size={18} className="text-indigo-300" />
+                            <div>
+                                <p className="text-sm font-semibold text-white">Intensive Lernsession</p>
+                                <p className="text-[11px] text-indigo-200/80">Tiefes Lernen — halbe bis eineinhalb Stunden am Stück</p>
+                            </div>
                         </div>
                         <p className="text-[11px] text-gray-400">
-                            Geführte Session mit Lehrtext, Notizen, Übungen und Recall — Länge wie dein Tagesbudget.
-                            Erstellung kann einige Minuten dauern.
+                            Wähle deine Lernzeit: die Session enthält Lehrtexte, Notizen, Übungen und Recall und dauert
+                            ungefähr so lange. Erstellung kann ein paar Minuten brauchen.
                         </p>
                         <div className="flex flex-wrap gap-2">
-                            {([25, 45, 60, 90] as const).map((m) => (
+                            {DEEP_BUDGETS.map((m) => (
                                 <button
                                     key={m}
                                     type="button"
                                     onClick={() => setDeepBudget(m)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs border ${
+                                    className={`px-3 py-2 rounded-lg text-xs font-medium border min-h-[40px] ${
                                         deepBudget === m
                                             ? "bg-indigo-500 text-white border-indigo-500"
                                             : "border-[#45484F] text-gray-300"
                                     }`}
                                 >
-                                    {m} Min
+                                    {m === 30 ? "½ Std" : m === 45 ? "¾ Std" : m === 60 ? "1 Std" : "1½ Std"} ({m} Min)
                                 </button>
                             ))}
                         </div>
@@ -3136,7 +3143,7 @@ export default function SmartLearningView({
                                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50 min-h-[44px]"
                             >
                                 {deepBusy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                                {deepBusy ? "Session wird erstellt…" : "Session starten"}
+                                {deepBusy ? "Session wird erstellt…" : `${deepBudget}-Min-Session starten`}
                             </button>
                             {activeDeepSession ? (
                                 <button
@@ -3149,6 +3156,28 @@ export default function SmartLearningView({
                                 </button>
                             ) : null}
                         </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={startLearn}
+                            disabled={busyPractice || flatSteps.length === 0}
+                            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold disabled:opacity-50 transition-colors min-h-[48px]"
+                        >
+                            <Play size={18} />
+                            Kurzer Lernpfad
+                        </button>
+                        {exam && exam.questions.length > 0 ? (
+                            <button
+                                type="button"
+                                onClick={openExamPicker}
+                                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-[#5B9DFF]/40 text-[#9EC5FF] hover:bg-[#5B9DFF]/10 font-semibold min-h-[48px]"
+                            >
+                                <ClipboardList size={18} />
+                                Probeklausur
+                            </button>
+                        ) : null}
                     </div>
 
                     <div className="mt-4 flex flex-wrap gap-2 items-center">

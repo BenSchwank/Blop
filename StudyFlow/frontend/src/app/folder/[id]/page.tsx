@@ -572,6 +572,8 @@ export default function FolderPage() {
     const [smartLearningExamDate, setSmartLearningExamDate] = useState('');
     const [smartLearningContentMode, setSmartLearningContentMode] = useState<'concepts' | 'flashcards' | 'mix'>('mix');
     const [smartLearningScopeIntensity, setSmartLearningScopeIntensity] = useState<'compact' | 'standard' | 'exam_week'>('exam_week');
+    const [smartLearningDeepBudget, setSmartLearningDeepBudget] = useState<30 | 45 | 60 | 90>(45);
+    const [smartLearningStartDeepAfter, setSmartLearningStartDeepAfter] = useState(false);
     const smartLearningPracticeBumpRef = useRef(false);
 
     // Handler for changing target grade and auto-calculating realistic study times
@@ -2838,9 +2840,19 @@ export default function FolderPage() {
                         created_at: new Date().toISOString(),
                         content: journey,
                     };
+                    if (smartLearningStartDeepAfter) {
+                        try {
+                            sessionStorage.setItem("blop_smart_deep_minutes", String(smartLearningDeepBudget));
+                        } catch { /* ignore */ }
+                    }
                     upsertGeneratedFile(generated);
                     setSelectedFile(generated);
-                    showToast("Smart Learning bereit.", "success");
+                    showToast(
+                        smartLearningStartDeepAfter
+                            ? `Smart Learning bereit — starte ${smartLearningDeepBudget}-Min Intensive Session…`
+                            : "Smart Learning bereit.",
+                        "success"
+                    );
                 } else {
                     showToast("Smart Learning wurde generiert, ist aber leer. Bitte prüfe ob Material im Ordner vorhanden ist.");
                 }
@@ -5372,8 +5384,8 @@ export default function FolderPage() {
                 {/* Smart Learning Config Modal */}
                 {isSmartLearningConfigOpen && (
                     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#45484F]">
+                        <div className="bg-[#23252A] border border-[#45484F] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+                            <div className="flex justify-between items-center p-5 border-b border-[#45484F] shrink-0">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-300">
                                         <Sparkles size={20} />
@@ -5387,7 +5399,7 @@ export default function FolderPage() {
                                     <X size={18} />
                                 </button>
                             </div>
-                            <div className="p-5 space-y-4">
+                            <div className="p-5 space-y-4 overflow-y-auto min-h-0">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
                                     <textarea
@@ -5471,9 +5483,43 @@ export default function FolderPage() {
                                         Steuert den Lernmodus: Konzepte, Karteikarten oder beides — danach Wissenstest.
                                     </p>
                                 </div>
+                                <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-3 space-y-2.5">
+                                    <label className="flex items-start gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={smartLearningStartDeepAfter}
+                                            onChange={(e) => setSmartLearningStartDeepAfter(e.target.checked)}
+                                            className="mt-1 rounded border-[#45484F]"
+                                        />
+                                        <span>
+                                            <span className="block text-sm font-medium text-white">Intensive Lernsession danach</span>
+                                            <span className="block text-[11px] text-gray-400">
+                                                Geführte Session mit echter Lernzeit (½–1½ Std) — nicht nur der kurze Lernpfad.
+                                            </span>
+                                        </span>
+                                    </label>
+                                    {smartLearningStartDeepAfter ? (
+                                        <div className="flex flex-wrap gap-2 pl-6">
+                                            {([30, 45, 60, 90] as const).map((m) => (
+                                                <button
+                                                    key={m}
+                                                    type="button"
+                                                    onClick={() => setSmartLearningDeepBudget(m)}
+                                                    className={`px-2.5 py-1.5 rounded-lg text-xs border ${
+                                                        smartLearningDeepBudget === m
+                                                            ? "bg-indigo-500 text-white border-indigo-500"
+                                                            : "border-[#45484F] text-gray-300"
+                                                    }`}
+                                                >
+                                                    {m === 30 ? "½ Std" : m === 45 ? "¾ Std" : m === 60 ? "1 Std" : "1½ Std"}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                </div>
                                 <p className="text-xs text-gray-500">
-                                    Braucht PDF- oder YouTube-Material im Ordner. Erzeugt Kapitel + Bereitschaft.
-                                    Neu generieren behält deinen Kapitel-Fortschritt, soweit möglich.
+                                    Braucht PDF- oder YouTube-Material im Ordner. Intensive Sessions startest du auch jederzeit
+                                    in der Smart-Learning-Übersicht unter „Intensive Lernsession“.
                                 </p>
                             </div>
                             <div className="flex gap-3 p-5 border-t border-[#45484F]">
