@@ -303,6 +303,33 @@ private slots:
     QVERIFY(dup.image.size() == src.image.size());
   }
 
+  void note_roundTripKeepsRulerCompassAndSize() {
+    QTemporaryDir dir;
+    const QString path = dir.filePath("ruler.bnote");
+
+    Note n;
+    n.id = "ruler-1";
+    n.title = "Lineal";
+    n.pages.resize(1);
+    n.ruler.placed = true;
+    n.ruler.pos = QPointF(120, 340);
+    n.ruler.rotation = 15.0;
+    n.ruler.compassMode = true;
+    n.ruler.width = 520;
+    n.ruler.height = 520;
+
+    QVERIFY(NoteManager::saveNote(n, path));
+
+    Note out;
+    QVERIFY(NoteManager::loadNote(path, out));
+    QVERIFY(out.ruler.placed);
+    QCOMPARE(out.ruler.pos, QPointF(120, 340));
+    QCOMPARE(out.ruler.rotation, 15.0);
+    QVERIFY(out.ruler.compassMode);
+    QCOMPARE(out.ruler.width, 520.0);
+    QCOMPARE(out.ruler.height, 520.0);
+  }
+
   // Dimension Fläche uses shoelace × unitsPerPx² (see DimensionTool).
   void dimension_shoelaceAreaUnits() {
     const QVector<QPointF> square = {

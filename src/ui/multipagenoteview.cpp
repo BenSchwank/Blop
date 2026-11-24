@@ -1638,6 +1638,8 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
                                              ToolManager::instance().config(),
                                              spawn);
               }
+              bindRulerSignals();
+              scheduleStrokeSync();
             }
             // Laser / other overlay tools: keep viewport painting while fading.
             disconnect(m_toolOverlayConn);
@@ -1659,6 +1661,8 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
                     connect(rt, &RulerTool::requestUpdate, this, [this]() {
                       RulerTool::ensureRulerExists(
                           &scene_, ToolManager::instance().config());
+                      bindRulerSignals();
+                      scheduleStrokeSync();
                     });
               }
             }
@@ -1670,6 +1674,8 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
           [this](const ToolConfig &config) {
             if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
               RulerTool::ensureRulerExists(&scene_, config);
+              bindRulerSignals();
+              scheduleStrokeSync();
             }
           });
 
@@ -2488,10 +2494,12 @@ void MultiPageNoteView::bindRulerSignals() {
 void MultiPageNoteView::restoreRulerFromNote() {
   if (!note_ || !note_->ruler.placed || findActiveRuler(&scene_))
     return;
+  // Keep ToolManager in sync so the next ensureRulerExists does not
+  // overwrite a restored Geodreieck with the default Lineal config.
+  ToolConfig &stored = ToolManager::instance().configFor(ToolMode::Ruler);
+  stored.compassMode = note_->ruler.compassMode;
   auto *r = new RulerItem();
-  ToolConfig rc = ToolManager::instance().configFor(ToolMode::Ruler);
-  rc.compassMode = note_->ruler.compassMode;
-  r->setConfig(rc);
+  r->setConfig(stored);
   if (note_->ruler.width > 0 && note_->ruler.height > 0)
     r->setBodySizeKeepingCenter(note_->ruler.width, note_->ruler.height);
   r->setPos(note_->ruler.pos);
@@ -2500,6 +2508,7 @@ void MultiPageNoteView::restoreRulerFromNote() {
   r->setVisible(false);
   scene_.addItem(r);
   rememberActiveRuler(&scene_, r);
+  bindRulerSignals();
 }
 
 void MultiPageNoteView::toggleRuler(bool active) {
@@ -2507,9 +2516,12 @@ void MultiPageNoteView::toggleRuler(bool active) {
         ToolConfig config = ToolManager::instance().config();
         const QPointF spawn = mapToScene(viewport()->rect().center());
         RulerTool::ensureRulerExists(&scene_, config, spawn);
+        bindRulerSignals();
+        scheduleStrokeSync();
     } else {
         if (RulerItem* ruler = findActiveRuler(&scene_))
             ruler->setVisible(false);
+        scheduleStrokeSync();
     }
 }
 

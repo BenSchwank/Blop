@@ -87,11 +87,17 @@ public:
     }
 
     void setConfig(const ToolConfig& c) {
-        // Preserve current center point while changing ruler dimensions.
+        // Only reset body size when the shape mode changes (Lineal ↔
+        // Geodreieck / infinite). Snap toggles and ensureRulerExists
+        // refreshes must keep a user-resized / restored size.
+        const bool modeChanged =
+            (m_config.compassMode != c.compassMode) ||
+            (m_config.infiniteRuler != c.infiniteRuler);
         const QPointF oldCenterScene = mapToScene(transformOriginPoint());
         prepareGeometryChange();
         m_config = c;
-        recalcSizeFromConfig();
+        if (modeChanged)
+            recalcSizeFromConfig();
         const QPointF newCenterScene = mapToScene(transformOriginPoint());
         setPos(pos() + (oldCenterScene - newCenterScene));
         update();

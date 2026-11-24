@@ -11,7 +11,7 @@ Quellen: [`ToolMode.h`](../src/core/ToolMode.h), [`MainWindow::setupTools`](../s
 | Marker | Highlighter | `HighlighterTool` | Voll | Ja | Farbe, Dicke, Gerade | Hold-Config verdrahtet (P0 Inventory-Pass) |
 | Radierer | Eraser | `EraserTool` | Voll | `contentModified` → `scheduleStrokeSync`; filled-Pfade (`fp`+OddEvenFill) | Pixel/Objekt, Breite, Tinte behalten | Livesmoke Reload: Pixel-Löcher bleiben (JSON `f=true` + UI) |
 | Auswahl | Lasso | `LassoTool` | Voll (Auswahl) | Duplizieren via harvest (`shape`/`fc`/`ps`) + Text/Sticky/Image/Graph; Move+TransformOverlay | Freihand/Rechteck; Ctrl+D/C/X | Markup-Library nutzt denselben Harvest-Pfad |
-| Lineal | Ruler | `RulerTool` | Voll | Ja (`note.ruler` in JSON; versteckt restauriert) | Snap-Hinweis | Geodreieck-Modus + Größe persistiert |
+| Lineal | Ruler | `RulerTool` | Voll | Ja (`note.ruler`: pos/rot/`compass`/w/h) | Lineal/Geodreieck-Chips + Einrasten | Größe bleibt bei Snap/ensureRulerExists; Modus-Wechsel setzt Default-Größe |
 | Bild | Image | `ImageTool` | Voll | Ja (`harvestImageItemsToNote`); Lasso-Duplikat via `createImageItem` | Opacity | — |
 | Formen | Shape | `ShapeTool` | Voll | Ja (`shape`-Stroke: `fp`-Elemente + `ps`/`fc` in JSON) | Viele Shape-Kinds | Livesmoke: Kinds + Gestrichelt (`ps=2`) + Fill (`fc`) nach Reload |
 | Notiz | StickyNote | `StickyNoteTool` | Voll | Ja (`stickies`) | Farbe, Größe | — |
@@ -44,6 +44,7 @@ Zusätzlich: Graph-UI (`GraphCanvasItem`, Formelzonen) hängt an Formula/Shape; 
 6. ~~**Text Styles**~~ ✅ Config→`applyNewFrameStyle` + Strip F/K/U/Align/Listen + Ctrl+B/I/U/L/E/R in `WordText::handleKey`; HTML-Persistenz; Tabellen bewusst später  
 7. ~~Formula/Molecule Caps~~ ✅ Formula: Strip-Hinweis + Graph-Panel; Molecule: Stub, `btnMolecule` hidden, Picker „folgt später“, nicht in `setupTools` — kein Feature-Creep  
 8. ~~**Lasso Image-Duplicate**~~ ✅ `duplicateSelection` klont `image_item` (Pos+20, Opacity/Rotation/Pixels) → `harvestImageItemsToNote`; Test `image_offsetCloneKeepsPixels`  
+9. ~~**Geodreieck Persistenz**~~ ✅ `setConfig` behält Größe außer bei Modus-Wechsel; Restore sync't `ToolManager.compassMode`; Strip-Chips Lineal/Geodreieck; `bindRulerSignals`+Sync nach ensure/toggle; Ctrl+S flushed harvest; Tests `rulerKeepsSizeWhenSnapToggles` / `note_roundTripKeepsRulerCompassAndSize`
 
 
 

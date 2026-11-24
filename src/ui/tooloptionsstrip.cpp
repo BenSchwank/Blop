@@ -714,6 +714,29 @@ void ToolOptionsStrip::rebuild() {
     break;
   }
   case ToolMode::Ruler: {
+    auto *lineal = chip(QStringLiteral("Lineal"), m_row);
+    auto *geo = chip(QStringLiteral("Geodreieck"), m_row);
+    auto *modeGroup = new QButtonGroup(m_row);
+    modeGroup->setExclusive(true);
+    lineal->setCheckable(true);
+    geo->setCheckable(true);
+    modeGroup->addButton(lineal);
+    modeGroup->addButton(geo);
+    lineal->setChecked(!cfg.compassMode);
+    geo->setChecked(cfg.compassMode);
+    connect(lineal, &QPushButton::clicked, this, [this]() {
+      ToolConfig next = ToolManager::instance().config();
+      next.compassMode = false;
+      publish(next);
+    });
+    connect(geo, &QPushButton::clicked, this, [this]() {
+      ToolConfig next = ToolManager::instance().config();
+      next.compassMode = true;
+      publish(next);
+    });
+    m_rowLay->addWidget(lineal);
+    m_rowLay->addWidget(geo);
+
     auto *snap = new QCheckBox(QStringLiteral("Einrasten"), m_row);
     snap->setFocusPolicy(Qt::NoFocus);
     snap->setChecked(cfg.rulerSnap);

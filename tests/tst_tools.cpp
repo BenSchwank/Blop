@@ -99,6 +99,40 @@ private slots:
     QCOMPARE(r->config().compassMode, true);
   }
 
+  // Snap-only config refresh must not wipe a user-/restored size.
+  void rulerKeepsSizeWhenSnapToggles() {
+    QGraphicsScene scene;
+    scene.setSceneRect(0, 0, 800, 1100);
+    RulerItem *r = RulerTool::ensureRulerExists(&scene, ToolConfig{});
+    r->setBodySizeKeepingCenter(900, 80);
+    ToolConfig c = r->config();
+    c.rulerSnap = !c.rulerSnap;
+    r->setConfig(c);
+    QCOMPARE(r->bodySize().width(), 900.0);
+    QCOMPARE(r->bodySize().height(), 80.0);
+    QCOMPARE(r->config().rulerSnap, c.rulerSnap);
+  }
+
+  // Lineal ↔ Geodreieck switches to the mode's default body size.
+  void rulerCompassModeResetsSize() {
+    QGraphicsScene scene;
+    scene.setSceneRect(0, 0, 800, 1100);
+    RulerItem *r = RulerTool::ensureRulerExists(&scene, ToolConfig{});
+    r->setBodySizeKeepingCenter(900, 80);
+    ToolConfig c;
+    c.compassMode = true;
+    r->setConfig(c);
+    QCOMPARE(r->config().compassMode, true);
+    QCOMPARE(r->bodySize().width(), 520.0);
+    QCOMPARE(r->bodySize().height(), 520.0);
+
+    c.compassMode = false;
+    r->setConfig(c);
+    QCOMPARE(r->config().compassMode, false);
+    QCOMPARE(r->bodySize().width(), 700.0);
+    QCOMPARE(r->bodySize().height(), 80.0);
+  }
+
   // ── Ruler rotate via wheel delta ──
   void rulerRotates() {
     QGraphicsScene scene;

@@ -402,6 +402,9 @@ void NoteEditor::resizeEvent(QResizeEvent *event) {
 
 void NoteEditor::setupShortcuts() {
     new QShortcut(QKeySequence::Save, this, [this]() {
+        // Harvest scene → note (incl. ruler compass/size) before force-save.
+        if (canvas_)
+            canvas_->flushStickyNoteSync();
         if (onSaveRequested && note_) {
             setProperty("forceSave", true);
             onSaveRequested(note_);
