@@ -64,4 +64,10 @@ void setFamily(QGraphicsTextItem *item, const QString &family);
 void setTextColor(QGraphicsTextItem *item, const QColor &color);
 void setListKind(QGraphicsTextItem *item, int kind);
 
+/// Insert a simple bordered table at the cursor (HTML-persisted via toHtml).
+void insertTable(QGraphicsTextItem *item, int rows = 3, int cols = 3);
+/// When the cursor is inside a table: append a row / column.
+void addTableRow(QGraphicsTextItem *item);
+void addTableColumn(QGraphicsTextItem *item);
+
 } // namespace WordText

@@ -13,6 +13,8 @@
 #include <QTextDocument>
 #include <QTextList>
 #include <QTextListFormat>
+#include <QTextTable>
+#include <QTextTableFormat>
 #include <QtMath>
 
 namespace WordText {
@@ -120,12 +122,26 @@ void Item::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
   gridAct->setCheckable(true);
   freeAct->setChecked(m_freeMove);
   gridAct->setChecked(!m_freeMove);
+  menu.addSeparator();
+  QAction *tableAct = menu.addAction(QStringLiteral("Tabelle einfügen (3×3)"));
+  QAction *rowAct = nullptr;
+  QAction *colAct = nullptr;
+  if (textCursor().currentTable()) {
+    rowAct = menu.addAction(QStringLiteral("Zeile darunter"));
+    colAct = menu.addAction(QStringLiteral("Spalte rechts"));
+  }
   QAction *chosen = menu.exec(event->screenPos());
   if (chosen == freeAct) {
     setFreeMove(true);
   } else if (chosen == gridAct) {
     setFreeMove(false);
     setPos(snapPoint(pos(), m_grid));
+  } else if (chosen == tableAct) {
+    insertTable(this, 3, 3);
+  } else if (chosen == rowAct) {
+    addTableRow(this);
+  } else if (chosen == colAct) {
+    addTableColumn(this);
   }
   event->accept();
 }
@@ -270,6 +286,8 @@ bool isFormatKey(const QKeyEvent *event) {
     return true;
   if (!ctrl)
     return false;
+  if (shift && event->key() == Qt::Key_T)
+    return true;
   switch (event->key()) {
   case Qt::Key_B:
   case Qt::Key_I:
@@ -302,6 +320,10 @@ bool handleKey(QGraphicsTextItem *item, QKeyEvent *event) {
     const bool already =
         list && list->format().style() == QTextListFormat::ListDecimal;
     setListKind(item, already ? 0 : 2);
+    return true;
+  }
+  if (ctrl && shift && event->key() == Qt::Key_T) {
+    insertTable(item, 3, 3);
     return true;
   }
   if (ctrl && !shift && event->key() == Qt::Key_B) {
@@ -415,6 +437,48 @@ void setListKind(QGraphicsTextItem *item, int kind) {
                          : QTextListFormat::ListDisc);
   c.createList(fmt);
   item->setTextCursor(c);
+}
+
+void insertTable(QGraphicsTextItem *item, int rows, int cols) {
+  if (!item || rows < 1 || cols < 1)
+    return;
+  QTextCursor c = item->textCursor();
+  QTextTableFormat tf;
+  tf.setBorderStyle(QTextFrameFormat::BorderStyle_Solid);
+  tf.setBorderBrush(QColor(90, 90, 90));
+  tf.setBorder(1.0);
+  tf.setCellPadding(6.0);
+  tf.setCellSpacing(0.0);
+  tf.setWidth(QTextLength(QTextLength::PercentageLength, 100));
+  QTextTable *table = c.insertTable(qBound(1, rows, 12), qBound(1, cols, 12), tf);
+  if (!table)
+    return;
+  // Leave the cursor in the first cell for immediate typing.
+  item->setTextCursor(table->cellAt(0, 0).firstCursorPosition());
+}
+
+void addTableRow(QGraphicsTextItem *item) {
+  if (!item)
+    return;
+  QTextCursor c = item->textCursor();
+  QTextTable *table = c.currentTable();
+  if (!table)
+    return;
+  const int row = table->cellAt(c).row();
+  table->insertRows(row + 1, 1);
+  item->setTextCursor(table->cellAt(row + 1, 0).firstCursorPosition());
+}
+
+void addTableColumn(QGraphicsTextItem *item) {
+  if (!item)
+    return;
+  QTextCursor c = item->textCursor();
+  QTextTable *table = c.currentTable();
+  if (!table)
+    return;
+  const int col = table->cellAt(c).column();
+  table->insertColumns(col + 1, 1);
+  item->setTextCursor(table->cellAt(0, col + 1).firstCursorPosition());
 }
 
 } // namespace WordText

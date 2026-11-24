@@ -487,6 +487,14 @@ void ToolOptionsStrip::rebuild() {
     m_rowLay->addWidget(bullets);
     m_rowLay->addWidget(numbers);
 
+    auto *table = chip(QStringLiteral("Tabelle"), m_row);
+    table->setToolTip(QStringLiteral("Tabelle 3×3 einfügen (Strg+Umschalt+T)"));
+    connect(table, &QPushButton::clicked, this, [this]() {
+      if (QGraphicsTextItem *item = editingItem())
+        WordText::insertTable(item, 3, 3);
+    });
+    m_rowLay->addWidget(table);
+
     auto *left = chip(QStringLiteral("Links"), m_row);
     auto *center = chip(QStringLiteral("Mitte"), m_row);
     auto *right = chip(QStringLiteral("Rechts"), m_row);

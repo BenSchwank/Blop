@@ -15,7 +15,7 @@ Quellen: [`ToolMode.h`](../src/core/ToolMode.h), [`MainWindow::setupTools`](../s
 | Bild | Image | `ImageTool` | Voll | Ja (`harvestImageItemsToNote`); Lasso-Duplikat via `createImageItem` | Opacity | — |
 | Formen | Shape | `ShapeTool` | Voll | Ja (`shape`-Stroke: `fp`-Elemente + `ps`/`fc` in JSON) | Viele Shape-Kinds | Livesmoke: Kinds + Gestrichelt (`ps=2`) + Fill (`fc`) nach Reload |
 | Notiz | StickyNote | `StickyNoteTool` | Voll | Ja (`stickies`) | Farbe, Größe | — |
-| Text | Text | `TextTool` + WordText | Voll (Word-Frames) | Ja (html/freeMove) | Font, Größe, F/K/U, Align, Listen | Styles verdrahtet (Strip+Ctrl+B/I/U); Tabellen bewusst später |
+| Text | Text | `TextTool` + WordText | Voll (Word-Frames) | Ja (html/freeMove; Tabellen in HTML) | Font, Größe, F/K/U, Align, Listen, Tabelle | Strip „Tabelle“ + Ctrl+Shift+T + Kontextmenü; Zeile/Spalte anhängen |
 | Hand | Hand | `HandTool` | Voll | N/A (Pan) | Hinweis | View pannt; Tool gibt false zurück |
 | Formel | Formula | `FormulaTool` | Voll | Graph via `syncGraphItemsToNote` | ehrlicher Hinweis | Sichtbar in Rail/Picker; Tablet-Shim |
 | Molekül | Molecule | `MoleculeTool` | Stub | Nein | Stub-Hinweis | **Nicht in `setupTools` registriert**; Toolbar hidden (bewusst) |
@@ -41,7 +41,8 @@ Zusätzlich: Graph-UI (`GraphCanvasItem`, Formelzonen) hängt an Formula/Shape; 
 3. ~~Shape Rundtrip~~ ✅ Livesmoke: Rechteck/Ellipse/Linie; Gestrichelt zeichnen+JSON `ps=2`+Reload; Fill `fc` hydrate (Unit `note_roundTripKeepsShapeFillDashAndPath`)  
 4. ~~Lasso Nachbearbeitung~~ ✅ Duplicate nutzt `cloneHarvestedStroke` (behält `shape`/`fc`/`ps`); Ctrl+D; Livesmoke: rotes Fill-Rechteck dupliziert → JSON `fc×2`; TransformOverlay+Move  
 5. ~~**Dimension Fläche**~~ ✅ N-Eck (schließen am Start/Doppelklick), diagonale Hatch im Pfad, Label `A=… u²`, Strip-Hinweis; Livesmoke: Preview-Hatch sichtbar  
-6. ~~**Text Styles**~~ ✅ Config→`applyNewFrameStyle` + Strip F/K/U/Align/Listen + Ctrl+B/I/U/L/E/R in `WordText::handleKey`; HTML-Persistenz; Tabellen bewusst später  
+6. ~~**Text Styles**~~ ✅ Config→`applyNewFrameStyle` + Strip F/K/U/Align/Listen + Ctrl+B/I/U/L/E/R in `WordText::handleKey`; HTML-Persistenz  
+6b. ~~**Text-Tabellen**~~ ✅ `insertTable`/`addTableRow`/`addTableColumn`; Strip-Chip; Ctrl+Shift+T; Kontextmenü; HTML-Rundtrip-Test `textHtml_roundTripKeepsTable`  
 7. ~~Formula/Molecule Caps~~ ✅ Formula: Strip-Hinweis + Graph-Panel; Molecule: Stub, `btnMolecule` hidden, Picker „folgt später“, nicht in `setupTools` — kein Feature-Creep  
 8. ~~**Lasso Image-Duplicate**~~ ✅ `duplicateSelection` klont `image_item` (Pos+20, Opacity/Rotation/Pixels) → `harvestImageItemsToNote`; Test `image_offsetCloneKeepsPixels`  
 9. ~~**Geodreieck Persistenz**~~ ✅ `setConfig` behält Größe außer bei Modus-Wechsel; Restore sync't `ToolManager.compassMode`; Strip-Chips Lineal/Geodreieck; `bindRulerSignals`+Sync nach ensure/toggle; Ctrl+S flushed harvest; Tests `rulerKeepsSizeWhenSnapToggles` / `note_roundTripKeepsRulerCompassAndSize`

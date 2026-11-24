@@ -9,6 +9,10 @@
 #include <QImage>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTextCursor>
+#include <QTextDocument>
+#include <QTextTable>
+#include <QTextTableFormat>
 #include <QtTest>
 
 class CoreTests : public QObject {
@@ -301,6 +305,47 @@ private slots:
     QCOMPARE(dup.rotation, 15.0);
     QCOMPARE(dup.image.pixelColor(0, 0), QColor(20, 40, 60));
     QVERIFY(dup.image.size() == src.image.size());
+  }
+
+  void textHtml_roundTripKeepsTable() {
+    QTextDocument doc;
+    QTextCursor c(&doc);
+    QTextTableFormat tf;
+    tf.setBorder(1.0);
+    tf.setCellPadding(4.0);
+    QTextTable *table = c.insertTable(2, 3, tf);
+    QVERIFY(table);
+    table->cellAt(0, 0).firstCursorPosition().insertText(QStringLiteral("A1"));
+
+    const QString html = doc.toHtml();
+    QVERIFY(html.contains(QLatin1String("<table"), Qt::CaseInsensitive));
+    QVERIFY(html.contains(QStringLiteral("A1")));
+
+    Note n;
+    n.id = "tbl-1";
+    n.title = "Tabelle";
+    n.pages.resize(1);
+    TextObject t;
+    t.html = html;
+    t.text = doc.toPlainText();
+    t.pos = QPointF(10, 20);
+    n.pages[0].texts.append(t);
+
+    QTemporaryDir dir;
+    const QString path = dir.filePath("table.bnote");
+    QVERIFY(NoteManager::saveNote(n, path));
+
+    Note out;
+    QVERIFY(NoteManager::loadNote(path, out));
+    QCOMPARE(out.pages[0].texts.size(), 1);
+    QVERIFY(out.pages[0].texts[0].html.contains(QLatin1String("<table"),
+                                                 Qt::CaseInsensitive));
+    QVERIFY(out.pages[0].texts[0].html.contains(QStringLiteral("A1")));
+
+    QTextDocument round;
+    round.setHtml(out.pages[0].texts[0].html);
+    QVERIFY(round.toHtml().contains(QLatin1String("<table"),
+                                    Qt::CaseInsensitive));
   }
 
   void note_roundTripKeepsRulerCompassAndSize() {
