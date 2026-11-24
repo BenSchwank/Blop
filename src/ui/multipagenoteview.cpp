@@ -262,6 +262,17 @@ Stroke harvestStrokeFromItem(QGraphicsItem *item, int pageIdx,
   }
   return s;
 }
+
+/// Clone a scene stroke for duplicate / markup-library, keeping shape/fill/dash
+/// and shifting page-local geometry by `offset`.
+Stroke cloneHarvestedStroke(QGraphicsItem *item, int pageIdx,
+                            const QPointF &pageTopLeft, const QPointF &offset) {
+  Stroke s = harvestStrokeFromItem(item, pageIdx, pageTopLeft);
+  s.path.translate(offset);
+  for (QPointF &pt : s.points)
+    pt += offset;
+  return s;
+}
 } // namespace
 
 class MultiPageNoteView;
@@ -2300,17 +2311,23 @@ QGraphicsPathItem *MultiPageNoteView::createStrokeGraphicsItem(const Stroke &s) 
     tagStrokeItem(item, s);
     return item;
   }
-  QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  // Honour harvested Qt::PenStyle (Dash/Dot from Pen Studio). Hardcoding
+  // SolidLine here used to wipe Gestrichelt/Gepunktet on every stroke commit.
+  const Qt::PenStyle ps = static_cast<Qt::PenStyle>(
+      qBound(int(Qt::SolidLine), s.penStyle, int(Qt::CustomDashLine)));
+  QPen pen(s.color, s.width, ps, Qt::RoundCap, Qt::RoundJoin);
   StrokeItem::StrokeStyle type = StrokeItem::Normal;
   if (s.isEraser) {
     pen.setColor(UIStyles::PageBackground);
     pen.setWidthF(s.width);
+    pen.setStyle(Qt::SolidLine);
     type = StrokeItem::Eraser;
   } else if (s.isHighlighter) {
     QColor c = s.color;
     if (c.alpha() == 255)
       c.setAlpha(80);
     pen.setColor(c);
+    pen.setStyle(Qt::SolidLine);
     type = StrokeItem::Highlighter;
   }
   // Punkte immer mitgeben: ohne Druckwerte (Maus = gleichmaessig) gilt 1.0.
@@ -3685,6 +3702,23 @@ void MultiPageNoteView::keyPressEvent(QKeyEvent *event) {
   if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
     if (!scene_.selectedItems().isEmpty()) {
       deleteSelection();
+      event->accept();
+      return;
+    }
+  }
+  if (event->modifiers() & Qt::ControlModifier) {
+    if (event->key() == Qt::Key_D && !scene_.selectedItems().isEmpty()) {
+      duplicateSelection();
+      event->accept();
+      return;
+    }
+    if (event->key() == Qt::Key_C && !scene_.selectedItems().isEmpty()) {
+      copySelection();
+      event->accept();
+      return;
+    }
+    if (event->key() == Qt::Key_X && !scene_.selectedItems().isEmpty()) {
+      cutSelection();
       event->accept();
       return;
     }
@@ -5356,6 +5390,7 @@ void MultiPageNoteView::duplicateSelection() {
   bool duplicatedGraph = false;
   bool duplicatedText = false;
   bool duplicatedSticky = false;
+  bool duplicatedImage = false;
   bool hasStrokeTargets = false;
   for (QGraphicsItem *item : selected) {
     if (item->type() != GraphCanvasItem::Type &&
@@ -5427,6 +5462,26 @@ void MultiPageNoteView::duplicateSelection() {
       duplicatedSticky = true;
       continue;
     }
+    if (item->data(0).toString() == QLatin1String("image_item")) {
+      auto *pix = qgraphicsitem_cast<QGraphicsPixmapItem *>(item);
+      if (!pix || pix->pixmap().isNull())
+        continue;
+      ImageObject im;
+      im.image = pix->pixmap().toImage();
+      im.pos = pix->pos() + offset;
+      im.width = pix->pixmap().width() * pix->scale();
+      im.height = pix->pixmap().height() * pix->scale();
+      im.opacity = pix->opacity();
+      im.rotation = pix->rotation();
+      int pIdx = pageAt(pix->sceneBoundingRect().center());
+      if (pIdx < 0)
+        pIdx = qBound(0, currentPage_, pageItems_.size() - 1);
+      note_->ensurePage(pIdx);
+      if (auto *copy = createImageItem(im, pIdx))
+        copy->setSelected(true);
+      duplicatedImage = true;
+      continue;
+    }
     // Items, die zu einem Graphen gehören (Formelzonen etc.), überspringen.
     if (item->parentItem() &&
         item->parentItem()->type() == GraphCanvasItem::Type)
@@ -5435,34 +5490,12 @@ void MultiPageNoteView::duplicateSelection() {
     if (!pathItem)
       continue;
 
-    QPainterPath scenePath = pathItem->mapToScene(pathItem->path());
-    scenePath.translate(offset);
-    int pIdx = pageAt(scenePath.boundingRect().center());
+    int pIdx = pageAt(pathItem->sceneBoundingRect().center());
     if (pIdx < 0)
-      pIdx = pageAt(pathItem->sceneBoundingRect().center());
-    if (pIdx < 0)
-      continue;
+      pIdx = qBound(0, currentPage_, pageItems_.size() - 1);
     note_->ensurePage(pIdx);
-    const QPointF pageTopLeft = pageRect(pIdx).topLeft();
-
-    Stroke s;
-    s.pageIndex = pIdx;
-    const QPen pen = pathItem->pen();
-    s.width = pen.widthF();
-    QColor color = pen.color();
-    if (auto *si = dynamic_cast<StrokeItem *>(item)) {
-      s.isEraser = (si->strokeStyle() == StrokeItem::Eraser);
-      s.isHighlighter = (si->strokeStyle() == StrokeItem::Highlighter);
-    } else if (color.alpha() < 255) {
-      s.isHighlighter = true;
-    }
-    if (s.isHighlighter)
-      color.setAlpha(255);
-    s.color = color;
-    s.path = scenePath.translated(-pageTopLeft);
-    for (int i = 0; i < s.path.elementCount(); ++i)
-      s.points.append(QPointF(s.path.elementAt(i).x, s.path.elementAt(i).y));
-
+    // Harvest (shape/fc/ps/filled) then shift — same page as source.
+    Stroke s = cloneHarvestedStroke(item, pIdx, pageRect(pIdx).topLeft(), offset);
     pushStrokeUndoCommand(pIdx, std::move(s));
   }
 
@@ -5474,7 +5507,9 @@ void MultiPageNoteView::duplicateSelection() {
     syncTextItemsToNote();
   if (duplicatedSticky)
     syncStickyNotesToNote();
-  if (duplicatedGraph || duplicatedText || duplicatedSticky)
+  if (duplicatedImage)
+    harvestImageItemsToNote();
+  if (duplicatedGraph || duplicatedText || duplicatedSticky || duplicatedImage)
     pushPageSnapshotCommand(before, tr("Duplicate selection"));
   onSelectionChanged();
 }
@@ -5515,27 +5550,14 @@ void MultiPageNoteView::addSelectionToMarkupLibrary() {
     if (!pathItem)
       continue;
 
-    QPainterPath scenePath = pathItem->mapToScene(pathItem->path());
-    scenePath.translate(-origin);
-
-    Stroke s;
+    // Origin is scene-space; harvest is page-local — use a fake page origin at
+    // the selection top-left so library strokes stay origin-relative.
+    Stroke s = cloneHarvestedStroke(item, 0, origin, QPointF(0, 0));
     s.pageIndex = 0;
-    const QPen pen = pathItem->pen();
-    s.width = pen.widthF();
-    QColor color = pen.color();
-    if (auto *si = dynamic_cast<StrokeItem *>(item)) {
-      s.isEraser = (si->strokeStyle() == StrokeItem::Eraser);
-      s.isHighlighter = (si->strokeStyle() == StrokeItem::Highlighter);
-    } else if (color.alpha() < 255) {
-      s.isHighlighter = true;
-    }
-    if (s.isHighlighter)
-      color.setAlpha(255);
-    s.color = color;
-    preview = color;
-    s.path = scenePath;
-    for (int i = 0; i < s.path.elementCount(); ++i)
-      s.points.append(QPointF(s.path.elementAt(i).x, s.path.elementAt(i).y));
+    if (pathItem->pen().style() != Qt::NoPen)
+      preview = pathItem->pen().color();
+    else if (pathItem->brush().style() != Qt::NoBrush)
+      preview = pathItem->brush().color();
     strokes.append(s);
   }
   if (strokes.isEmpty())

@@ -56,6 +56,31 @@ protected:
         qreal w = m_config.penWidth;
         if (m_config.penStrokeStyle == PenStrokeStyle::Fineliner)
             w = qMax(0.5, w); // fixed width — pressure ignored in stroke tool
+
+        // Pen Studio "Bleistift": textured ink without leaving ToolMode::Pen
+        // (note chrome only exposes Stift; ToolMode::Pencil stays its own rail).
+        if (m_config.penStrokeStyle == PenStrokeStyle::Pencil) {
+            double hardnessFactor = (m_config.hardness / 100.0) * 0.5;
+            double finalAlpha = m_config.opacity * (1.0 - hardnessFactor);
+            c.setAlphaF(std::max(0.05, finalAlpha));
+            QPen pen;
+            pen.setWidthF(w);
+            pen.setCapStyle(Qt::RoundCap);
+            pen.setJoinStyle(Qt::RoundJoin);
+            int noiseDensity = 50;
+            if (m_config.texture == "Fein")
+                noiseDensity = 25;
+            else if (m_config.texture == "Grob")
+                noiseDensity = 65;
+            else if (m_config.texture == "Kohle") {
+                noiseDensity = 80;
+                pen.setWidthF(pen.widthF() * 1.2);
+            }
+            pen.setBrush(QBrush(getNoiseTexture(c, noiseDensity)));
+            pen.setStyle(Qt::SolidLine);
+            return pen;
+        }
+
         QPen pen(c, w);
         pen.setCapStyle(m_config.penStrokeStyle == PenStrokeStyle::Calligraphy
                             ? Qt::FlatCap

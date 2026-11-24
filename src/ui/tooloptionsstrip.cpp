@@ -771,6 +771,10 @@ void ToolOptionsStrip::rebuild() {
     addKind(QStringLiteral("Länge"), DimensionKind::Length);
     addKind(QStringLiteral("Winkel"), DimensionKind::Angle3Point);
     addKind(QStringLiteral("Fläche"), DimensionKind::Area);
+    if (cfg.dimensionKind == DimensionKind::Area) {
+      addHint(QStringLiteral(
+          "Fläche: Eckpunkte klicken, am Start schließen (oder Doppelklick)."));
+    }
     auto *lbl = new QLabel(QStringLiteral("Maßstab/Kästchen"), m_row);
     auto *s = widthSlider(1, 100,
                           qBound(1, int(qRound(cfg.measureUnitsPerCell * 10.0)),

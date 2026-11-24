@@ -6,20 +6,20 @@ Quellen: [`ToolMode.h`](../src/core/ToolMode.h), [`MainWindow::setupTools`](../s
 
 | UI | Mode | Klasse | Status | Persistenz A4 | Chrome/Strip | Bekannte Lücken |
 |---|---|---|---|---|---|---|
-| Stift | Pen | `PenTool` | Voll | Ja (Strokes harvest) | Farbe, Dicke-Overlay, Druck | Basis neu geschrieben (clean v2) |
-| Bleistift | Pencil | `PencilTool` | Voll | Ja | Farbe, Dicke, Textur, Härte | Basis neu geschrieben (clean v2) |
-| Marker | Highlighter | `HighlighterTool` | Voll | Ja | Farbe, Dicke, Gerade | Basis neu geschrieben (clean v2) |
-| Radierer | Eraser | `EraserTool` | Teil→P0 gefixt | `contentModified` → `scheduleStrokeSync`; filled-Pfade | Pixel/Objekt, Breite, Tinte behalten | Reload manuell prüfen |
-| Auswahl | Lasso | `LassoTool` | Voll (Auswahl) | N/A (Selektion) | Freihand/Rechteck | — |
+| Stift | Pen | `PenTool` | Voll | Ja (Strokes harvest; `ps` für Dash/Dot) | Farbe, Dicke-Overlay, Druck | Hold-Config + Dash/Dot commit+JSON |
+| Bleistift | Pencil | `PencilTool` | Voll | Ja | Farbe, Dicke, Textur, Härte | Hold-Config verdrahtet (P0 Inventory-Pass) |
+| Marker | Highlighter | `HighlighterTool` | Voll | Ja | Farbe, Dicke, Gerade | Hold-Config verdrahtet (P0 Inventory-Pass) |
+| Radierer | Eraser | `EraserTool` | Voll | `contentModified` → `scheduleStrokeSync`; filled-Pfade (`fp`+OddEvenFill) | Pixel/Objekt, Breite, Tinte behalten | Livesmoke Reload: Pixel-Löcher bleiben (JSON `f=true` + UI) |
+| Auswahl | Lasso | `LassoTool` | Voll (Auswahl) | Duplizieren via harvest (`shape`/`fc`/`ps`) + Text/Sticky/Image/Graph; Move+TransformOverlay | Freihand/Rechteck; Ctrl+D/C/X | Markup-Library nutzt denselben Harvest-Pfad |
 | Lineal | Ruler | `RulerTool` | Voll | Ja (`note.ruler` in JSON; versteckt restauriert) | Snap-Hinweis | Geodreieck-Modus + Größe persistiert |
-| Bild | Image | `ImageTool` | Voll | Ja (`harvestImageItemsToNote`) | Opacity | — |
-| Formen | Shape | `ShapeTool` | Voll | Ja (`shape`-Stroke: `fp`-Elemente + `ps`/`fc` in JSON) | Viele Shape-Kinds | Reload hält Kontur+Fill+Dashes; Rundtrip prüfen |
+| Bild | Image | `ImageTool` | Voll | Ja (`harvestImageItemsToNote`); Lasso-Duplikat via `createImageItem` | Opacity | — |
+| Formen | Shape | `ShapeTool` | Voll | Ja (`shape`-Stroke: `fp`-Elemente + `ps`/`fc` in JSON) | Viele Shape-Kinds | Livesmoke: Kinds + Gestrichelt (`ps=2`) + Fill (`fc`) nach Reload |
 | Notiz | StickyNote | `StickyNoteTool` | Voll | Ja (`stickies`) | Farbe, Größe | — |
-| Text | Text | `TextTool` + WordText | Voll (Word-Frames) | Ja (html/freeMove) | Font, Größe, Format | Keine Tabellen/Styles |
+| Text | Text | `TextTool` + WordText | Voll (Word-Frames) | Ja (html/freeMove) | Font, Größe, F/K/U, Align, Listen | Styles verdrahtet (Strip+Ctrl+B/I/U); Tabellen bewusst später |
 | Hand | Hand | `HandTool` | Voll | N/A (Pan) | Hinweis | View pannt; Tool gibt false zurück |
 | Formel | Formula | `FormulaTool` | Voll | Graph via `syncGraphItemsToNote` | ehrlicher Hinweis | Sichtbar in Rail/Picker; Tablet-Shim |
 | Molekül | Molecule | `MoleculeTool` | Stub | Nein | Stub-Hinweis | **Nicht in `setupTools` registriert**; Toolbar hidden (bewusst) |
-| Bemaßung | Dimension | `DimensionTool` | Voll | Ja (`shape`-Stroke, Label im Pfad gebacken) | Kind-Chips + Maßstab | Fläche = leichte Schraffur; Tablet-Shim |
+| Bemaßung | Dimension | `DimensionTool` | Voll | Ja (`shape`-Stroke, Label+Hatch im Pfad gebacken) | Kind-Chips + Maßstab; Fläche-Hinweis | Fläche = N-Eck + diagonale Hatch + `A=… u²`; Schließen am Start/Doppelklick |
 | Laser | Laser | `LaserTool` | Voll (ephemer) | Absichtlich nie | default | Overlay-Fade; kein Undo |
 
 Zusätzlich: Graph-UI (`GraphCanvasItem`, Formelzonen) hängt an Formula/Shape; Math unter [`tools/math/`](../tools/math/).
@@ -32,6 +32,20 @@ Zusätzlich: Graph-UI (`GraphCanvasItem`, Formelzonen) hängt an Formula/Shape; 
 4. ~~Dimension Persistenz + Strip~~ ✅ (`shape_item`-Harvest, Label gebacken, Multi-Click fix)  
 5. ~~Molecule registrieren oder UI entfernen~~ ✅ (bleibt Stub, überall ehrlich versteckt)  
 6. ~~Ruler Persistenz-Audit~~ ✅ (`RulerItem::changed` → `syncStrokesToNote` → `note.ruler`)  
+
+### Inventory-Pass (Funktionen, schwächstes zuerst)
+
+1. ~~Ink Hold-Config ehrlich~~ ✅ (`AbstractStrokeTool`: `holdEnable*` + `holdStillDelayMs` + `holdShapeSensitivity`; Linie bleibt offen; Test `inkHoldDisabledKeepsFreehand`)  
+2. ~~Eraser Reload-Smoke~~ ✅ Pixel-Löcher bleiben nach Speichern/Relaunch (`f`+`fp` in `.bnote`; UI-Zoom). Hole-Roundtrip-Test in `tst_core`. Objekt-Modus Strip vorhanden (Pixel/Objekt); Delete-Pfad = `contentModified`→sync  
+
+3. ~~Shape Rundtrip~~ ✅ Livesmoke: Rechteck/Ellipse/Linie; Gestrichelt zeichnen+JSON `ps=2`+Reload; Fill `fc` hydrate (Unit `note_roundTripKeepsShapeFillDashAndPath`)  
+4. ~~Lasso Nachbearbeitung~~ ✅ Duplicate nutzt `cloneHarvestedStroke` (behält `shape`/`fc`/`ps`); Ctrl+D; Livesmoke: rotes Fill-Rechteck dupliziert → JSON `fc×2`; TransformOverlay+Move  
+5. ~~**Dimension Fläche**~~ ✅ N-Eck (schließen am Start/Doppelklick), diagonale Hatch im Pfad, Label `A=… u²`, Strip-Hinweis; Livesmoke: Preview-Hatch sichtbar  
+6. ~~**Text Styles**~~ ✅ Config→`applyNewFrameStyle` + Strip F/K/U/Align/Listen + Ctrl+B/I/U/L/E/R in `WordText::handleKey`; HTML-Persistenz; Tabellen bewusst später  
+7. ~~Formula/Molecule Caps~~ ✅ Formula: Strip-Hinweis + Graph-Panel; Molecule: Stub, `btnMolecule` hidden, Picker „folgt später“, nicht in `setupTools` — kein Feature-Creep  
+8. ~~**Lasso Image-Duplicate**~~ ✅ `duplicateSelection` klont `image_item` (Pos+20, Opacity/Rotation/Pixels) → `harvestImageItemsToNote`; Test `image_offsetCloneKeepsPixels`  
+
+
 
 ## Gemini-Argon Master-Prompt
 

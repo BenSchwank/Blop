@@ -83,13 +83,28 @@ public:
         QPen segPen = pen();
         segPen.setCapStyle(Qt::RoundCap);
         segPen.setJoinStyle(Qt::RoundJoin);
+        painter->setBrush(Qt::NoBrush);
+
+        // Dash/Dot need one continuous path — per-segment drawPath resets the
+        // pattern and makes dashed/dotted strokes look solid on canvas.
+        const Qt::PenStyle ps = segPen.style();
+        if (ps == Qt::DashLine || ps == Qt::DotLine || ps == Qt::DashDotLine ||
+            ps == Qt::DashDotDotLine || ps == Qt::CustomDashLine) {
+            QVector<QPointF> pts;
+            pts.reserve(m_points.size());
+            for (const StrokePoint &sp : m_points)
+                pts.append(sp.pos);
+            painter->setPen(segPen);
+            painter->drawPath(smoothStrokePath(pts));
+            return;
+        }
+
         const qreal baseWidth = segPen.widthF();
         auto widthAt = [&](int seg) {
             const qreal avg = (m_points[seg].pressure + m_points[seg + 1].pressure) * 0.5;
             return baseWidth * qMax(0.1, avg);
         };
 
-        painter->setBrush(Qt::NoBrush);
         const int lastSeg = m_points.size() - 2;
         for (int i = 0; i <= lastSeg; ) {
             const qreal w = widthAt(i);

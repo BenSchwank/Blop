@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QGraphicsPathItem>
 #include <QGraphicsScene>
 #include <QGraphicsSceneMouseEvent>
 #include <QEvent>
@@ -9,6 +10,7 @@
 #include "tools/LassoTool.h"
 #include "tools/RulerTool.h"
 #include "tools/ShapeTool.h"
+#include "tools/DimensionTool.h"
 #include "tools/StrokeItem.h"
 #include "PageItem.h"
 
@@ -170,6 +172,12 @@ private slots:
     QGraphicsScene scene;
     scene.setSceneRect(0, 0, 800, 1100);
     PenTool tool;
+    ToolConfig cfg = tool.config();
+    cfg.holdEnableLine = true;
+    cfg.holdEnableCircle = true;
+    cfg.holdEnableTriangle = true;
+    cfg.holdStillDelayMs = 350;
+    tool.setConfig(cfg);
     tool.handleMousePress(mouseEv(QEvent::GraphicsSceneMousePress,
                                   QPointF(100, 100)),
                           &scene);
@@ -190,6 +198,71 @@ private slots:
     auto *item = tool.lastCompletedItem();
     QVERIFY(item);
     QCOMPARE(item->data(0).toString(), QStringLiteral("shape_item"));
+  }
+
+  // ── Hold toggles off → freehand stays freehand even after pause ──
+  void inkHoldDisabledKeepsFreehand() {
+    QGraphicsScene scene;
+    scene.setSceneRect(0, 0, 800, 1100);
+    PenTool tool;
+    ToolConfig cfg = tool.config();
+    cfg.holdEnableLine = false;
+    cfg.holdEnableCircle = false;
+    cfg.holdEnableTriangle = false;
+    tool.setConfig(cfg);
+    tool.handleMousePress(mouseEv(QEvent::GraphicsSceneMousePress,
+                                  QPointF(100, 100)),
+                          &scene);
+    const QPointF corners[] = {{100, 100}, {300, 98}, {302, 250},
+                               {98, 252}, {100, 100}};
+    for (int c = 0; c < 4; ++c) {
+      const QLineF seg(corners[c], corners[c + 1]);
+      for (int i = 1; i <= 20; ++i)
+        tool.handleMouseMove(mouseEv(QEvent::GraphicsSceneMouseMove,
+                                     seg.pointAt(i / 20.0)),
+                             &scene);
+    }
+    QTest::qWait(400);
+    tool.handleMouseRelease(
+        mouseEv(QEvent::GraphicsSceneMouseRelease, corners[4], Qt::NoButton),
+        &scene);
+    auto *item = tool.lastCompletedItem();
+    QVERIFY(item);
+    QVERIFY(item->data(0).toString() != QStringLiteral("shape_item"));
+  }
+
+  // ── Dimension Area: N-gon close + shoelace label baked into path ──
+  void dimensionAreaPolygon() {
+    QGraphicsScene scene;
+    scene.setSceneRect(0, 0, 800, 1100);
+    DimensionTool tool;
+    ToolConfig cfg = tool.config();
+    cfg.dimensionKind = DimensionKind::Area;
+    // unitsPerPx = 18.9/18.9 = 1 → area in px²
+    cfg.measureUnitsPerCell = 18.9;
+    tool.setConfig(cfg);
+
+    const QVector<QPointF> corners = {
+        {50, 50}, {150, 50}, {150, 150}, {50, 150}};
+    auto click = [&](const QPointF &pt) {
+      QVERIFY(tool.handleMousePress(
+          mouseEv(QEvent::GraphicsSceneMousePress, pt), &scene));
+      QVERIFY(tool.handleMouseRelease(
+          mouseEv(QEvent::GraphicsSceneMouseRelease, pt, Qt::NoButton),
+          &scene));
+    };
+    for (const QPointF &pt : corners)
+      click(pt);
+    // Close by clicking near the first vertex.
+    QVERIFY(tool.handleMousePress(
+        mouseEv(QEvent::GraphicsSceneMousePress, QPointF(52, 51)), &scene));
+    auto *item = qgraphicsitem_cast<QGraphicsPathItem *>(
+        tool.lastCompletedItem());
+    QVERIFY(item);
+    QCOMPARE(item->data(0).toString(), QStringLiteral("shape_item"));
+    // 100×100 square → A=10000.00 u²
+    QCOMPARE(item->toolTip(), QStringLiteral("A=10000.00 u²"));
+    QVERIFY(item->path().elementCount() > 8); // outline + hatch strips
   }
 
   // ── Shape tool emits a selectable shape_item ──

@@ -214,6 +214,10 @@ QJsonDocument NoteManager::toJson(const Note &note) {
         pts.append(a);
       }
       so["pts"] = pts;
+      // Pen Studio Dash/Dot (and shape outlines) — without this, reload
+      // rebuilds every ink stroke as SolidLine.
+      if (s.penStyle != int(Qt::SolidLine))
+        so["ps"] = s.penStyle;
       strokesArr.append(so);
     }
     QJsonObject pageObj;
@@ -459,6 +463,7 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       }
       if (!anyPressure)
         s.pressures.clear();
+      s.penStyle = so.value("ps").toInt(int(Qt::SolidLine));
       // Rebuild path
       QPainterPath path;
       if (!s.points.isEmpty()) {

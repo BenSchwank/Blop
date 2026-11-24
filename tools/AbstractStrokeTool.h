@@ -162,8 +162,14 @@ protected:
     if (!m_currentItem)
       return false;
     // Ink-to-shape: holding still before release fits a clean figure.
-    // Freehand strokes (no pause) are never touched.
-    if (m_points.size() >= 8 && m_moveClock.elapsed() >= 350) {
+    // Freehand strokes (no pause) are never touched. Studio toggles in
+    // ToolConfig gate which figures are allowed; delay comes from
+    // holdStillDelayMs (not a hardcoded 350).
+    const bool anyHold = m_config.holdEnableLine || m_config.holdEnableCircle ||
+                         m_config.holdEnableTriangle;
+    const int delayMs = qBound(200, m_config.holdStillDelayMs, 900);
+    if (anyHold && m_points.size() >= 8 &&
+        m_moveClock.elapsed() >= delayMs) {
       const QVector<QPointF> fit = fitShape(m_points);
       if (!fit.isEmpty()) {
         m_points.clear();
@@ -192,7 +198,10 @@ protected:
       path.moveTo(m_points.first().pos);
       for (int i = 1; i < m_points.size(); ++i)
         path.lineTo(m_points[i].pos);
-      path.closeSubpath();
+      // Open line fits stay open; closed polys already include the
+      // start point as last vertex (or ellipse sample ring).
+      if (m_points.size() > 2)
+        path.closeSubpath();
     } else {
       QVector<QPointF> pts;
       pts.reserve(m_points.size());
@@ -245,6 +254,8 @@ private:
   /// Fit line/triangle/rect/ellipse from a finished stroke. Empty = keep
   /// freehand. The result replaces stroke points (polygon vertices or a
   /// sampled ellipse) and is tagged "shape_item" for vector persistence.
+  /// Respects holdEnableLine / holdEnableCircle / holdEnableTriangle and
+  /// holdShapeSensitivity (0 = strict, 100 = forgiving).
   QVector<QPointF> fitShape(const QVector<StrokePoint> &in) const {
     QVector<QPointF> src;
     src.reserve(in.size());
@@ -257,34 +268,50 @@ private:
     for (const QPointF &p : src)
       bb = bb.united(QRectF(p, QSizeF(0.01, 0.01)));
     const qreal diag = std::hypot(bb.width(), bb.height());
-    if (diag < 30.0)
+    const qreal sens =
+        qBound(0, m_config.holdShapeSensitivity, 100) / 100.0;
+    // Strict (0) needs a larger gesture; forgiving (100) accepts smaller.
+    const qreal minDiag = 36.0 - 18.0 * sens;
+    if (diag < minDiag)
       return {};
 
     QVector<QPointF> simp;
-    rdpRecurse(src, 0, src.size() - 1, diag * 0.045, simp);
+    const qreal rdpEps = diag * (0.025 + 0.040 * sens);
+    rdpRecurse(src, 0, src.size() - 1, rdpEps, simp);
     if (simp.size() >= 2 && simp.first() == simp.last())
       simp.removeLast(); // closed ring: drop duplicated endpoint
 
     // LINE
-    if (simp.size() <= 2)
+    if (m_config.holdEnableLine && simp.size() <= 2)
       return {src.first(), src.last()};
 
     const qreal closeGap =
         QLineF(src.first(), src.last()).length() / qMax(1.0, diag);
+    // Strict → smaller allowed gap between start/end for closed shapes.
+    const qreal closeMax = 0.18 + 0.22 * sens;
 
     // TRIANGLE / RECTANGLE — need a roughly closed loop.
-    if (closeGap < 0.30 && simp.size() >= 3 && simp.size() <= 5) {
+    // Rect shares the "Form" gate with circle/triangle (no separate flag).
+    const bool allowPoly =
+        m_config.holdEnableTriangle || m_config.holdEnableCircle;
+    if (allowPoly && closeGap < closeMax && simp.size() >= 3 &&
+        simp.size() <= 5) {
       QVector<QPointF> poly = simp;
       if (poly.size() == 5)
         poly.removeLast(); // rare: endpoint counted twice
-      if (poly.size() == 3 || poly.size() == 4) {
+      if (poly.size() == 3 && m_config.holdEnableTriangle) {
+        poly.append(poly.first()); // close
+        return poly;
+      }
+      if (poly.size() == 4) {
         poly.append(poly.first()); // close
         return poly;
       }
     }
 
     // ELLIPSE — closed, many vertices.
-    if (closeGap < 0.30 && simp.size() > 4) {
+    if (m_config.holdEnableCircle && closeGap < closeMax &&
+        simp.size() > 4) {
       QPainterPath el;
       el.addEllipse(bb);
       const auto poly = el.toSubpathPolygons().first();

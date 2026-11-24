@@ -425,7 +425,7 @@ void PenStudioPopover::applyChrome() {
 void PenStudioPopover::applyStyle(int style) {
   auto &bridge = ToolUIBridge::instance();
   bridge.setPenStrokeStyle(style);
-  // Pencil feel: route to pencil tool when Bleistift selected.
+  // Bleistift: textured PenTool ink (see PenTool::createPen) + softer stroke.
   if (style == int(PenStrokeStyle::Pencil))
     bridge.setSmoothing(35);
   else if (style == int(PenStrokeStyle::Fountain) || style == int(PenStrokeStyle::Calligraphy))
