@@ -1028,9 +1028,37 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             raise Exception(f"Fehler beim Lernplan-Generieren: {str(e)}")
 
     _EXAM_PRESETS = {
-        "short": {"target_q": 12, "time_limit_sec": 900, "label": "Kurz (15 Min)"},
-        "standard": {"target_q": 20, "time_limit_sec": 2700, "label": "Standard (45 Min)"},
-        "full": {"target_q": 28, "time_limit_sec": 5400, "label": "Vollständig (90 Min)"},
+        # Fewer, heavier Aufgaben — more like a real written exam than a quiz drill.
+        "short": {
+            "target_q": 6,
+            "time_limit_sec": 1200,
+            "label": "Kurz (20 Min)",
+            "total_points": 20,
+            "pass_percent": 50,
+        },
+        "standard": {
+            "target_q": 10,
+            "time_limit_sec": 2700,
+            "label": "Standard (45 Min)",
+            "total_points": 40,
+            "pass_percent": 50,
+        },
+        "full": {
+            "target_q": 14,
+            "time_limit_sec": 5400,
+            "label": "Vollständig (90 Min)",
+            "total_points": 80,
+            "pass_percent": 50,
+        },
+    }
+
+    _EXAM_DEFAULT_POINTS = {
+        "mc": 2,
+        "true_false": 1,
+        "cloze": 3,
+        "short_answer": 5,
+        "matching": 4,
+        "drawing": 6,
     }
 
     @staticmethod
@@ -1039,6 +1067,175 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
         if key not in AIService._EXAM_PRESETS:
             key = "standard"
         return {"key": key, **AIService._EXAM_PRESETS[key]}
+
+    @staticmethod
+    def _exam_default_points(qtype: str) -> int:
+        return int(AIService._EXAM_DEFAULT_POINTS.get(str(qtype or "mc").strip().lower(), 3))
+
+    @staticmethod
+    def _normalize_one_exam_question(q: Dict[str, Any], qi: int) -> Optional[Dict[str, Any]]:
+        """Normalize one Probeklausur item; returns None if unusable."""
+        if not isinstance(q, dict):
+            return None
+        prompt_q = _finalize_study_markdown(str(q.get("prompt") or ""))
+        answer = _finalize_study_markdown(str(q.get("answer") or ""))
+        explanation = _finalize_study_markdown(str(q.get("explanation") or ""))
+        ctype = str(q.get("type") or "mc").strip().lower()
+        is_cloze = ctype in ("cloze", "fill", "lueckentext", "lückentext")
+        is_short = ctype in ("short_answer", "short", "freitext", "code", "open")
+        is_match = ctype in ("matching", "match", "zuordnen", "verbinden", "connect", "pairs")
+        is_drawing = ctype in (
+            "drawing", "draw", "sketch", "diagram", "pap", "flowchart", "bild", "zeichnen",
+        )
+        blanks_raw = q.get("blanks") if isinstance(q.get("blanks"), list) else []
+        blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
+        options = q.get("options") if isinstance(q.get("options"), list) else []
+        options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
+        accepted_raw = q.get("accepted_answers") if isinstance(q.get("accepted_answers"), list) else []
+        accepted_answers = [
+            _finalize_study_markdown(str(a)).strip()
+            for a in accepted_raw
+            if str(a).strip()
+        ][:8]
+        rubric_raw = q.get("rubric") if isinstance(q.get("rubric"), list) else []
+        rubric = [
+            _finalize_study_markdown(str(r)).strip()
+            for r in rubric_raw
+            if str(r).strip()
+        ][:8]
+        pairs_raw = q.get("pairs") if isinstance(q.get("pairs"), list) else []
+        if is_match and pairs_raw and (len(options) < 2 or len(blanks) < 2):
+            lefts, rights = [], []
+            for p in pairs_raw:
+                if not isinstance(p, dict):
+                    continue
+                L = _finalize_study_markdown(str(p.get("left") or p.get("term") or ""))
+                R = _finalize_study_markdown(
+                    str(p.get("right") or p.get("def") or p.get("definition") or "")
+                )
+                if L and R:
+                    lefts.append(L)
+                    rights.append(R)
+            if len(lefts) >= 2:
+                options, blanks = lefts, rights
+        chapter_id = str(q.get("chapter_id") or q.get("topic_id") or "").strip() or None
+        if not prompt_q:
+            return None
+        qid = str(q.get("id") or f"ex-q{qi + 1}").strip() or f"ex-q{qi + 1}"
+        task_label = str(q.get("task_label") or q.get("label") or "").strip()
+        if not task_label:
+            task_label = f"Aufgabe {qi + 1}"
+        try:
+            points = int(q.get("points") or 0)
+        except Exception:
+            points = 0
+
+        row: Optional[Dict[str, Any]] = None
+        if is_match:
+            if len(options) < 2 or len(blanks) < 2 or len(options) != len(blanks):
+                return None
+            if not answer:
+                answer = " | ".join(blanks)
+            row = {
+                "id": qid,
+                "type": "matching",
+                "prompt": prompt_q or "Ordne die Paare zu.",
+                "options": options,
+                "blanks": blanks,
+                "answer": answer,
+                "explanation": explanation,
+            }
+        elif is_cloze:
+            brace_answers = [_finalize_study_markdown(m) for m in re.findall(r"\{\{([^}]*)\}\}", prompt_q)]
+            if not blanks:
+                blanks = [b for b in brace_answers if b]
+            if not blanks and answer:
+                blanks = [answer]
+            if not blanks:
+                return None
+            if not answer:
+                answer = " | ".join(blanks)
+            row = {
+                "id": qid,
+                "type": "cloze",
+                "prompt": prompt_q,
+                "options": [],
+                "blanks": blanks,
+                "answer": answer,
+                "explanation": explanation,
+            }
+            if accepted_answers:
+                row["accepted_answers"] = accepted_answers
+        elif is_short:
+            if not answer:
+                return None
+            row = {
+                "id": qid,
+                "type": "short_answer",
+                "prompt": prompt_q,
+                "options": [],
+                "blanks": blanks,
+                "answer": answer,
+                "explanation": explanation,
+            }
+            if accepted_answers:
+                row["accepted_answers"] = accepted_answers
+        elif is_drawing:
+            if not answer:
+                answer = "; ".join(rubric) if rubric else "Sinnvolle Skizze zur Aufgabenstellung"
+            row = {
+                "id": qid,
+                "type": "drawing",
+                "prompt": prompt_q,
+                "options": [],
+                "answer": answer,
+                "explanation": explanation,
+                "allow_upload": q.get("allow_upload") is not False,
+            }
+            if rubric:
+                row["rubric"] = rubric
+            if accepted_answers:
+                row["accepted_answers"] = accepted_answers
+        else:
+            if not answer:
+                return None
+            if len(options) < 2:
+                options = ["Richtig", "Falsch"] if answer in ("Richtig", "Falsch") else [answer, "Andere Antwort"]
+            row = {
+                "id": qid,
+                "type": "true_false" if ctype in ("true_false", "truefalse", "tf") else "mc",
+                "prompt": prompt_q,
+                "options": options,
+                "answer": answer,
+                "explanation": explanation,
+            }
+
+        if chapter_id:
+            row["chapter_id"] = chapter_id
+        if points <= 0:
+            points = AIService._exam_default_points(row["type"])
+        row["points"] = max(1, min(20, points))
+        row["task_label"] = task_label[:40]
+        return row
+
+    @staticmethod
+    def _exam_prompt_rules(preset: Dict[str, Any]) -> str:
+        """Shared realism rules for Probeklausur generation."""
+        tq = int(preset["target_q"])
+        tp = int(preset.get("total_points") or tq * 4)
+        tls = int(preset["time_limit_sec"])
+        return f"""
+PROBEKLAUSUR — wie eine echte schriftliche Prüfung (KEIN Quiz-Drill):
+- Genau {tq - 1}–{tq + 1} Aufgaben (nicht {tq * 2}+ Mini-Quizfragen).
+- Summe der points ≈ {tp} (±10%). time_limit_sec = {tls}.
+- Jede Aufgabe: id, task_label (z. B. "Aufgabe 1", "Aufgabe 2a"), points, type, prompt, answer, explanation, chapter_id.
+- Typen-Mix (Pflicht): mind. 40% short_answer ODER cloze; höchstens 30% mc/true_false; mind. 1 matching; bei Diagramm-Stoff mind. 1 drawing.
+- Schwierigkeit: Transfer & Anwendung, typische Klausur-Fallstricke, Mehrschritt-Aufgaben. VERBOTEN: reine Definitionswiederholung aus dem Lernpfad, „Was ist X?“-MC ohne Nachdenken, Copy der Lesson-Checks.
+- short_answer: prüfungstypische Rechen-/Erklär-/Vergleichsaufgaben mit Musterlösung + accepted_answers (2–5 Varianten) + optional blanks (Keywords).
+- mc: nur mit plausiblen Distraktoren (häufige Fehler), 4 Optionen.
+- Titel prüfungsnah (Fach + „Probeklausur“). Feld instructions: 1–3 Sätze (Hilfsmittel, Hinweise, Bestehen ca. 50%).
+- total_points: {tp}, pass_percent: 50.
+""".strip()
 
     @staticmethod
     def _smart_learning_scope(
@@ -1192,7 +1389,8 @@ STOFFDICHTE: {scope["label"]}{days_hint} — Ziel {scope["min_chapters"]}–{sco
 SCHWIERIGKEIT: {diff} — {diff_hint}
 FOKUS-MODUS: {fmode} — {focus_hint}
 FRAGEN-FREQUENZ (UI): {freq} (nur Hinweis; Checks pro Lesson trotzdem liefern)
-PROBEKLAUSUR-ZIEL: ca. {preset["target_q"]} Fragen, time_limit_sec ≈ {preset["time_limit_sec"]}
+PROBEKLAUSUR-ZIEL: ca. {preset["target_q"]} Aufgaben, ~{preset.get("total_points", preset["target_q"] * 4)} Punkte, time_limit_sec ≈ {preset["time_limit_sec"]}
+{AIService._exam_prompt_rules(preset)}
 {custom_block}
 {MATH_ACCURACY_INSTRUCTIONS}
 
@@ -1215,7 +1413,7 @@ ANFORDERUNGEN:
    - flashcards: {scope["flashcards_per_lesson"]} kurze Karteikarten (front/back) zur Lesson — Begriff/Frage → kurze Antwort. KEINE Rechenaufgaben.
    - Pro Kapitel mindestens EINE Lesson mit type "cloze" und mindestens EINE mit type "matching".
    - Wenn das Material Diagramme/Abläufe/PAPs nahelegt: mindestens EINE Lesson mit type "drawing" in der gesamten Reise.
-4. exam (Probeklausur): {preset["target_q"] - 2}–{preset["target_q"] + 2} Fragen gemischt aus mc / true_false / cloze / short_answer / matching / drawing über ALLE Kapitel; jede Frage mit chapter_id (z. B. "ch1"); time_limit_sec {preset["time_limit_sec"]}; title prüfungsnah. Bei Diagramm-Stoff mind. 1 drawing-Frage.
+4. exam (Probeklausur): siehe PROBEKLAUSUR-Regeln oben. {preset["target_q"] - 1}–{preset["target_q"] + 1} Aufgaben mit points + task_label über ALLE Kapitel; jede mit chapter_id; time_limit_sec {preset["time_limit_sec"]}; instructions + total_points.
 5. Titel der Lernreise: prüfungsnah und konkret.
 6. source_hint: ein Satz zum Material.
 7. readiness immer 0; progress.completed_chapter_ids=[], completed_lesson_ids=[], practice_sessions=0, exam_best_score=null, exam_completed_at=null.
@@ -1261,15 +1459,21 @@ Ausgabe: EIN JSON-Objekt:
     }}
   ],
   "exam": {{
-    "title": "Probeklausur",
-    "time_limit_sec": 900,
+    "title": "Probeklausur …",
+    "time_limit_sec": {preset["time_limit_sec"]},
+    "total_points": {preset.get("total_points", preset["target_q"] * 4)},
+    "pass_percent": 50,
+    "instructions": "Hilfsmittel: … . Bestehen ab ca. 50%.",
     "questions": [
       {{
         "id": "ex-q1",
-        "type": "mc",
+        "task_label": "Aufgabe 1",
+        "points": 5,
+        "type": "short_answer",
+        "chapter_id": "ch1",
         "prompt": "…?",
-        "options": ["A", "B", "C", "D"],
-        "answer": "A",
+        "answer": "…",
+        "accepted_answers": ["…"],
         "explanation": "…"
       }}
     ]
@@ -1508,179 +1712,38 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
             exam_preset_info = AIService._smart_learning_exam_preset(
                 (result.get("settings") or {}).get("exam_preset") if isinstance(result.get("settings"), dict) else None
             )
-            # Prefer caller preset if provided via settings we inject below
             exam_raw = result.get("exam") if isinstance(result.get("exam"), dict) else None
-            normalized_exam_qs = []
+            normalized_exam_qs: List[Dict[str, Any]] = []
             if exam_raw:
                 qs = exam_raw.get("questions") if isinstance(exam_raw.get("questions"), list) else []
                 for qi, q in enumerate(qs):
                     if not isinstance(q, dict):
                         continue
-                    prompt_q = _finalize_study_markdown(str(q.get("prompt") or ""))
-                    answer = _finalize_study_markdown(str(q.get("answer") or ""))
-                    explanation = _finalize_study_markdown(str(q.get("explanation") or ""))
-                    ctype = str(q.get("type") or "mc").strip().lower()
-                    is_cloze = ctype in ("cloze", "fill", "lueckentext", "lückentext")
-                    is_short = ctype in ("short_answer", "short", "freitext", "code", "open")
-                    is_match = ctype in ("matching", "match", "zuordnen", "verbinden", "connect", "pairs")
-                    is_drawing = ctype in (
-                        "drawing",
-                        "draw",
-                        "sketch",
-                        "diagram",
-                        "pap",
-                        "flowchart",
-                        "bild",
-                        "zeichnen",
-                    )
-                    blanks_raw = q.get("blanks") if isinstance(q.get("blanks"), list) else []
-                    blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
-                    options = q.get("options") if isinstance(q.get("options"), list) else []
-                    options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
-                    accepted_raw = q.get("accepted_answers") if isinstance(q.get("accepted_answers"), list) else []
-                    accepted_answers = [
-                        _finalize_study_markdown(str(a)).strip()
-                        for a in accepted_raw
-                        if str(a).strip()
-                    ][:8]
-                    rubric_raw = q.get("rubric") if isinstance(q.get("rubric"), list) else []
-                    rubric = [
-                        _finalize_study_markdown(str(r)).strip()
-                        for r in rubric_raw
-                        if str(r).strip()
-                    ][:8]
-                    pairs_raw = q.get("pairs") if isinstance(q.get("pairs"), list) else []
-                    if is_match and pairs_raw and (len(options) < 2 or len(blanks) < 2):
-                        lefts, rights = [], []
-                        for p in pairs_raw:
-                            if not isinstance(p, dict):
-                                continue
-                            L = _finalize_study_markdown(str(p.get("left") or p.get("term") or ""))
-                            R = _finalize_study_markdown(str(p.get("right") or p.get("def") or p.get("definition") or ""))
-                            if L and R:
-                                lefts.append(L)
-                                rights.append(R)
-                        if len(lefts) >= 2:
-                            options, blanks = lefts, rights
-                    chapter_id = str(q.get("chapter_id") or q.get("topic_id") or "").strip() or None
-                    if not prompt_q:
-                        continue
-                    qid = str(q.get("id") or f"ex-q{qi + 1}").strip() or f"ex-q{qi + 1}"
-                    if is_match:
-                        if len(options) < 2 or len(blanks) < 2 or len(options) != len(blanks):
-                            continue
-                        if not answer:
-                            answer = " | ".join(blanks)
-                        row = {
-                            "id": qid,
-                            "type": "matching",
-                            "prompt": prompt_q or "Ordne die Paare zu.",
-                            "options": options,
-                            "blanks": blanks,
-                            "answer": answer,
-                            "explanation": explanation,
-                        }
-                        if chapter_id:
-                            row["chapter_id"] = chapter_id
-                        normalized_exam_qs.append(row)
-                        continue
-                    if is_cloze:
-                        brace_answers = [_finalize_study_markdown(m) for m in re.findall(r"\{\{([^}]*)\}\}", prompt_q)]
-                        if not blanks:
-                            blanks = [b for b in brace_answers if b]
-                        if not blanks and answer:
-                            blanks = [answer]
-                        if not blanks:
-                            continue
-                        if not answer:
-                            answer = " | ".join(blanks)
-                        row = {
-                            "id": qid,
-                            "type": "cloze",
-                            "prompt": prompt_q,
-                            "options": [],
-                            "blanks": blanks,
-                            "answer": answer,
-                            "explanation": explanation,
-                        }
-                        if accepted_answers:
-                            row["accepted_answers"] = accepted_answers
-                        if chapter_id:
-                            row["chapter_id"] = chapter_id
-                        normalized_exam_qs.append(row)
-                    elif is_short:
-                        if not answer:
-                            continue
-                        row = {
-                            "id": qid,
-                            "type": "short_answer",
-                            "prompt": prompt_q,
-                            "options": [],
-                            "blanks": blanks,
-                            "answer": answer,
-                            "explanation": explanation,
-                        }
-                        if accepted_answers:
-                            row["accepted_answers"] = accepted_answers
-                        if chapter_id:
-                            row["chapter_id"] = chapter_id
-                        normalized_exam_qs.append(row)
-                    elif is_drawing:
-                        if not prompt_q:
-                            continue
-                        if not answer:
-                            answer = "; ".join(rubric) if rubric else "Sinnvolle Skizze zur Aufgabenstellung"
-                        row = {
-                            "id": qid,
-                            "type": "drawing",
-                            "prompt": prompt_q,
-                            "options": [],
-                            "answer": answer,
-                            "explanation": explanation,
-                            "allow_upload": q.get("allow_upload") is not False,
-                        }
-                        if rubric:
-                            row["rubric"] = rubric
-                        if accepted_answers:
-                            row["accepted_answers"] = accepted_answers
-                        if chapter_id:
-                            row["chapter_id"] = chapter_id
-                        normalized_exam_qs.append(row)
-                    else:
-                        if not answer:
-                            continue
-                        if len(options) < 2:
-                            options = ["Richtig", "Falsch"] if answer in ("Richtig", "Falsch") else [answer, "Andere Antwort"]
-                        row = {
-                            "id": qid,
-                            "type": "true_false" if ctype == "true_false" else "mc",
-                            "prompt": prompt_q,
-                            "options": options,
-                            "answer": answer,
-                            "explanation": explanation,
-                        }
-                        if chapter_id:
-                            row["chapter_id"] = chapter_id
+                    row = AIService._normalize_one_exam_question(q, qi)
+                    if row:
                         normalized_exam_qs.append(row)
             target_q = int(exam_preset_info["target_q"])
-            if not normalized_exam_qs or len(normalized_exam_qs) < min(8, target_q):
-                # Pad / build exam from chapter checks
+            # Only pad from lesson checks if the model delivered almost nothing —
+            # recycled quiz checks make Probeklausuren feel unrealistic.
+            min_keep = max(3, min(5, target_q // 2))
+            if len(normalized_exam_qs) < min_keep:
                 for ch in normalized_chapters:
                     cid = ch.get("id")
                     for les in ch.get("lessons") or []:
                         chk = les.get("check") or {}
-                        if not chk.get("prompt"):
+                        if not isinstance(chk, dict) or not chk.get("prompt"):
                             continue
-                        normalized_exam_qs.append({
-                            "id": f"ex-{les.get('id') or len(normalized_exam_qs)+1}",
-                            "type": chk.get("type") or "mc",
-                            "prompt": chk.get("prompt"),
-                            "options": chk.get("options") or [],
-                            "blanks": chk.get("blanks") or [],
-                            "answer": chk.get("answer") or "",
-                            "explanation": chk.get("explanation") or "",
-                            "chapter_id": cid,
-                        })
+                        pad = AIService._normalize_one_exam_question(
+                            {
+                                **chk,
+                                "id": f"ex-{les.get('id') or len(normalized_exam_qs) + 1}",
+                                "chapter_id": cid,
+                                "task_label": f"Aufgabe {len(normalized_exam_qs) + 1}",
+                            },
+                            len(normalized_exam_qs),
+                        )
+                        if pad:
+                            normalized_exam_qs.append(pad)
                         if len(normalized_exam_qs) >= target_q:
                             break
                     if len(normalized_exam_qs) >= target_q:
@@ -1690,10 +1753,28 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                     tls = int((exam_raw or {}).get("time_limit_sec") or exam_preset_info["time_limit_sec"])
                 except Exception:
                     tls = int(exam_preset_info["time_limit_sec"])
+                points_sum = sum(int(q.get("points") or 0) for q in normalized_exam_qs[: target_q + 2])
+                try:
+                    total_pts = int(
+                        (exam_raw or {}).get("total_points")
+                        or exam_preset_info.get("total_points")
+                        or points_sum
+                        or target_q * 4
+                    )
+                except Exception:
+                    total_pts = int(exam_preset_info.get("total_points") or points_sum or target_q * 4)
+                try:
+                    pass_pct = int((exam_raw or {}).get("pass_percent") or exam_preset_info.get("pass_percent") or 50)
+                except Exception:
+                    pass_pct = 50
+                instructions = str((exam_raw or {}).get("instructions") or "").strip()
                 result["exam"] = {
                     "title": str((exam_raw or {}).get("title") or "Probeklausur").strip() or "Probeklausur",
                     "time_limit_sec": max(60, min(7200, tls)),
-                    "questions": normalized_exam_qs[:30],
+                    "total_points": max(1, min(200, total_pts)),
+                    "pass_percent": max(0, min(100, pass_pct)),
+                    "instructions": instructions[:800],
+                    "questions": normalized_exam_qs[: max(target_q + 2, target_q)],
                 }
             else:
                 result["exam"] = None
@@ -1756,29 +1837,38 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                 model_for_task("smart_learning", model_preference, content=content),
                 generation_config={"response_mime_type": "application/json"},
             )
+            diff_line = {
+                "basics": "Grundlagen prüfen, aber trotzdem klausurähnlich formulieren.",
+                "exam": "Prüfungsniveau: Transfer, typische Fallstricke, Mehrschritt.",
+                "hard": "Anspruchsvoll: knifflige Edge-Cases, Transfer über Kapitel hinweg.",
+            }.get(diff, "Prüfungsniveau.")
             prompt = f"""
-Erstelle eine Probeklausur als JSON für Smart Learning.
-
-Kapitel:
+Erstelle eine realistische schriftliche Probeklausur als JSON für Smart Learning.
+Kapitel (chapter_id verwenden):
 {chapter_block}
 
-Ziel: ca. {preset["target_q"]} Fragen, time_limit_sec = {preset["time_limit_sec"]}, Schwierigkeit = {diff}.
-Typen mischen: mc, true_false, cloze, short_answer. Jede Frage braucht chapter_id.
-{"Zusatz: " + custom_line if custom_line else ""}
+Schwierigkeit: {diff} — {diff_line}
+{AIService._exam_prompt_rules(preset)}
+{"Zusatz vom Nutzer: " + custom_line if custom_line else ""}
 {MATH_ACCURACY_INSTRUCTIONS}
 
-Ausgabe NUR:
+Ausgabe NUR ein JSON-Objekt:
 {{
   "title": "Probeklausur …",
   "time_limit_sec": {preset["time_limit_sec"]},
+  "total_points": {preset.get("total_points", preset["target_q"] * 4)},
+  "pass_percent": 50,
+  "instructions": "Hilfsmittel / Hinweise …",
   "questions": [
     {{
       "id": "ex-q1",
-      "type": "mc",
+      "task_label": "Aufgabe 1",
+      "points": 5,
+      "type": "short_answer",
       "chapter_id": "ch1",
-      "prompt": "…?",
-      "options": ["A","B","C","D"],
-      "answer": "A",
+      "prompt": "…",
+      "answer": "…",
+      "accepted_answers": ["…"],
       "explanation": "…"
     }}
   ]
@@ -1798,55 +1888,35 @@ Ausgabe NUR:
                 raise Exception(str(parse_err)) from parse_err
             if not isinstance(raw, dict):
                 raise Exception("Klausur muss ein JSON-Objekt sein.")
-            qs_out = []
+            qs_out: List[Dict[str, Any]] = []
             for qi, q in enumerate(raw.get("questions") or []):
                 if not isinstance(q, dict):
                     continue
-                prompt_q = _finalize_study_markdown(str(q.get("prompt") or ""))
-                answer = _finalize_study_markdown(str(q.get("answer") or ""))
-                if not prompt_q or not answer:
-                    continue
-                ctype = str(q.get("type") or "mc").strip().lower()
-                chapter_id = str(q.get("chapter_id") or "").strip() or None
-                blanks_raw = q.get("blanks") if isinstance(q.get("blanks"), list) else []
-                blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
-                options = q.get("options") if isinstance(q.get("options"), list) else []
-                options = [_finalize_study_markdown(str(o)) for o in options if str(o).strip()]
-                row: Dict[str, Any] = {
-                    "id": str(q.get("id") or f"ex-q{qi + 1}"),
-                    "prompt": prompt_q,
-                    "answer": answer,
-                    "explanation": _finalize_study_markdown(str(q.get("explanation") or "")),
-                    "blanks": blanks,
-                    "options": options,
-                }
-                if ctype in ("cloze", "fill", "lueckentext", "lückentext"):
-                    row["type"] = "cloze"
-                    row["options"] = []
-                elif ctype in ("short_answer", "short", "freitext", "code", "open"):
-                    row["type"] = "short_answer"
-                    row["options"] = []
-                elif ctype in ("true_false", "truefalse", "tf"):
-                    row["type"] = "true_false"
-                    if len(row["options"]) < 2:
-                        row["options"] = ["Richtig", "Falsch"]
-                else:
-                    row["type"] = "mc"
-                    if len(row["options"]) < 2:
-                        row["options"] = [answer, "Andere Antwort"]
-                if chapter_id:
-                    row["chapter_id"] = chapter_id
-                qs_out.append(row)
-                if len(qs_out) >= 30:
+                row = AIService._normalize_one_exam_question(q, qi)
+                if row:
+                    qs_out.append(row)
+                if len(qs_out) >= preset["target_q"] + 2:
                     break
             try:
                 tls = int(raw.get("time_limit_sec") or preset["time_limit_sec"])
             except Exception:
                 tls = int(preset["time_limit_sec"])
+            points_sum = sum(int(q.get("points") or 0) for q in qs_out)
+            try:
+                total_pts = int(raw.get("total_points") or preset.get("total_points") or points_sum or preset["target_q"] * 4)
+            except Exception:
+                total_pts = int(preset.get("total_points") or points_sum or preset["target_q"] * 4)
+            try:
+                pass_pct = int(raw.get("pass_percent") or preset.get("pass_percent") or 50)
+            except Exception:
+                pass_pct = 50
             exam = {
                 "title": str(raw.get("title") or "Probeklausur").strip() or "Probeklausur",
                 "time_limit_sec": max(60, min(7200, tls)),
-                "questions": qs_out[:30],
+                "total_points": max(1, min(200, total_pts)),
+                "pass_percent": max(0, min(100, pass_pct)),
+                "instructions": str(raw.get("instructions") or "").strip()[:800],
+                "questions": qs_out[: max(int(preset["target_q"]) + 2, int(preset["target_q"]))],
             }
             if not return_meta:
                 return exam

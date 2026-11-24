@@ -103,11 +103,18 @@ export type SmartLearningExamQuestion = {
     rubric?: string[];
     allow_upload?: boolean;
     chapter_id?: string;
+    /** Weighted score for realistic Klausur grading. */
+    points?: number;
+    /** e.g. "Aufgabe 1", "Aufgabe 2a" */
+    task_label?: string;
 };
 
 export type SmartLearningExam = {
     title: string;
     time_limit_sec?: number;
+    total_points?: number;
+    pass_percent?: number;
+    instructions?: string;
     questions: SmartLearningExamQuestion[];
 };
 
@@ -227,12 +234,52 @@ type Props = {
 
 const EXAM_PRESETS: Record<
     SmartLearningExamPreset,
-    { label: string; targetQ: number; timeSec: number; hint: string }
+    { label: string; targetQ: number; timeSec: number; totalPoints: number; hint: string }
 > = {
-    short: { label: "Kurz (15 Min)", targetQ: 12, timeSec: 900, hint: "~12 Aufgaben" },
-    standard: { label: "Standard (45 Min)", targetQ: 20, timeSec: 2700, hint: "~20 Aufgaben" },
-    full: { label: "Vollständige Klausur (90 Min)", targetQ: 28, timeSec: 5400, hint: "~28 Aufgaben" },
+    short: {
+        label: "Kurz (20 Min)",
+        targetQ: 6,
+        timeSec: 1200,
+        totalPoints: 20,
+        hint: "~6 Aufgaben · 20 Punkte · klausurähnlich",
+    },
+    standard: {
+        label: "Standard (45 Min)",
+        targetQ: 10,
+        timeSec: 2700,
+        totalPoints: 40,
+        hint: "~10 Aufgaben · 40 Punkte · Transfer & Anwendung",
+    },
+    full: {
+        label: "Vollständige Klausur (90 Min)",
+        targetQ: 14,
+        timeSec: 5400,
+        totalPoints: 80,
+        hint: "~14 Aufgaben · 80 Punkte · wie eine echte Klausur",
+    },
 };
+
+const EXAM_DEFAULT_POINTS: Record<SmartLearningCheckType, number> = {
+    mc: 2,
+    true_false: 1,
+    cloze: 3,
+    short_answer: 5,
+    matching: 4,
+    drawing: 6,
+};
+
+function examQuestionPoints(q: Pick<SmartLearningExamQuestion, "type" | "points">): number {
+    const n = Number(q.points);
+    if (Number.isFinite(n) && n > 0) return Math.max(1, Math.min(20, Math.round(n)));
+    return EXAM_DEFAULT_POINTS[q.type] || 3;
+}
+
+function examTotalPoints(exam: SmartLearningExam): number {
+    const fromQs = exam.questions.reduce((s, q) => s + examQuestionPoints(q), 0);
+    const declared = Number(exam.total_points);
+    if (Number.isFinite(declared) && declared > 0) return Math.max(fromQs, Math.round(declared));
+    return fromQs || exam.questions.length;
+}
 
 const DEFAULT_SETTINGS: SmartLearningSettings = {
     difficulty: "exam",
@@ -589,6 +636,8 @@ function normalizeExam(raw: unknown): SmartLearningExam | null {
         const check = normalizeCheck(qr);
         if (!check) continue;
         const chapter_id = qr.chapter_id || qr.topic_id ? String(qr.chapter_id || qr.topic_id) : undefined;
+        const ptsRaw = Number(qr.points);
+        const taskLabel = String(qr.task_label || qr.label || "").trim();
         questions.push({
             id: String(qr.id || `ex-q${i + 1}`).trim() || `ex-q${i + 1}`,
             type: check.type,
@@ -601,13 +650,23 @@ function normalizeExam(raw: unknown): SmartLearningExam | null {
             rubric: check.rubric,
             allow_upload: check.allow_upload,
             chapter_id,
+            points: Number.isFinite(ptsRaw) && ptsRaw > 0 ? Math.round(ptsRaw) : EXAM_DEFAULT_POINTS[check.type],
+            task_label: taskLabel || `Aufgabe ${i + 1}`,
         });
     }
     if (questions.length === 0) return null;
     const limit = Number(o.time_limit_sec);
+    const totalPts = Number(o.total_points);
+    const passPct = Number(o.pass_percent);
     return {
         title: String(o.title || "Probeklausur").trim() || "Probeklausur",
         time_limit_sec: Number.isFinite(limit) && limit > 0 ? Math.round(limit) : undefined,
+        total_points:
+            Number.isFinite(totalPts) && totalPts > 0
+                ? Math.round(totalPts)
+                : questions.reduce((s, q) => s + examQuestionPoints(q), 0),
+        pass_percent: Number.isFinite(passPct) ? Math.max(0, Math.min(100, Math.round(passPct))) : 50,
+        instructions: o.instructions ? String(o.instructions).trim() : undefined,
         questions,
     };
 }
@@ -1083,30 +1142,46 @@ function buildExamForPreset(
         const key = `${q.type}|${q.prompt}`;
         if (seen.has(key)) return;
         seen.add(key);
-        pool.push(q);
+        pool.push({
+            ...q,
+            points: examQuestionPoints(q),
+            task_label: q.task_label || `Aufgabe ${pool.length + 1}`,
+        });
     };
     for (const q of base?.questions || []) push(q);
-    for (const ch of chapters) {
-        for (const les of ch.lessons) {
-            push({
-                id: `ex-${les.id}`,
-                type: les.check.type,
-                prompt: les.check.prompt,
-                options: les.check.options,
-                answer: les.check.answer,
-                blanks: les.check.blanks,
-                explanation: les.check.explanation,
-                chapter_id: ch.id,
-            });
+    // Prefer dedicated exam tasks. Only pad with lesson checks if the Klausur is thin.
+    const minKeep = Math.max(3, Math.min(5, Math.floor(cfg.targetQ / 2)));
+    if (pool.length < minKeep) {
+        for (const ch of chapters) {
+            for (const les of ch.lessons) {
+                push({
+                    id: `ex-${les.id}`,
+                    type: les.check.type,
+                    prompt: les.check.prompt,
+                    options: les.check.options,
+                    answer: les.check.answer,
+                    blanks: les.check.blanks,
+                    explanation: les.check.explanation,
+                    accepted_answers: les.check.accepted_answers,
+                    rubric: les.check.rubric,
+                    allow_upload: les.check.allow_upload,
+                    chapter_id: ch.id,
+                });
+                if (pool.length >= cfg.targetQ) break;
+            }
+            if (pool.length >= cfg.targetQ) break;
         }
     }
-    const questions = pool.slice(0, Math.max(cfg.targetQ, Math.min(30, pool.length)));
-    // Prefer up to targetQ; if fewer available, use all
-    const sliced = questions.length > cfg.targetQ ? questions.slice(0, cfg.targetQ) : questions;
+    const sliced = pool.length > cfg.targetQ ? pool.slice(0, cfg.targetQ) : pool;
+    const questions = sliced.length > 0 ? sliced : pool;
+    const totalFromQs = questions.reduce((s, q) => s + examQuestionPoints(q), 0);
     return {
         title: base?.title || "Probeklausur",
-        time_limit_sec: cfg.timeSec,
-        questions: sliced.length > 0 ? sliced : questions,
+        time_limit_sec: base?.time_limit_sec && base.time_limit_sec > 0 ? base.time_limit_sec : cfg.timeSec,
+        total_points: base?.total_points && base.total_points > 0 ? base.total_points : Math.max(cfg.totalPoints, totalFromQs),
+        pass_percent: base?.pass_percent ?? 50,
+        instructions: base?.instructions,
+        questions,
     };
 }
 
@@ -1174,7 +1249,9 @@ export default function SmartLearningView({
     const [examCloze, setExamCloze] = useState<string[]>([]);
     const [examClozeDone, setExamClozeDone] = useState(false);
     const [examShort, setExamShort] = useState("");
-    const [examAnswers, setExamAnswers] = useState<Record<number, { correct: boolean; given: string }>>({});
+    const [examAnswers, setExamAnswers] = useState<
+        Record<number, { correct: boolean; given: string; earned: number; max: number }>
+    >({});
     const [examSecondsLeft, setExamSecondsLeft] = useState<number | null>(null);
     const [lastExamScore, setLastExamScore] = useState<number | null>(null);
     const [activeExam, setActiveExam] = useState<SmartLearningExam | null>(null);
@@ -2315,13 +2392,27 @@ export default function SmartLearningView({
     };
 
     const finishExam = useCallback(
-        async (answers: Record<number, { correct: boolean; given: string }>) => {
+        async (
+            answers: Record<number, { correct: boolean; given: string; earned?: number; max?: number }>
+        ) => {
             const currentExam = activeExam;
             if (!currentExam || examFinishingRef.current) return;
             examFinishingRef.current = true;
-            const total = currentExam.questions.length;
-            const correct = Object.values(answers).filter((a) => a.correct).length;
-            const score = total > 0 ? clampReadiness((100 * correct) / total) : 0;
+            let earned = 0;
+            let maxPts = 0;
+            currentExam.questions.forEach((q, i) => {
+                const maxQ = examQuestionPoints(q);
+                maxPts += maxQ;
+                const row = answers[i];
+                if (!row) return;
+                if (typeof row.earned === "number" && Number.isFinite(row.earned)) {
+                    earned += Math.max(0, Math.min(maxQ, row.earned));
+                } else if (row.correct) {
+                    earned += maxQ;
+                }
+            });
+            if (maxPts <= 0) maxPts = examTotalPoints(currentExam) || currentExam.questions.length || 1;
+            const score = clampReadiness((100 * earned) / maxPts);
             setLastExamScore(score);
             const prevBest = local.progress?.exam_best_score;
             const best = prevBest == null ? score : Math.max(prevBest, score);
@@ -3211,7 +3302,9 @@ export default function SmartLearningView({
                     <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                         <ClipboardList size={18} className="text-[#5B9DFF]" /> Probeklausur starten
                     </h3>
-                    <p className="text-sm text-gray-400">Wähle die Klausurlänge. Fehlende Fragen werden aus dem Lernpfad ergänzt.</p>
+                    <p className="text-sm text-gray-400">
+                        Wähle die Klausurlänge. Es werden echte Aufgaben mit Punkten generiert — kein Quiz-Drill.
+                    </p>
                     <div className="space-y-2">
                         {(Object.keys(EXAM_PRESETS) as SmartLearningExamPreset[]).map((key) => {
                             const p = EXAM_PRESETS[key];
@@ -3251,15 +3344,28 @@ export default function SmartLearningView({
     /* ——— Exam result ——— */
     if (mode === "exam_result" && activeExam) {
         const score = lastExamScore ?? 0;
+        const passLine = activeExam.pass_percent ?? 50;
+        const passed = score >= passLine;
+        let earnedPts = 0;
+        let maxPts = 0;
         const weak: { title: string; rate: number }[] = [];
         const byChapter: Record<string, { ok: number; total: number; title: string }> = {};
         activeExam.questions.forEach((q, i) => {
+            const maxQ = examQuestionPoints(q);
+            maxPts += maxQ;
+            const ans = examAnswers[i];
+            if (ans) {
+                earnedPts += typeof ans.earned === "number" ? ans.earned : ans.correct ? maxQ : 0;
+            }
             const cid = q.chapter_id || "all";
             const title = chapters.find((c) => c.id === cid)?.title || cid;
             if (!byChapter[cid]) byChapter[cid] = { ok: 0, total: 0, title };
-            byChapter[cid].total += 1;
-            if (examAnswers[i]?.correct) byChapter[cid].ok += 1;
+            byChapter[cid].total += maxQ;
+            if (ans) {
+                byChapter[cid].ok += typeof ans.earned === "number" ? ans.earned : ans.correct ? maxQ : 0;
+            }
         });
+        if (maxPts <= 0) maxPts = examTotalPoints(activeExam) || 1;
         for (const row of Object.values(byChapter)) {
             const rate = row.total ? row.ok / row.total : 1;
             if (rate < 0.7) weak.push({ title: row.title, rate });
@@ -3273,7 +3379,14 @@ export default function SmartLearningView({
                     <p className="text-[11px] uppercase tracking-widest text-[#5B9DFF]">Probeklausur</p>
                     <p className="text-5xl font-semibold text-white">{score}%</p>
                     <p className="text-[#9EC5FF] font-medium">
-                        {Object.values(examAnswers).filter((a) => a.correct).length} / {activeExam.questions.length} richtig
+                        {earnedPts} / {maxPts} Punkte
+                        <span className="text-gray-500 font-normal">
+                            {" "}
+                            · {Object.values(examAnswers).filter((a) => a.correct).length}/{activeExam.questions.length} Aufgaben
+                        </span>
+                    </p>
+                    <p className={`text-sm font-medium ${passed ? "text-green-300" : "text-amber-200"}`}>
+                        {passed ? `Bestanden (≥ ${passLine}%)` : `Nicht bestanden (Bestehen ab ${passLine}%)`}
                     </p>
                     <p className="text-sm text-gray-400">
                         Bereitschaft {readiness}%
@@ -3358,6 +3471,7 @@ export default function SmartLearningView({
             rubric: q.rubric,
             allow_upload: q.allow_upload,
         };
+        const qPoints = examQuestionPoints(q);
         const examCorrect = revealed
             ? isCloze
                 ? gradeCloze(q.prompt, q.blanks, examCloze, q.accepted_answers)
@@ -3369,6 +3483,15 @@ export default function SmartLearningView({
                       ? !!(drawingGrade && (drawingGrade.score >= 2 || drawingGrade.correct))
                       : answerAccepted(q.answer, examSelected || "", q.accepted_answers)
             : false;
+        const examEarned = revealed
+            ? isDrawing && drawingGrade
+                ? Math.round((qPoints * Math.max(0, Math.min(3, Number(drawingGrade.score) || 0))) / 3)
+                : isShort && textGrade && typeof textGrade.score === "number"
+                  ? Math.round((qPoints * Math.max(0, Math.min(2, Number(textGrade.score) || 0))) / 2)
+                  : examCorrect
+                    ? qPoints
+                    : 0
+            : 0;
         const resetExamInputs = () => {
             setExamSelected(null);
             setExamCloze([]);
@@ -3381,8 +3504,12 @@ export default function SmartLearningView({
             setError("");
         };
 
-        const recordAndAdvance = (correct: boolean, given: string) => {
-            const nextAnswers = { ...examAnswers, [qRealIdx]: { correct, given } };
+        const recordAndAdvance = (correct: boolean, given: string, earnedPts?: number) => {
+            const earned = Math.max(0, Math.min(qPoints, earnedPts ?? (correct ? qPoints : 0)));
+            const nextAnswers = {
+                ...examAnswers,
+                [qRealIdx]: { correct: correct || earned > 0, given, earned, max: qPoints },
+            };
             setExamAnswers(nextAnswers);
             if (examIndex + 1 >= order.length) {
                 void finishExam(nextAnswers);
@@ -3396,7 +3523,10 @@ export default function SmartLearningView({
             if (examIndex >= order.length - 1) {
                 // Last in queue: leave unanswered and finish if everything else done
                 if (Object.keys(examAnswers).length >= order.length - 1) {
-                    void finishExam({ ...examAnswers, [qRealIdx]: { correct: false, given: "" } });
+                    void finishExam({
+                        ...examAnswers,
+                        [qRealIdx]: { correct: false, given: "", earned: 0, max: qPoints },
+                    });
                 }
                 return;
             }
@@ -3461,19 +3591,33 @@ export default function SmartLearningView({
                     />
                 </div>
 
+                {examIndex === 0 && activeExam.instructions ? (
+                    <div className="rounded-xl border border-[#2A3140] bg-[#12161F] px-4 py-3 text-sm text-gray-400">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Hinweise</p>
+                        <p className="whitespace-pre-wrap">{activeExam.instructions}</p>
+                    </div>
+                ) : null}
+
                 <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 space-y-4">
-                    <p className="text-[11px] uppercase tracking-widest text-gray-500">
-                        Frage {examIndex + 1} / {activeExam.questions.length}
-                        {isCloze
-                            ? " · Lückentext"
-                            : isShort
-                              ? " · Freitext"
-                              : isMatch
-                                ? " · Zuordnen"
-                                : isDrawing
-                                  ? " · Zeichnen"
-                                  : " · Quiz"}
-                    </p>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] uppercase tracking-widest text-gray-500">
+                            {q.task_label || `Aufgabe ${examIndex + 1}`}
+                            {" · "}
+                            {examIndex + 1}/{activeExam.questions.length}
+                            {isCloze
+                                ? " · Lückentext"
+                                : isShort
+                                  ? " · Freitext"
+                                  : isMatch
+                                    ? " · Zuordnen"
+                                    : isDrawing
+                                      ? " · Zeichnen"
+                                      : q.type === "true_false"
+                                        ? " · Richtig/Falsch"
+                                        : " · MC"}
+                        </p>
+                        <span className="text-xs font-medium text-[#9EC5FF] tabular-nums">{qPoints} Pkt</span>
+                    </div>
 
                     {isCloze ? (
                         <ClozeInputs
@@ -3617,24 +3761,22 @@ export default function SmartLearningView({
                                     type="button"
                                     onClick={() => {
                                         if (isCloze) {
-                                            recordAndAdvance(
-                                                gradeCloze(q.prompt, q.blanks, examCloze, q.accepted_answers),
-                                                examCloze.join(" | ")
-                                            );
+                                            const ok = gradeCloze(q.prompt, q.blanks, examCloze, q.accepted_answers);
+                                            recordAndAdvance(ok, examCloze.join(" | "), ok ? qPoints : 0);
                                         } else if (isMatch) {
-                                            recordAndAdvance(gradeMatching(asCheck, examCloze), examCloze.join(" | "));
+                                            const ok = gradeMatching(asCheck, examCloze);
+                                            recordAndAdvance(ok, examCloze.join(" | "), ok ? qPoints : 0);
                                         } else if (isShort) {
-                                            recordAndAdvance(
-                                                shortAnswerIsCorrect(asCheck, examShort, textGrade),
-                                                examShort
-                                            );
+                                            const ok = shortAnswerIsCorrect(asCheck, examShort, textGrade);
+                                            recordAndAdvance(ok, examShort, examEarned);
                                         } else if (isDrawing) {
                                             recordAndAdvance(
                                                 examCorrect,
-                                                drawingGrade?.feedback || (examCorrect ? "Zeichnung ok" : "Zeichnung")
+                                                drawingGrade?.feedback || (examCorrect ? "Zeichnung ok" : "Zeichnung"),
+                                                examEarned
                                             );
                                         } else {
-                                            recordAndAdvance(examCorrect, examSelected || "");
+                                            recordAndAdvance(examCorrect, examSelected || "", examCorrect ? qPoints : 0);
                                         }
                                     }}
                                     className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold"
@@ -3652,7 +3794,17 @@ export default function SmartLearningView({
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => void finishExam({ ...examAnswers, [qRealIdx]: { correct: false, given: "" } })}
+                                    onClick={() =>
+                                        void finishExam({
+                                            ...examAnswers,
+                                            [qRealIdx]: {
+                                                correct: examCorrect,
+                                                given: examSelected || examShort || examCloze.join(" | ") || "",
+                                                earned: examEarned,
+                                                max: qPoints,
+                                            },
+                                        })
+                                    }
                                     className="px-4 py-3 rounded-xl border border-[#2A3140] text-gray-400 text-sm"
                                 >
                                     Abgeben
