@@ -4323,11 +4323,7 @@ export default function SmartLearningView({
                             chapters.slice(0, chi).every((p) => p.lessons.length > 0 && p.lessons.every((l) => completedLessonSet.has(l.id)));
                         const locked = settings.unlock_all_chapters ? false : !prevDone;
                         const doneLessons = ch.lessons.filter((l) => completedLessonSet.has(l.id)).length;
-                        const deferredInChapter = ch.lessons.filter(
-                            (l) => deferredLessonSet.has(l.id) && !completedLessonSet.has(l.id)
-                        ).length;
                         const chapterDone = ch.lessons.length > 0 && doneLessons === ch.lessons.length;
-                        const openLessons = ch.lessons.filter((l) => !completedLessonSet.has(l.id));
                         return (
                             <div
                                 key={ch.id}
@@ -4353,15 +4349,9 @@ export default function SmartLearningView({
                                                     <span
                                                         key={l.id}
                                                         className={`h-1.5 w-1.5 rounded-full ${
-                                                            completedLessonSet.has(l.id)
-                                                                ? "bg-[#5B9DFF]"
-                                                                : deferredLessonSet.has(l.id)
-                                                                  ? "bg-amber-400"
-                                                                  : "bg-[#3A4558]"
+                                                            completedLessonSet.has(l.id) ? "bg-[#5B9DFF]" : "bg-[#3A4558]"
                                                         }`}
-                                                        title={`Blatt ${li + 1}${
-                                                            deferredLessonSet.has(l.id) ? " · später" : ""
-                                                        }`}
+                                                        title={`Blatt ${li + 1}`}
                                                     />
                                                 ))}
                                             </span>
@@ -4369,10 +4359,9 @@ export default function SmartLearningView({
                                         </div>
                                         <p className="text-[11px] text-gray-500">
                                             {doneLessons}/{ch.lessons.length || 0} Lektionen
-                                            {deferredInChapter > 0 ? ` · ${deferredInChapter} später` : ""}
                                         </p>
                                         {ch.summary ? (
-                                            <MathMarkdown compact className="text-xs text-gray-400 line-clamp-2">
+                                            <MathMarkdown compact className="text-xs text-gray-400 line-clamp-4">
                                                 {ch.summary}
                                             </MathMarkdown>
                                         ) : null}
@@ -4385,89 +4374,42 @@ export default function SmartLearningView({
                                                 >
                                                     <Play size={12} /> Lernen
                                                 </button>
-                                                {openLessons.length > 0 ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            void deferLessonIds(openLessons.map((l) => l.id))
-                                                        }
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/35 text-amber-100 text-xs font-medium hover:bg-amber-500/10"
-                                                    >
-                                                        <SkipForward size={12} /> Thema später
-                                                    </button>
-                                                ) : null}
-                                                {deferredInChapter > 0 ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            void (async () => {
-                                                                await undeferLessonIds(openLessons.map((l) => l.id));
-                                                                startChapter(ch.id, { includeDeferred: true });
-                                                            })();
-                                                        }}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#2A3140] text-gray-300 text-xs font-medium hover:bg-[#243044]"
-                                                    >
-                                                        Aufgeschobene jetzt
-                                                    </button>
-                                                ) : null}
                                             </div>
                                         ) : null}
                                         {!locked && ch.lessons.length > 0 ? (
-                                            <ul className="space-y-1.5 pt-1 border-t border-[#2A3140]/80">
+                                            <ul className="space-y-1 pt-1 border-t border-[#2A3140]/80">
                                                 {ch.lessons.map((l, li) => {
                                                     const done = completedLessonSet.has(l.id);
-                                                    const deferred = deferredLessonSet.has(l.id) && !done;
                                                     const preview =
                                                         (l.teach || l.check?.prompt || `Blatt ${li + 1}`)
                                                             .replace(/\s+/g, " ")
                                                             .trim()
-                                                            .slice(0, 72) || `Blatt ${li + 1}`;
+                                                            .slice(0, 90) || `Blatt ${li + 1}`;
                                                     return (
-                                                        <li
-                                                            key={l.id}
-                                                            className="flex items-center gap-2 text-xs text-gray-400"
-                                                        >
-                                                            <span
-                                                                className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                                                        <li key={l.id}>
+                                                            <button
+                                                                type="button"
+                                                                disabled={done}
+                                                                onClick={() => void startLesson(l.id)}
+                                                                className={`w-full flex items-center gap-2 text-left text-xs rounded-md px-1.5 py-1.5 ${
                                                                     done
-                                                                        ? "bg-[#5B9DFF]"
-                                                                        : deferred
-                                                                          ? "bg-amber-400"
-                                                                          : "bg-[#3A4558]"
+                                                                        ? "text-gray-500 cursor-default"
+                                                                        : "text-gray-300 hover:bg-[#243044] hover:text-white"
                                                                 }`}
-                                                            />
-                                                            <span className="flex-1 min-w-0 truncate text-gray-300">
-                                                                {li + 1}. {preview}
-                                                                {deferred ? " · später" : done ? " · fertig" : ""}
-                                                            </span>
-                                                            {!done ? (
-                                                                <span className="flex items-center gap-1 shrink-0">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => void startLesson(l.id)}
-                                                                        className="px-2 py-1 rounded-md border border-[#2A3140] text-[#9EC5FF] hover:bg-[#243044]"
-                                                                    >
-                                                                        Öffnen
-                                                                    </button>
-                                                                    {deferred ? (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => void undeferLessonIds([l.id])}
-                                                                            className="px-2 py-1 rounded-md border border-[#2A3140] text-gray-300 hover:bg-[#243044]"
-                                                                        >
-                                                                            Zurück in Pfad
-                                                                        </button>
-                                                                    ) : (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => void deferLessonIds([l.id])}
-                                                                            className="px-2 py-1 rounded-md border border-amber-500/30 text-amber-100 hover:bg-amber-500/10"
-                                                                        >
-                                                                            Später
-                                                                        </button>
-                                                                    )}
+                                                            >
+                                                                <span
+                                                                    className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                                                                        done ? "bg-[#5B9DFF]" : "bg-[#3A4558]"
+                                                                    }`}
+                                                                />
+                                                                <span className="flex-1 min-w-0 truncate">
+                                                                    {li + 1}. {preview}
+                                                                    {done ? " · fertig" : ""}
                                                                 </span>
-                                                            ) : null}
+                                                                {!done ? (
+                                                                    <span className="text-[#9EC5FF] shrink-0">Öffnen</span>
+                                                                ) : null}
+                                                            </button>
                                                         </li>
                                                     );
                                                 })}
