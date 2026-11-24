@@ -1235,6 +1235,13 @@ PROBEKLAUSUR — wie eine echte schriftliche Prüfung (KEIN Quiz-Drill):
 - mc: nur mit plausiblen Distraktoren (häufige Fehler), 4 Optionen.
 - Titel prüfungsnah (Fach + „Probeklausur“). Feld instructions: 1–3 Sätze (Hilfsmittel, Hinweise, Bestehen ca. 50%).
 - total_points: {tp}, pass_percent: 50.
+
+HOCHGELADENE ÜBUNGEN / TESTS / ALTKLAUSUREN (falls im Material):
+- Wenn PDFs/Bilder/Texte Übungsblätter, Tests, Probeklausuren oder Altklausuren enthalten: ORIENTIERE die Probeklausur daran.
+- Übernehme Stil, Aufgabentypen, Nummerierung (1 / 1a / 1b), Punktelogik und Schwierigkeitsniveau der Vorlagen.
+- Baue PARALLEL-Varianten: gleiche Kompetenzziele und Struktur, aber andere Zahlen/Beispiele/Formulierungen — KEINE 1:1-Kopie.
+- Reihenfolge wie in einer echten Klausur: Grundlagen → Anwendung → Transfer; decke die Themen der Vorlagen ab.
+- Wenn mehrere Übungen/Tests vorhanden sind: mische typische Muster daraus statt nur aus dem Lernpfad-Quiz zu ziehen.
 """.strip()
 
     @staticmethod
@@ -1849,6 +1856,7 @@ Kapitel (chapter_id verwenden):
 
 Schwierigkeit: {diff} — {diff_line}
 {AIService._exam_prompt_rules(preset)}
+Wenn im angehängten Material Übungsblätter, Tests oder Altklausuren vorkommen: baue die Probeklausur vorrangig nach deren Aufbau (Aufgabenfolge, Teilaufgaben, Punkte, Stil).
 {"Zusatz vom Nutzer: " + custom_line if custom_line else ""}
 {MATH_ACCURACY_INSTRUCTIONS}
 

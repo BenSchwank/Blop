@@ -762,6 +762,7 @@ export default function FolderPage() {
     const [expandedDay, setExpandedDay] = useState<number | null>(0);
     const [signedMediaUrl, setSignedMediaUrl] = useState<string | null>(null);
     const [signedMediaStatus, setSignedMediaStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+    const [mediaReloadToken, setMediaReloadToken] = useState(0);
     const [chatPatchJumpToken, setChatPatchJumpToken] = useState(0);
     const [chatPatchJumpText, setChatPatchJumpText] = useState<string>('');
     const [readSelectionText, setReadSelectionText] = useState('');
@@ -847,7 +848,7 @@ export default function FolderPage() {
     }, []);
 
     useEffect(() => {
-        if (!selectedFile || !['video', 'audio', 'image'].includes(selectedFile.type)) {
+        if (!selectedFile || !['video', 'audio', 'image', 'pdf'].includes(selectedFile.type)) {
             setSignedMediaUrl((prev) => {
                 if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
                 return null;
@@ -867,23 +868,30 @@ export default function FolderPage() {
                     showToast('Nicht angemeldet.', 'error');
                     return;
                 }
-                const q = `username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(String(folderId))}&file_id=${encodeURIComponent(selectedFile.id)}&session_id=${encodeURIComponent(getSessionId())}`;
-                if (kind === 'image' || kind === 'audio') {
-                    const path = kind === 'image' ? 'download_image' : 'download_audio';
+                const q = `username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(String(folderId))}&file_id=${encodeURIComponent(selectedFile.id)}&session_id=${encodeURIComponent(getSessionId())}&filename=${encodeURIComponent(selectedFile.name || "")}`;
+                if (kind === 'image' || kind === 'audio' || kind === 'pdf') {
+                    const path =
+                        kind === 'image' ? 'download_image' : kind === 'audio' ? 'download_audio' : 'download_pdf';
                     const res = await fetch(`${API_BASE}/files/${path}?${q}`, {
                         signal: ac.signal,
                         cache: 'no-store',
                         headers: sessionHeaders(),
                     });
                     if (!res.ok) throw new Error(kind);
-                    const blob = await res.blob();
+                    const raw = await res.blob();
                     if (ac.signal.aborted) return;
+                    // Force PDF MIME so Chrome/Edge open the built-in viewer in <embed>/<iframe>.
+                    const blob =
+                        kind === 'pdf' && raw.type !== 'application/pdf'
+                            ? new Blob([raw], { type: 'application/pdf' })
+                            : raw;
                     const url = URL.createObjectURL(blob);
                     setSignedMediaUrl((prev) => {
                         if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
                         return url;
                     });
                     setSignedMediaStatus('ready');
+                    setPdfLoadFailed(false);
                     return;
                 }
                 const res = await fetch(`${API_BASE}/files/signed-media-url?${q}&kind=${kind}`, {
@@ -920,7 +928,7 @@ export default function FolderPage() {
         };
         void run();
         return () => ac.abort();
-    }, [selectedFile?.id, selectedFile?.type, folderId, backendOrigin]);
+    }, [selectedFile?.id, selectedFile?.type, selectedFile?.name, folderId, backendOrigin, mediaReloadToken]);
 
     useEffect(() => {
         return () => {
@@ -4377,7 +4385,12 @@ export default function FolderPage() {
 
         if (selectedFile.type === 'pdf') {
             const username = typeof window !== 'undefined' ? localStorage.getItem("username") || "" : "";
-            const pdfUrl = `${API_BASE}/files/download_pdf?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id || "")}&filename=${encodeURIComponent(selectedFile.name || "")}`;
+            const sid = typeof window !== 'undefined' ? getSessionId() : "";
+            // Auth URL for open/download fallbacks (iframe alone cannot send X-Session-Id).
+            const pdfAuthUrl = `${API_BASE}/files/download_pdf?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id || "")}&filename=${encodeURIComponent(selectedFile.name || "")}&session_id=${encodeURIComponent(sid)}`;
+            const pdfViewUrl = signedMediaUrl || pdfAuthUrl;
+            const pdfBusy = signedMediaStatus === 'loading' || (signedMediaStatus === 'idle' && !signedMediaUrl);
+            const pdfFailed = pdfLoadFailed || signedMediaStatus === 'error';
             return (
                 <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#23252A] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#45484F] bg-[#23252A] sticky top-0 z-10 w-full">
@@ -4393,7 +4406,7 @@ export default function FolderPage() {
                         </div>
                         <div className="flex items-center gap-2 no-print">
                             <a
-                                href={pdfUrl}
+                                href={pdfViewUrl}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
@@ -4403,7 +4416,7 @@ export default function FolderPage() {
                                 <span className="hidden sm:inline">Neuer Tab</span>
                             </a>
                             <a
-                                href={pdfUrl}
+                                href={pdfViewUrl}
                                 download={selectedFile.name || "dokument.pdf"}
                                 className="flex items-center gap-2 bg-[#3A3D45] hover:bg-[#45484F] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                                 title="PDF herunterladen"
@@ -4413,24 +4426,39 @@ export default function FolderPage() {
                             </a>
                         </div>
                     </div>
-                    <div className="flex-1 bg-[#23252A] p-3">
-                        {pdfLoadFailed ? (
+                    <div className="flex-1 bg-[#23252A] p-3 min-h-0">
+                        {pdfBusy && !pdfFailed ? (
+                            <div className="w-full h-full rounded-xl border border-[#45484F] bg-[#111] flex items-center justify-center gap-2 text-gray-400">
+                                <Loader2 size={18} className="animate-spin" />
+                                PDF wird geladen…
+                            </div>
+                        ) : pdfFailed ? (
                             <div className="w-full h-full rounded-xl border border-red-500/30 bg-[#111] flex items-center justify-center p-6">
                                 <div className="max-w-lg text-center">
                                     <p className="text-red-300 font-semibold mb-2">PDF konnte nicht geladen werden.</p>
                                     <p className="text-sm text-gray-400 mb-4">Bitte versuche es im neuen Tab oder lade die Datei herunter.</p>
                                     <div className="flex items-center justify-center gap-2">
-                                        <a href={pdfUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-lg bg-[#3A3D45] hover:bg-[#45484F] text-white text-sm">Im neuen Tab öffnen</a>
-                                        <button onClick={() => setPdfLoadFailed(false)} className="px-3 py-2 rounded-lg bg-[#3A3D45] hover:bg-[#45484F] text-white text-sm">Erneut versuchen</button>
+                                        <a href={pdfAuthUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-lg bg-[#3A3D45] hover:bg-[#45484F] text-white text-sm">Im neuen Tab öffnen</a>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setPdfLoadFailed(false);
+                                                setSignedMediaStatus('idle');
+                                                setMediaReloadToken((n) => n + 1);
+                                            }}
+                                            className="px-3 py-2 rounded-lg bg-[#3A3D45] hover:bg-[#45484F] text-white text-sm"
+                                        >
+                                            Erneut versuchen
+                                        </button>
                                     </div>
                                 </div>
                             </div>
                         ) : (
-                            <iframe
+                            <embed
                                 title={selectedFile.name || "PDF"}
-                                src={pdfUrl}
+                                src={`${pdfViewUrl}#toolbar=1&navpanes=0`}
+                                type="application/pdf"
                                 className="w-full h-full rounded-xl border border-[#45484F] bg-[#111]"
-                                onError={() => setPdfLoadFailed(true)}
                             />
                         )}
                     </div>

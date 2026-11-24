@@ -4134,9 +4134,50 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
                     from openrouter_genai import extract_pdf_text
                     pdf_text = extract_pdf_text(pdf_path)
                     if pdf_text.strip():
-                        content_parts.append(f"--- {f_name} (PDF) ---\n{pdf_text}\n\n")
+                        name_l = (f_name or "").lower()
+                        looks_like_exercise = any(
+                            k in name_l
+                            for k in (
+                                "übung",
+                                "uebung",
+                                "ubung",
+                                "aufgaben",
+                                "blatt",
+                                "test",
+                                "klausur",
+                                "exam",
+                                "probe",
+                                "quiz",
+                                "homework",
+                                "worksheet",
+                            )
+                        )
+                        # Also sniff content for typical exercise markers.
+                        sample = pdf_text[:2500].lower()
+                        if not looks_like_exercise and any(
+                            m in sample
+                            for m in (
+                                "aufgabe 1",
+                                "aufgabe 2",
+                                "a) ",
+                                "b) ",
+                                "punkte",
+                                "teil a",
+                                "klausur",
+                            )
+                        ):
+                            looks_like_exercise = True
+                        label = "PDF · Übung/Test/Klausur-Vorlage" if looks_like_exercise else "PDF"
+                        hint = (
+                            "\n[HINWEIS: Diese Datei ist eine Übungs-/Test-/Klausur-Vorlage. "
+                            "Bei Probeklausuren Stil, Struktur und Schwierigkeit daran ausrichten — "
+                            "Parallelvarianten, keine 1:1-Kopie.]\n"
+                            if looks_like_exercise
+                            else ""
+                        )
+                        content_parts.append(f"--- {f_name} ({label}) ---{hint}\n{pdf_text}\n\n")
                         has_content = True
-                        debug_log.append(f"PDF-Text aus {f_name}: {len(pdf_text)} Zeichen")
+                        debug_log.append(f"PDF-Text aus {f_name}: {len(pdf_text)} Zeichen ({label})")
                     else:
                         debug_log.append(
                             f"PDF {f_name} hat keinen lesbaren Text. Eingescannte Seiten kann die KI so nicht lesen."
