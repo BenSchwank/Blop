@@ -16,6 +16,10 @@ import FlashcardSession from "@/components/FlashcardSession";
 import DocumentMarkdown from "@/components/DocumentMarkdown";
 import DocumentToc from "@/components/DocumentToc";
 import MathMarkdown from "@/components/MathMarkdown";
+import FocusTopicsField, {
+    buildFocusWithAttachments,
+    type FocusTopicAttachment,
+} from "@/components/FocusTopicsField";
 import MarkdownPrintPortal from "@/components/MarkdownPrintPortal";
 import FolderPageHeader from "@/components/folder/FolderPageHeader";
 import FolderAiStudioBar, { type AiToolKey } from "@/components/folder/FolderAiStudioBar";
@@ -616,6 +620,10 @@ export default function FolderPage() {
     const [summaryDetailLevel, setSummaryDetailLevel] = useState('Normal');
     const [summaryFocus, setSummaryFocus] = useState('');
 
+    // Shared PDF/image attachments for „Kapitel / Themen / Fokus“ across generate modals
+    const [focusTopicFiles, setFocusTopicFiles] = useState<FocusTopicAttachment[]>([]);
+    const [focusTopicUploading, setFocusTopicUploading] = useState(false);
+
     // Elaboration (Ausarbeitung) Config Modal State
     const [isElaborationConfigOpen, setIsElaborationConfigOpen] = useState(false);
     const [elaborationDetailLevel, setElaborationDetailLevel] = useState('Normal');
@@ -1058,11 +1066,72 @@ export default function FolderPage() {
 
     const resolveAiSourceIds = () => activeAiContextIds(files, aiContextIncludedIds);
 
-    /** Persist current UI selection, then return IDs for the generate POST body. */
+    /** Persist current UI selection, then return IDs for the generate POST body (incl. Fokus-Anhänge). */
     const syncAiContextBeforeGenerate = async (): Promise<string[]> => {
         const ids = resolveAiSourceIds();
-        await persistAiContext(ids);
-        return ids;
+        const focusIds = focusTopicFiles.map((f) => f.id);
+        const merged = [...new Set([...ids, ...focusIds])];
+        await persistAiContext(merged);
+        return merged;
+    };
+
+    const uploadFocusTopicFiles = async (picked: File[]) => {
+        if (!picked.length) return;
+        const username = localStorage.getItem("username");
+        const sid = getSessionId();
+        setFocusTopicUploading(true);
+        try {
+            for (const file of picked) {
+                const isImage = file.type.startsWith("image/");
+                const isPdf =
+                    file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+                if (!isImage && !isPdf) {
+                    showToast(`${file.name}: nur PDF oder Bild.`, "error");
+                    continue;
+                }
+                const formData = new FormData();
+                formData.append("file", file);
+                const authQs = `username=${encodeURIComponent(username || "")}&folder_id=${encodeURIComponent(folderId)}&session_id=${encodeURIComponent(sid)}`;
+                const endpoint = isImage
+                    ? `${API_BASE}/files/image?${authQs}`
+                    : `${API_BASE}/files/upload?${authQs}`;
+                const res = await fetch(endpoint, {
+                    method: "POST",
+                    headers: sessionHeaders(),
+                    body: formData,
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    showToast(
+                        `${file.name}: ${typeof data.detail === "string" ? data.detail : "Upload fehlgeschlagen"}`,
+                        "error"
+                    );
+                    continue;
+                }
+                const saved = data.file;
+                if (saved?.id) {
+                    setFiles((prev) => [saved, ...prev.filter((item) => item.id !== saved.id)]);
+                    setFocusTopicFiles((prev) => {
+                        if (prev.some((p) => p.id === saved.id)) return prev;
+                        return [
+                            ...prev,
+                            {
+                                id: String(saved.id),
+                                name: String(saved.name || file.name),
+                                type: String(saved.type || (isImage ? "image" : "pdf")),
+                            },
+                        ];
+                    });
+                    showToast(`${file.name} als Themen-Anhang hinzugefügt`, "success");
+                }
+            }
+            await fetchFiles();
+        } catch (e) {
+            console.error(e);
+            showToast("Upload fehlgeschlagen.", "error");
+        } finally {
+            setFocusTopicUploading(false);
+        }
     };
 
     const toggleAiContextFile = (fileId: string, wantChecked: boolean) => {
@@ -1847,7 +1916,7 @@ export default function FolderPage() {
                     model_preference: effectiveModelPreference,
                     quiz_question_count: quizQuestionCount,
                     quiz_difficulty: quizDifficulty,
-                    focus: quizFocus.trim() || undefined,
+                    focus: buildFocusWithAttachments(quizFocus, focusTopicFiles),
                     included_file_ids,
                 }),
                 signal: ac.signal,
@@ -1923,7 +1992,7 @@ export default function FolderPage() {
                     model_preference: effectiveModelPreference,
                     flashcards_count: flashcardsCount,
                     flashcards_max_text: flashcardsMaxText,
-                    focus: flashcardsFocus.trim() || undefined,
+                    focus: buildFocusWithAttachments(flashcardsFocus, focusTopicFiles),
                     included_file_ids,
                 }),
                 signal: acFc.signal,
@@ -1999,7 +2068,7 @@ export default function FolderPage() {
                     detail_level: summaryDetailLevel,
                     model_preference: effectiveModelPreference,
                     learning_mode: learningMode,
-                    focus: summaryFocus.trim() || undefined,
+                    focus: buildFocusWithAttachments(summaryFocus, focusTopicFiles),
                     included_file_ids,
             }, acSum.signal));
 
@@ -2198,8 +2267,8 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     detail_level: mapElaborationDetailLevel(elaborationDetailLevel),
-                    custom_rules: elaborationRules,
-                    focus: elaborationRules.trim() || undefined,
+                    custom_rules: buildFocusWithAttachments(elaborationRules, focusTopicFiles) || "",
+                    focus: buildFocusWithAttachments(elaborationRules, focusTopicFiles),
                     model_preference: effectiveModelPreference,
                     included_file_ids,
                 }),
@@ -2329,7 +2398,7 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     custom_rules: repetitionRules,
-                    focus: repetitionRules.trim() || undefined,
+                    focus: buildFocusWithAttachments(repetitionRules, focusTopicFiles),
                     model_preference: effectiveModelPreference,
                     learning_mode: learningMode,
                     included_file_ids,
@@ -2416,7 +2485,7 @@ export default function FolderPage() {
                     model_preference: effectiveModelPreference,
                     tts_voice: podcastTtsVoice,
                     tts_voice_b: podcastTtsVoiceB,
-                    focus: podcastFocus.trim() || undefined,
+                    focus: buildFocusWithAttachments(podcastFocus, focusTopicFiles),
                     included_file_ids,
                 }),
                 signal: ac.signal,
@@ -2576,7 +2645,7 @@ export default function FolderPage() {
                     slide_motion: lvSlideMotion,
                     slide_crossfade: lvSlideCrossfade,
                     tts_voice: lvTtsVoice,
-                    focus: lvFocus.trim() || undefined,
+                    focus: buildFocusWithAttachments(lvFocus, focusTopicFiles),
                     included_file_ids,
                 }),
                 signal: ac.signal,
@@ -2726,7 +2795,7 @@ export default function FolderPage() {
                     active_days: planActiveDays.length < 7 ? planActiveDays : undefined,
                     model_preference: effectiveModelPreference,
                     learning_mode: learningMode,
-                    focus: planFocus.trim() || undefined,
+                    focus: buildFocusWithAttachments(planFocus, focusTopicFiles),
                     exam_date: planUseDate && planEndDate ? planEndDate : undefined,
                     included_file_ids,
                 }),
@@ -2801,7 +2870,7 @@ export default function FolderPage() {
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
-                    focus: smartLearningFocus.trim() || undefined,
+                    focus: buildFocusWithAttachments(smartLearningFocus, focusTopicFiles),
                     exam_date: smartLearningExamDate || undefined,
                     model_preference: effectiveModelPreference,
                     included_file_ids,
@@ -4918,15 +4987,17 @@ export default function FolderPage() {
                                         ))}
                                     </div>
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
-                                    <textarea
-                                        value={quizFocus}
-                                        onChange={(e) => setQuizFocus(e.target.value)}
-                                        placeholder="z.B. Kapitel 3–5 oder nur Kirchhoff"
-                                        className="w-full h-20 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-yellow-500/40 outline-none resize-none placeholder:text-gray-600"
-                                    />
-                                </div>
+                                <FocusTopicsField
+                                    value={quizFocus}
+                                    onChange={setQuizFocus}
+                                    attachments={focusTopicFiles}
+                                    onAttachmentsChange={setFocusTopicFiles}
+                                    onUploadFiles={uploadFocusTopicFiles}
+                                    uploading={focusTopicUploading}
+                                    placeholder="z.B. Kapitel 3–5 oder nur Kirchhoff — oder PDF/Bild mit Prüfungsthemen"
+                                    accentClassName="focus:ring-2 focus:ring-yellow-500/40"
+                                    rowsClassName="h-20"
+                                />
                                 <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
@@ -5000,15 +5071,17 @@ export default function FolderPage() {
                                         className="w-full accent-green-500"
                                     />
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
-                                    <textarea
-                                        value={flashcardsFocus}
-                                        onChange={(e) => setFlashcardsFocus(e.target.value)}
-                                        placeholder="z.B. nur Formeln aus Kapitel 4"
-                                        className="w-full h-20 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500/40 outline-none resize-none placeholder:text-gray-600"
-                                    />
-                                </div>
+                                <FocusTopicsField
+                                    value={flashcardsFocus}
+                                    onChange={setFlashcardsFocus}
+                                    attachments={focusTopicFiles}
+                                    onAttachmentsChange={setFocusTopicFiles}
+                                    onUploadFiles={uploadFocusTopicFiles}
+                                    uploading={focusTopicUploading}
+                                    placeholder="z.B. nur Formeln aus Kapitel 4 — oder PDF/Bild mit Prüfungsthemen"
+                                    accentClassName="focus:ring-2 focus:ring-green-500/40"
+                                    rowsClassName="h-20"
+                                />
                                 <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
@@ -5109,15 +5182,17 @@ export default function FolderPage() {
                                         Abwechselnd, mit Emotion und Pausen — nicht wie eine Vorlese-Zusammenfassung. Test spielt eine kurze, natürliche Probe.
                                     </p>
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
-                                    <textarea
-                                        value={podcastFocus}
-                                        onChange={(e) => setPodcastFocus(e.target.value)}
-                                        placeholder="z.B. nur Kirchhoff und Zweipole"
-                                        className="w-full h-20 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500/40 outline-none resize-none placeholder:text-gray-600"
-                                    />
-                                </div>
+                                <FocusTopicsField
+                                    value={podcastFocus}
+                                    onChange={setPodcastFocus}
+                                    attachments={focusTopicFiles}
+                                    onAttachmentsChange={setFocusTopicFiles}
+                                    onUploadFiles={uploadFocusTopicFiles}
+                                    uploading={focusTopicUploading}
+                                    placeholder="z.B. nur Kirchhoff und Zweipole — oder PDF/Bild mit Prüfungsthemen"
+                                    accentClassName="focus:ring-2 focus:ring-blue-500/40"
+                                    rowsClassName="h-20"
+                                />
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (optional)</label>
                                     <select
@@ -5340,15 +5415,17 @@ export default function FolderPage() {
                                         </button>
                                     </div>
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
-                                    <textarea
-                                        value={lvFocus}
-                                        onChange={(e) => setLvFocus(e.target.value)}
-                                        placeholder="z.B. Kapitel 3–5, nur Wechselstrom"
-                                        className="w-full h-20 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-cyan-500/40 outline-none resize-none placeholder:text-gray-600"
-                                    />
-                                </div>
+                                <FocusTopicsField
+                                    value={lvFocus}
+                                    onChange={setLvFocus}
+                                    attachments={focusTopicFiles}
+                                    onAttachmentsChange={setFocusTopicFiles}
+                                    onUploadFiles={uploadFocusTopicFiles}
+                                    uploading={focusTopicUploading}
+                                    placeholder="z.B. Kapitel 3–5, nur Wechselstrom — oder PDF/Bild mit Prüfungsthemen"
+                                    accentClassName="focus:ring-2 focus:ring-cyan-500/40"
+                                    rowsClassName="h-20"
+                                />
                                 <div className="pt-2 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (optional)</label>
                                     <select
@@ -5400,15 +5477,17 @@ export default function FolderPage() {
                                 </button>
                             </div>
                             <div className="p-5 space-y-4 overflow-y-auto min-h-0">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
-                                    <textarea
-                                        value={smartLearningFocus}
-                                        onChange={(e) => setSmartLearningFocus(e.target.value)}
-                                        placeholder="z.B. Kapitel 3–5, Zweipole, Kirchhoff — genaue Themen, die die Lernreise abdecken soll"
-                                        className="w-full h-24 bg-[#353840] border border-[#45484F] text-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5B9DFF]/50 resize-none placeholder:text-gray-600"
-                                    />
-                                </div>
+                                <FocusTopicsField
+                                    value={smartLearningFocus}
+                                    onChange={setSmartLearningFocus}
+                                    attachments={focusTopicFiles}
+                                    onAttachmentsChange={setFocusTopicFiles}
+                                    onUploadFiles={uploadFocusTopicFiles}
+                                    uploading={focusTopicUploading}
+                                    placeholder="z.B. Kapitel 3–5, Zweipole — oder PDF/Bild mit Prüfungsthemen"
+                                    accentClassName="focus:ring-2 focus:ring-[#5B9DFF]/50"
+                                    rowsClassName="h-24"
+                                />
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Prüfungsdatum (optional)</label>
                                     <input
@@ -5682,15 +5761,17 @@ export default function FolderPage() {
                                     </p>
                                 </div>
 
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus</label>
-                                    <textarea
-                                        value={planFocus}
-                                        onChange={(e) => setPlanFocus(e.target.value)}
-                                        placeholder="z.B. Kapitel 3–5, Zweipole, Kirchhoffsche Regeln, Wechselstrom. Die KI plant genau diese Inhalte."
-                                        className="w-full h-24 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF] outline-none resize-none placeholder:text-gray-600"
-                                    />
-                                </div>
+                                <FocusTopicsField
+                                    value={planFocus}
+                                    onChange={setPlanFocus}
+                                    attachments={focusTopicFiles}
+                                    onAttachmentsChange={setFocusTopicFiles}
+                                    onUploadFiles={uploadFocusTopicFiles}
+                                    uploading={focusTopicUploading}
+                                    placeholder="z.B. Kapitel 3–5, Zweipole — oder PDF/Bild mit Prüfungsthemen"
+                                    accentClassName="focus:ring-2 focus:ring-[#5B9DFF]/50 focus:border-[#5B9DFF]"
+                                    rowsClassName="h-24"
+                                />
 
                                 {/* Active Study Days */}
                                 <div>
@@ -5839,15 +5920,17 @@ export default function FolderPage() {
                                         {summaryDetailLevel === 'Ausführlich' && 'Sehr tiefe Erklärung fast aller Details im Material.'}
                                     </p>
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
-                                    <textarea
-                                        value={summaryFocus}
-                                        onChange={(e) => setSummaryFocus(e.target.value)}
-                                        placeholder="z.B. Kapitel 3–5, nur Zweipole"
-                                        className="w-full h-20 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500/40 outline-none resize-none placeholder:text-gray-600"
-                                    />
-                                </div>
+                                <FocusTopicsField
+                                    value={summaryFocus}
+                                    onChange={setSummaryFocus}
+                                    attachments={focusTopicFiles}
+                                    onAttachmentsChange={setFocusTopicFiles}
+                                    onUploadFiles={uploadFocusTopicFiles}
+                                    uploading={focusTopicUploading}
+                                    placeholder="z.B. Kapitel 3–5, nur Zweipole — oder PDF/Bild mit Prüfungsthemen"
+                                    accentClassName="focus:ring-2 focus:ring-blue-500/40"
+                                    rowsClassName="h-20"
+                                />
                                 {/* Model Preference */}
                                 <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
@@ -5918,15 +6001,17 @@ export default function FolderPage() {
                                     </div>
                                 </div>
 
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
-                                    <textarea
-                                        value={elaborationRules}
-                                        onChange={(e) => setElaborationRules(e.target.value)}
-                                        placeholder="z.B. Kapitel 3–5, Zweipole, Kirchhoff — plus Stilwünsche"
-                                        className="w-full h-24 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none resize-none placeholder:text-gray-600"
-                                    />
-                                </div>
+                                <FocusTopicsField
+                                    value={elaborationRules}
+                                    onChange={setElaborationRules}
+                                    attachments={focusTopicFiles}
+                                    onAttachmentsChange={setFocusTopicFiles}
+                                    onUploadFiles={uploadFocusTopicFiles}
+                                    uploading={focusTopicUploading}
+                                    placeholder="z.B. Kapitel 3–5, Zweipole, Kirchhoff — oder PDF/Bild mit Prüfungsthemen"
+                                    accentClassName="focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500"
+                                    rowsClassName="h-24"
+                                />
                                 {/* Model Preference */}
                                 <div className="pt-4 border-t border-[#45484F]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
@@ -6005,12 +6090,16 @@ export default function FolderPage() {
                                     )}
                                 </div>
 
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Kapitel / Themen / Fokus (optional)</label>
-                                <textarea
+                                <FocusTopicsField
                                     value={repetitionRules}
-                                    onChange={(e) => setRepetitionRules(e.target.value)}
-                                    placeholder="z.B. Kapitel 3–5 oder nur Vektorrechnung. Leer lassen = gesamtes Material, jede Teilaufgabe ausführlich."
-                                    className="w-full h-28 bg-[#353840] border border-[#45484F] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
+                                    onChange={setRepetitionRules}
+                                    attachments={focusTopicFiles}
+                                    onAttachmentsChange={setFocusTopicFiles}
+                                    onUploadFiles={uploadFocusTopicFiles}
+                                    uploading={focusTopicUploading}
+                                    placeholder="z.B. Kapitel 3–5 oder nur Vektorrechnung — oder PDF/Bild mit Prüfungsthemen"
+                                    accentClassName="focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
+                                    rowsClassName="h-28"
                                 />
 
                                 <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5 mb-4">

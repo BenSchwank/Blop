@@ -19,10 +19,11 @@ export const AI_CONTEXT_FILE_TYPES = new Set([
     "quiz",
     "flashcards",
     "pdf",
+    "image",
     "smart_learning",
 ]);
 
-export const AI_CONTEXT_SOURCE_TYPES = new Set(["pdf", "transcript"]);
+export const AI_CONTEXT_SOURCE_TYPES = new Set(["pdf", "transcript", "image"]);
 
 /** Uploads / source materials only — not AI-generated elaborations. */
 export const SOURCE_SCRIPT_TYPES = new Set(["pdf", "transcript"]);

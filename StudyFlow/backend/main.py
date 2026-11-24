@@ -4055,7 +4055,7 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
 
     # Default (no saved selection): source materials only. Creations are included
     # only when the user explicitly checks them. [] = explicitly no sources.
-    SOURCE_TYPES = ("pdf", "transcript")
+    SOURCE_TYPES = ("pdf", "transcript", "image")
     all_non_archived = list(files)
     ids_filter = included_file_ids
     if ids_filter is None:
@@ -4082,7 +4082,7 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
                 files = matched
     else:
         files = [f for f in files if f.get("type") in SOURCE_TYPES]
-        debug_log.append("Using source materials only (pdf, transcript)")
+        debug_log.append("Using source materials only (pdf, transcript, image)")
 
     TEXT_TYPES = (
         "transcript",
@@ -4147,10 +4147,33 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
                     debug_log.append(f"DataManager returned None path for {f_name}")
             except Exception as e:
                 debug_log.append(f"Error processing PDF {f_name}: {str(e)}")
-                
+
+        # 3. Images — vision parts (Prüfungsthemen-Fotos, Skizzen, Screenshots)
+        elif f_type == "image":
+            try:
+                raw_bytes, _dl = DataManager.get_image_bytes(username, folder_id, str(f_id))
+                if not raw_bytes:
+                    debug_log.append(f"Image {f_name} empty/missing")
+                    continue
+                from io import BytesIO
+                from PIL import Image
+
+                pil = Image.open(BytesIO(raw_bytes)).convert("RGB")
+                max_edge = 1600
+                w, h = pil.size
+                scale = min(1.0, max_edge / float(max(w, h, 1)))
+                if scale < 1.0:
+                    pil = pil.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+                content_parts.append(f"--- {f_name} (Bild / Prüfungsthemen-Anhang) ---")
+                content_parts.append(pil)
+                has_content = True
+                debug_log.append(f"Added image context {f_name} ({pil.size[0]}x{pil.size[1]})")
+            except Exception as e:
+                debug_log.append(f"Error processing image {f_name}: {str(e)}")
+
     if not has_content:
         return [], debug_log
-        
+
     return content_parts, debug_log
 
 
