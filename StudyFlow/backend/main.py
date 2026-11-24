@@ -3104,6 +3104,9 @@ class SmartLearningDeepSessionRequest(BaseModel):
     folder_id: str
     target_minutes: int = 60  # 25 | 45 | 60 | 90
     focus: str = ""
+    # Explicit lesson ids to cover; empty = derive from progress / incomplete.
+    lesson_ids: Optional[List[str]] = None
+    prefer_incomplete: bool = True
     model_preference: str = None
     included_file_ids: Optional[List[str]] = None
 
@@ -3831,11 +3834,25 @@ def create_smart_learning_deep_session(request: SmartLearningDeepSessionRequest)
                     status_code=400,
                     detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
                 )
+        progress = content.get("progress") if isinstance(content.get("progress"), dict) else {}
+        completed_lesson_ids = [
+            str(x)
+            for x in (progress.get("completed_lesson_ids") or [])
+            if str(x).strip()
+        ]
+        requested_ids = [
+            str(x).strip()
+            for x in (request.lesson_ids or [])
+            if str(x).strip()
+        ]
         result = AIService.generate_smart_learning_deep_session(
             context,
             target_minutes=request.target_minutes or 60,
             focus=request.focus or "",
             chapters_hint=[ch for ch in chapters if isinstance(ch, dict)],
+            lesson_ids=requested_ids or None,
+            completed_lesson_ids=completed_lesson_ids,
+            prefer_incomplete=bool(request.prefer_incomplete),
             model_preference=model_pref,
             return_meta=True,
         )

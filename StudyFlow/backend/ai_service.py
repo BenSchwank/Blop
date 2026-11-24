@@ -1866,6 +1866,9 @@ Ausgabe NUR:
         target_minutes: int = 60,
         focus: str = "",
         chapters_hint: Optional[List[Dict[str, Any]]] = None,
+        lesson_ids: Optional[List[str]] = None,
+        completed_lesson_ids: Optional[List[str]] = None,
+        prefer_incomplete: bool = True,
         model_preference: str = None,
         return_meta: bool = False,
     ) -> Any:
@@ -1878,7 +1881,13 @@ Ausgabe NUR:
                 generation_config={"response_mime_type": "application/json"},
             )
             focus_line = (focus or "").strip() or "Prüfungsrelevanten Stoff vertiefen"
-            chapter_lines = []
+            done_set = {str(x).strip() for x in (completed_lesson_ids or []) if str(x).strip()}
+            want_set = {str(x).strip() for x in (lesson_ids or []) if str(x).strip()}
+
+            chapter_lines: List[str] = []
+            lesson_lines: List[str] = []
+            selected_lessons: List[str] = []
+            open_lessons: List[str] = []
             for ch in chapters_hint or []:
                 if not isinstance(ch, dict):
                     continue
@@ -1886,7 +1895,65 @@ Ausgabe NUR:
                 title = str(ch.get("title") or "").strip()
                 if cid or title:
                     chapter_lines.append(f"- {cid or '?'}: {title or 'Kapitel'}")
+                lessons = ch.get("lessons") if isinstance(ch.get("lessons"), list) else []
+                for les in lessons:
+                    if not isinstance(les, dict):
+                        continue
+                    lid = str(les.get("id") or "").strip()
+                    if not lid:
+                        continue
+                    teach = str(les.get("teach") or "").strip().replace("\n", " ")
+                    preview = (teach[:90] + "…") if len(teach) > 90 else teach
+                    status = "fertig" if lid in done_set else "offen"
+                    check = les.get("check") if isinstance(les.get("check"), dict) else {}
+                    cprompt = str((check or {}).get("prompt") or "").strip()
+                    label = preview or cprompt or lid
+                    row = f"- [{status}] {cid or '?'} / {lid}: {label}"
+                    if want_set and lid not in want_set:
+                        continue
+                    lesson_lines.append(row)
+                    if status == "offen":
+                        open_lessons.append(lid)
+                    if want_set and lid in want_set:
+                        selected_lessons.append(lid)
+
+            # If explicit ids were requested but none matched catalog, still list them
+            if want_set and not selected_lessons:
+                for lid in sorted(want_set):
+                    lesson_lines.append(f"- [gewählt] {lid}")
+                    selected_lessons.append(lid)
+
             chapter_block = "\n".join(chapter_lines) if chapter_lines else "- (Themen aus Material ableiten)"
+            lesson_block = "\n".join(lesson_lines[:80]) if lesson_lines else "- (keine Lektionsliste — aus Material ableiten)"
+
+            scope_rules: List[str] = []
+            if want_set:
+                scope_rules.append(
+                    "SCOPE: Nutze NUR die gewählten Lektionen unten. Andere Kapitel nur kurz als Kontext, nicht als Hauptinhalt."
+                )
+                scope_rules.append(
+                    "Gewählte Lektions-IDs: " + ", ".join(selected_lessons[:40] or sorted(want_set)[:40])
+                )
+            elif prefer_incomplete:
+                if open_lessons:
+                    scope_rules.append(
+                        "SCOPE: Priorisiere OFFENE (noch nicht fertige) Lektionen. Fertige nur als kurze Wiederholung, falls Zeit bleibt."
+                    )
+                    scope_rules.append(
+                        "Offene Lektions-IDs: " + ", ".join(open_lessons[:40])
+                    )
+                else:
+                    scope_rules.append(
+                        "SCOPE: Alle Lektionen sind fertig — baue eine Wiederholungs-/Vertiefungs-Session über den Kernstoff."
+                    )
+            else:
+                scope_rules.append("SCOPE: Gesamter Lernpfad, aber Fokus-Text des Users gewichten.")
+            if (focus or "").strip():
+                scope_rules.append(
+                    f"USER-BESCHREIBUNG was gelernt werden soll: {(focus or '').strip()[:800]}"
+                )
+            scope_block = "\n".join(scope_rules)
+
             # Rough step budget: ~5–8 min average per step
             min_steps = max(6, minutes // 8)
             max_steps = max(min_steps + 2, minutes // 4)
@@ -1896,15 +1963,20 @@ Du bist ein KI-Lerncoach für TIEFES LERNEN. Erstelle EINE geführte Lernsession
 Der Lernende soll OHNE Extra-Material nur mit dieser Session lernen können.
 
 FOKUS: {focus_line}
+{scope_block}
+
 VORHANDENE KAPITEL (Orientierung):
 {chapter_block}
+
+LEKTIONEN MIT FORTSCHRITT ([offen] = noch nicht fertig, [fertig] = bereits abgeschlossen):
+{lesson_block}
 
 {MATH_ACCURACY_INSTRUCTIONS}
 
 ANFORDERUNGEN:
 1. target_minutes = {minutes}. Summe estimated_minutes aller steps ≈ {minutes} (±10 %).
 2. {min_steps}–{max_steps} steps mit gemischten Typen:
-   - teach: längerer Lehrtext (Markdown, 180–450 Wörter), KEINE Rechenaufgaben
+   - teach: längerer Lehrtext (Markdown, 180–450 Wörter), KEINE Rechenaufgaben — an den gewählten/offenen Lektionen ausrichten
    - flashcards: 3–6 Karten front/back
    - exercise: eine Check-Frage (mc / cloze / short_answer / matching / drawing) mit explanation; bei Freitext/Lücke accepted_answers; bei drawing: rubric 3–6 Kriterien
    - note: note_prompt — Aufforderung, in eigenen Worten zu notieren
@@ -1915,6 +1987,7 @@ ANFORDERUNGEN:
 4. IDs stabil: session "ds1", steps "ds1-s1"…
 5. JSON streng gültig (Backslashes in LaTeX verdoppeln).
 6. Wurzel MUSS ein JSON-Objekt sein — KEIN Array. Keine Markdown-Fences.
+7. Titel der Session soll den Fokus/die gewählten Themen widerspiegeln.
 
 Ausgabe: EIN JSON-Objekt (nicht eine Liste):
 {{

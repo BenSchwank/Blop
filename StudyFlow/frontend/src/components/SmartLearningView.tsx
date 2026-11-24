@@ -1127,6 +1127,9 @@ export default function SmartLearningView({
     const [local, setLocal] = useState<SmartLearningContent>(() => normalizeSmartLearningContent(content));
     const [mode, setMode] = useState<"overview" | "learn" | "exam" | "exam_result" | "exam_picker" | "deep">("overview");
     const [deepBudget, setDeepBudget] = useState<DeepBudgetMinutes>(60);
+    const [deepFocus, setDeepFocus] = useState("");
+    const [deepScopeMode, setDeepScopeMode] = useState<"open" | "pick">("open");
+    const [deepLessonIds, setDeepLessonIds] = useState<string[]>([]);
     const deepAutoStartedRef = useRef(false);
     const [deepBusy, setDeepBusy] = useState(false);
     const [deepStepIdx, setDeepStepIdx] = useState(0);
@@ -2076,12 +2079,33 @@ export default function SmartLearningView({
         setMode("deep");
     };
 
+    const incompleteLessonIds = useMemo(
+        () => flatSteps.filter((s) => !completedLessonSet.has(s.lesson.id)).map((s) => s.lesson.id),
+        [flatSteps, completedLessonSet]
+    );
+
     const generateDeepSession = async (minutes?: DeepBudgetMinutes) => {
         const budget = minutes || deepBudget;
         setDeepBudget(budget);
         setDeepBusy(true);
         setError("");
         try {
+            const picked =
+                deepScopeMode === "pick"
+                    ? deepLessonIds
+                    : incompleteLessonIds.length > 0
+                      ? incompleteLessonIds
+                      : flatSteps.map((s) => s.lesson.id);
+            if (deepScopeMode === "pick" && picked.length === 0) {
+                throw new Error("Bitte mindestens eine Lektion auswählen.");
+            }
+            const focusText =
+                deepFocus.trim() ||
+                (deepScopeMode === "open"
+                    ? incompleteLessonIds.length > 0
+                        ? "Offene Lektionen vertiefen"
+                        : "Wiederholung des Lernpfads"
+                    : "Ausgewählte Lektionen vertiefen");
             const res = await fetch(
                 `/api/ai/smart-learning/deep-session?session_id=${encodeURIComponent(sessionId)}`,
                 {
@@ -2094,7 +2118,9 @@ export default function SmartLearningView({
                         username,
                         folder_id: folderId,
                         target_minutes: budget,
-                        focus: local.title || undefined,
+                        focus: focusText,
+                        lesson_ids: picked,
+                        prefer_incomplete: deepScopeMode === "open",
                     }),
                 }
             );
@@ -4036,9 +4062,129 @@ export default function SmartLearningView({
                             </div>
                         </div>
                         <p className="text-[11px] text-gray-400">
-                            Wähle deine Lernzeit: die Session enthält Lehrtexte, Notizen, Übungen und Recall und dauert
-                            ungefähr so lange. Erstellung kann ein paar Minuten brauchen.
+                            Standard: offene (noch nicht fertige) Lektionen. Alternativ Lektionen manuell wählen oder per
+                            Text beschreiben, was du lernen willst.
                         </p>
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setDeepScopeMode("open")}
+                                className={`px-3 py-2 rounded-lg text-xs font-medium border min-h-[40px] ${
+                                    deepScopeMode === "open"
+                                        ? "bg-indigo-500 text-white border-indigo-500"
+                                        : "border-[#45484F] text-gray-300"
+                                }`}
+                            >
+                                Offene Lektionen ({incompleteLessonIds.length})
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setDeepScopeMode("pick");
+                                    if (deepLessonIds.length === 0) {
+                                        setDeepLessonIds(
+                                            incompleteLessonIds.length
+                                                ? incompleteLessonIds
+                                                : flatSteps.map((s) => s.lesson.id)
+                                        );
+                                    }
+                                }}
+                                className={`px-3 py-2 rounded-lg text-xs font-medium border min-h-[40px] ${
+                                    deepScopeMode === "pick"
+                                        ? "bg-indigo-500 text-white border-indigo-500"
+                                        : "border-[#45484F] text-gray-300"
+                                }`}
+                            >
+                                Lektionen wählen
+                            </button>
+                        </div>
+                        {deepScopeMode === "pick" ? (
+                            <div className="max-h-48 overflow-y-auto rounded-lg border border-[#2A3140] bg-[#12141A]/80 p-2 space-y-2">
+                                {chapters.map((ch) => (
+                                    <div key={ch.id} className="space-y-1">
+                                        <p className="text-[11px] font-semibold text-indigo-200/90 px-1">{ch.title}</p>
+                                        {ch.lessons.map((l, li) => {
+                                            const done = completedLessonSet.has(l.id);
+                                            const checked = deepLessonIds.includes(l.id);
+                                            const preview =
+                                                (l.teach || l.check?.prompt || `Blatt ${li + 1}`)
+                                                    .replace(/\s+/g, " ")
+                                                    .trim()
+                                                    .slice(0, 64) || `Blatt ${li + 1}`;
+                                            return (
+                                                <label
+                                                    key={l.id}
+                                                    className="flex items-start gap-2 px-1.5 py-1 rounded-md hover:bg-[#1A1F2A] cursor-pointer text-xs text-gray-300"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={() => {
+                                                            setDeepLessonIds((prev) =>
+                                                                checked
+                                                                    ? prev.filter((id) => id !== l.id)
+                                                                    : [...prev, l.id]
+                                                            );
+                                                        }}
+                                                        className="mt-0.5 accent-indigo-500"
+                                                    />
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="text-gray-200">{li + 1}. {preview}</span>
+                                                        {done ? (
+                                                            <span className="text-gray-500"> · fertig</span>
+                                                        ) : (
+                                                            <span className="text-amber-200/80"> · offen</span>
+                                                        )}
+                                                    </span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                ))}
+                                {flatSteps.length === 0 ? (
+                                    <p className="text-[11px] text-gray-500 px-1">Noch keine Lektionen im Pfad.</p>
+                                ) : null}
+                                <div className="flex flex-wrap gap-2 pt-1 px-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setDeepLessonIds(incompleteLessonIds)}
+                                        className="text-[11px] text-indigo-200 hover:text-white"
+                                    >
+                                        Nur offene
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDeepLessonIds(flatSteps.map((s) => s.lesson.id))}
+                                        className="text-[11px] text-indigo-200 hover:text-white"
+                                    >
+                                        Alle
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDeepLessonIds([])}
+                                        className="text-[11px] text-gray-400 hover:text-white"
+                                    >
+                                        Keine
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <p className="text-[11px] text-indigo-100/70">
+                                {incompleteLessonIds.length > 0
+                                    ? `${incompleteLessonIds.length} offene Lektion${incompleteLessonIds.length === 1 ? "" : "en"} werden priorisiert.`
+                                    : "Alles fertig — Session wird als Wiederholung gebaut."}
+                            </p>
+                        )}
+                        <div>
+                            <label className="text-[11px] text-gray-400">Was willst du lernen? (optional)</label>
+                            <textarea
+                                value={deepFocus}
+                                onChange={(e) => setDeepFocus(e.target.value)}
+                                rows={2}
+                                placeholder='z. B. „Pointer und Speicher in C“ oder „nur die schwierigen Übungen“'
+                                className="mt-1 w-full rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                            />
+                        </div>
                         <div className="flex flex-wrap gap-2">
                             {DEEP_BUDGETS.map((m) => (
                                 <button
