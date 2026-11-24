@@ -31,6 +31,7 @@ import MathMarkdown, {
     splitAnswerAlternatives,
 } from "@/components/MathMarkdown";
 import { awardXp } from "@/lib/xpClient";
+import DrawingAnswerPad, { type DrawingGradeResult } from "@/components/DrawingAnswerPad";
 
 const HEARTS_MAX = 5;
 const DAILY_GOAL_XP = 50;
@@ -57,7 +58,7 @@ function plainTextForTts(md: string): string {
         .trim();
 }
 
-export type SmartLearningCheckType = "mc" | "true_false" | "cloze" | "short_answer" | "matching";
+export type SmartLearningCheckType = "mc" | "true_false" | "cloze" | "short_answer" | "matching" | "drawing";
 
 export type SmartLearningCheck = {
     type: SmartLearningCheckType;
@@ -68,6 +69,9 @@ export type SmartLearningCheck = {
     blanks?: string[];
     /** Extra accepted forms (synonyms, plural, paraphrases). */
     accepted_answers?: string[];
+    /** Grading criteria for drawing / diagram answers. */
+    rubric?: string[];
+    allow_upload?: boolean;
 };
 
 export type SmartLearningLesson = {
@@ -94,6 +98,8 @@ export type SmartLearningExamQuestion = {
     explanation?: string;
     blanks?: string[];
     accepted_answers?: string[];
+    rubric?: string[];
+    allow_upload?: boolean;
     chapter_id?: string;
 };
 
@@ -233,6 +239,17 @@ function normalizeCheckType(raw: unknown): SmartLearningCheckType {
     if (t === "short_answer" || t === "short" || t === "freitext" || t === "code" || t === "open") return "short_answer";
     if (t === "matching" || t === "match" || t === "zuordnen" || t === "verbinden" || t === "connect" || t === "pairs")
         return "matching";
+    if (
+        t === "drawing" ||
+        t === "draw" ||
+        t === "sketch" ||
+        t === "diagram" ||
+        t === "pap" ||
+        t === "flowchart" ||
+        t === "bild" ||
+        t === "zeichnen"
+    )
+        return "drawing";
     return "mc";
 }
 
@@ -405,6 +422,26 @@ function normalizeCheck(checkRaw: Record<string, unknown>): SmartLearningCheck |
         };
     }
 
+    if (type === "drawing") {
+        const rubric = Array.isArray(checkRaw.rubric)
+            ? checkRaw.rubric.map((x) => String(x).trim()).filter(Boolean).slice(0, 8)
+            : undefined;
+        const modelAnswer =
+            answer ||
+            (rubric && rubric.length ? rubric.join("; ") : "") ||
+            "Sinnvolle Skizze / Diagramm zur Aufgabenstellung";
+        return {
+            type: "drawing",
+            prompt,
+            options: [],
+            answer: modelAnswer,
+            explanation: checkRaw.explanation ? String(checkRaw.explanation) : undefined,
+            accepted_answers: accepted,
+            rubric: rubric && rubric.length ? rubric : undefined,
+            allow_upload: checkRaw.allow_upload === false ? false : true,
+        };
+    }
+
     if (!answer) return null;
     if (options.length < 2) {
         options =
@@ -434,6 +471,10 @@ function formatCorrectAnswerLabel(check: SmartLearningCheck): string {
             .map((left, i) => `${left} → ${splitAnswerAlternatives(check.blanks?.[i] || "")[0] || "?"}`)
             .join("; ");
     }
+    if (check.type === "drawing") {
+        if (check.rubric?.length) return check.rubric.join("; ");
+        return check.answer || "";
+    }
     const primary = splitAnswerAlternatives(check.answer)[0] || check.answer;
     if (check.accepted_answers?.length) {
         const alts = check.accepted_answers
@@ -445,13 +486,28 @@ function formatCorrectAnswerLabel(check: SmartLearningCheck): string {
     return primary;
 }
 
-function AnswerRevealBlock({ check, correct }: { check: SmartLearningCheck; correct: boolean }) {
+function AnswerRevealBlock({
+    check,
+    correct,
+    extraFeedback,
+}: {
+    check: SmartLearningCheck;
+    correct: boolean;
+    extraFeedback?: string;
+}) {
     const solution = formatCorrectAnswerLabel(check);
+    const solutionLabel = check.type === "drawing" ? "Muster / Kriterien" : "Richtige Antwort";
     return (
         <div className="text-sm text-gray-300 border border-[#2A3140] rounded-xl px-4 py-3 bg-[#12141A] space-y-2">
+            {extraFeedback ? (
+                <div>
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">KI-Feedback</p>
+                    <p className="text-sm text-gray-200 whitespace-pre-wrap">{extraFeedback}</p>
+                </div>
+            ) : null}
             {!correct && solution ? (
                 <div>
-                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Richtige Antwort</p>
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{solutionLabel}</p>
                     <MathMarkdown compact>{solution}</MathMarkdown>
                 </div>
             ) : null}
@@ -462,7 +518,7 @@ function AnswerRevealBlock({ check, correct }: { check: SmartLearningCheck; corr
                 </div>
             ) : !correct && solution ? null : solution ? (
                 <div>
-                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Richtige Antwort</p>
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{solutionLabel}</p>
                     <MathMarkdown compact>{solution}</MathMarkdown>
                 </div>
             ) : null}
@@ -525,6 +581,8 @@ function normalizeExam(raw: unknown): SmartLearningExam | null {
             blanks: check.blanks,
             explanation: check.explanation,
             accepted_answers: check.accepted_answers,
+            rubric: check.rubric,
+            allow_upload: check.allow_upload,
             chapter_id,
         });
     }
@@ -1036,6 +1094,8 @@ export default function SmartLearningView({
     const [clozeSubmitted, setClozeSubmitted] = useState(false);
     const [shortAnswer, setShortAnswer] = useState("");
     const [failCounts, setFailCounts] = useState<Record<string, number>>({});
+    const [drawingGrade, setDrawingGrade] = useState<DrawingGradeResult | null>(null);
+    const [drawingBusy, setDrawingBusy] = useState(false);
     const [savingProgress, setSavingProgress] = useState(false);
     const [error, setError] = useState("");
     const MAX_DEFER_PER_LESSON = 2;
@@ -1339,6 +1399,73 @@ export default function SmartLearningView({
         setClozeValues([]);
         setClozeSubmitted(false);
         setShortAnswer("");
+        setDrawingGrade(null);
+        setDrawingBusy(false);
+    };
+
+    const gradeDrawingAnswer = async (
+        check: SmartLearningCheck,
+        payload: { ink_png_base64?: string; image_base64?: string }
+    ): Promise<DrawingGradeResult> => {
+        setDrawingBusy(true);
+        setError("");
+        try {
+            const res = await fetch(
+                `/api/ai/smart-learning/grade-drawing?session_id=${encodeURIComponent(sessionId)}`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Session-Id": sessionId,
+                    },
+                    body: JSON.stringify({
+                        username,
+                        folder_id: folderId,
+                        prompt: check.prompt,
+                        answer: check.answer,
+                        rubric: check.rubric || [],
+                        explanation: check.explanation || "",
+                        ink_png_base64: payload.ink_png_base64,
+                        image_base64: payload.image_base64,
+                    }),
+                }
+            );
+            let data: Record<string, unknown> = await res.json().catch(() => ({}));
+            if (res.status === 202 && data.job_id) {
+                data = await pollSmartJob(String(data.job_id));
+            }
+            if ((!res.ok && res.status !== 202) && !data.grade) {
+                throw new Error(formatApiDetail(data.detail) || `HTTP ${res.status}`);
+            }
+            const gradeRaw = (data.grade && typeof data.grade === "object" ? data.grade : data) as Record<
+                string,
+                unknown
+            >;
+            if (
+                gradeRaw.score == null &&
+                gradeRaw.correct == null &&
+                !String(gradeRaw.feedback || "").trim()
+            ) {
+                throw new Error(formatApiDetail(data.detail) || "Keine Bewertung erhalten.");
+            }
+            const score = Math.max(0, Math.min(2, Number(gradeRaw.score) || 0));
+            const result: DrawingGradeResult = {
+                correct: score >= 2 || gradeRaw.correct === true,
+                score,
+                feedback: String(gradeRaw.feedback || "").trim() || (score >= 2 ? "Passt." : "Noch nicht ausreichend."),
+                matched_rubric: Array.isArray(gradeRaw.matched_rubric)
+                    ? gradeRaw.matched_rubric.map((x) => String(x))
+                    : [],
+            };
+            setDrawingGrade(result);
+            return result;
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Auswertung fehlgeschlagen.";
+            setError(`${msg} Du kannst überspringen oder erneut versuchen.`);
+            throw err;
+        } finally {
+            setDrawingBusy(false);
+        }
     };
 
     const stopTeachTts = () => {
@@ -1459,6 +1586,8 @@ export default function SmartLearningView({
         setDeepShort("");
         setDeepCardIdx(0);
         setDeepCardFlipped(false);
+        setDrawingGrade(null);
+        setDrawingBusy(false);
     };
 
     const startDeepSession = (session: DeepLearningSession) => {
@@ -2149,16 +2278,32 @@ export default function SmartLearningView({
         const isCloze = check.type === "cloze";
         const isShort = check.type === "short_answer";
         const isMatch = check.type === "matching";
+        const isDrawing = check.type === "drawing";
         const clozeOk =
             isCloze && clozeSubmitted
                 ? gradeCloze(check.prompt, check.blanks, clozeValues, check.accepted_answers)
                 : false;
         const shortOk = isShort && clozeSubmitted ? gradeShortAnswer(check, shortAnswer) : false;
         const matchOk = isMatch && clozeSubmitted ? gradeMatching(check, clozeValues) : false;
+        const drawingOk = isDrawing && drawingGrade != null && (drawingGrade.score >= 2 || drawingGrade.correct);
+        const drawingPartial = isDrawing && drawingGrade != null && drawingGrade.score === 1 && !drawingOk;
         const mcOk =
-            !isCloze && !isShort && !isMatch && selected != null && answerAccepted(check.answer, selected, check.accepted_answers);
-        const correct = isCloze ? clozeOk : isShort ? shortOk : isMatch ? matchOk : mcOk;
-        const revealed = isCloze || isShort || isMatch ? clozeSubmitted : selected != null;
+            !isCloze &&
+            !isShort &&
+            !isMatch &&
+            !isDrawing &&
+            selected != null &&
+            answerAccepted(check.answer, selected, check.accepted_answers);
+        const correct = isCloze
+            ? clozeOk
+            : isShort
+              ? shortOk
+              : isMatch
+                ? matchOk
+                : isDrawing
+                  ? drawingOk
+                  : mcOk;
+        const revealed = isCloze || isShort || isMatch ? clozeSubmitted : isDrawing ? drawingGrade != null : selected != null;
         const fails = failCounts[current.lesson.id] || 0;
         const forceReveal = !correct && revealed && fails >= MAX_FAILS_BEFORE_REVEAL;
 
@@ -2174,6 +2319,9 @@ export default function SmartLearningView({
             setClozeValues([]);
             setClozeSubmitted(false);
             setShortAnswer("");
+            setDrawingGrade(null);
+            setDrawingBusy(false);
+            setError("");
         };
 
         const onContinueAfterAssess = async () => {
@@ -2200,14 +2348,16 @@ export default function SmartLearningView({
                 <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 sm:p-7 space-y-4 shadow-lg">
                     <div className="flex items-center gap-2">
                         <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-amber-300/90 font-semibold">
-                            {isCloze || isShort || isMatch ? <PenLine size={12} /> : <HelpCircle size={12} />}
+                            {isCloze || isShort || isMatch || isDrawing ? <PenLine size={12} /> : <HelpCircle size={12} />}
                             {isCloze
                                 ? "Lückentext"
                                 : isShort
                                   ? "Freitext"
                                   : isMatch
                                     ? "Zuordnen"
-                                    : "Quiz"}
+                                    : isDrawing
+                                      ? "Zeichnen"
+                                      : "Quiz"}
                         </span>
                         <span className="text-[11px] text-gray-500">
                             Frage {assessIdx + 1}/{assessQueue.length}
@@ -2244,6 +2394,33 @@ export default function SmartLearningView({
                                 className="w-full rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
                                 placeholder="Kurzantwort…"
                             />
+                        </>
+                    ) : isDrawing ? (
+                        <>
+                            <MathMarkdown className="text-lg font-medium text-white">{check.prompt}</MathMarkdown>
+                            {!drawingOk && !forceReveal ? (
+                                <DrawingAnswerPad
+                                    key={`assess-draw-${current.lesson.id}-${assessIdx}-${fails}`}
+                                    allowUpload={check.allow_upload !== false}
+                                    disabled={drawingBusy}
+                                    busy={drawingBusy}
+                                    onSubmit={(payload) => {
+                                        void (async () => {
+                                            try {
+                                                const result = await gradeDrawingAnswer(check, payload);
+                                                if (result.score >= 2 || result.correct) {
+                                                    void grantXp(10, "drawing");
+                                                } else {
+                                                    bumpFail();
+                                                    spendHeart();
+                                                }
+                                            } catch {
+                                                /* soft fail — error banner + skip */
+                                            }
+                                        })();
+                                    }}
+                                />
+                            ) : null}
                         </>
                     ) : (
                         <>
@@ -2320,18 +2497,26 @@ export default function SmartLearningView({
                                 className={`rounded-xl px-3 py-2 text-sm border ${
                                     correct
                                         ? "border-green-500/40 bg-green-500/10 text-green-300"
-                                        : "border-red-500/40 bg-red-500/10 text-red-300"
+                                        : drawingPartial
+                                          ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                                          : "border-red-500/40 bg-red-500/10 text-red-300"
                                 }`}
                             >
                                 {correct
                                     ? "Richtig — gut gemacht."
-                                    : forceReveal
-                                      ? "Versuch vorbei — hier die richtige Antwort."
-                                      : hearts > 0
-                                        ? `Leider falsch — noch ${hearts} ${hearts === 1 ? "Herz" : "Herzen"}.`
-                                        : "Keine Herzen mehr."}
+                                    : drawingPartial && !forceReveal
+                                      ? "Teilweise richtig — ergänze die fehlenden Teile."
+                                      : forceReveal
+                                        ? "Versuch vorbei — hier die richtige Antwort."
+                                        : hearts > 0
+                                          ? `Leider falsch — noch ${hearts} ${hearts === 1 ? "Herz" : "Herzen"}.`
+                                          : "Keine Herzen mehr."}
                             </div>
-                            <AnswerRevealBlock check={check} correct={correct} />
+                            <AnswerRevealBlock
+                                check={check}
+                                correct={correct}
+                                extraFeedback={isDrawing ? drawingGrade?.feedback : undefined}
+                            />
                             {correct || forceReveal || hearts <= 0 ? (
                                 <button
                                     type="button"
@@ -2559,7 +2744,13 @@ export default function SmartLearningView({
         const isCloze = q.type === "cloze";
         const isShort = q.type === "short_answer";
         const isMatch = q.type === "matching";
-        const revealed = isCloze || isShort || isMatch ? examClozeDone : examSelected != null;
+        const isDrawing = q.type === "drawing";
+        const revealed =
+            isCloze || isShort || isMatch
+                ? examClozeDone
+                : isDrawing
+                  ? drawingGrade != null
+                  : examSelected != null;
         const mm = Math.floor((examSecondsLeft ?? 0) / 60);
         const ss = String((examSecondsLeft ?? 0) % 60).padStart(2, "0");
         const asCheck: SmartLearningCheck = {
@@ -2570,6 +2761,8 @@ export default function SmartLearningView({
             blanks: q.blanks,
             explanation: q.explanation,
             accepted_answers: q.accepted_answers,
+            rubric: q.rubric,
+            allow_upload: q.allow_upload,
         };
         const examCorrect = revealed
             ? isCloze
@@ -2578,13 +2771,18 @@ export default function SmartLearningView({
                   ? gradeMatching(asCheck, examCloze)
                   : isShort
                     ? gradeShortAnswer(asCheck, examShort)
-                    : answerAccepted(q.answer, examSelected || "", q.accepted_answers)
+                    : isDrawing
+                      ? !!(drawingGrade && (drawingGrade.score >= 2 || drawingGrade.correct))
+                      : answerAccepted(q.answer, examSelected || "", q.accepted_answers)
             : false;
         const resetExamInputs = () => {
             setExamSelected(null);
             setExamCloze([]);
             setExamClozeDone(false);
             setExamShort("");
+            setDrawingGrade(null);
+            setDrawingBusy(false);
+            setError("");
         };
 
         const recordAndAdvance = (correct: boolean, given: string) => {
@@ -2676,7 +2874,9 @@ export default function SmartLearningView({
                               ? " · Freitext"
                               : isMatch
                                 ? " · Zuordnen"
-                                : " · Quiz"}
+                                : isDrawing
+                                  ? " · Zeichnen"
+                                  : " · Quiz"}
                     </p>
 
                     {isCloze ? (
@@ -2709,6 +2909,27 @@ export default function SmartLearningView({
                                 className="w-full rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
                                 placeholder="Antwort…"
                             />
+                        </>
+                    ) : isDrawing ? (
+                        <>
+                            <MathMarkdown className="text-lg font-medium text-white">{q.prompt}</MathMarkdown>
+                            {!drawingGrade ? (
+                                <DrawingAnswerPad
+                                    key={`exam-draw-${qRealIdx}-${examIndex}`}
+                                    allowUpload={q.allow_upload !== false}
+                                    disabled={drawingBusy}
+                                    busy={drawingBusy}
+                                    onSubmit={(payload) => {
+                                        void (async () => {
+                                            try {
+                                                await gradeDrawingAnswer(asCheck, payload);
+                                            } catch {
+                                                /* soft fail */
+                                            }
+                                        })();
+                                    }}
+                                />
+                            ) : null}
                         </>
                     ) : (
                         <>
@@ -2763,12 +2984,22 @@ export default function SmartLearningView({
                                 className={`rounded-xl px-3 py-2 text-sm border ${
                                     examCorrect
                                         ? "border-green-500/40 bg-green-500/10 text-green-300"
-                                        : "border-red-500/40 bg-red-500/10 text-red-300"
+                                        : isDrawing && drawingGrade?.score === 1
+                                          ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                                          : "border-red-500/40 bg-red-500/10 text-red-300"
                                 }`}
                             >
-                                {examCorrect ? "Richtig." : "Leider falsch — Lösung unten."}
+                                {examCorrect
+                                    ? "Richtig."
+                                    : isDrawing && drawingGrade?.score === 1
+                                      ? "Teilweise — Lösung unten."
+                                      : "Leider falsch — Lösung unten."}
                             </div>
-                            <AnswerRevealBlock check={asCheck} correct={examCorrect} />
+                            <AnswerRevealBlock
+                                check={asCheck}
+                                correct={examCorrect}
+                                extraFeedback={isDrawing ? drawingGrade?.feedback : undefined}
+                            />
                             <div className="flex flex-wrap gap-2">
                                 <button
                                     type="button"
@@ -2782,6 +3013,11 @@ export default function SmartLearningView({
                                             recordAndAdvance(gradeMatching(asCheck, examCloze), examCloze.join(" | "));
                                         } else if (isShort) {
                                             recordAndAdvance(gradeShortAnswer(asCheck, examShort), examShort);
+                                        } else if (isDrawing) {
+                                            recordAndAdvance(
+                                                examCorrect,
+                                                drawingGrade?.feedback || (examCorrect ? "Zeichnung ok" : "Zeichnung")
+                                            );
                                         } else {
                                             recordAndAdvance(examCorrect, examSelected || "");
                                         }
@@ -2853,18 +3089,27 @@ export default function SmartLearningView({
 
         const check = step.check;
         const isCloze = check?.type === "cloze";
-        const isShort = check?.type === "short_answer" || step.type === "recall";
+        const isDrawing = check?.type === "drawing";
+        const isShort =
+            !isDrawing && (check?.type === "short_answer" || step.type === "recall");
         const isMatch = check?.type === "matching";
         const revealed =
-            check && (isCloze || isShort || isMatch ? deepClozeDone : deepSelected != null);
+            check &&
+            (isCloze || isShort || isMatch
+                ? deepClozeDone
+                : isDrawing
+                  ? drawingGrade != null
+                  : deepSelected != null);
         const deepCorrect = revealed && check
             ? isCloze
                 ? gradeCloze(check.prompt, check.blanks, deepCloze, check.accepted_answers)
                 : isMatch
                   ? gradeMatching(check, deepCloze)
-                  : isShort
-                    ? gradeShortAnswer(check, deepShort)
-                    : answerAccepted(check.answer, deepSelected || "", check.accepted_answers)
+                  : isDrawing
+                    ? !!(drawingGrade && (drawingGrade.score >= 2 || drawingGrade.correct))
+                    : isShort
+                      ? gradeShortAnswer(check, deepShort)
+                      : answerAccepted(check.answer, deepSelected || "", check.accepted_answers)
             : false;
 
         return (
@@ -2978,6 +3223,27 @@ export default function SmartLearningView({
                                     disabled={deepClozeDone && deepCorrect}
                                     showResult={deepClozeDone}
                                 />
+                            ) : isDrawing ? (
+                                <>
+                                    <MathMarkdown className="text-lg font-medium text-white">{check.prompt}</MathMarkdown>
+                                    {!drawingGrade ? (
+                                        <DrawingAnswerPad
+                                            key={`deep-draw-${step.id}`}
+                                            allowUpload={check.allow_upload !== false}
+                                            disabled={drawingBusy}
+                                            busy={drawingBusy}
+                                            onSubmit={(payload) => {
+                                                void (async () => {
+                                                    try {
+                                                        await gradeDrawingAnswer(check, payload);
+                                                    } catch {
+                                                        /* soft fail */
+                                                    }
+                                                })();
+                                            }}
+                                        />
+                                    ) : null}
+                                </>
                             ) : isShort ? (
                                 <>
                                     <MathMarkdown className="text-lg font-medium text-white">{check.prompt}</MathMarkdown>
@@ -3013,7 +3279,29 @@ export default function SmartLearningView({
                                     Antwort prüfen
                                 </button>
                             ) : null}
-                            {revealed ? <AnswerRevealBlock check={check} correct={!!deepCorrect} /> : null}
+                            {isDrawing && !revealed ? (
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setDrawingGrade({
+                                            correct: false,
+                                            score: 0,
+                                            feedback: "Übersprungen.",
+                                        })
+                                    }
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 text-sm font-medium"
+                                >
+                                    <SkipForward size={14} />
+                                    Überspringen
+                                </button>
+                            ) : null}
+                            {revealed ? (
+                                <AnswerRevealBlock
+                                    check={check}
+                                    correct={!!deepCorrect}
+                                    extraFeedback={isDrawing ? drawingGrade?.feedback : undefined}
+                                />
+                            ) : null}
                         </div>
                     ) : null}
 

@@ -1211,9 +1211,11 @@ ANFORDERUNGEN:
        Alternativen in blanks mit "|" (z. B. "Pointer|Zeiger") ODER accepted_answers: 2–5 Varianten.
      * "short_answer": kurze Verständnisfrage (KEINE reine Rechenaufgabe); prompt, answer (Musterlösung), optional blanks mit Keywords (Reihenfolge egal), accepted_answers mit 2–5 Synonymen/Pluralformen/Paraphrasen, explanation. KEINE options.
      * "matching" (Zuordnen / Verbinden): prompt (z. B. „Ordne zu“), options = linke Spalte (3–5 Begriffe), blanks = passende rechte Spalte in GLEICHER Reihenfolge wie options, answer = blanks mit " | " verbunden, explanation.
+     * "drawing" (Zeichnen/Diagramm): wenn Material Abläufe, Programmablaufpläne, Flussdiagramme, Strukturen enthält — prompt fordert Skizze; answer = kurze Musterbeschreibung; rubric = 3–6 prüfbare Kriterien (Knoten, Reihenfolge, Bedingungen); allow_upload true; explanation. KEINE options.
    - flashcards: {scope["flashcards_per_lesson"]} kurze Karteikarten (front/back) zur Lesson — Begriff/Frage → kurze Antwort. KEINE Rechenaufgaben.
    - Pro Kapitel mindestens EINE Lesson mit type "cloze" und mindestens EINE mit type "matching".
-4. exam (Probeklausur): {preset["target_q"] - 2}–{preset["target_q"] + 2} Fragen gemischt aus mc / true_false / cloze / short_answer / matching über ALLE Kapitel; jede Frage mit chapter_id (z. B. "ch1"); time_limit_sec {preset["time_limit_sec"]}; title prüfungsnah.
+   - Wenn das Material Diagramme/Abläufe/PAPs nahelegt: mindestens EINE Lesson mit type "drawing" in der gesamten Reise.
+4. exam (Probeklausur): {preset["target_q"] - 2}–{preset["target_q"] + 2} Fragen gemischt aus mc / true_false / cloze / short_answer / matching / drawing über ALLE Kapitel; jede Frage mit chapter_id (z. B. "ch1"); time_limit_sec {preset["time_limit_sec"]}; title prüfungsnah. Bei Diagramm-Stoff mind. 1 drawing-Frage.
 5. Titel der Lernreise: prüfungsnah und konkret.
 6. source_hint: ein Satz zum Material.
 7. readiness immer 0; progress.completed_chapter_ids=[], completed_lesson_ids=[], practice_sessions=0, exam_best_score=null, exam_completed_at=null.
@@ -1342,6 +1344,16 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                     is_cloze = ctype in ("cloze", "fill", "lueckentext", "lückentext")
                     is_short = ctype in ("short_answer", "short", "freitext", "code", "open")
                     is_match = ctype in ("matching", "match", "zuordnen", "verbinden", "connect", "pairs")
+                    is_drawing = ctype in (
+                        "drawing",
+                        "draw",
+                        "sketch",
+                        "diagram",
+                        "pap",
+                        "flowchart",
+                        "bild",
+                        "zeichnen",
+                    )
                     blanks_raw = check.get("blanks") if isinstance(check.get("blanks"), list) else []
                     blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
                     options = check.get("options") if isinstance(check.get("options"), list) else []
@@ -1351,6 +1363,12 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                         _finalize_study_markdown(str(a)).strip()
                         for a in accepted_raw
                         if str(a).strip()
+                    ][:8]
+                    rubric_raw = check.get("rubric") if isinstance(check.get("rubric"), list) else []
+                    rubric = [
+                        _finalize_study_markdown(str(r)).strip()
+                        for r in rubric_raw
+                        if str(r).strip()
                     ][:8]
                     # Optional pairs: [{left,right}, ...] → options/blanks
                     pairs_raw = check.get("pairs") if isinstance(check.get("pairs"), list) else []
@@ -1412,6 +1430,23 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             "answer": answer,
                             "explanation": explanation,
                         }
+                        if accepted_answers:
+                            check_obj["accepted_answers"] = accepted_answers
+                    elif is_drawing:
+                        if not prompt_q:
+                            continue
+                        if not answer:
+                            answer = "; ".join(rubric) if rubric else "Sinnvolle Skizze zur Aufgabenstellung"
+                        check_obj = {
+                            "type": "drawing",
+                            "prompt": prompt_q,
+                            "options": [],
+                            "answer": answer,
+                            "explanation": explanation,
+                            "allow_upload": check.get("allow_upload") is not False,
+                        }
+                        if rubric:
+                            check_obj["rubric"] = rubric
                         if accepted_answers:
                             check_obj["accepted_answers"] = accepted_answers
                     else:
@@ -1488,6 +1523,16 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                     is_cloze = ctype in ("cloze", "fill", "lueckentext", "lückentext")
                     is_short = ctype in ("short_answer", "short", "freitext", "code", "open")
                     is_match = ctype in ("matching", "match", "zuordnen", "verbinden", "connect", "pairs")
+                    is_drawing = ctype in (
+                        "drawing",
+                        "draw",
+                        "sketch",
+                        "diagram",
+                        "pap",
+                        "flowchart",
+                        "bild",
+                        "zeichnen",
+                    )
                     blanks_raw = q.get("blanks") if isinstance(q.get("blanks"), list) else []
                     blanks = [_finalize_study_markdown(str(b)) for b in blanks_raw if str(b).strip()]
                     options = q.get("options") if isinstance(q.get("options"), list) else []
@@ -1497,6 +1542,12 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                         _finalize_study_markdown(str(a)).strip()
                         for a in accepted_raw
                         if str(a).strip()
+                    ][:8]
+                    rubric_raw = q.get("rubric") if isinstance(q.get("rubric"), list) else []
+                    rubric = [
+                        _finalize_study_markdown(str(r)).strip()
+                        for r in rubric_raw
+                        if str(r).strip()
                     ][:8]
                     pairs_raw = q.get("pairs") if isinstance(q.get("pairs"), list) else []
                     if is_match and pairs_raw and (len(options) < 2 or len(blanks) < 2):
@@ -1569,6 +1620,27 @@ Analysiere das folgende Material und erstelle die Smart-Learning-Reise:
                             "answer": answer,
                             "explanation": explanation,
                         }
+                        if accepted_answers:
+                            row["accepted_answers"] = accepted_answers
+                        if chapter_id:
+                            row["chapter_id"] = chapter_id
+                        normalized_exam_qs.append(row)
+                    elif is_drawing:
+                        if not prompt_q:
+                            continue
+                        if not answer:
+                            answer = "; ".join(rubric) if rubric else "Sinnvolle Skizze zur Aufgabenstellung"
+                        row = {
+                            "id": qid,
+                            "type": "drawing",
+                            "prompt": prompt_q,
+                            "options": [],
+                            "answer": answer,
+                            "explanation": explanation,
+                            "allow_upload": q.get("allow_upload") is not False,
+                        }
+                        if rubric:
+                            row["rubric"] = rubric
                         if accepted_answers:
                             row["accepted_answers"] = accepted_answers
                         if chapter_id:
@@ -1834,7 +1906,7 @@ ANFORDERUNGEN:
 2. {min_steps}–{max_steps} steps mit gemischten Typen:
    - teach: längerer Lehrtext (Markdown, 180–450 Wörter), KEINE Rechenaufgaben
    - flashcards: 3–6 Karten front/back
-   - exercise: eine Check-Frage (mc / cloze / short_answer / matching) mit explanation und bei Freitext/Lücke accepted_answers (2–5 Alternativen; blanks dürfen Alternativen mit "|" haben)
+   - exercise: eine Check-Frage (mc / cloze / short_answer / matching / drawing) mit explanation; bei Freitext/Lücke accepted_answers; bei drawing: rubric 3–6 Kriterien
    - note: note_prompt — Aufforderung, in eigenen Worten zu notieren
    - recall: aktive Abruf-Frage ohne Optionen (short_answer-ähnlich) + Musterlösung in answer + accepted_answers
    - break: kurze Pause / Atemzug (1–2 Min)
@@ -1996,6 +2068,22 @@ Analysiere das Material und erstelle die Deep-Learning-Session:
                                 "answer": answer,
                                 "explanation": explanation,
                             }
+                    elif ctype in ("drawing", "draw", "sketch", "diagram", "pap", "flowchart", "zeichnen"):
+                        rubric_raw = check_raw.get("rubric") if isinstance(check_raw.get("rubric"), list) else []
+                        rubric = [
+                            _finalize_study_markdown(str(r)).strip() for r in rubric_raw if str(r).strip()
+                        ][:8]
+                        if prompt_q:
+                            step["check"] = {
+                                "type": "drawing",
+                                "prompt": prompt_q,
+                                "options": [],
+                                "answer": answer or ("; ".join(rubric) if rubric else "Sinnvolle Skizze"),
+                                "explanation": explanation,
+                                "allow_upload": check_raw.get("allow_upload") is not False,
+                                **({"rubric": rubric} if rubric else {}),
+                                **({"accepted_answers": accepted_answers} if accepted_answers else {}),
+                            }
                     elif prompt_q and answer:
                         step["check"] = {
                             "type": "short_answer",
@@ -2043,6 +2131,135 @@ Analysiere das Material und erstelle die Deep-Learning-Session:
         except Exception as e:
             print(f"Smart Learning Deep Session Error: {e}")
             raise Exception(f"Fehler bei Tiefem Lernen: {str(e)}")
+
+    @staticmethod
+    def grade_smart_learning_drawing(
+        *,
+        image_png_b64: str,
+        prompt: str,
+        answer: str = "",
+        rubric: Optional[List[str]] = None,
+        explanation: str = "",
+        model_preference: str = None,
+        return_meta: bool = False,
+    ) -> Any:
+        """Vision-grade a student drawing / uploaded diagram against a rubric."""
+        import base64
+        from io import BytesIO
+
+        try:
+            raw_b64 = (image_png_b64 or "").strip()
+            if raw_b64.startswith("data:"):
+                raw_b64 = raw_b64.split(",", 1)[-1].strip()
+            if not raw_b64:
+                raise Exception("Kein Bild zur Auswertung übermittelt.")
+            try:
+                raw_bytes = base64.b64decode(raw_b64)
+            except Exception as dec_err:
+                raise Exception("Bild konnte nicht gelesen werden.") from dec_err
+            if len(raw_bytes) > 2 * 1024 * 1024:
+                raise Exception("Bild zu groß (max. 2 MB).")
+
+            from PIL import Image
+
+            pil_img = Image.open(BytesIO(raw_bytes)).convert("RGB")
+            # Cap long edge for cost/latency
+            max_edge = 1280
+            w, h = pil_img.size
+            scale = min(1.0, max_edge / float(max(w, h, 1)))
+            if scale < 1.0:
+                pil_img = pil_img.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+
+            rubric_list = [str(r).strip() for r in (rubric or []) if str(r).strip()][:8]
+            rubric_block = "\n".join(f"- {r}" for r in rubric_list) if rubric_list else "- (allgemeine fachliche Korrektheit zur Aufgabe)"
+            q = (prompt or "").strip() or "Zeichne das geforderte Diagramm."
+            model_answer = (answer or "").strip()
+            expl = (explanation or "").strip()
+
+            grade_prompt = f"""Du bewertest eine Schüler-Zeichnung / Skizze / Foto eines Diagramms (z. B. Programmablaufplan, Flussdiagramm, Struktur).
+
+AUFGABE:
+{q}
+
+MUSTER / ERWARTUNG:
+{model_answer or "(siehe Rubrik)"}
+
+RUBRIK (jedes Kriterium prüfen):
+{rubric_block}
+
+{("Zusatz-Erklärung für dich: " + expl) if expl else ""}
+
+Antworte NUR mit gültigem JSON (kein Markdown):
+{{
+  "score": 0,
+  "correct": false,
+  "feedback": "kurze Begründung auf Deutsch (1–3 Sätze)",
+  "matched_rubric": ["erfüllte Kriterien…"]
+}}
+
+Bewertung:
+- score 2 = ausreichend richtig für „bestanden“ (Kern der Rubrik erkennbar, auch wenn unsauber gezeichnet)
+- score 1 = teilweise (wichtige Teile fehlen oder falsch)
+- score 0 = falsch / unleserlich / nicht zur Aufgabe
+- correct = true nur wenn score == 2
+- matched_rubric: nur Kriterien, die klar erfüllt sind
+"""
+
+            model = genai.GenerativeModel(
+                model_for_task("handwriting", model_preference),
+                generation_config={
+                    "temperature": 0.2,
+                    "max_output_tokens": 512,
+                    "response_mime_type": "application/json",
+                },
+            )
+            response = model.generate_content(
+                [grade_prompt, pil_img],
+                safety_settings=SAFETY_SETTINGS,
+            )
+            if not response.text:
+                raise Exception("Leere Bewertungsantwort vom Modell.")
+            try:
+                parsed = AIService._loads_model_json(
+                    response.text, label="Zeichnungs-Bewertung", prefer_object=True
+                )
+            except ValueError as parse_err:
+                raise Exception(str(parse_err)) from parse_err
+            if not isinstance(parsed, dict):
+                raise Exception("Bewertung war kein JSON-Objekt.")
+
+            try:
+                score = int(parsed.get("score"))
+            except Exception:
+                score = 0
+            score = max(0, min(2, score))
+            correct = bool(parsed.get("correct")) if "correct" in parsed else score >= 2
+            if score >= 2:
+                correct = True
+            elif score <= 0:
+                correct = False
+            feedback = str(parsed.get("feedback") or "").strip() or (
+                "Gut erkennbar." if correct else "Noch nicht ausreichend."
+            )
+            matched = parsed.get("matched_rubric") if isinstance(parsed.get("matched_rubric"), list) else []
+            matched_out = [str(x).strip() for x in matched if str(x).strip()][:8]
+
+            result = {
+                "correct": correct,
+                "score": score,
+                "feedback": feedback,
+                "matched_rubric": matched_out,
+            }
+            if not return_meta:
+                return result
+            return {
+                "data": result,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
+        except Exception as e:
+            print(f"Smart Learning Drawing Grade Error: {e}")
+            raise Exception(f"Fehler bei Zeichnungs-Auswertung: {str(e)}")
 
     @staticmethod
     def _validate_refined_quiz(obj: Any) -> None:
