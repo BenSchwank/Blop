@@ -5,6 +5,7 @@ import {
     BookOpen,
     BrainCircuit,
     CheckCircle2,
+    ChevronLeft,
     ChevronRight,
     ClipboardList,
     Flame,
@@ -173,6 +174,17 @@ export type DeepSessionProgressEntry = {
     started_at?: string;
 };
 
+export type SmartLearningLearnCheckpoint = {
+    lesson_ids: string[];
+    teach_idx: number;
+    card_idx: number;
+    learn_phase: "teach" | "cards" | "assess" | "review";
+    assess_lesson_ids?: string[];
+    assess_idx?: number;
+    hearts?: number;
+    saved_at?: string;
+};
+
 export type SmartLearningContent = {
     title: string;
     readiness: number;
@@ -182,6 +194,10 @@ export type SmartLearningContent = {
     progress?: {
         completed_chapter_ids?: string[];
         completed_lesson_ids?: string[];
+        /** Lessons postponed to later in the path (not completed). */
+        deferred_lesson_ids?: string[];
+        /** Mid-path resume point when leaving to overview. */
+        learn_checkpoint?: SmartLearningLearnCheckpoint | null;
         practice_sessions?: number;
         exam_best_score?: number | null;
         exam_completed_at?: string | null;
@@ -613,6 +629,7 @@ export function normalizeSmartLearningContent(raw: unknown, fallbackTitle = "Sma
             progress: {
                 completed_chapter_ids: [],
                 completed_lesson_ids: [],
+                deferred_lesson_ids: [],
                 practice_sessions: 0,
                 exam_best_score: null,
                 exam_completed_at: null,
@@ -655,6 +672,39 @@ export function normalizeSmartLearningContent(raw: unknown, fallbackTitle = "Sma
     const completedLessons = Array.isArray(progressObj.completed_lesson_ids)
         ? progressObj.completed_lesson_ids.map((x) => String(x))
         : [];
+    const deferredLessons = Array.isArray(progressObj.deferred_lesson_ids)
+        ? progressObj.deferred_lesson_ids.map((x) => String(x))
+        : [];
+    const rawCheckpoint =
+        progressObj.learn_checkpoint &&
+        typeof progressObj.learn_checkpoint === "object" &&
+        !Array.isArray(progressObj.learn_checkpoint)
+            ? (progressObj.learn_checkpoint as Record<string, unknown>)
+            : null;
+    const learnCheckpoint: SmartLearningLearnCheckpoint | null = rawCheckpoint
+        ? {
+              lesson_ids: Array.isArray(rawCheckpoint.lesson_ids)
+                  ? rawCheckpoint.lesson_ids.map((x) => String(x)).filter(Boolean)
+                  : [],
+              teach_idx: Math.max(0, Number(rawCheckpoint.teach_idx) || 0),
+              card_idx: Math.max(0, Number(rawCheckpoint.card_idx) || 0),
+              learn_phase:
+                  rawCheckpoint.learn_phase === "cards" ||
+                  rawCheckpoint.learn_phase === "assess" ||
+                  rawCheckpoint.learn_phase === "review"
+                      ? rawCheckpoint.learn_phase
+                      : "teach",
+              assess_lesson_ids: Array.isArray(rawCheckpoint.assess_lesson_ids)
+                  ? rawCheckpoint.assess_lesson_ids.map((x) => String(x)).filter(Boolean)
+                  : undefined,
+              assess_idx: Math.max(0, Number(rawCheckpoint.assess_idx) || 0),
+              hearts:
+                  rawCheckpoint.hearts == null
+                      ? undefined
+                      : Math.max(0, Math.min(HEARTS_MAX, Number(rawCheckpoint.hearts) || 0)),
+              saved_at: rawCheckpoint.saved_at ? String(rawCheckpoint.saved_at) : undefined,
+          }
+        : null;
     const best =
         progressObj.exam_best_score == null || progressObj.exam_best_score === ""
             ? null
@@ -711,6 +761,9 @@ export function normalizeSmartLearningContent(raw: unknown, fallbackTitle = "Sma
         progress: {
             completed_chapter_ids: completed,
             completed_lesson_ids: completedLessons,
+            deferred_lesson_ids: deferredLessons.filter((id) => !completedLessons.includes(id)),
+            learn_checkpoint:
+                learnCheckpoint && learnCheckpoint.lesson_ids.length > 0 ? learnCheckpoint : null,
             practice_sessions: Math.max(0, Number(progressObj.practice_sessions) || 0),
             exam_best_score: Number.isFinite(best as number) ? clampReadiness(best as number) : null,
             exam_completed_at: progressObj.exam_completed_at ? String(progressObj.exam_completed_at) : null,
@@ -1166,6 +1219,10 @@ export default function SmartLearningView({
         () => new Set(local.progress?.completed_lesson_ids || []),
         [local.progress?.completed_lesson_ids]
     );
+    const deferredLessonSet = useMemo(
+        () => new Set(local.progress?.deferred_lesson_ids || []),
+        [local.progress?.deferred_lesson_ids]
+    );
 
     const flatSteps: FlatStep[] = useMemo(() => {
         const out: FlatStep[] = [];
@@ -1204,6 +1261,8 @@ export default function SmartLearningView({
                             folder_id: folderId,
                             completed_chapter_ids: next.progress?.completed_chapter_ids || [],
                             completed_lesson_ids: next.progress?.completed_lesson_ids || [],
+                            deferred_lesson_ids: next.progress?.deferred_lesson_ids || [],
+                            learn_checkpoint: next.progress?.learn_checkpoint ?? null,
                             practice_sessions: next.progress?.practice_sessions || 0,
                             exam_best_score: next.progress?.exam_best_score ?? null,
                             exam_completed_at: next.progress?.exam_completed_at ?? null,
@@ -1255,8 +1314,13 @@ export default function SmartLearningView({
     };
 
     const markLessonsDone = async (items: FlatStep[]) => {
+        const deferred = new Set(local.progress?.deferred_lesson_ids || []);
+        const toMark = items.filter((it) => !deferred.has(it.lesson.id));
         const lessonsDone = new Set(local.progress?.completed_lesson_ids || []);
-        for (const it of items) lessonsDone.add(it.lesson.id);
+        for (const it of toMark) {
+            lessonsDone.add(it.lesson.id);
+            deferred.delete(it.lesson.id);
+        }
         const chaptersDone = new Set(local.progress?.completed_chapter_ids || []);
         for (const ch of local.chapters) {
             if (ch.lessons.length > 0 && ch.lessons.every((l) => lessonsDone.has(l.id))) {
@@ -1265,7 +1329,7 @@ export default function SmartLearningView({
         }
         const awards = normalizeAwards(local.session_awards);
         let xpGained = 0;
-        for (const it of items) {
+        for (const it of toMark) {
             if (!awards.lesson_ids.includes(it.lesson.id)) {
                 awards.lesson_ids.push(it.lesson.id);
                 await grantXp(25, "lesson");
@@ -1278,6 +1342,8 @@ export default function SmartLearningView({
                 ...local.progress,
                 completed_chapter_ids: Array.from(chaptersDone),
                 completed_lesson_ids: Array.from(lessonsDone),
+                deferred_lesson_ids: Array.from(deferred),
+                learn_checkpoint: null,
                 practice_sessions: local.progress?.practice_sessions || 0,
                 exam_best_score: local.progress?.exam_best_score ?? null,
                 exam_completed_at: local.progress?.exam_completed_at ?? null,
@@ -1291,16 +1357,121 @@ export default function SmartLearningView({
         return xpGained;
     };
 
+    const clearLearnCheckpoint = async () => {
+        if (!local.progress?.learn_checkpoint) return;
+        const next: SmartLearningContent = {
+            ...local,
+            progress: {
+                ...local.progress,
+                learn_checkpoint: null,
+            },
+        };
+        setLocal(next);
+        await persistProgress(next);
+    };
+
+    const buildLearnCheckpoint = (): SmartLearningLearnCheckpoint | null => {
+        if (mode !== "learn" || teachQueue.length === 0) return null;
+        return {
+            lesson_ids: teachQueue.map((t) => t.lesson.id),
+            teach_idx: teachIdx,
+            card_idx: cardIdx,
+            learn_phase: learnPhase === "review" ? "assess" : learnPhase,
+            assess_lesson_ids: assessQueue.map((a) => a.lesson.id),
+            assess_idx: assessIdx,
+            hearts,
+            saved_at: new Date().toISOString(),
+        };
+    };
+
+    const goToOverview = async () => {
+        stopTeachTts();
+        if (mode === "learn") {
+            const cp = buildLearnCheckpoint();
+            const next: SmartLearningContent = {
+                ...local,
+                progress: {
+                    ...local.progress,
+                    completed_chapter_ids: local.progress?.completed_chapter_ids || [],
+                    completed_lesson_ids: local.progress?.completed_lesson_ids || [],
+                    deferred_lesson_ids: local.progress?.deferred_lesson_ids || [],
+                    learn_checkpoint: cp,
+                    practice_sessions: local.progress?.practice_sessions || 0,
+                    exam_best_score: local.progress?.exam_best_score ?? null,
+                    exam_completed_at: local.progress?.exam_completed_at ?? null,
+                },
+                settings: local.settings || DEFAULT_SETTINGS,
+            };
+            next.readiness = computeReadiness(next);
+            setLocal(next);
+            setMode("overview");
+            await persistProgress(next);
+            return;
+        }
+        setMode("overview");
+    };
+
+    const resumeLearnCheckpoint = () => {
+        const cp = local.progress?.learn_checkpoint;
+        if (!cp?.lesson_ids?.length) return;
+        const byId = new Map(flatSteps.map((s) => [s.lesson.id, s]));
+        const queue = cp.lesson_ids.map((id) => byId.get(id)).filter(Boolean) as FlatStep[];
+        if (!queue.length) {
+            void clearLearnCheckpoint();
+            return;
+        }
+        setTeachQueue(queue);
+        setTeachIdx(Math.min(Math.max(0, cp.teach_idx), queue.length - 1));
+        setBatchTarget(queue.length);
+        setCardIdx(Math.max(0, cp.card_idx || 0));
+        setCardFlipped(false);
+        setHearts(cp.hearts == null ? HEARTS_MAX : Math.max(0, Math.min(HEARTS_MAX, cp.hearts)));
+        setFailOpen(false);
+        setCelebrate(null);
+        setReviewItem(null);
+        setDeferCountByLessonId({});
+        setSelected(null);
+        setClozeValues([]);
+        setClozeSubmitted(false);
+        setShortAnswer("");
+        setDrawingGrade(null);
+        setDrawingBusy(false);
+        const phase = cp.learn_phase || "teach";
+        if (phase === "assess" || phase === "review") {
+            const assessIds = cp.assess_lesson_ids?.length
+                ? cp.assess_lesson_ids
+                : queue.map((q) => q.lesson.id);
+            const assess = assessIds
+                .map((id) => {
+                    const step = byId.get(id);
+                    return step ? { ...step, check: step.lesson.check } : null;
+                })
+                .filter(Boolean) as AssessItem[];
+            setAssessQueue(assess);
+            setAssessIdx(Math.min(Math.max(0, cp.assess_idx || 0), Math.max(0, assess.length - 1)));
+            setLearnPhase(assess.length ? "assess" : "teach");
+        } else {
+            setAssessQueue([]);
+            setAssessIdx(0);
+            setLearnPhase(phase === "cards" ? "cards" : "teach");
+        }
+        setMode("learn");
+    };
+
     const contentMode = (): SmartLearningContentMode =>
         settings.learn_content_mode || DEFAULT_SETTINGS.learn_content_mode || "mix";
 
     const initialLearnPhase = (): "teach" | "cards" =>
         contentMode() === "flashcards" ? "cards" : "teach";
 
-    const beginBatchFrom = (startIndex: number) => {
+    const beginBatchFrom = (startIndex: number, opts?: { includeDeferred?: boolean; preferLessonId?: string }) => {
+        const includeDeferred = opts?.includeDeferred === true;
         const incomplete = flatSteps
             .map((s, i) => ({ s, i }))
             .filter(({ s }) => !completedLessonSet.has(s.lesson.id));
+        const primary = incomplete.filter(({ s }) => !deferredLessonSet.has(s.lesson.id));
+        const deferredOnly = incomplete.filter(({ s }) => deferredLessonSet.has(s.lesson.id));
+        const pool = includeDeferred || primary.length === 0 ? [...primary, ...deferredOnly] : primary;
         const resetLearnInputs = () => {
             setAssessQueue([]);
             setAssessIdx(0);
@@ -1315,9 +1486,11 @@ export default function SmartLearningView({
             setClozeValues([]);
             setClozeSubmitted(false);
             setShortAnswer("");
+            setDrawingGrade(null);
+            setDrawingBusy(false);
             setMode("learn");
         };
-        if (incomplete.length === 0) {
+        if (pool.length === 0) {
             const fallback = flatSteps.slice(Math.max(0, startIndex), Math.max(0, startIndex) + 1);
             if (fallback.length === 0) return;
             setTeachQueue(fallback);
@@ -1327,12 +1500,18 @@ export default function SmartLearningView({
             resetLearnInputs();
             return;
         }
-        // Prefer continuing near startIndex
-        let ordered = incomplete.map((x) => x.s);
-        const near = incomplete.find(({ i }) => i >= startIndex);
-        if (near) {
-            const at = incomplete.findIndex(({ i }) => i === near.i);
-            ordered = [...incomplete.slice(at), ...incomplete.slice(0, at)].map((x) => x.s);
+        let ordered = pool.map((x) => x.s);
+        if (opts?.preferLessonId) {
+            const atPref = pool.findIndex(({ s }) => s.lesson.id === opts.preferLessonId);
+            if (atPref >= 0) {
+                ordered = [...pool.slice(atPref), ...pool.slice(0, atPref)].map((x) => x.s);
+            }
+        } else {
+            const near = pool.find(({ i }) => i >= startIndex);
+            if (near) {
+                const at = pool.findIndex(({ i }) => i === near.i);
+                ordered = [...pool.slice(at), ...pool.slice(0, at)].map((x) => x.s);
+            }
         }
         const first = ordered[0];
         const remainingInChapter = ordered.filter((s) => s.chapterId === first.chapterId).length;
@@ -1343,6 +1522,9 @@ export default function SmartLearningView({
         setBatchTarget(batch.length);
         setLearnPhase(initialLearnPhase());
         resetLearnInputs();
+        if (local.progress?.learn_checkpoint) {
+            void clearLearnCheckpoint();
+        }
     };
 
     const advanceAfterLearnUnit = () => {
@@ -1383,15 +1565,192 @@ export default function SmartLearningView({
         }
     };
 
-    const startLearn = () => {
-        const firstIncomplete = flatSteps.findIndex((s) => !completedLessonSet.has(s.lesson.id));
-        beginBatchFrom(firstIncomplete >= 0 ? firstIncomplete : 0);
+    const canRetreatLearn = (): boolean => {
+        if (learnPhase === "review") return true;
+        if (learnPhase === "assess") return assessIdx > 0 || teachQueue.length > 0;
+        if (learnPhase === "cards") {
+            if (cardIdx > 0) return true;
+            if (contentMode() === "mix") return true;
+            return teachIdx > 0;
+        }
+        if (learnPhase === "teach") return teachIdx > 0;
+        return false;
     };
 
-    const startChapter = (chapterId: string) => {
-        const idx = flatSteps.findIndex((s) => s.chapterId === chapterId && !completedLessonSet.has(s.lesson.id));
+    const retreatLearnUnit = () => {
+        stopTeachTts();
+        const mode = contentMode();
+
+        if (learnPhase === "review") {
+            setReviewItem(null);
+            setLearnPhase("assess");
+            resetAssessInputs();
+            return;
+        }
+
+        if (learnPhase === "assess") {
+            if (assessIdx > 0) {
+                setAssessIdx((i) => i - 1);
+                resetAssessInputs();
+                return;
+            }
+            const lastIdx = Math.max(0, teachQueue.length - 1);
+            setTeachIdx(lastIdx);
+            const lastLesson = teachQueue[lastIdx]?.lesson;
+            const cards = lastLesson ? cardsForLesson(lastLesson) : [];
+            if (mode === "flashcards" || (mode === "mix" && cards.length > 0)) {
+                setLearnPhase("cards");
+                setCardIdx(Math.max(0, cards.length - 1));
+                setCardFlipped(false);
+            } else {
+                setLearnPhase("teach");
+            }
+            resetAssessInputs();
+            return;
+        }
+
+        if (learnPhase === "cards") {
+            if (cardIdx > 0) {
+                setCardIdx((i) => i - 1);
+                setCardFlipped(false);
+                return;
+            }
+            if (mode === "mix") {
+                setLearnPhase("teach");
+                return;
+            }
+            if (teachIdx > 0) {
+                const prev = teachQueue[teachIdx - 1];
+                const prevCards = cardsForLesson(prev.lesson);
+                setTeachIdx((i) => i - 1);
+                setCardIdx(Math.max(0, prevCards.length - 1));
+                setCardFlipped(false);
+                setLearnPhase("cards");
+            }
+            return;
+        }
+
+        if (learnPhase === "teach" && teachIdx > 0) {
+            const prev = teachQueue[teachIdx - 1];
+            const prevCards = cardsForLesson(prev.lesson);
+            setTeachIdx((i) => i - 1);
+            if (mode === "mix" && prevCards.length > 0) {
+                setLearnPhase("cards");
+                setCardIdx(Math.max(0, prevCards.length - 1));
+                setCardFlipped(false);
+            } else if (mode === "flashcards") {
+                setLearnPhase("cards");
+                setCardIdx(Math.max(0, prevCards.length - 1));
+                setCardFlipped(false);
+            } else {
+                setLearnPhase("teach");
+            }
+        }
+    };
+
+    const setDeferredLessonIds = async (ids: string[]) => {
+        const done = new Set(local.progress?.completed_lesson_ids || []);
+        const unique = Array.from(new Set(ids)).filter((id) => !done.has(id));
+        const next: SmartLearningContent = {
+            ...local,
+            progress: {
+                ...local.progress,
+                completed_chapter_ids: local.progress?.completed_chapter_ids || [],
+                completed_lesson_ids: local.progress?.completed_lesson_ids || [],
+                deferred_lesson_ids: unique,
+                practice_sessions: local.progress?.practice_sessions || 0,
+                exam_best_score: local.progress?.exam_best_score ?? null,
+                exam_completed_at: local.progress?.exam_completed_at ?? null,
+            },
+            settings: local.settings || DEFAULT_SETTINGS,
+        };
+        next.readiness = computeReadiness(next);
+        setLocal(next);
+        await persistProgress(next);
+    };
+
+    const deferLessonIds = async (lessonIds: string[]) => {
+        const current = new Set(local.progress?.deferred_lesson_ids || []);
+        for (const id of lessonIds) current.add(id);
+        await setDeferredLessonIds(Array.from(current));
+    };
+
+    const undeferLessonIds = async (lessonIds: string[]) => {
+        const remove = new Set(lessonIds);
+        const current = (local.progress?.deferred_lesson_ids || []).filter((id) => !remove.has(id));
+        await setDeferredLessonIds(current);
+    };
+
+    const deferCurrentLearnLesson = async () => {
+        const current = teachQueue[teachIdx];
+        if (!current) return;
+        stopTeachTts();
+        const lessonId = current.lesson.id;
+        await deferLessonIds([lessonId]);
+        const copy = teachQueue.filter((_, i) => i !== teachIdx);
+        const assessCopy = assessQueue.filter((q) => q.lesson.id !== lessonId);
+        setAssessQueue(assessCopy);
+        setAssessIdx((i) => Math.min(i, Math.max(0, assessCopy.length - 1)));
+        if (copy.length === 0) {
+            setTeachQueue([]);
+            setBatchTarget(0);
+            setTeachIdx(0);
+            setLearnPhase("teach");
+            setMode("overview");
+            void clearLearnCheckpoint();
+            return;
+        }
+        const nextIdx = Math.min(teachIdx, copy.length - 1);
+        setTeachQueue(copy);
+        setTeachIdx(nextIdx);
+        setBatchTarget(copy.length);
+        setCardIdx(0);
+        setCardFlipped(false);
+        if (learnPhase === "assess" || learnPhase === "review") {
+            if (assessCopy.length === 0) {
+                setLearnPhase("assess");
+            } else {
+                setLearnPhase("assess");
+                resetAssessInputs();
+            }
+            setReviewItem(null);
+        } else {
+            setLearnPhase(initialLearnPhase());
+        }
+    };
+
+    const startLearn = () => {
+        const firstPrimary = flatSteps.findIndex(
+            (s) => !completedLessonSet.has(s.lesson.id) && !deferredLessonSet.has(s.lesson.id)
+        );
+        const firstAny = flatSteps.findIndex((s) => !completedLessonSet.has(s.lesson.id));
+        beginBatchFrom(firstPrimary >= 0 ? firstPrimary : firstAny >= 0 ? firstAny : 0, {
+            includeDeferred: firstPrimary < 0,
+        });
+    };
+
+    const startChapter = (chapterId: string, opts?: { includeDeferred?: boolean }) => {
+        const idx = flatSteps.findIndex(
+            (s) =>
+                s.chapterId === chapterId &&
+                !completedLessonSet.has(s.lesson.id) &&
+                (opts?.includeDeferred || !deferredLessonSet.has(s.lesson.id))
+        );
+        const fallbackDeferred = flatSteps.findIndex(
+            (s) => s.chapterId === chapterId && !completedLessonSet.has(s.lesson.id)
+        );
         const fallback = flatSteps.findIndex((s) => s.chapterId === chapterId);
-        beginBatchFrom(idx >= 0 ? idx : Math.max(0, fallback));
+        beginBatchFrom(idx >= 0 ? idx : fallbackDeferred >= 0 ? fallbackDeferred : Math.max(0, fallback), {
+            includeDeferred: opts?.includeDeferred || idx < 0,
+        });
+    };
+
+    const startLesson = async (lessonId: string) => {
+        if (deferredLessonSet.has(lessonId)) {
+            await undeferLessonIds([lessonId]);
+        }
+        const idx = flatSteps.findIndex((s) => s.lesson.id === lessonId);
+        beginBatchFrom(Math.max(0, idx), { includeDeferred: true, preferLessonId: lessonId });
     };
 
     const resetAssessInputs = () => {
@@ -1711,6 +2070,7 @@ export default function SmartLearningView({
         const prevCount = deferCountByLessonId[lessonId] || 0;
         const nextCount = prevCount + 1;
         setDeferCountByLessonId((m) => ({ ...m, [lessonId]: nextCount }));
+        void deferLessonIds([lessonId]);
 
         let removeAt = assessIdx;
         if (removeAt < 0 || removeAt >= assessQueue.length || assessQueue[removeAt]?.lesson.id !== lessonId) {
@@ -1726,6 +2086,13 @@ export default function SmartLearningView({
         const [moved] = copy.splice(removeAt, 1);
         if (moved && nextCount <= MAX_DEFER_PER_LESSON) {
             copy.push(moved);
+        } else {
+            // Permanently skip this batch — keep lesson deferred for later path
+            setTeachQueue((q) => {
+                const nextQ = q.filter((s) => s.lesson.id !== lessonId);
+                setBatchTarget(nextQ.length);
+                return nextQ;
+            });
         }
         setAssessQueue(copy);
         setAssessIdx(copy.length === 0 ? 0 : Math.min(removeAt, copy.length - 1));
@@ -1957,8 +2324,13 @@ export default function SmartLearningView({
 
     const hudBar = (
         <div className="flex items-center justify-between gap-3 text-xs text-gray-400">
-            <button type="button" onClick={() => setMode("overview")} className="hover:text-white">
-                ← Übersicht
+            <button
+                type="button"
+                onClick={() => void goToOverview()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#2A3140] text-gray-200 hover:bg-[#243044] hover:text-white font-medium"
+            >
+                <ChevronLeft size={14} />
+                Zur Übersicht
             </button>
             <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-0.5 text-red-400">
@@ -2048,6 +2420,14 @@ export default function SmartLearningView({
                         </div>
                     ) : null}
                     <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => retreatLearnUnit()}
+                            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] font-medium min-h-[48px]"
+                        >
+                            <ChevronLeft size={16} />
+                            Zurück zur Frage
+                        </button>
                         <select
                             value={learnVoice}
                             onChange={(e) => setLearnVoice(e.target.value)}
@@ -2122,6 +2502,15 @@ export default function SmartLearningView({
                         {current.lesson.teach}
                     </MathMarkdown>
                     <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            disabled={!canRetreatLearn()}
+                            onClick={() => retreatLearnUnit()}
+                            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] font-medium min-h-[48px] disabled:opacity-40"
+                        >
+                            <ChevronLeft size={16} />
+                            Zurück
+                        </button>
                         <select
                             value={learnVoice}
                             onChange={(e) => setLearnVoice(e.target.value)}
@@ -2151,6 +2540,14 @@ export default function SmartLearningView({
                                 <Volume2 size={16} />
                             )}
                             {ttsPlaying ? "Stoppen" : "Vorlesen"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void deferCurrentLearnLesson()}
+                            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px]"
+                        >
+                            <SkipForward size={16} />
+                            Später
                         </button>
                         <button
                             type="button"
@@ -2223,10 +2620,27 @@ export default function SmartLearningView({
                     <div className="flex flex-wrap gap-2">
                         <button
                             type="button"
+                            disabled={!canRetreatLearn()}
+                            onClick={() => retreatLearnUnit()}
+                            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] min-h-[48px] disabled:opacity-40"
+                        >
+                            <ChevronLeft size={16} />
+                            Zurück
+                        </button>
+                        <button
+                            type="button"
                             onClick={() => setCardFlipped((f) => !f)}
                             className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] min-h-[48px]"
                         >
                             Umdrehen
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void deferCurrentLearnLesson()}
+                            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px]"
+                        >
+                            <SkipForward size={16} />
+                            Später
                         </button>
                         <button
                             type="button"
@@ -2325,6 +2739,9 @@ export default function SmartLearningView({
         };
 
         const onContinueAfterAssess = async () => {
+            if (correct || forceReveal) {
+                await undeferLessonIds([current.lesson.id]);
+            }
             if (assessIdx + 1 < assessQueue.length) {
                 setAssessIdx((i) => i + 1);
                 resetAssessInputs();
@@ -2346,7 +2763,16 @@ export default function SmartLearningView({
                 {hudBar}
                 <BatchProgress phaseLabel={current.chapterTitle} />
                 <div className="rounded-2xl border border-[#2A3140] bg-[#1A1F2A] p-6 sm:p-7 space-y-4 shadow-lg">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            type="button"
+                            disabled={!canRetreatLearn()}
+                            onClick={() => retreatLearnUnit()}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#2A3140] text-gray-300 hover:bg-[#243044] text-[11px] disabled:opacity-40"
+                        >
+                            <ChevronLeft size={12} />
+                            Zurück
+                        </button>
                         <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-amber-300/90 font-semibold">
                             {isCloze || isShort || isMatch || isDrawing ? <PenLine size={12} /> : <HelpCircle size={12} />}
                             {isCloze
@@ -3305,20 +3731,37 @@ export default function SmartLearningView({
                         </div>
                     ) : null}
 
-                    <button
-                        type="button"
-                        onClick={() => void advanceDeep()}
-                        disabled={
-                            savingProgress ||
-                            (step.type === "note" && !deepNoteDraft.trim()) ||
-                            ((step.type === "exercise" || step.type === "recall") && check && !revealed)
-                        }
-                        className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
-                    >
-                        {savingProgress ? <Loader2 size={16} className="animate-spin" /> : null}
-                        {deepStepIdx + 1 >= session.steps.length ? "Session abschließen" : "Weiter"}
-                        <ChevronRight size={18} />
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            disabled={deepStepIdx <= 0}
+                            onClick={() => {
+                                const prevIdx = Math.max(0, deepStepIdx - 1);
+                                setDeepStepIdx(prevIdx);
+                                const prevStep = session.steps[prevIdx];
+                                setDeepNoteDraft(prog?.notes?.[prevStep?.id || ""] || "");
+                                resetDeepExerciseInputs();
+                            }}
+                            className="inline-flex items-center gap-2 px-4 py-3.5 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] min-h-[48px] disabled:opacity-40"
+                        >
+                            <ChevronLeft size={16} />
+                            Zurück
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void advanceDeep()}
+                            disabled={
+                                savingProgress ||
+                                (step.type === "note" && !deepNoteDraft.trim()) ||
+                                ((step.type === "exercise" || step.type === "recall") && check && !revealed)
+                            }
+                            className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
+                        >
+                            {savingProgress ? <Loader2 size={16} className="animate-spin" /> : null}
+                            {deepStepIdx + 1 >= session.steps.length ? "Session abschließen" : "Weiter"}
+                            <ChevronRight size={18} />
+                        </button>
+                    </div>
                 </div>
                 {error ? <p className="text-sm text-red-400">{error}</p> : null}
             </div>
@@ -3457,6 +3900,17 @@ export default function SmartLearningView({
                     </div>
 
                     <div className="mt-4 flex flex-wrap gap-2">
+                        {local.progress?.learn_checkpoint?.lesson_ids?.length ? (
+                            <button
+                                type="button"
+                                onClick={() => resumeLearnCheckpoint()}
+                                disabled={busyPractice}
+                                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-100 hover:bg-amber-500/30 font-semibold disabled:opacity-50 transition-colors min-h-[48px]"
+                            >
+                                <Play size={18} />
+                                Weiterlernen
+                            </button>
+                        ) : null}
                         <button
                             type="button"
                             onClick={startLearn}
@@ -3464,7 +3918,9 @@ export default function SmartLearningView({
                             className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] hover:bg-[#4A8AE6] text-white font-semibold disabled:opacity-50 transition-colors min-h-[48px]"
                         >
                             <Play size={18} />
-                            Kurzer Lernpfad
+                            {local.progress?.learn_checkpoint?.lesson_ids?.length
+                                ? "Neu starten"
+                                : "Kurzer Lernpfad"}
                         </button>
                         {exam && exam.questions.length > 0 ? (
                             <button
@@ -3542,17 +3998,18 @@ export default function SmartLearningView({
                             chapters.slice(0, chi).every((p) => p.lessons.length > 0 && p.lessons.every((l) => completedLessonSet.has(l.id)));
                         const locked = settings.unlock_all_chapters ? false : !prevDone;
                         const doneLessons = ch.lessons.filter((l) => completedLessonSet.has(l.id)).length;
+                        const deferredInChapter = ch.lessons.filter(
+                            (l) => deferredLessonSet.has(l.id) && !completedLessonSet.has(l.id)
+                        ).length;
                         const chapterDone = ch.lessons.length > 0 && doneLessons === ch.lessons.length;
+                        const openLessons = ch.lessons.filter((l) => !completedLessonSet.has(l.id));
                         return (
-                            <button
+                            <div
                                 key={ch.id}
-                                type="button"
-                                disabled={locked}
-                                onClick={() => startChapter(ch.id)}
-                                className={`w-full text-left rounded-xl border px-4 py-3.5 transition-colors ${
+                                className={`w-full text-left rounded-xl border px-4 py-3.5 ${
                                     locked
-                                        ? "border-[#2A3140] bg-[#12141A] opacity-60 cursor-not-allowed"
-                                        : "border-[#2A3140] bg-[#1A1F2A] hover:border-[#5B9DFF]/40"
+                                        ? "border-[#2A3140] bg-[#12141A] opacity-60"
+                                        : "border-[#2A3140] bg-[#1A1F2A]"
                                 }`}
                             >
                                 <div className="flex items-start gap-3">
@@ -3561,17 +4018,25 @@ export default function SmartLearningView({
                                     ) : (
                                         <BrainCircuit size={16} className="text-[#5B9DFF] shrink-0 mt-0.5" />
                                     )}
-                                    <div className="flex-1 min-w-0 space-y-1">
-                                        <div className="flex items-center gap-2">
-                                            <p className="text-sm font-medium text-white truncate flex-1">{ch.title}</p>
+                                    <div className="flex-1 min-w-0 space-y-2">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <p className="text-sm font-medium text-white truncate flex-1 min-w-[8rem]">
+                                                {ch.title}
+                                            </p>
                                             <span className="flex items-center gap-1 shrink-0">
                                                 {ch.lessons.map((l, li) => (
                                                     <span
                                                         key={l.id}
                                                         className={`h-1.5 w-1.5 rounded-full ${
-                                                            completedLessonSet.has(l.id) ? "bg-[#5B9DFF]" : "bg-[#3A4558]"
+                                                            completedLessonSet.has(l.id)
+                                                                ? "bg-[#5B9DFF]"
+                                                                : deferredLessonSet.has(l.id)
+                                                                  ? "bg-amber-400"
+                                                                  : "bg-[#3A4558]"
                                                         }`}
-                                                        title={`Meilenstein ${li + 1}`}
+                                                        title={`Blatt ${li + 1}${
+                                                            deferredLessonSet.has(l.id) ? " · später" : ""
+                                                        }`}
                                                     />
                                                 ))}
                                             </span>
@@ -3579,15 +4044,113 @@ export default function SmartLearningView({
                                         </div>
                                         <p className="text-[11px] text-gray-500">
                                             {doneLessons}/{ch.lessons.length || 0} Lektionen
+                                            {deferredInChapter > 0 ? ` · ${deferredInChapter} später` : ""}
                                         </p>
                                         {ch.summary ? (
                                             <MathMarkdown compact className="text-xs text-gray-400 line-clamp-2">
                                                 {ch.summary}
                                             </MathMarkdown>
                                         ) : null}
+                                        {!locked && !chapterDone ? (
+                                            <div className="flex flex-wrap gap-2 pt-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => startChapter(ch.id)}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5B9DFF]/15 border border-[#5B9DFF]/35 text-[#9EC5FF] text-xs font-medium hover:bg-[#5B9DFF]/25"
+                                                >
+                                                    <Play size={12} /> Lernen
+                                                </button>
+                                                {openLessons.length > 0 ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            void deferLessonIds(openLessons.map((l) => l.id))
+                                                        }
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/35 text-amber-100 text-xs font-medium hover:bg-amber-500/10"
+                                                    >
+                                                        <SkipForward size={12} /> Thema später
+                                                    </button>
+                                                ) : null}
+                                                {deferredInChapter > 0 ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            void (async () => {
+                                                                await undeferLessonIds(openLessons.map((l) => l.id));
+                                                                startChapter(ch.id, { includeDeferred: true });
+                                                            })();
+                                                        }}
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#2A3140] text-gray-300 text-xs font-medium hover:bg-[#243044]"
+                                                    >
+                                                        Aufgeschobene jetzt
+                                                    </button>
+                                                ) : null}
+                                            </div>
+                                        ) : null}
+                                        {!locked && ch.lessons.length > 0 ? (
+                                            <ul className="space-y-1.5 pt-1 border-t border-[#2A3140]/80">
+                                                {ch.lessons.map((l, li) => {
+                                                    const done = completedLessonSet.has(l.id);
+                                                    const deferred = deferredLessonSet.has(l.id) && !done;
+                                                    const preview =
+                                                        (l.teach || l.check?.prompt || `Blatt ${li + 1}`)
+                                                            .replace(/\s+/g, " ")
+                                                            .trim()
+                                                            .slice(0, 72) || `Blatt ${li + 1}`;
+                                                    return (
+                                                        <li
+                                                            key={l.id}
+                                                            className="flex items-center gap-2 text-xs text-gray-400"
+                                                        >
+                                                            <span
+                                                                className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                                                                    done
+                                                                        ? "bg-[#5B9DFF]"
+                                                                        : deferred
+                                                                          ? "bg-amber-400"
+                                                                          : "bg-[#3A4558]"
+                                                                }`}
+                                                            />
+                                                            <span className="flex-1 min-w-0 truncate text-gray-300">
+                                                                {li + 1}. {preview}
+                                                                {deferred ? " · später" : done ? " · fertig" : ""}
+                                                            </span>
+                                                            {!done ? (
+                                                                <span className="flex items-center gap-1 shrink-0">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => void startLesson(l.id)}
+                                                                        className="px-2 py-1 rounded-md border border-[#2A3140] text-[#9EC5FF] hover:bg-[#243044]"
+                                                                    >
+                                                                        Öffnen
+                                                                    </button>
+                                                                    {deferred ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => void undeferLessonIds([l.id])}
+                                                                            className="px-2 py-1 rounded-md border border-[#2A3140] text-gray-300 hover:bg-[#243044]"
+                                                                        >
+                                                                            Zurück in Pfad
+                                                                        </button>
+                                                                    ) : (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => void deferLessonIds([l.id])}
+                                                                            className="px-2 py-1 rounded-md border border-amber-500/30 text-amber-100 hover:bg-amber-500/10"
+                                                                        >
+                                                                            Später
+                                                                        </button>
+                                                                    )}
+                                                                </span>
+                                                            ) : null}
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        ) : null}
                                     </div>
                                 </div>
-                            </button>
+                            </div>
                         );
                     })
                 )}

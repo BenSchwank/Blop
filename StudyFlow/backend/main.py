@@ -3123,6 +3123,8 @@ class SmartLearningProgressRequest(BaseModel):
     folder_id: str
     completed_chapter_ids: Optional[List[str]] = None
     completed_lesson_ids: Optional[List[str]] = None
+    deferred_lesson_ids: Optional[List[str]] = None
+    learn_checkpoint: Optional[dict] = None
     practice_sessions: Optional[int] = None
     readiness: Optional[int] = None
     exam_best_score: Optional[int] = None
@@ -3483,13 +3485,29 @@ def create_smart_learning(request: SmartLearningRequest):
                 elif len(new_ids) > 0:
                     readiness = int(round(100.0 * len(set(kept)) / len(new_ids)))
                     readiness = min(100, readiness + min(20, sessions * 5) + exam_bonus)
-                journey["progress"] = {
+                old_deferred = old_progress.get("deferred_lesson_ids") or []
+                if not isinstance(old_deferred, list):
+                    old_deferred = []
+                kept_deferred = [
+                    str(x)
+                    for x in old_deferred
+                    if str(x) in set(new_lesson_ids) and str(x) not in set(kept_lessons)
+                ]
+                old_cp = old_progress.get("learn_checkpoint")
+                journey_progress = {
                     "completed_chapter_ids": list(dict.fromkeys(kept)),
                     "completed_lesson_ids": list(dict.fromkeys(kept_lessons)),
+                    "deferred_lesson_ids": list(dict.fromkeys(kept_deferred))[:500],
                     "practice_sessions": sessions,
                     "exam_best_score": exam_best,
                     "exam_completed_at": exam_at,
                 }
+                if isinstance(old_cp, dict) and old_cp.get("lesson_ids"):
+                    # Keep checkpoint only if lesson ids still exist after regen
+                    kept_cp_ids = [str(x) for x in (old_cp.get("lesson_ids") or []) if str(x) in set(new_lesson_ids)]
+                    if kept_cp_ids:
+                        journey_progress["learn_checkpoint"] = {**old_cp, "lesson_ids": kept_cp_ids}
+                journey["progress"] = journey_progress
                 journey["readiness"] = readiness
                 # Keep awards + merge settings preference with new generation settings
                 journey["session_awards"] = {
@@ -3571,6 +3589,15 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
         progress["completed_chapter_ids"] = [str(x) for x in body.completed_chapter_ids]
     if body.completed_lesson_ids is not None:
         progress["completed_lesson_ids"] = [str(x) for x in body.completed_lesson_ids]
+    if body.deferred_lesson_ids is not None:
+        progress["deferred_lesson_ids"] = [str(x) for x in body.deferred_lesson_ids]
+    dumped = body.model_dump(exclude_unset=True)
+    if "learn_checkpoint" in dumped:
+        cp = dumped.get("learn_checkpoint")
+        if not cp or not isinstance(cp, dict) or not cp.get("lesson_ids"):
+            progress.pop("learn_checkpoint", None)
+        else:
+            progress["learn_checkpoint"] = cp
     if body.practice_sessions is not None:
         progress["practice_sessions"] = max(0, int(body.practice_sessions))
     if body.exam_best_score is not None:
@@ -3631,13 +3658,24 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
     else:
         readiness = int(content.get("readiness") or 0)
 
-    content["progress"] = {
+    deferred_lessons = progress.get("deferred_lesson_ids") or []
+    if not isinstance(deferred_lessons, list):
+        deferred_lessons = []
+    done_set = set(str(x) for x in completed_lessons)
+    deferred_clean = [str(x) for x in deferred_lessons if str(x) not in done_set]
+
+    out_progress = {
         "completed_chapter_ids": list(dict.fromkeys(completed)),
         "completed_lesson_ids": list(dict.fromkeys([str(x) for x in completed_lessons])),
-        "practice_sessions": int(progress.get("practice_sessions") or 0),
+        "deferred_lesson_ids": list(dict.fromkeys(deferred_clean))[:500],
+        "practice_sessions": int(progress.get("practice_sessions") || 0),
         "exam_best_score": progress.get("exam_best_score"),
         "exam_completed_at": progress.get("exam_completed_at"),
     }
+    cp_keep = progress.get("learn_checkpoint")
+    if isinstance(cp_keep, dict) and cp_keep.get("lesson_ids"):
+        out_progress["learn_checkpoint"] = cp_keep
+    content["progress"] = out_progress
     content["readiness"] = readiness
 
     DataManager.save_file_metadata(
