@@ -3118,6 +3118,17 @@ class SmartLearningGradeDrawingRequest(BaseModel):
     image_base64: Optional[str] = None  # uploaded photo (png/jpeg)
     model_preference: Optional[str] = None
 
+class SmartLearningGradeTextRequest(BaseModel):
+    username: str
+    folder_id: str
+    prompt: str = ""
+    answer: str = ""
+    given: str = ""
+    accepted_answers: Optional[List[str]] = None
+    keywords: Optional[List[str]] = None
+    explanation: str = ""
+    model_preference: Optional[str] = None
+
 class SmartLearningProgressRequest(BaseModel):
     username: str
     folder_id: str
@@ -3866,6 +3877,47 @@ def create_smart_learning_deep_session(request: SmartLearningDeepSessionRequest)
             "status": "success",
             "deep_session": session,
             "smart_learning": content,
+            "used_model": result.get("used_model", model_pref or ""),
+            "usage": result.get("usage", {}),
+            **charge,
+        }
+
+    return _spawn_core_ai_job("smart_learning", request.username, work)
+
+
+@app.post("/api/ai/smart-learning/grade-text")
+def grade_smart_learning_text(request: SmartLearningGradeTextRequest):
+    """Semantic grade for uncertain free-text Smart Learning answers (cheap text model)."""
+    SubscriptionManager.ensure_feature(request.username, "smart_learning")
+    ensure_minimum_tokens(request.username, 1)
+
+    def work():
+        from ai_service import AIService
+        _configure_genai(request.username)
+        model_pref = resolve_model_preference(request.username, request.model_preference)
+        given = (request.given or "").strip()
+        if not given:
+            raise HTTPException(status_code=400, detail="Bitte eine Antwort eingeben.")
+        result = AIService.grade_smart_learning_text(
+            prompt=request.prompt or "",
+            answer=request.answer or "",
+            given=given,
+            accepted_answers=request.accepted_answers,
+            keywords=request.keywords,
+            explanation=request.explanation or "",
+            model_preference=model_pref,
+            return_meta=True,
+        )
+        grade = result["data"]
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "smart_learning",
+            result.get("used_model", model_pref or ""),
+            result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "grade": grade,
             "used_model": result.get("used_model", model_pref or ""),
             "usage": result.get("usage", {}),
             **charge,

@@ -195,6 +195,93 @@ export function keywordsAccepted(keywords: string[], given: string, extras?: str
     });
 }
 
+/** Similarity 0..1 between two answer strings (compact + edit distance). */
+export function answerSimilarity(expected: string, given: string): number {
+    const e = compactAnswerText(expected);
+    const g = compactAnswerText(given);
+    if (!e || !g) return 0;
+    if (e === g || stemPluralDe(e) === stemPluralDe(g)) return 1;
+    if (answersFuzzyEqual(expected, given)) return 0.92;
+    const maxLen = Math.max(e.length, g.length);
+    if (maxLen === 0) return 0;
+    const dist = editDistance(e, g);
+    const editSim = Math.max(0, 1 - dist / maxLen);
+    let contain = 0;
+    if (e.length >= 3 && g.length >= 3) {
+        if (e.includes(g) || g.includes(e)) {
+            contain = Math.min(e.length, g.length) / maxLen;
+        }
+    }
+    // Token overlap (space-normalized)
+    const et = new Set(normalizeAnswerText(expected).split(" ").filter((t) => t.length >= 2));
+    const gt = new Set(normalizeAnswerText(given).split(" ").filter((t) => t.length >= 2));
+    let token = 0;
+    if (et.size && gt.size) {
+        let hit = 0;
+        for (const t of et) if (gt.has(t) || [...gt].some((x) => answersFuzzyEqual(t, x))) hit += 1;
+        token = hit / et.size;
+    }
+    return Math.max(editSim, contain, token * 0.85);
+}
+
+export function maxAnswerSimilarity(
+    expected: string,
+    given: string,
+    alternatives?: string[] | null
+): number {
+    const pool = [
+        ...splitAnswerAlternatives(expected),
+        ...(alternatives || []).flatMap((a) => splitAnswerAlternatives(a)),
+    ].filter(Boolean);
+    if (!pool.length) return 0;
+    return Math.max(...pool.map((p) => answerSimilarity(p, given)));
+}
+
+export type AnswerGradeVerdict = "correct" | "wrong" | "uncertain";
+
+/**
+ * Local-first grading gate for free-text:
+ * - correct: fuzzy/keyword match
+ * - wrong: empty, or clearly dissimilar short answer
+ * - uncertain: local miss but plausible paraphrase / partial keywords / mid similarity → ask AI
+ */
+export function classifyShortAnswerVerdict(
+    expected: string,
+    given: string,
+    alternatives?: string[] | null,
+    keywords?: string[] | null
+): AnswerGradeVerdict {
+    const raw = String(given || "").trim();
+    if (!raw) return "wrong";
+    if (answerAccepted(expected, given, alternatives)) return "correct";
+    if (keywords?.length && keywordsAccepted(keywords, given, alternatives)) return "correct";
+
+    const sim = maxAnswerSimilarity(expected, given, alternatives);
+    const kw = (keywords || []).map((k) => splitAnswerAlternatives(k)).filter((a) => a.length);
+    let kwHits = 0;
+    if (kw.length) {
+        for (const alts of kw) {
+            if (alts.some((a) => answerSimilarity(a, given) >= 0.55 || normalizeAnswerText(given).includes(normalizeAnswerText(a)))) {
+                kwHits += 1;
+            }
+        }
+    }
+    const compactLen = compactAnswerText(given).length;
+
+    // Partial keywords → likely related wording
+    if (kw.length >= 2 && kwHits > 0 && kwHits < kw.length) return "uncertain";
+    if (kw.length === 1 && kwHits === 1 && sim < 0.92) return "uncertain";
+
+    // Mid similarity band
+    if (sim >= 0.22 && sim < 0.92) return "uncertain";
+
+    // Longer free-text often paraphrases the model answer with low string overlap
+    if (compactLen >= 12) return "uncertain";
+
+    // Very short and far away → clearly wrong, skip AI
+    return "wrong";
+}
+
 /**
  * Split a cloze prompt with `{{answer}}` markers into text segments and blank answers.
  * If `blanks` is provided, those override the text inside the braces for grading.

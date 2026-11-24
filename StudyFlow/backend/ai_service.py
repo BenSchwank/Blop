@@ -2262,6 +2262,113 @@ Bewertung:
             raise Exception(f"Fehler bei Zeichnungs-Auswertung: {str(e)}")
 
     @staticmethod
+    def grade_smart_learning_text(
+        *,
+        prompt: str,
+        answer: str = "",
+        given: str = "",
+        accepted_answers: Optional[List[str]] = None,
+        keywords: Optional[List[str]] = None,
+        explanation: str = "",
+        model_preference: str = None,
+        return_meta: bool = False,
+    ) -> Any:
+        """Grade a free-text Smart Learning answer (semantic paraphrase tolerance)."""
+        try:
+            q = (prompt or "").strip() or "Beantworte die Frage."
+            model_answer = (answer or "").strip()
+            student = (given or "").strip()
+            if not student:
+                raise Exception("Keine Antwort übermittelt.")
+            if len(student) > 4000:
+                raise Exception("Antwort zu lang (max. 4000 Zeichen).")
+
+            alts = [str(a).strip() for a in (accepted_answers or []) if str(a).strip()][:12]
+            kws = [str(k).strip() for k in (keywords or []) if str(k).strip()][:12]
+            alts_block = "\n".join(f"- {a}" for a in alts) if alts else "- (keine)"
+            kws_block = "\n".join(f"- {k}" for k in kws) if kws else "- (keine)"
+            expl = (explanation or "").strip()
+
+            grade_prompt = f"""Du bewertest eine kurze Freitext-Antwort eines Lernenden (Informatik/Studium).
+
+AUFGABE:
+{q}
+
+MUSTERANTWORT:
+{model_answer or "(siehe Keywords)"}
+
+AKZEPTIERTE ALTERNATIVEN:
+{alts_block}
+
+KEYWORDS (falls relevant, müssen sinngemäß vorkommen):
+{kws_block}
+
+SCHÜLERANTWORT:
+{student}
+
+{("Hinweis/Erklärung: " + expl) if expl else ""}
+
+Antworte NUR mit gültigem JSON (kein Markdown):
+{{
+  "score": 0,
+  "correct": false,
+  "feedback": "kurze Begründung auf Deutsch (1–2 Sätze)"
+}}
+
+Bewertung:
+- score 2 = inhaltlich ausreichend richtig (Paraphrase, Synonyme, leichte Tippfehler ok)
+- score 1 = teilweise (Kern angerissen, Wichtiges fehlt/falsch)
+- score 0 = falsch / am Thema vorbei
+- correct = true nur wenn score == 2
+- Sei großzügig bei Formulierungen, streng bei fachlich falschem Inhalt.
+"""
+
+            model = genai.GenerativeModel(
+                model_for_task("quiz", model_preference),
+                generation_config={
+                    "temperature": 0.1,
+                    "max_output_tokens": 256,
+                    "response_mime_type": "application/json",
+                },
+            )
+            response = model.generate_content(grade_prompt, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Bewertungsantwort vom Modell.")
+            try:
+                parsed = AIService._loads_model_json(
+                    response.text, label="Freitext-Bewertung", prefer_object=True
+                )
+            except ValueError as parse_err:
+                raise Exception(str(parse_err)) from parse_err
+            if not isinstance(parsed, dict):
+                raise Exception("Bewertung war kein JSON-Objekt.")
+
+            try:
+                score = int(parsed.get("score"))
+            except Exception:
+                score = 0
+            score = max(0, min(2, score))
+            correct = bool(parsed.get("correct")) if "correct" in parsed else score >= 2
+            if score >= 2:
+                correct = True
+            elif score <= 0:
+                correct = False
+            feedback = str(parsed.get("feedback") or "").strip() or (
+                "Passt." if correct else "Noch nicht ausreichend."
+            )
+            result = {"correct": correct, "score": score, "feedback": feedback}
+            if not return_meta:
+                return result
+            return {
+                "data": result,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
+        except Exception as e:
+            print(f"Smart Learning Text Grade Error: {e}")
+            raise Exception(f"Fehler bei Freitext-Auswertung: {str(e)}")
+
+    @staticmethod
     def _validate_refined_quiz(obj: Any) -> None:
         if not isinstance(obj, list) or len(obj) == 0:
             raise ValueError("Quiz muss ein nicht-leeres JSON-Array sein.")

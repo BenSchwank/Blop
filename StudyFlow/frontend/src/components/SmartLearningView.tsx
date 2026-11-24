@@ -27,6 +27,7 @@ import {
 import MathMarkdown, {
     answerAccepted,
     answersMatch,
+    classifyShortAnswerVerdict,
     keywordsAccepted,
     parseClozePrompt,
     splitAnswerAlternatives,
@@ -880,6 +881,15 @@ function gradeShortAnswer(check: SmartLearningCheck, given: string): boolean {
     return keywordsAccepted(keywords, given, check.accepted_answers);
 }
 
+function shortAnswerIsCorrect(
+    check: SmartLearningCheck,
+    given: string,
+    aiGrade: DrawingGradeResult | null
+): boolean {
+    if (aiGrade) return aiGrade.score >= 2 || aiGrade.correct;
+    return gradeShortAnswer(check, given);
+}
+
 function gradeMatching(check: SmartLearningCheck, assigned: string[]): boolean {
     const rights = check.blanks || [];
     if (rights.length === 0 || rights.length !== (check.options?.length || 0)) return false;
@@ -1149,6 +1159,8 @@ export default function SmartLearningView({
     const [failCounts, setFailCounts] = useState<Record<string, number>>({});
     const [drawingGrade, setDrawingGrade] = useState<DrawingGradeResult | null>(null);
     const [drawingBusy, setDrawingBusy] = useState(false);
+    const [textGrade, setTextGrade] = useState<DrawingGradeResult | null>(null);
+    const [textGradeBusy, setTextGradeBusy] = useState(false);
     const [savingProgress, setSavingProgress] = useState(false);
     const [error, setError] = useState("");
     const MAX_DEFER_PER_LESSON = 2;
@@ -1436,6 +1448,8 @@ export default function SmartLearningView({
         setShortAnswer("");
         setDrawingGrade(null);
         setDrawingBusy(false);
+        setTextGrade(null);
+        setTextGradeBusy(false);
         const phase = cp.learn_phase || "teach";
         if (phase === "assess" || phase === "review") {
             const assessIds = cp.assess_lesson_ids?.length
@@ -1488,6 +1502,8 @@ export default function SmartLearningView({
             setShortAnswer("");
             setDrawingGrade(null);
             setDrawingBusy(false);
+            setTextGrade(null);
+            setTextGradeBusy(false);
             setMode("learn");
         };
         if (pool.length === 0) {
@@ -1760,6 +1776,8 @@ export default function SmartLearningView({
         setShortAnswer("");
         setDrawingGrade(null);
         setDrawingBusy(false);
+        setTextGrade(null);
+        setTextGradeBusy(false);
     };
 
     const gradeDrawingAnswer = async (
@@ -1824,6 +1842,101 @@ export default function SmartLearningView({
             throw err;
         } finally {
             setDrawingBusy(false);
+        }
+    };
+
+    const gradeTextAnswer = async (
+        check: SmartLearningCheck,
+        given: string
+    ): Promise<DrawingGradeResult> => {
+        setTextGradeBusy(true);
+        setError("");
+        try {
+            const res = await fetch(
+                `/api/ai/smart-learning/grade-text?session_id=${encodeURIComponent(sessionId)}`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Session-Id": sessionId,
+                    },
+                    body: JSON.stringify({
+                        username,
+                        folder_id: folderId,
+                        prompt: check.prompt,
+                        answer: check.answer,
+                        given,
+                        accepted_answers: check.accepted_answers || [],
+                        keywords: check.blanks || [],
+                        explanation: check.explanation || "",
+                    }),
+                }
+            );
+            let data: Record<string, unknown> = await res.json().catch(() => ({}));
+            if (res.status === 202 && data.job_id) {
+                data = await pollSmartJob(String(data.job_id));
+            }
+            if ((!res.ok && res.status !== 202) && !data.grade) {
+                throw new Error(formatApiDetail(data.detail) || `HTTP ${res.status}`);
+            }
+            const gradeRaw = (data.grade && typeof data.grade === "object" ? data.grade : data) as Record<
+                string,
+                unknown
+            >;
+            if (
+                gradeRaw.score == null &&
+                gradeRaw.correct == null &&
+                !String(gradeRaw.feedback || "").trim()
+            ) {
+                throw new Error(formatApiDetail(data.detail) || "Keine Bewertung erhalten.");
+            }
+            const score = Math.max(0, Math.min(2, Number(gradeRaw.score) || 0));
+            const result: DrawingGradeResult = {
+                correct: score >= 2 || gradeRaw.correct === true,
+                score,
+                feedback:
+                    String(gradeRaw.feedback || "").trim() ||
+                    (score >= 2 ? "Passt." : "Noch nicht ausreichend."),
+            };
+            setTextGrade(result);
+            return result;
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Auswertung fehlgeschlagen.";
+            setError(`${msg} Bewertung lokal fortgesetzt.`);
+            throw err;
+        } finally {
+            setTextGradeBusy(false);
+        }
+    };
+
+    const evaluateShortAnswer = async (
+        check: SmartLearningCheck,
+        given: string
+    ): Promise<{ ok: boolean; usedAi: boolean }> => {
+        const verdict = classifyShortAnswerVerdict(
+            check.answer,
+            given,
+            check.accepted_answers,
+            check.blanks
+        );
+        if (verdict === "correct") {
+            setTextGrade(null);
+            return { ok: true, usedAi: false };
+        }
+        if (verdict === "wrong") {
+            setTextGrade(null);
+            return { ok: false, usedAi: false };
+        }
+        try {
+            const grade = await gradeTextAnswer(check, given);
+            return { ok: grade.score >= 2 || grade.correct, usedAi: true };
+        } catch {
+            setTextGrade({
+                correct: false,
+                score: 0,
+                feedback: "KI-Prüfung fehlgeschlagen — als falsch gewertet.",
+            });
+            return { ok: false, usedAi: true };
         }
     };
 
@@ -1947,6 +2060,8 @@ export default function SmartLearningView({
         setDeepCardFlipped(false);
         setDrawingGrade(null);
         setDrawingBusy(false);
+        setTextGrade(null);
+        setTextGradeBusy(false);
     };
 
     const startDeepSession = (session: DeepLearningSession) => {
@@ -2697,7 +2812,8 @@ export default function SmartLearningView({
             isCloze && clozeSubmitted
                 ? gradeCloze(check.prompt, check.blanks, clozeValues, check.accepted_answers)
                 : false;
-        const shortOk = isShort && clozeSubmitted ? gradeShortAnswer(check, shortAnswer) : false;
+        const shortOk =
+            isShort && clozeSubmitted ? shortAnswerIsCorrect(check, shortAnswer, textGrade) : false;
         const matchOk = isMatch && clozeSubmitted ? gradeMatching(check, clozeValues) : false;
         const drawingOk = isDrawing && drawingGrade != null && (drawingGrade.score >= 2 || drawingGrade.correct);
         const drawingPartial = isDrawing && drawingGrade != null && drawingGrade.score === 1 && !drawingOk;
@@ -2735,6 +2851,8 @@ export default function SmartLearningView({
             setShortAnswer("");
             setDrawingGrade(null);
             setDrawingBusy(false);
+            setTextGrade(null);
+            setTextGradeBusy(false);
             setError("");
         };
 
@@ -2814,7 +2932,7 @@ export default function SmartLearningView({
                             <MathMarkdown className="text-lg font-medium text-white">{check.prompt}</MathMarkdown>
                             <textarea
                                 value={shortAnswer}
-                                disabled={clozeSubmitted && shortOk}
+                                disabled={textGradeBusy || (clozeSubmitted && shortOk)}
                                 onChange={(e) => setShortAnswer(e.target.value)}
                                 rows={3}
                                 className="w-full rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
@@ -2869,36 +2987,54 @@ export default function SmartLearningView({
                             <button
                                 type="button"
                                 onClick={() => {
-                                    setClozeSubmitted(true);
-                                    const ok = isCloze
-                                        ? gradeCloze(check.prompt, check.blanks, clozeValues, check.accepted_answers)
-                                        : isMatch
-                                          ? gradeMatching(check, clozeValues)
-                                          : gradeShortAnswer(check, shortAnswer);
-                                    if (ok)
-                                        void grantXp(
-                                            isCloze ? 5 : isMatch ? 8 : 8,
-                                            isCloze ? "cloze" : isMatch ? "matching" : "short"
-                                        );
-                                    else {
-                                        bumpFail();
-                                        spendHeart();
-                                    }
+                                    void (async () => {
+                                        if (isShort) {
+                                            const { ok } = await evaluateShortAnswer(check, shortAnswer);
+                                            setClozeSubmitted(true);
+                                            if (ok) void grantXp(8, "short");
+                                            else {
+                                                bumpFail();
+                                                spendHeart();
+                                            }
+                                            return;
+                                        }
+                                        setClozeSubmitted(true);
+                                        const ok = isCloze
+                                            ? gradeCloze(
+                                                  check.prompt,
+                                                  check.blanks,
+                                                  clozeValues,
+                                                  check.accepted_answers
+                                              )
+                                            : gradeMatching(check, clozeValues);
+                                        if (ok)
+                                            void grantXp(
+                                                isCloze ? 5 : 8,
+                                                isCloze ? "cloze" : "matching"
+                                            );
+                                        else {
+                                            bumpFail();
+                                            spendHeart();
+                                        }
+                                    })();
                                 }}
                                 disabled={
-                                    isShort
+                                    textGradeBusy ||
+                                    (isShort
                                         ? !shortAnswer.trim()
                                         : clozeValues.length === 0 ||
-                                          clozeValues.some((v) => !String(v || "").trim())
+                                          clozeValues.some((v) => !String(v || "").trim()))
                                 }
                                 className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50 min-h-[48px]"
                             >
-                                Antwort prüfen
+                                {textGradeBusy ? <Loader2 size={16} className="animate-spin" /> : null}
+                                {textGradeBusy ? "KI prüft…" : "Antwort prüfen"}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => startIdkReview(current)}
-                                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px]"
+                                disabled={textGradeBusy}
+                                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px] disabled:opacity-50"
                             >
                                 <SkipForward size={16} />
                                 Überspringen
@@ -2941,7 +3077,13 @@ export default function SmartLearningView({
                             <AnswerRevealBlock
                                 check={check}
                                 correct={correct}
-                                extraFeedback={isDrawing ? drawingGrade?.feedback : undefined}
+                                extraFeedback={
+                                    isDrawing
+                                        ? drawingGrade?.feedback
+                                        : isShort
+                                          ? textGrade?.feedback
+                                          : undefined
+                                }
                             />
                             {correct || forceReveal || hearts <= 0 ? (
                                 <button
@@ -3196,7 +3338,7 @@ export default function SmartLearningView({
                 : isMatch
                   ? gradeMatching(asCheck, examCloze)
                   : isShort
-                    ? gradeShortAnswer(asCheck, examShort)
+                    ? shortAnswerIsCorrect(asCheck, examShort, textGrade)
                     : isDrawing
                       ? !!(drawingGrade && (drawingGrade.score >= 2 || drawingGrade.correct))
                       : answerAccepted(q.answer, examSelected || "", q.accepted_answers)
@@ -3208,6 +3350,8 @@ export default function SmartLearningView({
             setExamShort("");
             setDrawingGrade(null);
             setDrawingBusy(false);
+            setTextGrade(null);
+            setTextGradeBusy(false);
             setError("");
         };
 
@@ -3371,21 +3515,31 @@ export default function SmartLearningView({
                         <div className="flex flex-wrap gap-2">
                             <button
                                 type="button"
-                                onClick={() => setExamClozeDone(true)}
+                                onClick={() => {
+                                    void (async () => {
+                                        if (isShort) {
+                                            await evaluateShortAnswer(asCheck, examShort);
+                                        }
+                                        setExamClozeDone(true);
+                                    })();
+                                }}
                                 disabled={
-                                    isShort
+                                    textGradeBusy ||
+                                    (isShort
                                         ? !examShort.trim()
                                         : examCloze.length === 0 ||
-                                          examCloze.some((v) => !String(v || "").trim())
+                                          examCloze.some((v) => !String(v || "").trim()))
                                 }
-                                className="px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50"
+                                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50"
                             >
-                                Antwort prüfen
+                                {textGradeBusy ? <Loader2 size={16} className="animate-spin" /> : null}
+                                {textGradeBusy ? "KI prüft…" : "Antwort prüfen"}
                             </button>
                             <button
                                 type="button"
                                 onClick={skipExamQuestion}
-                                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium"
+                                disabled={textGradeBusy}
+                                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium disabled:opacity-50"
                             >
                                 <SkipForward size={16} />
                                 Überspringen
@@ -3424,7 +3578,13 @@ export default function SmartLearningView({
                             <AnswerRevealBlock
                                 check={asCheck}
                                 correct={examCorrect}
-                                extraFeedback={isDrawing ? drawingGrade?.feedback : undefined}
+                                extraFeedback={
+                                    isDrawing
+                                        ? drawingGrade?.feedback
+                                        : isShort
+                                          ? textGrade?.feedback
+                                          : undefined
+                                }
                             />
                             <div className="flex flex-wrap gap-2">
                                 <button
@@ -3438,7 +3598,10 @@ export default function SmartLearningView({
                                         } else if (isMatch) {
                                             recordAndAdvance(gradeMatching(asCheck, examCloze), examCloze.join(" | "));
                                         } else if (isShort) {
-                                            recordAndAdvance(gradeShortAnswer(asCheck, examShort), examShort);
+                                            recordAndAdvance(
+                                                shortAnswerIsCorrect(asCheck, examShort, textGrade),
+                                                examShort
+                                            );
                                         } else if (isDrawing) {
                                             recordAndAdvance(
                                                 examCorrect,
@@ -3533,9 +3696,9 @@ export default function SmartLearningView({
                   ? gradeMatching(check, deepCloze)
                   : isDrawing
                     ? !!(drawingGrade && (drawingGrade.score >= 2 || drawingGrade.correct))
-                    : isShort
-                      ? gradeShortAnswer(check, deepShort)
-                      : answerAccepted(check.answer, deepSelected || "", check.accepted_answers)
+                  : isShort
+                    ? shortAnswerIsCorrect(check, deepShort, textGrade)
+                    : answerAccepted(check.answer, deepSelected || "", check.accepted_answers)
             : false;
 
         return (
@@ -3694,15 +3857,25 @@ export default function SmartLearningView({
                             {(isCloze || isShort || isMatch) && !deepClozeDone ? (
                                 <button
                                     type="button"
-                                    onClick={() => setDeepClozeDone(true)}
+                                    onClick={() => {
+                                        void (async () => {
+                                            if (isShort && check) {
+                                                await evaluateShortAnswer(check, deepShort);
+                                            }
+                                            setDeepClozeDone(true);
+                                        })();
+                                    }}
                                     disabled={
-                                        isShort
+                                        textGradeBusy ||
+                                        (isShort
                                             ? !deepShort.trim()
-                                            : deepCloze.length === 0 || deepCloze.some((v) => !String(v || "").trim())
+                                            : deepCloze.length === 0 ||
+                                              deepCloze.some((v) => !String(v || "").trim()))
                                     }
-                                    className="px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50"
+                                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#5B9DFF] text-white font-semibold disabled:opacity-50"
                                 >
-                                    Antwort prüfen
+                                    {textGradeBusy ? <Loader2 size={16} className="animate-spin" /> : null}
+                                    {textGradeBusy ? "KI prüft…" : "Antwort prüfen"}
                                 </button>
                             ) : null}
                             {isDrawing && !revealed ? (
@@ -3725,7 +3898,13 @@ export default function SmartLearningView({
                                 <AnswerRevealBlock
                                     check={check}
                                     correct={!!deepCorrect}
-                                    extraFeedback={isDrawing ? drawingGrade?.feedback : undefined}
+                                    extraFeedback={
+                                    isDrawing
+                                        ? drawingGrade?.feedback
+                                        : isShort
+                                          ? textGrade?.feedback
+                                          : undefined
+                                }
                                 />
                             ) : null}
                         </div>
