@@ -3682,7 +3682,7 @@ def update_smart_learning_progress(http_request: Request, body: SmartLearningPro
         "completed_chapter_ids": list(dict.fromkeys(completed)),
         "completed_lesson_ids": list(dict.fromkeys([str(x) for x in completed_lessons])),
         "deferred_lesson_ids": list(dict.fromkeys(deferred_clean))[:500],
-        "practice_sessions": int(progress.get("practice_sessions") || 0),
+        "practice_sessions": int(progress.get("practice_sessions") or 0),
         "exam_best_score": progress.get("exam_best_score"),
         "exam_completed_at": progress.get("exam_completed_at"),
     }
