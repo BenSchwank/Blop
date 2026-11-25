@@ -83,6 +83,7 @@ struct StickyNoteObject {
     QPointF pos{0, 0}; // page-local top-left
     qreal width{168.0};
     qreal height{148.0};
+    qreal rotation{0.0}; // degrees, same contract as ImageObject
     QString text;
     QColor color{QColor(255, 236, 120)};
     int fontPointSize{14};

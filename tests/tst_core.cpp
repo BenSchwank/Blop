@@ -13,7 +13,10 @@
 #include <QTextDocument>
 #include <QTextTable>
 #include <QTextTableFormat>
+#include <QTransform>
+#include <QtMath>
 #include <QtTest>
+#include <cmath>
 
 class CoreTests : public QObject {
   Q_OBJECT
@@ -71,6 +74,9 @@ private slots:
     n.pages[0].texts.append(t);
     StickyNoteObject s;
     s.text = "Merken";
+    s.rotation = 25.0;
+    s.width = 180.0;
+    s.height = 140.0;
     n.pages[0].stickies.append(s);
     ImageObject im;
     im.pos = QPointF(5, 6);
@@ -88,6 +94,9 @@ private slots:
     QCOMPARE(out.pages[0].texts[0].text, QString("Hallo Welt"));
     QCOMPARE(out.pages[0].stickies.size(), 1);
     QCOMPARE(out.pages[0].stickies[0].text, QString("Merken"));
+    QCOMPARE(out.pages[0].stickies[0].rotation, 25.0);
+    QCOMPARE(out.pages[0].stickies[0].width, 180.0);
+    QCOMPARE(out.pages[0].stickies[0].height, 140.0);
     QCOMPARE(out.pages[0].images.size(), 1);
     QCOMPARE(out.pages[0].images[0].image.size(), QSize(8, 8));
     QCOMPARE(out.pages[0].images[0].pos, QPointF(5, 6));
@@ -305,6 +314,39 @@ private slots:
     QCOMPARE(dup.rotation, 15.0);
     QCOMPARE(dup.image.pixelColor(0, 0), QColor(20, 40, 60));
     QVERIFY(dup.image.size() == src.image.size());
+  }
+
+  // Contract for imagePoseFromItem after TransformOverlay::bakeTransform:
+  // uniform scale + rotation live in the matrix, not item->scale()/rotation().
+  void transform_matrixHoldsUniformScaleAndRotation() {
+    QTransform m;
+    m.translate(120, 80);
+    m.rotate(30);
+    m.scale(2.5, 2.5);
+    QCOMPARE(std::hypot(m.m11(), m.m12()), 2.5);
+    const qreal rot = qRadiansToDegrees(std::atan2(m.m12(), m.m11()));
+    QVERIFY(qAbs(rot - 30.0) < 0.01);
+    QCOMPARE(m.dx(), 120.0);
+    QCOMPARE(m.dy(), 80.0);
+    // Simulated pixmap 40×20 → stored width/height after harvest.
+    QCOMPARE(40.0 * 2.5, 100.0);
+    QCOMPARE(20.0 * 2.5, 50.0);
+  }
+
+  // StickyPose uses the same matrix decomposition; local rect × scale → w/h.
+  void sticky_matrixHoldsNonUniformScaleAndRotation() {
+    QTransform m;
+    m.translate(40, 60);
+    m.rotate(-15);
+    m.scale(1.5, 2.0);
+    const qreal sx = std::hypot(m.m11(), m.m12());
+    const qreal sy = std::hypot(m.m21(), m.m22());
+    QVERIFY(qAbs(sx - 1.5) < 0.01);
+    QVERIFY(qAbs(sy - 2.0) < 0.01);
+    const qreal rot = qRadiansToDegrees(std::atan2(m.m12(), m.m11()));
+    QVERIFY(qAbs(rot - (-15.0)) < 0.01);
+    QCOMPARE(168.0 * sx, 252.0);
+    QCOMPARE(148.0 * sy, 296.0);
   }
 
   void textHtml_roundTripKeepsTable() {

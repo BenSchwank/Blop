@@ -165,6 +165,28 @@ private slots:
     QCOMPARE(scene.items().size(), 0);
   }
 
+  // ── Lasso: two successive gestures leave no marquee; marquee never selectable ──
+  void lassoCleansUpTwiceAndMarqueeNotSelectable() {
+    QGraphicsScene scene;
+    scene.setSceneRect(0, 0, 800, 1100);
+    LassoTool tool;
+    auto gesture = [&](const QPointF &a, const QPointF &b) {
+      tool.handleMousePress(mouseEv(QEvent::GraphicsSceneMousePress, a),
+                            &scene);
+      QCOMPARE(scene.items().size(), 1);
+      QVERIFY(!(scene.items().first()->flags() &
+                QGraphicsItem::ItemIsSelectable));
+      tool.handleMouseMove(mouseEv(QEvent::GraphicsSceneMouseMove, b),
+                           &scene);
+      tool.handleMouseRelease(
+          mouseEv(QEvent::GraphicsSceneMouseRelease, b, Qt::NoButton),
+          &scene);
+      QCOMPARE(scene.items().size(), 0);
+    };
+    gesture(QPointF(10, 10), QPointF(200, 200));
+    gesture(QPointF(50, 50), QPointF(300, 300));
+  }
+
   // ── Eraser (pixel) subtracts from a pen stroke ──
   void eraserCuts() {
     QGraphicsScene scene;

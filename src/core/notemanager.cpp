@@ -285,6 +285,8 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       so["y"] = sn.pos.y();
       so["w"] = sn.width;
       so["h"] = sn.height;
+      if (!qFuzzyIsNull(sn.rotation))
+        so["rot"] = sn.rotation;
       so["t"] = sn.text;
       so["c"] = sn.color.name(QColor::HexArgb);
       so["fs"] = sn.fontPointSize;
@@ -558,6 +560,7 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       sn.pos = QPointF(so.value("x").toDouble(0.0), so.value("y").toDouble(0.0));
       sn.width = so.value("w").toDouble(168.0);
       sn.height = so.value("h").toDouble(148.0);
+      sn.rotation = so.value("rot").toDouble(0.0);
       sn.text = so.value("t").toString();
       {
         const QString cn = so.value("c").toString();

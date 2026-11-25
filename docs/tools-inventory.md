@@ -10,11 +10,11 @@ Quellen: [`ToolMode.h`](../src/core/ToolMode.h), [`MainWindow::setupTools`](../s
 | Bleistift | Pencil | `PencilTool` | Voll | Ja | Farbe, Dicke, Textur, Härte | Hold-Config verdrahtet (P0 Inventory-Pass) |
 | Marker | Highlighter | `HighlighterTool` | Voll | Ja | Farbe, Dicke, Gerade | Hold-Config verdrahtet (P0 Inventory-Pass) |
 | Radierer | Eraser | `EraserTool` | Voll | `contentModified` → `scheduleStrokeSync`; filled-Pfade (`fp`+OddEvenFill) | Pixel/Objekt, Breite, Tinte behalten | Livesmoke Reload: Pixel-Löcher bleiben (JSON `f=true` + UI) |
-| Auswahl | Lasso | `LassoTool` | Voll (Auswahl) | Duplizieren via harvest (`shape`/`fc`/`ps`) + Text/Sticky/Image/Graph; Move+TransformOverlay | Freihand/Rechteck; Ctrl+D/C/X | Markup-Library nutzt denselben Harvest-Pfad |
+| Auswahl | Lasso | `LassoTool` | Voll (Auswahl) | Duplizieren via harvest (`shape`/`fc`/`ps`) + Text/Sticky/Image/Graph; Move+TransformOverlay | Freihand/Rechteck; Ctrl+D/C/X | Multi: Delete/Dup expandiert Group; Page-Parent via `pageAt`; Livesmoke Mehrfach OK |
 | Lineal | Ruler | `RulerTool` | Voll | Ja (`note.ruler`: pos/rot/`compass`/w/h) | Lineal/Geodreieck-Chips + Einrasten | Größe bleibt bei Snap/ensureRulerExists; Modus-Wechsel setzt Default-Größe |
-| Bild | Image | `ImageTool` | Voll | Ja (`harvestImageItemsToNote`); Lasso-Duplikat via `createImageItem` | Opacity | — |
+| Bild | Image | `ImageTool` | Voll | Ja (`harvestImageItemsToNote`; Pose aus Matrix nach bakeTransform) | Opacity | TransformOverlay → normalize + harvest |
 | Formen | Shape | `ShapeTool` | Voll | Ja (`shape`-Stroke: `fp`-Elemente + `ps`/`fc` in JSON) | Viele Shape-Kinds | Livesmoke: Kinds + Gestrichelt (`ps=2`) + Fill (`fc`) nach Reload |
-| Notiz | StickyNote | `StickyNoteTool` | Voll | Ja (`stickies`) | Farbe, Größe | — |
+| Notiz | StickyNote | `StickyNoteTool` | Voll | Ja (`stickies`; w/h/rot aus Matrix nach bake) | Farbe, Größe | Transform → rect + `rot` JSON; Livesmoke `rot=35` Reload OK |
 | Text | Text | `TextTool` + WordText | Voll (Word-Frames) | Ja (html/freeMove; Tabellen in HTML) | Font, Größe, F/K/U, Align, Listen, Tabelle | Strip „Tabelle“ + Ctrl+Shift+T + Kontextmenü; Zeile/Spalte anhängen |
 | Hand | Hand | `HandTool` | Voll | N/A (Pan) | Hinweis | View pannt; Tool gibt false zurück |
 | Formel | Formula | `FormulaTool` | Voll | Graph via `syncGraphItemsToNote` | ehrlicher Hinweis | Sichtbar in Rail/Picker; Tablet-Shim |
@@ -46,6 +46,9 @@ Zusätzlich: Graph-UI (`GraphCanvasItem`, Formelzonen) hängt an Formula/Shape; 
 7. ~~Formula/Molecule Caps~~ ✅ Formula: Strip-Hinweis + Graph-Panel; Molecule: Stub, `btnMolecule` hidden, Picker „folgt später“, nicht in `setupTools` — kein Feature-Creep  
 8. ~~**Lasso Image-Duplicate**~~ ✅ `duplicateSelection` klont `image_item` (Pos+20, Opacity/Rotation/Pixels) → `harvestImageItemsToNote`; Test `image_offsetCloneKeepsPixels`  
 9. ~~**Geodreieck Persistenz**~~ ✅ `setConfig` behält Größe außer bei Modus-Wechsel; Restore sync't `ToolManager.compassMode`; Strip-Chips Lineal/Geodreieck; `bindRulerSignals`+Sync nach ensure/toggle; Ctrl+S flushed harvest; Tests `rulerKeepsSizeWhenSnapToggles` / `note_roundTripKeepsRulerCompassAndSize`
+10. ~~**Transform Bild/Sticky**~~ ✅ `imagePoseFromItem`/`stickyPoseFromItem` lesen gebackene Matrix; `normalizeMediaItemPoses` in `applyTransform`+Ctrl+S; Harvest/Duplicate nutzen Pose; Multi-Select: Gruppen-Scale/Rot vor `destroyItemGroup` in Kinder gebacken; Test `transform_matrixHoldsUniformScaleAndRotation`; Livesmoke: Bild-Scale `w=160→335` + Reload behält Größe  
+11. ~~**Sticky-Rotation**~~ ✅ `StickyNoteObject.rotation` + JSON `rot`; `stickyPoseFromItem`/`normalizeStickyItemPose` behalten Rot; Create/Harvest/Duplicate; Tests `note_roundTripKeepsTextStickiesAndImages` + `sticky_matrixHoldsNonUniformScaleAndRotation`; Livesmoke: Sticky `rot-smoke` hydrate `rot=35` sichtbar ≈35°; Move+Deselect+Ctrl+S behält `rot:35` (x/y neu); Reload weiter gedreht
+12. ~~**Lasso Mehrfach-Nutzung**~~ ✅ `selectionContentItems` expandiert `m_transformGroup` vor Delete/Dup/Copy; `applyTransform` vor Mutation (kein UAF); Page-Parent via `pageAt`→`pageItems_`; `startTransformSession` bake statt barem `destroyItemGroup`; HUD Group/Image; Marquee nicht selektierbar; `lassoCleansUpTwiceAndMarqueeNotSelectable`; Livesmoke: Multi→Ctrl+D (3→6)→Delete→Re-Lasso→Ctrl+S+Reload OK
 
 
 

@@ -125,7 +125,9 @@
 #include <QPropertyAnimation>
 #include <QEasingCurve>
 #include <QGraphicsItem>
+#include <QGraphicsPixmapItem>
 #include <algorithm>
+#include <cmath>
 #include <functional>
 
 Q_DECLARE_METATYPE(Stroke)
@@ -157,6 +159,102 @@ bool strokesEqual(const QVector<Stroke> &a, const QVector<Stroke> &b) {
       return false;
   }
   return true;
+}
+
+/// TransformOverlay::bakeTransform folds scale/rotation into item->transform()
+/// and resets scale()/rotation() to identity — harvest must read the matrix.
+QTransform itemToParentTransform(const QGraphicsItem *item) {
+  QTransform m = item->sceneTransform();
+  if (item->parentItem())
+    m = m * item->parentItem()->sceneTransform().inverted();
+  return m;
+}
+
+struct ImagePose {
+  QPointF pos;
+  qreal width{0};
+  qreal height{0};
+  qreal rotation{0};
+};
+
+ImagePose imagePoseFromItem(const QGraphicsPixmapItem *pix) {
+  ImagePose out;
+  if (!pix || pix->pixmap().isNull())
+    return out;
+  const QTransform m = itemToParentTransform(pix);
+  const qreal sx = std::hypot(m.m11(), m.m12());
+  const qreal scale = sx > 1e-9 ? sx : 1.0;
+  out.pos = QPointF(m.dx(), m.dy());
+  out.rotation = qRadiansToDegrees(std::atan2(m.m12(), m.m11()));
+  out.width = pix->pixmap().width() * scale;
+  out.height = pix->pixmap().height() * scale;
+  return out;
+}
+
+void normalizeImageItemPose(QGraphicsPixmapItem *pix) {
+  if (!pix || pix->pixmap().isNull())
+    return;
+  const ImagePose pose = imagePoseFromItem(pix);
+  pix->setTransform(QTransform());
+  pix->setPos(pose.pos);
+  pix->setRotation(pose.rotation);
+  const qreal sw =
+      pix->pixmap().width() > 0 ? pose.width / pix->pixmap().width() : 1.0;
+  pix->setScale(sw);
+}
+
+struct StickyPose {
+  QPointF pos;
+  qreal width{0};
+  qreal height{0};
+  qreal rotation{0};
+};
+
+StickyPose stickyPoseFromItem(const QGraphicsRectItem *card) {
+  StickyPose out;
+  if (!card)
+    return out;
+  // After TransformOverlay::bakeTransform, scale/rotation live in the matrix —
+  // fold into local rect size + item rotation (same contract as images).
+  const QTransform m = itemToParentTransform(card);
+  const qreal sx = std::hypot(m.m11(), m.m12());
+  const qreal sy = std::hypot(m.m21(), m.m22());
+  const qreal scaleX = sx > 1e-9 ? sx : 1.0;
+  const qreal scaleY = sy > 1e-9 ? sy : 1.0;
+  out.pos = QPointF(m.dx(), m.dy());
+  out.rotation = qRadiansToDegrees(std::atan2(m.m12(), m.m11()));
+  const QRectF r = card->rect();
+  out.width = qMax(40.0, r.width() * scaleX);
+  out.height = qMax(40.0, r.height() * scaleY);
+  return out;
+}
+
+void normalizeStickyItemPose(QGraphicsRectItem *card) {
+  if (!card)
+    return;
+  const StickyPose pose = stickyPoseFromItem(card);
+  card->setTransform(QTransform());
+  card->setScale(1.0);
+  card->setPos(pose.pos);
+  card->setRotation(pose.rotation);
+  card->setRect(0, 0, pose.width, pose.height);
+  for (QGraphicsItem *child : card->childItems()) {
+    if (auto *text = qgraphicsitem_cast<QGraphicsTextItem *>(child))
+      text->setTextWidth(qMax(20.0, pose.width - 20.0));
+  }
+}
+
+void normalizeMediaItemPoses(QGraphicsScene &scene) {
+  for (QGraphicsItem *item : scene.items()) {
+    const QString kind = item->data(0).toString();
+    if (kind == QLatin1String("image_item")) {
+      if (auto *pix = qgraphicsitem_cast<QGraphicsPixmapItem *>(item))
+        normalizeImageItemPose(pix);
+    } else if (kind == QLatin1String("sticky_note")) {
+      if (auto *card = qgraphicsitem_cast<QGraphicsRectItem *>(item))
+        normalizeStickyItemPose(card);
+    }
+  }
 }
 
 bool isInkGraphicsItem(QGraphicsItem *item) {
@@ -421,11 +519,44 @@ bool textPagesMatch(const QVector<NotePage> &a, const QVector<NotePage> &b) {
 bool isHudSelectableItem(QGraphicsItem *item) {
   if (!item)
     return false;
+  if (item->type() == QGraphicsItemGroup::Type)
+    return true;
   const QString kind = item->data(0).toString();
   if (kind == QLatin1String("text_item") ||
-      kind == QLatin1String("sticky_note"))
+      kind == QLatin1String("sticky_note") ||
+      kind == QLatin1String("image_item"))
+    return true;
+  if (item->type() == GraphCanvasItem::Type)
     return true;
   return dynamic_cast<QGraphicsPathItem *>(item) != nullptr;
+}
+
+/// Expand multi-select transform groups so Delete/Dup/Copy see real content,
+/// not only m_transformGroup. Skips overlay chrome and the ruler.
+QList<QGraphicsItem *> selectionContentItems(
+    const QList<QGraphicsItem *> &selected,
+    QGraphicsItemGroup *transformGroup) {
+  QList<QGraphicsItem *> out;
+  auto append = [&](QGraphicsItem *it) {
+    if (!it || out.contains(it))
+      return;
+    if (dynamic_cast<TransformOverlay *>(it))
+      return;
+    if (it->type() == RulerItem::Type)
+      return;
+    out.append(it);
+  };
+  for (QGraphicsItem *it : selected) {
+    if (!it)
+      continue;
+    if (it == transformGroup || it->type() == QGraphicsItemGroup::Type) {
+      for (QGraphicsItem *child : it->childItems())
+        append(child);
+      continue;
+    }
+    append(it);
+  }
+  return out;
 }
 
 void stylePagesBarCard(QFrame *card) {
@@ -5293,6 +5424,10 @@ void MultiPageNoteView::onSelectionChanged() {
 
   if (!boundingRect.isValid()) {
       m_selectionMenu->hide();
+      // Non-content selection (or HUD filter miss) must not leave a stuck
+      // transform session without a menu.
+      if (m_transformOverlay || m_transformGroup)
+        applyTransform();
       return;
   }
 
@@ -5307,7 +5442,9 @@ void MultiPageNoteView::onSelectionChanged() {
 
 
 void MultiPageNoteView::deleteSelection() {
-    const QList<QGraphicsItem *> selected = scene_.selectedItems();
+    // Multi-lasso selects m_transformGroup — expand to children first.
+    const QList<QGraphicsItem *> selected =
+        selectionContentItems(scene_.selectedItems(), m_transformGroup);
     if (selected.isEmpty() || !note_)
         return;
     cancelCrop();
@@ -5323,6 +5460,8 @@ void MultiPageNoteView::deleteSelection() {
       m_activeTextItem.clear();
     }
     syncTextItemsToNote();
+    // Tear transform session before deleting content (avoids UAF on group).
+    applyTransform();
     const QVector<NotePage> before = note_->pages;
     bool removedGraph = false;
     for (auto *item : selected) {
@@ -5367,7 +5506,8 @@ void MultiPageNoteView::deleteSelection() {
 }
 
 void MultiPageNoteView::copySelection() {
-    const QList<QGraphicsItem*> selected = scene_.selectedItems();
+    const QList<QGraphicsItem *> selected =
+        selectionContentItems(scene_.selectedItems(), m_transformGroup);
     if (selected.isEmpty()) return;
     QRectF selRect;
     for (auto *i : selected) selRect = selRect.united(i->sceneBoundingRect());
@@ -5393,9 +5533,12 @@ void MultiPageNoteView::cutSelection() {
 void MultiPageNoteView::duplicateSelection() {
   if (!note_)
     return;
-  const QList<QGraphicsItem *> selected = scene_.selectedItems();
+  // Multi-lasso: expand group before teardown so strokes/images are visible.
+  const QList<QGraphicsItem *> selected =
+      selectionContentItems(scene_.selectedItems(), m_transformGroup);
   if (selected.isEmpty())
     return;
+  applyTransform();
 
   const QPointF offset(20, 20);
   const QVector<NotePage> before = note_->pages;
@@ -5453,10 +5596,12 @@ void MultiPageNoteView::duplicateSelection() {
       auto *card = qgraphicsitem_cast<QGraphicsRectItem *>(item);
       if (!card)
         continue;
+      const StickyPose pose = stickyPoseFromItem(card);
       StickyNoteObject sn;
-      sn.pos = card->pos() + offset;
-      sn.width = card->rect().width();
-      sn.height = card->rect().height();
+      sn.pos = pose.pos + offset;
+      sn.width = pose.width;
+      sn.height = pose.height;
+      sn.rotation = pose.rotation;
       sn.color = card->brush().color();
       for (QGraphicsItem *child : card->childItems()) {
         if (auto *text = qgraphicsitem_cast<QGraphicsTextItem *>(child)) {
@@ -5478,13 +5623,14 @@ void MultiPageNoteView::duplicateSelection() {
       auto *pix = qgraphicsitem_cast<QGraphicsPixmapItem *>(item);
       if (!pix || pix->pixmap().isNull())
         continue;
+      const ImagePose pose = imagePoseFromItem(pix);
       ImageObject im;
       im.image = pix->pixmap().toImage();
-      im.pos = pix->pos() + offset;
-      im.width = pix->pixmap().width() * pix->scale();
-      im.height = pix->pixmap().height() * pix->scale();
+      im.pos = pose.pos + offset;
+      im.width = pose.width;
+      im.height = pose.height;
       im.opacity = pix->opacity();
-      im.rotation = pix->rotation();
+      im.rotation = pose.rotation;
       int pIdx = pageAt(pix->sceneBoundingRect().center());
       if (pIdx < 0)
         pIdx = qBound(0, currentPage_, pageItems_.size() - 1);
@@ -5649,25 +5795,21 @@ void MultiPageNoteView::changeSelectionColor() {
 }
 
 void MultiPageNoteView::startTransformSession() {
-  // Die Gruppe selbst zaehlt nicht als Auswahl-Inhalt (und wird gleich
-  // zerstoert) — nur die echten Objekte einsammeln.
+  // Bake any prior group/overlay before rebuilding (never bare destroyItemGroup).
+  if (m_transformOverlay || m_transformGroup)
+    applyTransform();
+
   QList<QGraphicsItem *> items;
   for (QGraphicsItem *it : scene_.selectedItems()) {
-    if (it != m_transformGroup && it->type() != QGraphicsItemGroup::Type)
-      items.append(it);
+    if (it->type() == QGraphicsItemGroup::Type)
+      continue;
+    if (dynamic_cast<TransformOverlay *>(it))
+      continue;
+    if (it->type() == RulerItem::Type)
+      continue;
+    items.append(it);
   }
   if (items.isEmpty()) return;
-
-  // Clean up previous session if still active
-  if (m_transformOverlay) {
-    scene_.removeItem(m_transformOverlay);
-    delete m_transformOverlay;
-    m_transformOverlay = nullptr;
-  }
-  if (m_transformGroup) {
-    scene_.destroyItemGroup(m_transformGroup);
-    m_transformGroup = nullptr;
-  }
 
   if (items.count() == 1) {
     QGraphicsItem *singleItem = items.first();
@@ -5710,23 +5852,47 @@ void MultiPageNoteView::applyTransform() {
   if (m_transformGroup) {
     // Kinder merken: ihr eigenes Selected-Flag bleibt beim Abwaehlen der
     // Gruppe gesetzt -> Geister-Markierung. Nach dem Aufloesen zuruecksetzen.
+    // createItemGroup reparents to a top-level group (parent usually null) —
+    // restore each child under its page card via pageAt, not grp->parentItem().
     QGraphicsItemGroup *grp = m_transformGroup;
     m_transformGroup = nullptr;
     const QList<QGraphicsItem *> kids = grp->childItems();
     const bool keep = grp->isSelected();
     const bool blocked = scene_.blockSignals(true);
-    scene_.destroyItemGroup(grp);
     for (QGraphicsItem *k : kids) {
+      QGraphicsItem *pageParent = nullptr;
+      const int pIdx = pageAt(k->sceneBoundingRect().center());
+      if (pIdx >= 0 && pIdx < pageItems_.size())
+        pageParent = pageItems_[pIdx];
+      if (!pageParent)
+        pageParent = grp->parentItem();
+      const QTransform toScene = k->sceneTransform();
+      const QTransform local =
+          pageParent ? toScene * pageParent->sceneTransform().inverted()
+                     : toScene;
+      k->setParentItem(pageParent);
+      k->setTransform(local);
+      k->setPos(0, 0);
+      k->setRotation(0);
+      k->setScale(1.0);
       k->setSelected(true);
       if (!keep)
         k->setSelected(false);
     }
+    scene_.removeItem(grp);
+    delete grp;
     scene_.blockSignals(blocked);
   }
-  if (hadSession)
-    syncStrokesToNote(); // verschobene/skalierte Objekte ins Modell
+  // bakeTransform leaves scale/rotation in the matrix — fold back into
+  // pos/scale/rotation (images) or rect size + rotation (stickies) before harvest.
+  normalizeMediaItemPoses(scene_);
+  if (hadSession) {
+    syncStrokesToNote(); // verschobene/skalierte Tinte ins Modell
+    syncStickyNotesToNote(); // inkl. harvestImageItemsToNote
+  }
   syncGraphItemsToNote();
-  if (onSaveRequested) onSaveRequested(note_);
+  if (onSaveRequested)
+    onSaveRequested(note_);
 }
 
 // === CROP SYSTEM (v3.18.0, analog CanvasView) ===============================
@@ -6499,6 +6665,7 @@ MultiPageNoteView::createStickyNoteItem(const StickyNoteObject &data,
 
   auto *card = new QGraphicsRectItem(0, 0, data.width, data.height);
   card->setPos(data.pos);
+  card->setRotation(data.rotation);
   card->setParentItem(pageItems_[pageIndex]);
   QColor fill = data.color.isValid() ? data.color : QColor(255, 236, 120);
   card->setBrush(fill);
@@ -6545,6 +6712,8 @@ void MultiPageNoteView::flushStickyNoteSync() {
     m_stickySyncTimer->stop();
   if (m_strokeSyncTimer && m_strokeSyncTimer->isActive())
     m_strokeSyncTimer->stop();
+  // Ctrl+S may run while TransformOverlay still has a baked matrix.
+  normalizeMediaItemPoses(scene_);
   syncStrokesToNote();
   harvestImageItemsToNote();
   syncGraphItemsToNote();
@@ -6661,10 +6830,12 @@ void MultiPageNoteView::syncStickyNotesToNote() {
       card->setPos(pageItems_[pIdx]->mapFromScene(sceneTopLeft));
     }
 
+    const StickyPose pose = stickyPoseFromItem(card);
     StickyNoteObject sn;
-    sn.pos = card->pos();
-    sn.width = card->rect().width();
-    sn.height = card->rect().height();
+    sn.pos = pose.pos;
+    sn.width = pose.width;
+    sn.height = pose.height;
+    sn.rotation = pose.rotation;
     sn.color = card->brush().color();
     for (QGraphicsItem *child : card->childItems()) {
       if (auto *text = qgraphicsitem_cast<QGraphicsTextItem *>(child)) {
@@ -6733,13 +6904,14 @@ void MultiPageNoteView::harvestImageItemsToNote() {
       pix->setParentItem(pageItems_[pIdx]);
       pix->setPos(pageItems_[pIdx]->mapFromScene(sceneTopLeft));
     }
+    const ImagePose pose = imagePoseFromItem(pix);
     ImageObject im;
     im.image = pix->pixmap().toImage();
-    im.pos = pix->pos();
-    im.width = pix->pixmap().width() * pix->scale();
-    im.height = pix->pixmap().height() * pix->scale();
+    im.pos = pose.pos;
+    im.width = pose.width;
+    im.height = pose.height;
     im.opacity = pix->opacity();
-    im.rotation = pix->rotation();
+    im.rotation = pose.rotation;
     note_->ensurePage(pIdx);
     note_->pages[pIdx].images.push_back(std::move(im));
   }

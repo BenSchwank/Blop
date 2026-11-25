@@ -134,6 +134,10 @@ private:
     m_selectionItem->setPen(pen);
     m_selectionItem->setBrush(QColor(91, 157, 255, 20)); // ~0.08 alpha
     m_selectionItem->setZValue(99999);
+    // Never enter scene selection — setSelectionArea must ignore the marquee.
+    m_selectionItem->setFlag(QGraphicsItem::ItemIsSelectable, false);
+    m_selectionItem->setFlag(QGraphicsItem::ItemIsMovable, false);
+    m_selectionItem->setAcceptedMouseButtons(Qt::NoButton);
     scene->addItem(m_selectionItem);
   }
 
