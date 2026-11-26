@@ -1237,6 +1237,8 @@ export default function SmartLearningView({
     const [failCounts, setFailCounts] = useState<Record<string, number>>({});
     const [drawingGrade, setDrawingGrade] = useState<DrawingGradeResult | null>(null);
     const [drawingBusy, setDrawingBusy] = useState(false);
+    /** Bump to ignore in-flight drawing/handwriting grade responses after skip/Später. */
+    const drawingGenRef = useRef(0);
     const [textGrade, setTextGrade] = useState<DrawingGradeResult | null>(null);
     const [textGradeBusy, setTextGradeBusy] = useState(false);
     const [savingProgress, setSavingProgress] = useState(false);
@@ -1777,10 +1779,20 @@ export default function SmartLearningView({
         await setDeferredLessonIds(current);
     };
 
+    const cancelDrawingGrade = () => {
+        drawingGenRef.current += 1;
+        setDrawingBusy(false);
+        setDrawingGrade(null);
+        setError("");
+    };
+
     const deferCurrentLearnLesson = async () => {
         const current = teachQueue[teachIdx];
         if (!current) return;
         stopTeachTts();
+        cancelDrawingGrade();
+        setTextGradeBusy(false);
+        setTextGrade(null);
         const lessonId = current.lesson.id;
         await deferLessonIds([lessonId]);
         const copy = teachQueue.filter((_, i) => i !== teachIdx);
@@ -1850,23 +1862,28 @@ export default function SmartLearningView({
     };
 
     const resetAssessInputs = () => {
+        cancelDrawingGrade();
         setSelected(null);
         setClozeValues([]);
         setClozeSubmitted(false);
         setShortAnswer("");
-        setDrawingGrade(null);
-        setDrawingBusy(false);
         setTextGrade(null);
         setTextGradeBusy(false);
     };
 
     const gradeDrawingAnswer = async (
         check: SmartLearningCheck,
-        payload: { ink_png_base64?: string; image_base64?: string }
+        payload: { ink_png_base64?: string; image_base64?: string },
+        opts?: { rubricExtra?: string[] }
     ): Promise<DrawingGradeResult> => {
+        const gen = ++drawingGenRef.current;
         setDrawingBusy(true);
         setError("");
         try {
+            const rubric = [
+                ...(check.rubric || []),
+                ...(opts?.rubricExtra || []),
+            ].filter(Boolean);
             const res = await fetch(
                 `/api/ai/smart-learning/grade-drawing?session_id=${encodeURIComponent(sessionId)}`,
                 {
@@ -1880,7 +1897,7 @@ export default function SmartLearningView({
                         folder_id: folderId,
                         prompt: check.prompt,
                         answer: check.answer,
-                        rubric: check.rubric || [],
+                        rubric,
                         explanation: check.explanation || "",
                         ink_png_base64: payload.ink_png_base64,
                         image_base64: payload.image_base64,
@@ -1888,8 +1905,14 @@ export default function SmartLearningView({
                 }
             );
             let data: Record<string, unknown> = await res.json().catch(() => ({}));
+            if (gen !== drawingGenRef.current) {
+                throw new Error("__aborted__");
+            }
             if (res.status === 202 && data.job_id) {
                 data = await pollSmartJob(String(data.job_id));
+            }
+            if (gen !== drawingGenRef.current) {
+                throw new Error("__aborted__");
             }
             if ((!res.ok && res.status !== 202) && !data.grade) {
                 throw new Error(formatApiDetail(data.detail) || `HTTP ${res.status}`);
@@ -1909,19 +1932,31 @@ export default function SmartLearningView({
             const result: DrawingGradeResult = {
                 correct: score >= 2 || gradeRaw.correct === true,
                 score,
-                feedback: String(gradeRaw.feedback || "").trim() || (score >= 2 ? "Passt." : "Noch nicht ausreichend."),
+                feedback:
+                    String(gradeRaw.feedback || "").trim() ||
+                    (score >= 2 ? "Passt." : "Noch nicht ausreichend."),
                 matched_rubric: Array.isArray(gradeRaw.matched_rubric)
                     ? gradeRaw.matched_rubric.map((x) => String(x))
                     : [],
             };
+            if (gen !== drawingGenRef.current) {
+                throw new Error("__aborted__");
+            }
             setDrawingGrade(result);
             return result;
         } catch (err) {
+            if (err instanceof Error && err.message === "__aborted__") {
+                throw err;
+            }
             const msg = err instanceof Error ? err.message : "Auswertung fehlgeschlagen.";
-            setError(`${msg} Du kannst überspringen oder erneut versuchen.`);
+            if (gen === drawingGenRef.current) {
+                setError(`${msg} Du kannst überspringen oder erneut versuchen.`);
+            }
             throw err;
         } finally {
-            setDrawingBusy(false);
+            if (gen === drawingGenRef.current) {
+                setDrawingBusy(false);
+            }
         }
     };
 
@@ -2273,6 +2308,7 @@ export default function SmartLearningView({
 
     const startIdkReview = (item: AssessItem) => {
         stopTeachTts();
+        cancelDrawingGrade();
         setReviewItem(item);
         setLearnPhase("review");
         resetAssessInputs();
@@ -2961,13 +2997,12 @@ export default function SmartLearningView({
             }));
         };
 
-        const resetAssessInputs = () => {
+        const resetAssessInputsLocal = () => {
+            cancelDrawingGrade();
             setSelected(null);
             setClozeValues([]);
             setClozeSubmitted(false);
             setShortAnswer("");
-            setDrawingGrade(null);
-            setDrawingBusy(false);
             setTextGrade(null);
             setTextGradeBusy(false);
             setError("");
@@ -2979,7 +3014,7 @@ export default function SmartLearningView({
             }
             if (assessIdx + 1 < assessQueue.length) {
                 setAssessIdx((i) => i + 1);
-                resetAssessInputs();
+                resetAssessInputsLocal();
                 return;
             }
             const xp = await markLessonsDone(teachQueue);
@@ -3049,12 +3084,45 @@ export default function SmartLearningView({
                             <MathMarkdown className="text-lg font-medium text-white">{check.prompt}</MathMarkdown>
                             <textarea
                                 value={shortAnswer}
-                                disabled={textGradeBusy || (clozeSubmitted && shortOk)}
+                                disabled={textGradeBusy || drawingBusy || (clozeSubmitted && shortOk)}
                                 onChange={(e) => setShortAnswer(e.target.value)}
                                 rows={3}
                                 className="w-full rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
-                                placeholder="Kurzantwort…"
+                                placeholder="Kurzantwort tippen … oder Foto unten"
                             />
+                            {!clozeSubmitted && !drawingOk && !forceReveal ? (
+                                <DrawingAnswerPad
+                                    key={`assess-hand-${current.lesson.id}-${assessIdx}-${fails}`}
+                                    allowUpload
+                                    uploadOnly
+                                    disabled={drawingBusy || textGradeBusy}
+                                    busy={drawingBusy}
+                                    submitLabel="Handschrift prüfen"
+                                    uploadLabel="Foto der Handschrift"
+                                    onSubmit={(payload) => {
+                                        void (async () => {
+                                            try {
+                                                const result = await gradeDrawingAnswer(check, payload, {
+                                                    rubricExtra: [
+                                                        "Handschriftliche Freitext-Antwort zur Aufgabe",
+                                                        check.answer ? `Musterlösung: ${check.answer}` : "",
+                                                    ].filter(Boolean),
+                                                });
+                                                setClozeSubmitted(true);
+                                                setTextGrade(result);
+                                                if (result.score >= 2 || result.correct) {
+                                                    void grantXp(8, "short");
+                                                } else {
+                                                    bumpFail();
+                                                    spendHeart();
+                                                }
+                                            } catch (err) {
+                                                if (err instanceof Error && err.message === "__aborted__") return;
+                                            }
+                                        })();
+                                    }}
+                                />
+                            ) : null}
                         </>
                     ) : isDrawing ? (
                         <>
@@ -3062,8 +3130,8 @@ export default function SmartLearningView({
                             {!drawingOk && !forceReveal ? (
                                 <DrawingAnswerPad
                                     key={`assess-draw-${current.lesson.id}-${assessIdx}-${fails}`}
-                                    allowUpload={check.allow_upload !== false}
-                                    disabled={drawingBusy}
+                                    allowUpload
+                                    disabled={false}
                                     busy={drawingBusy}
                                     onSubmit={(payload) => {
                                         void (async () => {
@@ -3075,8 +3143,8 @@ export default function SmartLearningView({
                                                     bumpFail();
                                                     spendHeart();
                                                 }
-                                            } catch {
-                                                /* soft fail — error banner + skip */
+                                            } catch (err) {
+                                                if (err instanceof Error && err.message === "__aborted__") return;
                                             }
                                         })();
                                     }}
@@ -3149,9 +3217,11 @@ export default function SmartLearningView({
                             </button>
                             <button
                                 type="button"
-                                onClick={() => startIdkReview(current)}
-                                disabled={textGradeBusy}
-                                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px] disabled:opacity-50"
+                                onClick={() => {
+                                    cancelDrawingGrade();
+                                    startIdkReview(current);
+                                }}
+                                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px]"
                             >
                                 <SkipForward size={16} />
                                 Überspringen
@@ -3162,12 +3232,19 @@ export default function SmartLearningView({
                     {!isCloze && !isShort && !isMatch && !revealed ? (
                         <button
                             type="button"
-                            onClick={() => startIdkReview(current)}
+                            onClick={() => {
+                                cancelDrawingGrade();
+                                startIdkReview(current);
+                            }}
                             className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px]"
                         >
                             <SkipForward size={16} />
-                            Überspringen — weiß ich nicht
+                            {drawingBusy ? "Abbrechen & überspringen" : "Überspringen — weiß ich nicht"}
                         </button>
+                    ) : null}
+
+                    {isDrawing && drawingBusy && !revealed ? (
+                        <p className="text-xs text-gray-500">Auswertung läuft — du kannst jederzeit überspringen.</p>
                     ) : null}
 
                     {revealed ? (
@@ -3217,14 +3294,17 @@ export default function SmartLearningView({
                                 <div className="flex flex-wrap gap-2">
                                     <button
                                         type="button"
-                                        onClick={resetAssessInputs}
+                                        onClick={resetAssessInputsLocal}
                                         className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-[#2A3140] text-gray-200 hover:bg-[#243044] min-h-[48px]"
                                     >
                                         Nochmal versuchen
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => startIdkReview(current)}
+                                        onClick={() => {
+                                            cancelDrawingGrade();
+                                            startIdkReview(current);
+                                        }}
                                         className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium min-h-[48px]"
                                     >
                                         <SkipForward size={16} />
@@ -3485,7 +3565,7 @@ export default function SmartLearningView({
             : false;
         const examEarned = revealed
             ? isDrawing && drawingGrade
-                ? Math.round((qPoints * Math.max(0, Math.min(3, Number(drawingGrade.score) || 0))) / 3)
+                ? Math.round((qPoints * Math.max(0, Math.min(2, Number(drawingGrade.score) || 0))) / 2)
                 : isShort && textGrade && typeof textGrade.score === "number"
                   ? Math.round((qPoints * Math.max(0, Math.min(2, Number(textGrade.score) || 0))) / 2)
                   : examCorrect
@@ -3493,12 +3573,11 @@ export default function SmartLearningView({
                     : 0
             : 0;
         const resetExamInputs = () => {
+            cancelDrawingGrade();
             setExamSelected(null);
             setExamCloze([]);
             setExamClozeDone(false);
             setExamShort("");
-            setDrawingGrade(null);
-            setDrawingBusy(false);
             setTextGrade(null);
             setTextGradeBusy(false);
             setError("");
@@ -3520,6 +3599,7 @@ export default function SmartLearningView({
         };
 
         const skipExamQuestion = () => {
+            cancelDrawingGrade();
             if (examIndex >= order.length - 1) {
                 // Last in queue: leave unanswered and finish if everything else done
                 if (Object.keys(examAnswers).length >= order.length - 1) {
@@ -3643,12 +3723,39 @@ export default function SmartLearningView({
                             <MathMarkdown className="text-lg font-medium text-white">{q.prompt}</MathMarkdown>
                             <textarea
                                 value={examShort}
-                                disabled={examClozeDone}
+                                disabled={examClozeDone || drawingBusy || textGradeBusy}
                                 onChange={(e) => setExamShort(e.target.value)}
                                 rows={3}
                                 className="w-full rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
-                                placeholder="Antwort…"
+                                placeholder="Antwort tippen … oder Foto unten"
                             />
+                            {!examClozeDone ? (
+                                <DrawingAnswerPad
+                                    key={`exam-hand-${qRealIdx}-${examIndex}`}
+                                    allowUpload
+                                    uploadOnly
+                                    disabled={drawingBusy || textGradeBusy}
+                                    busy={drawingBusy}
+                                    submitLabel="Handschrift prüfen"
+                                    uploadLabel="Foto der Handschrift"
+                                    onSubmit={(payload) => {
+                                        void (async () => {
+                                            try {
+                                                const result = await gradeDrawingAnswer(asCheck, payload, {
+                                                    rubricExtra: [
+                                                        "Handschriftliche Freitext-Antwort zur Klausuraufgabe",
+                                                        asCheck.answer ? `Musterlösung: ${asCheck.answer}` : "",
+                                                    ].filter(Boolean),
+                                                });
+                                                setTextGrade(result);
+                                                setExamClozeDone(true);
+                                            } catch (err) {
+                                                if (err instanceof Error && err.message === "__aborted__") return;
+                                            }
+                                        })();
+                                    }}
+                                />
+                            ) : null}
                         </>
                     ) : isDrawing ? (
                         <>
@@ -3656,15 +3763,15 @@ export default function SmartLearningView({
                             {!drawingGrade ? (
                                 <DrawingAnswerPad
                                     key={`exam-draw-${qRealIdx}-${examIndex}`}
-                                    allowUpload={q.allow_upload !== false}
-                                    disabled={drawingBusy}
+                                    allowUpload
+                                    disabled={false}
                                     busy={drawingBusy}
                                     onSubmit={(payload) => {
                                         void (async () => {
                                             try {
                                                 await gradeDrawingAnswer(asCheck, payload);
-                                            } catch {
-                                                /* soft fail */
+                                            } catch (err) {
+                                                if (err instanceof Error && err.message === "__aborted__") return;
                                             }
                                         })();
                                     }}
@@ -3708,8 +3815,7 @@ export default function SmartLearningView({
                             <button
                                 type="button"
                                 onClick={skipExamQuestion}
-                                disabled={textGradeBusy}
-                                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium disabled:opacity-50"
+                                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium"
                             >
                                 <SkipForward size={16} />
                                 Überspringen
@@ -3724,7 +3830,7 @@ export default function SmartLearningView({
                             className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-amber-500/35 text-amber-100 hover:bg-amber-500/10 font-medium"
                         >
                             <SkipForward size={16} />
-                            Überspringen — später
+                            {drawingBusy ? "Abbrechen & überspringen" : "Überspringen — später"}
                         </button>
                     ) : null}
 
@@ -3813,6 +3919,7 @@ export default function SmartLearningView({
                         </div>
                     ) : null}
                 </div>
+                {error ? <p className="text-sm text-red-400">{error}</p> : null}
             </div>
         );
     }
@@ -3996,15 +4103,15 @@ export default function SmartLearningView({
                                     {!drawingGrade ? (
                                         <DrawingAnswerPad
                                             key={`deep-draw-${step.id}`}
-                                            allowUpload={check.allow_upload !== false}
-                                            disabled={drawingBusy}
+                                            allowUpload
+                                            disabled={false}
                                             busy={drawingBusy}
                                             onSubmit={(payload) => {
                                                 void (async () => {
                                                     try {
                                                         await gradeDrawingAnswer(check, payload);
-                                                    } catch {
-                                                        /* soft fail */
+                                                    } catch (err) {
+                                                        if (err instanceof Error && err.message === "__aborted__") return;
                                                     }
                                                 })();
                                             }}
@@ -4016,12 +4123,39 @@ export default function SmartLearningView({
                                     <MathMarkdown className="text-lg font-medium text-white">{check.prompt}</MathMarkdown>
                                     <textarea
                                         value={deepShort}
-                                        disabled={deepClozeDone && deepCorrect}
+                                        disabled={(deepClozeDone && deepCorrect) || drawingBusy}
                                         onChange={(e) => setDeepShort(e.target.value)}
                                         rows={3}
                                         className="w-full rounded-xl border border-[#2A3140] bg-[#0E1117] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5B9DFF]/40"
-                                        placeholder="Antwort…"
+                                        placeholder="Antwort tippen … oder Foto unten"
                                     />
+                                    {!deepClozeDone ? (
+                                        <DrawingAnswerPad
+                                            key={`deep-hand-${step.id}`}
+                                            allowUpload
+                                            uploadOnly
+                                            disabled={drawingBusy}
+                                            busy={drawingBusy}
+                                            submitLabel="Handschrift prüfen"
+                                            uploadLabel="Foto der Handschrift"
+                                            onSubmit={(payload) => {
+                                                void (async () => {
+                                                    try {
+                                                        const result = await gradeDrawingAnswer(check, payload, {
+                                                            rubricExtra: [
+                                                                "Handschriftliche Freitext-Antwort",
+                                                                check.answer ? `Musterlösung: ${check.answer}` : "",
+                                                            ].filter(Boolean),
+                                                        });
+                                                        setTextGrade(result);
+                                                        setDeepClozeDone(true);
+                                                    } catch (err) {
+                                                        if (err instanceof Error && err.message === "__aborted__") return;
+                                                    }
+                                                })();
+                                            }}
+                                        />
+                                    ) : null}
                                 </>
                             ) : (
                                 <>

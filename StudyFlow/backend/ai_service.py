@@ -2308,8 +2308,8 @@ Analysiere das Material und erstelle die Deep-Learning-Session:
                 raw_bytes = base64.b64decode(raw_b64)
             except Exception as dec_err:
                 raise Exception("Bild konnte nicht gelesen werden.") from dec_err
-            if len(raw_bytes) > 2 * 1024 * 1024:
-                raise Exception("Bild zu groß (max. 2 MB).")
+            if len(raw_bytes) > 4 * 1024 * 1024:
+                raise Exception("Bild zu groß (max. 4 MB). Bitte Foto komprimieren oder Ausschnitt wählen.")
 
             from PIL import Image
 
