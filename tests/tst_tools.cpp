@@ -67,6 +67,34 @@ private slots:
     QVERIFY(item->path().elementCount() > 1);
   }
 
+  // ── Pen Dash: completed stroke keeps Qt::DashLine for harvest/ps JSON ──
+  void penDashedCompletedItemKeepsPenStyle() {
+    QGraphicsScene scene;
+    scene.setSceneRect(0, 0, 800, 1100);
+    PenTool tool;
+    ToolConfig cfg = tool.config();
+    cfg.penStrokeStyle = PenStrokeStyle::Dashed;
+    cfg.holdEnableLine = false;
+    cfg.holdEnableCircle = false;
+    cfg.holdEnableTriangle = false;
+    tool.setConfig(cfg);
+    tool.handleMousePress(mouseEv(QEvent::GraphicsSceneMousePress,
+                                  QPointF(40, 80)),
+                          &scene);
+    for (int x = 50; x <= 280; x += 10)
+      tool.handleMouseMove(mouseEv(QEvent::GraphicsSceneMouseMove,
+                                   QPointF(x, 90)),
+                           &scene);
+    QVERIFY(tool.handleMouseRelease(
+        mouseEv(QEvent::GraphicsSceneMouseRelease, QPointF(280, 90),
+                Qt::NoButton),
+        &scene));
+    auto *item =
+        qgraphicsitem_cast<StrokeItem *>(tool.lastCompletedItem());
+    QVERIFY(item);
+    QCOMPARE(item->pen().style(), Qt::DashLine);
+  }
+
   // ── Highlighter live item sits above the page (z > 0) ──
   void highlighterPreviewVisible() {
     QGraphicsScene scene;

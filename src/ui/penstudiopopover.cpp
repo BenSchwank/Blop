@@ -310,22 +310,21 @@ PenStudioPopover::PenStudioPopover(QWidget *parent) : QWidget(parent) {
   m_rule->setFixedHeight(1);
   root->addWidget(m_rule);
 
-  m_holdLine = new StudioToggle(QStringLiteral("Tinte → Linie (350 ms)"), this);
-  m_holdShape = new StudioToggle(QStringLiteral("Tinte → Form (350 ms)"), this);
+  m_holdLine = new StudioToggle(QStringLiteral("Tinte → Linie"), this);
+  m_holdShape = new StudioToggle(QStringLiteral("Tinte → Form"), this);
   root->addWidget(m_holdLine);
   root->addWidget(m_holdShape);
   connect(m_holdLine, &QAbstractButton::toggled, this, [this](bool on) {
     if (m_syncing)
       return;
+    // Keep user's holdStillDelayMs — do not force 350 on every toggle.
     ToolUIBridge::instance().setHoldEnableLine(on);
-    ToolUIBridge::instance().setHoldStillDelayMs(350);
   });
   connect(m_holdShape, &QAbstractButton::toggled, this, [this](bool on) {
     if (m_syncing)
       return;
     ToolUIBridge::instance().setHoldEnableCircle(on);
     ToolUIBridge::instance().setHoldEnableTriangle(on);
-    ToolUIBridge::instance().setHoldStillDelayMs(350);
   });
 
   connect(&ToolManager::instance(), &ToolManager::configChanged, this,

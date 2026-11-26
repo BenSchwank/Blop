@@ -301,6 +301,9 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
     refreshStyleTiles();
   });
   connect(m_chkInkToShape, &QCheckBox::toggled, this, [this](bool on) {
+    // Master toggle: Linie + Kreis + Dreieck together (was missing Line →
+    // unchecking still left holdEnableLine true and snapped strokes).
+    m_config.holdEnableLine = on;
     m_config.holdEnableCircle = on;
     m_config.holdEnableTriangle = on;
     applyConfig();
@@ -734,7 +737,8 @@ void ToolPropertiesPanel::refreshSmartInk() {
   };
   blockSet(m_chkPressure, m_config.pressureSensitivity);
   blockSet(m_chkInkToShape,
-           m_config.holdEnableCircle || m_config.holdEnableTriangle);
+           m_config.holdEnableLine || m_config.holdEnableCircle ||
+               m_config.holdEnableTriangle);
   blockSet(m_chkSmartLine, m_config.smartLine);
 }
 

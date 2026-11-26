@@ -2032,6 +2032,13 @@ public:
           apply();
         });
         layout->addWidget(slDelayPen);
+        QCheckBox *chkHL = new QCheckBox("Linien-Erkennung");
+        chkHL->setChecked(m_config.holdEnableLine);
+        connect(chkHL, &QCheckBox::toggled, [this](bool on) {
+          m_config.holdEnableLine = on;
+          apply();
+        });
+        layout->addWidget(chkHL);
         QCheckBox *chkHC = new QCheckBox("Kreis-Erkennung");
         chkHC->setChecked(m_config.holdEnableCircle);
         connect(chkHC, &QCheckBox::toggled, [this](bool on) {
@@ -2771,6 +2778,14 @@ public:
         apply();
       });
       layout->addWidget(slDelay);
+
+      QCheckBox *chkLine = new QCheckBox("Linien-Erkennung");
+      chkLine->setChecked(m_config.holdEnableLine);
+      connect(chkLine, &QCheckBox::toggled, [this](bool on) {
+        m_config.holdEnableLine = on;
+        apply();
+      });
+      layout->addWidget(chkLine);
 
       QCheckBox *chkCirc = new QCheckBox("Kreis-Erkennung");
       chkCirc->setChecked(m_config.holdEnableCircle);

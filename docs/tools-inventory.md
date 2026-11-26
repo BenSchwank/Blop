@@ -6,7 +6,7 @@ Quellen: [`ToolMode.h`](../src/core/ToolMode.h), [`MainWindow::setupTools`](../s
 
 | UI | Mode | Klasse | Status | Persistenz A4 | Chrome/Strip | Bekannte Lücken |
 |---|---|---|---|---|---|---|
-| Stift | Pen | `PenTool` | Voll | Ja (Strokes harvest; `ps` für Dash/Dot) | Farbe, Dicke-Overlay, Druck | Hold-Config + Dash/Dot commit+JSON |
+| Stift | Pen | `PenTool` | Voll | Ja (Strokes harvest; `ps` für Dash/Dot) | Farbe, Dicke-Overlay, Druck; Hold Linie/Form ehrlich | Dash/Dot + Hold OK (Studio/Panel/Flyout) |
 | Bleistift | Pencil | `PencilTool` | Voll | Ja | Farbe, Dicke, Textur, Härte | Hold-Config verdrahtet (P0 Inventory-Pass) |
 | Marker | Highlighter | `HighlighterTool` | Voll | Ja | Farbe, Dicke, Gerade | Hold-Config verdrahtet (P0 Inventory-Pass) |
 | Radierer | Eraser | `EraserTool` | Voll | `contentModified` → `scheduleStrokeSync`; filled-Pfade (`fp`+OddEvenFill) | Pixel/Objekt, Breite, Tinte behalten | Livesmoke Reload: Pixel-Löcher bleiben (JSON `f=true` + UI) |
@@ -49,6 +49,7 @@ Zusätzlich: Graph-UI (`GraphCanvasItem`, Formelzonen) hängt an Formula/Shape; 
 10. ~~**Transform Bild/Sticky**~~ ✅ `imagePoseFromItem`/`stickyPoseFromItem` lesen gebackene Matrix; `normalizeMediaItemPoses` in `applyTransform`+Ctrl+S; Harvest/Duplicate nutzen Pose; Multi-Select: Gruppen-Scale/Rot vor `destroyItemGroup` in Kinder gebacken; Test `transform_matrixHoldsUniformScaleAndRotation`; Livesmoke: Bild-Scale `w=160→335` + Reload behält Größe  
 11. ~~**Sticky-Rotation**~~ ✅ `StickyNoteObject.rotation` + JSON `rot`; `stickyPoseFromItem`/`normalizeStickyItemPose` behalten Rot; Create/Harvest/Duplicate; Tests `note_roundTripKeepsTextStickiesAndImages` + `sticky_matrixHoldsNonUniformScaleAndRotation`; Livesmoke: Sticky `rot-smoke` hydrate `rot=35` sichtbar ≈35°; Move+Deselect+Ctrl+S behält `rot:35` (x/y neu); Reload weiter gedreht
 12. ~~**Lasso Mehrfach-Nutzung**~~ ✅ `selectionContentItems` expandiert `m_transformGroup` vor Delete/Dup/Copy; `applyTransform` vor Mutation (kein UAF); Page-Parent via `pageAt`→`pageItems_`; `startTransformSession` bake statt barem `destroyItemGroup`; HUD Group/Image; Marquee nicht selektierbar; `lassoCleansUpTwiceAndMarqueeNotSelectable`; Livesmoke: Multi→Ctrl+D (3→6)→Delete→Re-Lasso→Ctrl+S+Reload OK
+13. ~~**Stift Hold-UI + Dash/Dot Wahrheit**~~ ✅ Dash/Dot Pipeline war schon da (`createPen`→harvest `ps`→JSON); Hold: `ToolPropertiesPanel`/`ModernToolbar` setzen jetzt auch `holdEnableLine`; PenStudio überschreibt Delay nicht mehr mit 350; Test `penDashedCompletedItemKeepsPenStyle`
 
 
 
