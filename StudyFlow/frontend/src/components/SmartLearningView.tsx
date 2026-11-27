@@ -3094,10 +3094,9 @@ export default function SmartLearningView({
                                 <DrawingAnswerPad
                                     key={`assess-hand-${current.lesson.id}-${assessIdx}-${fails}`}
                                     allowUpload
-                                    uploadOnly
-                                    disabled={drawingBusy || textGradeBusy}
+                                    disabled={false}
                                     busy={drawingBusy}
-                                    submitLabel="Handschrift prüfen"
+                                    submitLabel="Zeichnung / Foto prüfen"
                                     uploadLabel="Foto der Handschrift"
                                     onSubmit={(payload) => {
                                         void (async () => {
@@ -3733,10 +3732,9 @@ export default function SmartLearningView({
                                 <DrawingAnswerPad
                                     key={`exam-hand-${qRealIdx}-${examIndex}`}
                                     allowUpload
-                                    uploadOnly
-                                    disabled={drawingBusy || textGradeBusy}
+                                    disabled={false}
                                     busy={drawingBusy}
-                                    submitLabel="Handschrift prüfen"
+                                    submitLabel="Zeichnung / Foto prüfen"
                                     uploadLabel="Foto der Handschrift"
                                     onSubmit={(payload) => {
                                         void (async () => {
@@ -4133,10 +4131,9 @@ export default function SmartLearningView({
                                         <DrawingAnswerPad
                                             key={`deep-hand-${step.id}`}
                                             allowUpload
-                                            uploadOnly
-                                            disabled={drawingBusy}
+                                            disabled={false}
                                             busy={drawingBusy}
-                                            submitLabel="Handschrift prüfen"
+                                            submitLabel="Zeichnung / Foto prüfen"
                                             uploadLabel="Foto der Handschrift"
                                             onSubmit={(payload) => {
                                                 void (async () => {

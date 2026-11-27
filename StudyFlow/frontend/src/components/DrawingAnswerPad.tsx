@@ -24,59 +24,144 @@ type Props = {
 };
 
 const MAX_EDGE = 1280;
-const TARGET_BYTES = 1.5 * 1024 * 1024;
+const MAX_RAW_FALLBACK = 3.5 * 1024 * 1024;
+
+function fileToDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const raw = String(reader.result || "");
+            if (!raw.startsWith("data:")) {
+                reject(new Error("Datei konnte nicht gelesen werden."));
+                return;
+            }
+            resolve(raw);
+        };
+        reader.onerror = () => reject(new Error("Datei lesen fehlgeschlagen."));
+        reader.readAsDataURL(file);
+    });
+}
+
+function splitDataUrl(dataUrl: string): { mime: string; b64: string } | null {
+    const raw = dataUrl.trim();
+    const marker = ";base64,";
+    const idx = raw.indexOf(marker);
+    if (idx < 0) return null;
+    const header = raw.slice(0, idx);
+    const b64 = raw.slice(idx + marker.length).replace(/\s/g, "");
+    if (!b64) return null;
+    const mimeMatch = /^data:([^;,]+)/.exec(header);
+    return { mime: mimeMatch?.[1] || "image/jpeg", b64 };
+}
+
+function canvasToJpegDataUrl(canvas: HTMLCanvasElement, quality: number): string {
+    try {
+        return canvas.toDataURL("image/jpeg", quality);
+    } catch {
+        try {
+            return canvas.toDataURL("image/png");
+        } catch {
+            return "";
+        }
+    }
+}
+
+async function loadImageElement(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("Bild konnte nicht gelesen werden. Bitte JPG oder PNG verwenden."));
+        el.src = src;
+    });
+}
 
 async function compressImageFile(file: File): Promise<{ b64: string; mime: string; preview: string }> {
-    if (!file.type.startsWith("image/") && !/\.(jpe?g|png|webp|heic|heif|gif)$/i.test(file.name)) {
+    const nameOk = /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(file.name);
+    if (file.type && !file.type.startsWith("image/") && !nameOk) {
         throw new Error("Bitte ein Bild (JPG/PNG/WebP) wählen.");
     }
-    // Try decode via createImageBitmap / Image — HEIC may fail in some browsers.
+    if (!file.size) throw new Error("Leere Datei.");
+
+    // 1) Always get a raw data-URL first (works for most camera JPEGs without canvas).
+    let rawDataUrl = "";
+    try {
+        rawDataUrl = await fileToDataUrl(file);
+    } catch {
+        /* continue — try object URL path */
+    }
+
+    // 2) Try canvas downscale for large photos.
     const objectUrl = URL.createObjectURL(file);
     try {
-        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-            const el = new Image();
-            el.onload = () => resolve(el);
-            el.onerror = () => reject(new Error("Bild konnte nicht gelesen werden (HEIC?). Bitte als JPG speichern."));
-            el.src = objectUrl;
-        });
+        let img: HTMLImageElement | null = null;
+        try {
+            img = await loadImageElement(objectUrl);
+        } catch {
+            if (rawDataUrl) img = await loadImageElement(rawDataUrl);
+        }
+        if (!img) throw new Error("Bild konnte nicht geladen werden.");
+
         const w0 = img.naturalWidth || img.width;
         const h0 = img.naturalHeight || img.height;
-        if (!w0 || !h0) throw new Error("Ungültiges Bild.");
+        if (!w0 || !h0) {
+            // Some HEIC/odd formats report 0 — fall back to raw bytes if small enough.
+            if (rawDataUrl && file.size <= MAX_RAW_FALLBACK) {
+                const parts = splitDataUrl(rawDataUrl);
+                if (parts?.b64) {
+                    return { b64: parts.b64, mime: parts.mime, preview: rawDataUrl };
+                }
+            }
+            throw new Error("Ungültiges Bild — bitte als JPG speichern und erneut hochladen.");
+        }
+
         const scale = Math.min(1, MAX_EDGE / Math.max(w0, h0));
         let w = Math.max(1, Math.round(w0 * scale));
         let h = Math.max(1, Math.round(h0 * scale));
+        // Cap pixel count for mobile Safari canvas limits
+        while (w * h > 2_500_000) {
+            w = Math.max(1, Math.round(w * 0.85));
+            h = Math.max(1, Math.round(h * 0.85));
+        }
+
         const canvas = document.createElement("canvas");
         canvas.width = w;
         canvas.height = h;
-        const ctx = canvas.getContext("2d");
+        const ctx = canvas.getContext("2d", { alpha: false });
         if (!ctx) throw new Error("Bildverarbeitung fehlgeschlagen.");
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
 
-        let quality = 0.85;
-        let dataUrl = canvas.toDataURL("image/jpeg", quality);
-        while (dataUrl.length > TARGET_BYTES * 1.37 && quality > 0.45) {
-            quality -= 0.1;
-            dataUrl = canvas.toDataURL("image/jpeg", quality);
+        let quality = 0.82;
+        let dataUrl = canvasToJpegDataUrl(canvas, quality);
+        while (dataUrl && dataUrl.length > 2_000_000 && quality > 0.4) {
+            quality -= 0.12;
+            dataUrl = canvasToJpegDataUrl(canvas, quality);
         }
-        // Still huge → shrink further
-        while (dataUrl.length > TARGET_BYTES * 1.37 && Math.max(w, h) > 640) {
-            w = Math.max(1, Math.round(w * 0.75));
-            h = Math.max(1, Math.round(h * 0.75));
+        while ((!dataUrl || dataUrl.length > 2_000_000) && Math.max(w, h) > 480) {
+            w = Math.max(1, Math.round(w * 0.7));
+            h = Math.max(1, Math.round(h * 0.7));
             canvas.width = w;
             canvas.height = h;
             ctx.fillStyle = "#ffffff";
             ctx.fillRect(0, 0, w, h);
             ctx.drawImage(img, 0, 0, w, h);
-            dataUrl = canvas.toDataURL("image/jpeg", 0.75);
+            dataUrl = canvasToJpegDataUrl(canvas, 0.72);
         }
-        if (dataUrl.length > TARGET_BYTES * 1.37) {
-            throw new Error("Foto zu groß — bitte näher ran oder Ausschnitt wählen.");
+
+        const parts = dataUrl ? splitDataUrl(dataUrl) : null;
+        if (parts?.b64) {
+            return { b64: parts.b64, mime: parts.mime || "image/jpeg", preview: dataUrl };
         }
-        const b64 = dataUrl.includes(",") ? dataUrl.split(",", 1)[1] : dataUrl;
-        if (!b64) throw new Error("Bild konnte nicht kodiert werden.");
-        return { b64, mime: "image/jpeg", preview: dataUrl };
+
+        // 3) Canvas failed → raw FileReader fallback
+        if (rawDataUrl && file.size <= MAX_RAW_FALLBACK) {
+            const rawParts = splitDataUrl(rawDataUrl);
+            if (rawParts?.b64) {
+                return { b64: rawParts.b64, mime: rawParts.mime, preview: rawDataUrl };
+            }
+        }
+        throw new Error("Bild konnte nicht verarbeitet werden. Bitte als JPG (unter 4 MB) speichern.");
     } finally {
         URL.revokeObjectURL(objectUrl);
     }
@@ -103,6 +188,7 @@ export default function DrawingAnswerPad({
     const [uploadB64, setUploadB64] = useState<string | null>(null);
     const [localError, setLocalError] = useState("");
     const [uploadBusy, setUploadBusy] = useState(false);
+    const [dragOver, setDragOver] = useState(false);
     const fileRef = useRef<HTMLInputElement | null>(null);
 
     const markInk = (v: boolean) => {
@@ -131,7 +217,6 @@ export default function DrawingAnswerPad({
         markInk(false);
     }, []);
 
-    /** Resize without wiping strokes when dimensions barely change. */
     const softResize = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas || uploadB64 || uploadOnly) return;
@@ -140,7 +225,6 @@ export default function DrawingAnswerPad({
         const cssH = 260;
         const prev = cssSizeRef.current;
         if (Math.abs(prev.w - cssW) < 8 && Math.abs(prev.h - cssH) < 2) return;
-        // Preserve bitmap
         const bak = document.createElement("canvas");
         bak.width = canvas.width;
         bak.height = canvas.height;
@@ -164,10 +248,14 @@ export default function DrawingAnswerPad({
 
     useEffect(() => {
         if (uploadOnly) return;
-        paintBlank();
+        // Defer one frame so parent width is laid out
+        const t = window.setTimeout(() => paintBlank(), 0);
         const onResize = () => softResize();
         window.addEventListener("resize", onResize);
-        return () => window.removeEventListener("resize", onResize);
+        return () => {
+            window.clearTimeout(t);
+            window.removeEventListener("resize", onResize);
+        };
     }, [paintBlank, softResize, uploadOnly]);
 
     const pos = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -178,10 +266,15 @@ export default function DrawingAnswerPad({
 
     const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
         if (disabled || busy || uploadB64) return;
+        e.preventDefault();
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext("2d");
         if (!canvas || !ctx) return;
-        canvas.setPointerCapture(e.pointerId);
+        try {
+            canvas.setPointerCapture(e.pointerId);
+        } catch {
+            /* ignore */
+        }
         drawing.current = true;
         const p = pos(e);
         const dpr = dprRef.current;
@@ -193,10 +286,15 @@ export default function DrawingAnswerPad({
         ctx.lineWidth = tool === "eraser" ? 16 : 2.5;
         ctx.strokeStyle = tool === "eraser" ? "#0E1117" : "#E8EEF8";
         ctx.globalCompositeOperation = "source-over";
+        // Dot so a tap counts as ink
+        ctx.lineTo(p.x + 0.01, p.y);
+        ctx.stroke();
+        if (tool === "pen") markInk(true);
     };
 
     const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
         if (!drawing.current || disabled || busy || uploadB64) return;
+        e.preventDefault();
         const ctx = canvasRef.current?.getContext("2d");
         if (!ctx) return;
         const p = pos(e);
@@ -229,10 +327,13 @@ export default function DrawingAnswerPad({
         setUploadBusy(true);
         try {
             const { b64, preview } = await compressImageFile(file);
+            if (!b64) throw new Error("Bild konnte nicht verarbeitet werden.");
             setUploadB64(b64);
             setUploadPreview(preview);
             markInk(false);
         } catch (err) {
+            setUploadB64(null);
+            setUploadPreview(null);
             setLocalError(err instanceof Error ? err.message : "Upload fehlgeschlagen.");
         } finally {
             setUploadBusy(false);
@@ -271,8 +372,13 @@ export default function DrawingAnswerPad({
         } catch {
             /* keep as-is */
         }
-        const dataUrl = exportCanvas.toDataURL("image/png");
-        return dataUrl.includes(",") ? dataUrl.split(",", 1)[1] : dataUrl;
+        try {
+            const dataUrl = exportCanvas.toDataURL("image/png");
+            const parts = splitDataUrl(dataUrl);
+            return parts?.b64 || null;
+        } catch {
+            return null;
+        }
     };
 
     const canSubmit = !disabled && !busy && !uploadBusy && (!!uploadB64 || (!uploadOnly && hasInk));
@@ -293,6 +399,11 @@ export default function DrawingAnswerPad({
             return;
         }
         onSubmit({ ink_png_base64: ink });
+    };
+
+    const openPicker = () => {
+        if (disabled || busy || uploadBusy) return;
+        fileRef.current?.click();
     };
 
     return (
@@ -339,14 +450,15 @@ export default function DrawingAnswerPad({
                         <input
                             ref={fileRef}
                             type="file"
-                            accept="image/*,.jpg,.jpeg,.png,.webp,.heic,.heif"
+                            accept="image/*,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                            capture="environment"
                             className="hidden"
                             onChange={(e) => void onPickFile(e.target.files?.[0] || null)}
                         />
                         <button
                             type="button"
                             disabled={disabled || busy || uploadBusy}
-                            onClick={() => fileRef.current?.click()}
+                            onClick={openPicker}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#2A3140] text-gray-300"
                         >
                             {uploadBusy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
@@ -361,18 +473,49 @@ export default function DrawingAnswerPad({
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={uploadPreview} alt="Upload" className="max-h-64 mx-auto object-contain" />
                     <p className="text-[11px] text-gray-500 text-center mt-1 flex items-center justify-center gap-1">
-                        <ImageIcon size={12} /> Foto der Handschrift
+                        <ImageIcon size={12} /> Foto bereit — jetzt prüfen
                     </p>
                 </div>
             ) : uploadOnly ? (
-                <div className="rounded-xl border border-dashed border-[#2A3140] bg-[#0E1117] px-4 py-8 text-center text-sm text-gray-500">
-                    Foto deiner handschriftlichen Lösung hochladen — die KI wertet es aus.
-                </div>
+                <button
+                    type="button"
+                    disabled={disabled || busy || uploadBusy}
+                    onClick={openPicker}
+                    onDragOver={(e) => {
+                        e.preventDefault();
+                        setDragOver(true);
+                    }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOver(false);
+                        const f = e.dataTransfer.files?.[0];
+                        if (f) void onPickFile(f);
+                    }}
+                    className={`w-full rounded-xl border border-dashed px-4 py-10 text-center text-sm transition-colors ${
+                        dragOver
+                            ? "border-[#5B9DFF] bg-[#5B9DFF]/10 text-[#9EC5FF]"
+                            : "border-[#2A3140] bg-[#0E1117] text-gray-500 hover:border-[#5B9DFF]/40 hover:text-gray-300"
+                    }`}
+                >
+                    {uploadBusy ? (
+                        <span className="inline-flex items-center gap-2">
+                            <Loader2 size={16} className="animate-spin" /> Bild wird vorbereitet…
+                        </span>
+                    ) : (
+                        <>
+                            Tippen zum Hochladen / Fotografieren
+                            <br />
+                            <span className="text-[11px] text-gray-600">JPG oder PNG — die KI wertet es aus</span>
+                        </>
+                    )}
+                </button>
             ) : (
                 <div className="rounded-xl border border-[#2A3140] overflow-hidden touch-none">
                     <canvas
                         ref={canvasRef}
-                        className="w-full block cursor-crosshair"
+                        className="w-full block cursor-crosshair touch-none"
+                        style={{ touchAction: "none" }}
                         onPointerDown={onPointerDown}
                         onPointerMove={onPointerMove}
                         onPointerUp={onPointerUp}
